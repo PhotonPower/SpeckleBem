@@ -27,13 +27,15 @@
 /// Si, Ag; both orderings; raw asymmetry), convergence in outer_grading_levels, the averaging
 /// threshold and determinism, the degree selection (D/h in {2, 3, 5, 10}, |k| h in {0.1, 0.5,
 /// 1, 2}, one material per case) and its bounds, symmetry per material, static limit, jump
-/// block, options, slots, coplanar K, non-finite guard and timing. The full sweeps are hidden
-/// test cases tagged [.slow] (not registered by catch_discover_tests): far (6 pairs), near
-/// against the composite brute force, WP7 touching (8 pairs, all materials, degrees {4, 5, 6,
-/// 8, 9, 10, 12}), polar and relative-coordinate reference convergence, the graded touching
-/// sweep (13 pairs, errors by level, a 30 degree fold), the degree-selection sweep (D/h 1.1 to
-/// 15, |k| h 0.1 to 3, all materials), the class-boundary pairs of the n = 4 Mie mesh and the
-/// cost comparison with the WP7 options. Run them with
+/// block, options, slots, coplanar K, non-finite guard, WP7 golden blocks (hard-coded blocks of
+/// four pairs with the WP7 options, 1e-12) and a 2 000-call far-pair timing smoke check. The
+/// full sweeps are hidden test cases tagged [.slow] (not registered by catch_discover_tests):
+/// far (6 pairs), near against the composite brute force, WP7 touching (8 pairs, all
+/// materials, degrees {4, 5, 6, 8, 9, 10, 12}), polar and relative-coordinate reference
+/// convergence, the graded touching sweep (13 pairs, errors by level), sharp folds (60 and 30
+/// degrees, asymmetric and skewed hinges, by level), the degree-selection sweep (D/h 1.1 to 15,
+/// |k| h 0.1 to 3, all materials), the class-boundary pairs of the n = 4 Mie mesh, 10 000
+/// far-pair calls and the cost comparison with the WP7 options. Run them with
 /// `build/<preset>/tests/specklebem_unit_tests "[slow]"`. The zero-allocation check lives in
 /// its own executable (test_operators_alloc.cpp) because it replaces the global operator new.
 ///
@@ -93,6 +95,8 @@ constexpr Real kLambda = 500e-9;
 const Complex kJ(0.0, 1.0);
 /// Icosphere radius giving |k| h = 0.78 in vacuum at 500 nm (h = longest edge).
 constexpr Real kVacuumRadius = 1e-7;
+/// Default target_accuracy of the near/far degree selection (1e-5).
+constexpr Real kDefaultTarget = OperatorOptions{}.target_accuracy;
 
 struct NamedRegion {
     const char* name;
@@ -697,9 +701,12 @@ void check_touching(const std::vector<TouchingPair>& pairs, const std::vector<Na
          << degrees.back() << ": " << worst);
 }
 
-/// Exchange symmetry for 20 random pairs of each class on the per-material icosphere (|k| h =
-/// 0.78, default options): far and near pairs use the same rule in both orderings (rounding
-/// only), touching blocks are not averaged below |k| h = 1 (raw asymmetry < 1e-9, WP7b).
+/// Exchange symmetry on the per-material icosphere (|k| h = 0.78, default options) for 20 random
+/// pairs of each separated class (far, near) and a sample of 6 pairs of each touching class
+/// (identical, shared edge, shared vertex; the graded touching rule dominates the sanitizer run
+/// time): far and near pairs use the same rule in both orderings (rounding only); identical L
+/// blocks are symmetrised, shared-edge and shared-vertex blocks are not averaged below |k| h = 1
+/// (raw asymmetry < 1e-9, WP7b).
 void check_symmetry(const NamedRegion& reg, std::uint64_t seed) {
     std::mt19937_64 rng(seed);
     Real worst_sep = 0.0;
@@ -752,6 +759,19 @@ TriangleMesh folded_hinge(Real a, Real degrees) {
     Vertices v(4, 3);
     v << 0.0, 0.0, 0.0, a, 0.0, 0.0, 0.4 * a, 0.8 * a, 0.0, 0.55 * a, 0.85 * a * std::cos(th),
         0.85 * a * std::sin(th);
+    Triangles f(2, 3);
+    f << 0, 1, 2, 1, 0, 3;
+    return TriangleMesh(v, f);
+}
+
+/// Hinge of two triangles of different shape along the shared edge (0, 1) at dihedral angle
+/// `degrees`: apex of the first triangle at (x2, y2) a in its plane, of the second at x3 a along
+/// the edge and r3 a from it (folded_hinge: 0.4, 0.8, 0.55, 0.85).
+TriangleMesh asymmetric_hinge(Real a, Real degrees, Real x2, Real y2, Real x3, Real r3) {
+    const Real th = degrees * kPi / 180.0;
+    Vertices v(4, 3);
+    v << 0.0, 0.0, 0.0, a, 0.0, 0.0, x2 * a, y2 * a, 0.0, x3 * a, r3 * a * std::cos(th),
+        r3 * a * std::sin(th);
     Triangles f(2, 3);
     f << 0, 1, 2, 1, 0, 3;
     return TriangleMesh(v, f);
@@ -1239,9 +1259,10 @@ TriangleMesh scaled_mesh(const TriangleMesh& m, Index t1, Index t2, Real kh,
 }
 
 /// Degree selection over D/h in `ratios` and |k| h in `khs` on the jittered icosphere: the
-/// blocks with the default options (target 1e-6) and with targets 1e-4 and 1e-8 agree with
-/// the degree-20 brute force on n_sub^2 sub-triangles to the target; the selected degree is
-/// non-decreasing in |k| h and non-increasing in D/h. Returns the worst error / target ratio.
+/// blocks with the default target (1e-5) and with targets 1e-4, 1e-6 and 1e-8 agree with the
+/// degree-20 brute force on n_sub^2 sub-triangles to the target; the selected degree (default
+/// target) is non-decreasing in |k| h and non-increasing in D/h. Returns the worst error / target
+/// ratio.
 Real check_selection(const std::vector<Real>& ratios, const std::vector<Real>& khs,
                      const std::vector<NamedRegion>& regs, int n_sub) {
     const TriangleMesh unit = jittered_icosphere(20261008);
@@ -1255,7 +1276,7 @@ Real check_selection(const std::vector<Real>& ratios, const std::vector<Real>& k
                 const RwgSpace space(m);
                 const std::vector<Blocks> ref =
                     brute_force_dunavant(space, t1, t2, {reg}, 20, n_sub);
-                for (const Real target : {1e-4, 1e-6, 1e-8}) {
+                for (const Real target : {1e-4, kDefaultTarget, 1e-6, 1e-8}) {
                     OperatorOptions opt;
                     opt.target_accuracy = target;
                     const Blocks b = blocks(space, t1, t2, reg.p, opt);
@@ -1268,7 +1289,7 @@ Real check_selection(const std::vector<Real>& ratios, const std::vector<Real>& k
                     CHECK(eL <= target);
                     CHECK(eK <= target);
                     worst = std::max(worst, std::max(eL, eK) / target);
-                    if (target == 1e-6) {
+                    if (target == kDefaultTarget) {
                         deg[i][j] = d;
                     }
                 }
@@ -1287,7 +1308,8 @@ Real check_selection(const std::vector<Real>& ratios, const std::vector<Real>& k
                 }
             }
         }
-        WARN(reg.name << ": selected degrees (target 1e-6; rows D/h, columns |k| h):" << table);
+        WARN(reg.name << ": selected degrees (default target " << kDefaultTarget
+                      << "; rows D/h, columns |k| h):" << table);
     }
     return worst;
 }
@@ -1518,6 +1540,9 @@ TEST_CASE("OperatorOptions validation", "[kernels]") {
     Block K;
     CHECK_NOTHROW(kernels::validate(OperatorOptions{}));
     CHECK_NOTHROW(element_blocks(space, 0, 1, reg, OperatorOptions{}, L, K));
+    // Documented defaults (operators.hpp, ADR 0004).
+    CHECK(OperatorOptions{}.target_accuracy == 1e-5);
+    CHECK(OperatorOptions{}.outer_grading_levels == 4);
     for (const int deg : {11, 15, 3, 7, 16, 18, 20}) {
         OperatorOptions near;
         near.quad_degree_near = deg;
@@ -1629,10 +1654,11 @@ TEST_CASE("element_blocks: unused slots are zero and slots follow support order"
     }
 }
 
-TEST_CASE("element_blocks: 10 000 far-pair calls are fast", "[kernels][.slow]") {
-    // Hidden since WP7b: with the default degree selection about 2 s in the sanitizer build
-    // (0.65 s with the fixed WP7 degree 3), 0.04 s in release. The bound has a 10x margin over
-    // the 2 s target so that a loaded machine does not fail the test.
+namespace {
+
+/// Seconds for `calls` element_blocks calls on far pairs of the vacuum-sized icosphere n = 1
+/// (Ag region, complex k; default options).
+Real far_pair_seconds(std::size_t calls) {
     const TriangleMesh mesh = make_icosphere(kVacuumRadius, 1);
     const RwgSpace space(mesh);
     const RegionParams reg = all_regions()[2].p;  // Ag, complex k
@@ -1642,14 +1668,37 @@ TEST_CASE("element_blocks: 10 000 far-pair calls are fast", "[kernels][.slow]") 
     const auto far = pairs_of_class(mesh, Proximity::far);
     Complex sink{0.0, 0.0};
     const auto t0 = std::chrono::steady_clock::now();
-    for (std::size_t i = 0; i < 10000; ++i) {
+    for (std::size_t i = 0; i < calls; ++i) {
         const auto& [t1, t2] = far[(i * 7919) % far.size()];
         element_blocks(space, t1, t2, reg, opt, L, K);
         sink += L(0, 0) + K(1, 1);
     }
     const Real seconds = std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count();
-    WARN("10000 far-pair element_blocks calls: " << seconds << " s (target < 2 s)");
     CHECK(std::isfinite(sink.real()));
+    return seconds;
+}
+
+}  // namespace
+
+TEST_CASE("element_blocks: 2 000 far-pair calls (timing smoke)", "[kernels]") {
+    // Regular smoke check of the far-pair cost with the default degree selection: about 0.35 s in
+    // the sanitizer build, 0.015 s in release. The bound has a large margin so that a loaded
+    // machine does not fail the test; a slow run is reported.
+    const Real seconds = far_pair_seconds(2000);
+    WARN("2000 far-pair element_blocks calls: " << seconds << " s (expected < 1 s)");
+    if (seconds > 1.0) {
+        WARN("far-pair element_blocks calls slower than expected (machine load or regression)");
+    }
+    CHECK(seconds < 10.0);
+}
+
+TEST_CASE("element_blocks: 10 000 far-pair calls are fast", "[kernels][.slow]") {
+    // Hidden since WP7b (the regular case above runs 2 000 calls): with the default degree
+    // selection about 1.7 s in the sanitizer build (0.65 s with the fixed WP7 degree 3), 0.07 s
+    // in release. The bound has a 10x margin over the 2 s target so that a loaded machine does
+    // not fail the test.
+    const Real seconds = far_pair_seconds(10000);
+    WARN("10000 far-pair element_blocks calls: " << seconds << " s (target < 2 s)");
     CHECK(seconds < 20.0);
 }
 
@@ -1794,6 +1843,148 @@ TEST_CASE("element_blocks: WP7 path (outer_grading_levels = 0) keeps its ~1e-4 a
     WARN("WP7 path (Si): worst L " << worst_l << ", worst K " << worst_k);
     CHECK(worst_l > 1e-5);  // the old outer-rule error is reproduced, not accidentally fixed
     CHECK(worst_k > 1e-3);
+}
+
+namespace {
+
+/// WP7 golden blocks: L then K, row-major, (re, im) per entry.
+using GoldenBlocks = std::array<std::array<Real, 2>, 18>;
+
+struct GoldenCase {
+    const char* name;
+    const TriangleMesh* mesh;
+    Index t1, t2;
+    std::size_t region;  ///< index into all_regions()
+};
+
+/// The four golden cases: folded shared edge (Si), folded shared vertex (Ag), one near pair (Si)
+/// and one far pair (Ag) of the Si-sized icosphere n = 1.
+std::vector<GoldenCase> golden_cases(const TouchingGeometry& geo) {
+    const auto near = pairs_of_class(geo.sphere, Proximity::near)[2];
+    const auto far = pairs_of_class(geo.sphere, Proximity::far)[2];
+    return {{"folded shared edge (Si)", &geo.tent, 2, 3, 1},
+            {"folded shared vertex (Ag)", &geo.tent, 1, 4, 2},
+            {"near (Si)", &geo.sphere, near.first, near.second, 1},
+            {"far (Ag)", &geo.sphere, far.first, far.second, 2}};
+}
+
+}  // namespace
+
+// clang-format off
+/// Blocks of golden_cases() with wp7_options(), produced by the WP7b code and printed with 17
+/// significant digits.
+const std::array<GoldenBlocks, 4> kWp7Golden = {{
+    // folded shared edge (Si) 2,3
+    {{{-1.5447274398324211e-15, -3.8380301908446726e-15},
+    {1.2951680070309858e-15, 3.2005129075399951e-15},
+    {0, 0},
+    {1.7571054884416683e-15, 4.3669934810766766e-15},
+    {-1.412714653575104e-15, -3.5065085355331624e-15},
+    {0, 0},
+    {0, 0},
+    {0, 0},
+    {0, 0},
+    {2.9022674555952704e-18, -4.629219102520308e-20},
+    {1.01318151464337e-34, 4.4070383806628779e-37},
+    {0, 0},
+    {-9.6331368838249487e-19, 6.7480530444943917e-22},
+    {-2.6497642117550493e-18, 4.3217243231546452e-20},
+    {0, 0},
+    {0, 0},
+    {0, 0},
+    {0, 0},
+    }},
+    // folded shared vertex (Ag) 1,4
+    {{{7.7834542292029316e-17, 1.8600994916665141e-15},
+    {-8.8258749009682293e-17, -2.1658258012827201e-15},
+    {0, 0},
+    {-8.2052922077520674e-17, -2.0147474492081449e-15},
+    {9.1792380316196564e-17, 2.2054064383523779e-15},
+    {0, 0},
+    {0, 0},
+    {0, 0},
+    {0, 0},
+    {8.7546558919293898e-19, -1.9493496986257011e-21},
+    {9.4724221660776706e-20, -2.3935090209343591e-22},
+    {0, 0},
+    {-1.4982574380188073e-19, 2.9443715704696228e-22},
+    {-9.6188417910102623e-19, 2.2154383382890125e-21},
+    {0, 0},
+    {0, 0},
+    {0, 0},
+    {0, 0},
+    }},
+    // near (Si) 0,10
+    {{{8.0587141680702224e-16, 2.4317302411211458e-16},
+    {-7.5949044166841465e-16, -2.3139161653419681e-16},
+    {9.2327515398657462e-16, 2.7920898295098679e-16},
+    {-7.7362865590856084e-16, -2.3544366306792983e-16},
+    {8.2502779828788796e-16, 2.4984186838621102e-16},
+    {-8.868141900227929e-16, -2.704684177313214e-16},
+    {9.0665038560621217e-16, 2.7342161964398734e-16},
+    {-9.0212672809560805e-16, -2.7293036135832408e-16},
+    {9.9973287356660429e-16, 3.035060848126085e-16},
+    {1.7756282039824101e-19, -8.67991661886532e-20},
+    {-9.6260496936759527e-21, 3.5811062003348439e-21},
+    {-2.8615808122147e-19, 1.0705691926875489e-19},
+    {2.6410021188387524e-19, -1.1638044820655796e-19},
+    {2.7772376257916799e-19, -9.99752881974433e-20},
+    {-6.8428380505587439e-20, 2.3248360980773304e-20},
+    {6.4926447738769156e-20, -3.1060003442780055e-20},
+    {2.4490089585661793e-19, -1.1233795992413615e-19},
+    {1.9897650741105582e-19, -9.1870305835936092e-20},
+    }},
+    // far (Ag) 0,33
+    {{{-2.020171276398854e-17, -3.9713815348261808e-16},
+    {2.0126544843759635e-17, 3.9314684868143306e-16},
+    {-2.298907761485695e-17, -4.5677984772147509e-16},
+    {2.0238755733700724e-17, 3.9904445549656975e-16},
+    {-2.034870239089299e-17, -4.0489402182474051e-16},
+    {2.269225977232737e-17, 4.4092954998032811e-16},
+    {-2.2860446004525918e-17, -4.4992286088516061e-16},
+    {2.2821078084136817e-17, 4.4783533315457908e-16},
+    {-2.5908677096754513e-17, -5.1184783699425498e-16},
+    {-9.0190085642901123e-20, 8.9314258850094389e-22},
+    {9.7240991475823922e-21, -5.5776021138959945e-23},
+    {9.5204775093187631e-20, -9.574880981920187e-22},
+    {-1.0876373279827316e-19, 1.0687675608012735e-21},
+    {-7.8921438603878539e-20, 8.1134425778811831e-22},
+    {3.5350466654023697e-21, -1.0454851397776598e-22},
+    {-2.4249750799074118e-20, 2.2335548000139993e-22},
+    {-8.2628612841905029e-20, 8.7703324502316639e-22},
+    {-7.9151600855580725e-20, 8.1811003786270057e-22},
+    }},
+}};
+// clang-format on
+
+TEST_CASE("element_blocks: WP7 path reproduces the golden blocks", "[kernels]") {
+    // Regression of the shared code of both paths (static integrals, remainder, plain kernel,
+    // Dunavant rules, averaging): WP7 options (outer_grading_levels = 0, target_accuracy = 0,
+    // quad_degree_near = 8) on a folded shared-edge pair (Si), a folded shared-vertex pair (Ag),
+    // a near pair (Si) and a far pair (Ag) reproduce hard-coded blocks to 1e-12 of the block
+    // norm (L and K separately), so that shared code cannot drift silently.
+    const TouchingGeometry geo;
+    const std::vector<GoldenCase> cases = golden_cases(geo);
+    REQUIRE(cases.size() == kWp7Golden.size());
+    for (std::size_t c = 0; c < cases.size(); ++c) {
+        const RwgSpace space(*cases[c].mesh);
+        const Blocks b = blocks(space, cases[c].t1, cases[c].t2, all_regions()[cases[c].region].p,
+                                wp7_options());
+        Block gl;
+        Block gk;
+        for (std::size_t e = 0; e < 9; ++e) {
+            const auto i = static_cast<Eigen::Index>(e / 3);
+            const auto j = static_cast<Eigen::Index>(e % 3);
+            gl(i, j) = Complex(kWp7Golden[c][e][0], kWp7Golden[c][e][1]);
+            gk(i, j) = Complex(kWp7Golden[c][9 + e][0], kWp7Golden[c][9 + e][1]);
+        }
+        const Real eL = rel_diff(b.L, gl);
+        const Real eK = rel_diff(b.K, gk);
+        INFO(cases[c].name << " (" << cases[c].t1 << "," << cases[c].t2 << "): L " << eL << ", K "
+                           << eK);
+        CHECK(eL < 1e-12);
+        CHECK(eK < 1e-12);
+    }
 }
 
 namespace {
@@ -2077,7 +2268,6 @@ TEST_CASE("element_blocks (full): touching pairs vs the relative-coordinate refe
     // options to 1e-8 with raw asymmetry < 1e-9; per level the worst error (WARN table).
     const GradedGeometry geo;
     const std::vector<NamedRegion> regs = all_regions();
-    const TriangleMesh hinge30 = folded_hinge(0.6 * geo.base.radius, 30.0);
     std::vector<GradedCase> cases;
     for (const Proximity cls :
          {Proximity::identical, Proximity::shared_edge, Proximity::shared_vertex}) {
@@ -2097,8 +2287,7 @@ TEST_CASE("element_blocks (full): touching pairs vs the relative-coordinate refe
     const GradedResult r = check_graded(cases, regs, OperatorOptions{}, 20, 1e-8, 1e-9);
     WARN("touching sweep (default options): worst error " << r.err << ", worst raw asymmetry "
                                                           << r.asym);
-    // Error by level (informational) and the sharp 30 degree fold (a near-singular geometry:
-    // the far vertex of one triangle lies 0.43 h from the other).
+    // Error by level (informational).
     std::ostringstream table;
     table << std::scientific << std::setprecision(1);
     for (int level = 0; level <= 6; ++level) {
@@ -2118,19 +2307,60 @@ TEST_CASE("element_blocks (full): touching pairs vs the relative-coordinate refe
         table << " " << level << ": " << worst;
     }
     WARN("worst touching error by outer_grading_levels:" << table.str());
-    const RwgSpace hs(hinge30);
-    const std::vector<Blocks> ref30 = relative_reference(hs, 0, 1, regs, 24);
-    for (std::size_t g = 0; g < regs.size(); ++g) {
-        const Blocks b = blocks(hs, 0, 1, regs[g].p, OperatorOptions{});
-        WARN("30 degree fold, " << regs[g].name << ": L " << rel_diff(b.L, ref30[g].L) << ", K "
-                                << rel_diff(b.K, ref30[g].K));
-        CHECK(rel_diff(b.L, ref30[g].L) < 1e-6);
-        CHECK(rel_diff(b.K, ref30[g].K) < 1e-6);
+}
+
+TEST_CASE("element_blocks (full): sharp folds (60 and 30 degrees)", "[kernels][.slow]") {
+    // Shared edges with a small dihedral angle are near-singular: the far vertex of one triangle
+    // comes close to the other triangle, so the outer integrand varies sharply away from the
+    // shared edge, where the edge grading does not refine. The 1e-8 of folds >= 90 degrees is
+    // then not reached at the default level 4 and the error depends on the triangle shapes
+    // (operators.hpp, ADR 0004). Both orderings, three materials, raw asymmetry with the same
+    // tolerance; references n = 28 (checked against n = 36 to 1e-10). Measured worst L / K
+    // errors (all materials) in the WARN lines; tolerances about 3x to 7x above them:
+    //  * asymmetric 60 degree hinge (apexes (0.4, 0.8) / (0.7, 0.6)), level 4: 1e-7;
+    //  * skewed 60 degree hinge ((0.3, 0.9) / (0.8, 0.55)), level 4: 1e-6, level 6: 1e-8;
+    //  * 30 degree fold (folded_hinge), level 4: 2e-7, level 5: 2e-8;
+    //  * skewed 30 degree hinge, level 4: 1e-4, level 6: 1e-5 (documents the limitation: folds
+    //    this sharp with skewed triangles are not resolved better than ~1e-5 by the edge grading).
+    const GradedGeometry geo;
+    const std::vector<NamedRegion> regs = all_regions();
+    const Real a = 0.6 * geo.base.radius;
+    const TriangleMesh asym60 = asymmetric_hinge(a, 60.0, 0.4, 0.8, 0.7, 0.6);
+    const TriangleMesh skew60 = asymmetric_hinge(a, 60.0, 0.3, 0.9, 0.8, 0.55);
+    const TriangleMesh fold30 = folded_hinge(a, 30.0);
+    const TriangleMesh skew30 = asymmetric_hinge(a, 30.0, 0.3, 0.9, 0.8, 0.55);
+    for (const TriangleMesh* m : {&asym60, &skew60, &fold30, &skew30}) {
+        const RwgSpace space(*m);
+        const std::vector<Blocks> r28 = relative_reference(space, 0, 1, regs, 28);
+        const std::vector<Blocks> r36 = relative_reference(space, 0, 1, regs, 36);
+        for (std::size_t g = 0; g < regs.size(); ++g) {
+            CHECK(rel_diff(r28[g].L, r36[g].L) < 1e-10);
+            CHECK(rel_diff(r28[g].K, r36[g].K) < 1e-10);
+        }
+    }
+    struct FoldCase {
+        const TriangleMesh* mesh;
+        const char* name;
+        int level;
+        Real tol;
+    };
+    for (const FoldCase& f :
+         {FoldCase{&asym60, "asymmetric hinge 60", 4, 1e-7},
+          FoldCase{&skew60, "skewed hinge 60", 4, 1e-6},
+          FoldCase{&skew60, "skewed hinge 60", 6, 1e-8}, FoldCase{&fold30, "fold 30", 4, 2e-7},
+          FoldCase{&fold30, "fold 30", 5, 2e-8}, FoldCase{&skew30, "skewed hinge 30", 4, 1e-4},
+          FoldCase{&skew30, "skewed hinge 30", 6, 1e-5}}) {
+        OperatorOptions opt;
+        opt.outer_grading_levels = f.level;
+        const GradedResult r = check_graded({{f.mesh, 0, 1, f.name}}, regs, opt, 28, f.tol, f.tol);
+        WARN(f.name << " degrees, level " << f.level << ": worst error " << r.err
+                    << ", raw asymmetry " << r.asym << " (tolerance " << f.tol << ")");
     }
 }
 
 TEST_CASE("element_blocks (full): degree selection sweep", "[kernels][.slow]") {
-    // D/h from 1.1 to 15 and |k| h from 0.1 to 3, all materials, targets 1e-4, 1e-6, 1e-8.
+    // D/h from 1.1 to 15 and |k| h from 0.1 to 3, all materials, targets 1e-4, 1e-5 (default),
+    // 1e-6, 1e-8.
     const Real worst = check_selection({1.1, 1.5, 2.0, 3.0, 5.0, 10.0, 15.0},
                                        {0.1, 0.5, 1.0, 2.0, 3.0}, all_regions(), 3);
     WARN("degree selection sweep: worst error / target " << worst);
@@ -2139,8 +2369,8 @@ TEST_CASE("element_blocks (full): degree selection sweep", "[kernels][.slow]") {
 TEST_CASE("element_blocks (full): class-boundary pairs of the n = 4 Mie mesh", "[kernels][.slow]") {
     // Sphere d = 1 um, icosphere n = 4 (h ~ lambda / 13 in vacuum), 500 nm; pairs with centroid
     // distance within 10 % of the near/far class boundary 2 h; dielectric n = 1.5 and Ag
-    // interiors. Default options must reach 1e-6 (the touching-pair accuracy); the WP7 fixed
-    // degrees (3 far / 8 near) are reported for comparison.
+    // interiors. The default options must reach their target (1e-5) and target_accuracy = 1e-6
+    // must reach 1e-6; the WP7 fixed degrees (3 far / 8 near) are reported for comparison.
     const TriangleMesh mesh = make_icosphere(0.5e-6, 4);
     const RwgSpace space(mesh);
     material::Material n15 = material::vacuum();
@@ -2161,19 +2391,27 @@ TEST_CASE("element_blocks (full): class-boundary pairs of the n = 4 Mie mesh", "
     }
     REQUIRE(boundary.size() >= 10);
     for (const NamedRegion& reg : regs) {
+        OperatorOptions opt6;
+        opt6.target_accuracy = 1e-6;
         Real worst_new = 0.0;
+        Real worst_6 = 0.0;
         Real worst_old = 0.0;
         for (const auto& [t1, t2] : boundary) {
             const Blocks ref = brute_force_dunavant(space, t1, t2, {reg}, 20, 2)[0];
             const Blocks b = blocks(space, t1, t2, reg.p, OperatorOptions{});
+            const Blocks b6 = blocks(space, t1, t2, reg.p, opt6);
             const Blocks o = blocks(space, t1, t2, reg.p, wp7_options());
             const Real e = std::max(rel_diff(b.L, ref.L), rel_diff(b.K, ref.K));
-            INFO(reg.name << " pair " << t1 << "," << t2 << ": " << e);
-            CHECK(e <= 1e-6);
+            const Real e6 = std::max(rel_diff(b6.L, ref.L), rel_diff(b6.K, ref.K));
+            INFO(reg.name << " pair " << t1 << "," << t2 << ": default " << e << ", 1e-6 " << e6);
+            CHECK(e <= kDefaultTarget);
+            CHECK(e6 <= opt6.target_accuracy);
             worst_new = std::max(worst_new, e);
+            worst_6 = std::max(worst_6, e6);
             worst_old = std::max(worst_old, std::max(rel_diff(o.L, ref.L), rel_diff(o.K, ref.K)));
         }
-        WARN("n = 4 Mie mesh, class boundary, " << reg.name << ": worst error default " << worst_new
+        WARN("n = 4 Mie mesh, class boundary, " << reg.name << ": worst error default (1e-5) "
+                                                << worst_new << ", target 1e-6 " << worst_6
                                                 << ", WP7 " << worst_old);
     }
 }
