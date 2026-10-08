@@ -28,22 +28,36 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   analytically. Result: L and K within 3e-9 of a Sauter-Schwab-type relative-coordinate
   reference (self-converged to 1e-12; it replaces the hp-graded polar reference, which needs
   ~10^8 kernel evaluations per pair for the log-singular K integrand), raw swap asymmetry
-  below 5e-10, so touching blocks are averaged over both orderings only above
-  |k| h = `symmetrize_touching_above_kh` (default 1; there the remainder error, ~(|k| h)^4,
-  dominates). The WP7 scheme (one Dunavant outer rule, both orderings averaged: ~2e-4 for L and
+  below 5e-10, so shared-edge and shared-vertex blocks are averaged over both orderings only
+  above |k| h = `symmetrize_touching_above_kh` (default 1; there the remainder error,
+  ~(|k| h)^4, dominates); identical L blocks are always symmetrised (free). The 1e-8 level
+  holds for shared edges with dihedral angles >= ~90 degrees. Sharper folds are near-singular
+  (the far vertex of one triangle comes close to the other, away from the graded edge) and the
+  error depends on the triangle shapes, dominated by K: 60 degrees 1.5e-8 to 3.4e-7 at level 4
+  (3.4e-9 at level 6), 30 degrees 6.8e-8 to 4.5e-5 at level 4 (up to 3.7e-6 at level 6 for a
+  skewed pair). Sharper folds therefore need `outer_grading_levels` 5 to 6, and below ~45
+  degrees a grading towards the near-singular vertex (follow-up). `target_accuracy` does not
+  govern touching pairs: their smooth remainder uses the fixed `quad_degree_sing` and its
+  error grows like (|k| h)^4 (~1e-9 at |k| h = 0.78, ~1e-6 at |k| h = 4); a k-aware
+  `quad_degree_sing` is a follow-up. The WP7 scheme (one Dunavant outer rule, both orderings averaged: ~2e-4 for L and
   ~1e-2 of the K block) remains available with `outer_grading_levels = 0`. Near and far pairs:
   the Dunavant degree is chosen per pair from an empirical error envelope in
   kappa = sqrt((h/D)^2 + (0.15 |k| h)^2) so that the block error is below `target_accuracy`
-  (default 1e-6) within [`quad_degree_far`, `quad_degree_near`] = [3, 19]; at the class boundary
-  of the n = 4 Mie mesh this gives 6e-8 (n = 1.5) and 4e-7 (Ag) instead of 4e-3 and 2.5e-2 with
-  the fixed degrees 3 / 8. Cost (release, icosphere n = 3 at 500 nm, |k| h ~ 1-5, so touching
-  blocks are averaged; mean per `element_blocks` call, WP7 options -> defaults): identical
-  30 -> 130 µs (~4x), shared edge 60-75 -> 175-235 µs (2.4-3.2x), shared vertex 57 -> 90-97 µs
-  (1.6x), near 7-9 -> 15-21 µs (2-3x), far 1.0 -> 5.5-5.9 µs (5-6x; 9.8 µs, 10x, for the Ag
-  interior, where the selection resolves blocks that the exp(-Im k R) decay makes negligible).
-  Far pairs dominate dense assembly: the n = 3 icosphere (2N = 3840, 3 threads) takes 6.3 s
-  (n = 1.5), 7.9 s (Ag) and 14 s (Si) instead of 2.7 s. Far-pair cost by target (vacuum / n = 1.5
-  / Ag interior): 1e-4 1.8 / 2.1 / 3.9 µs, 1e-5 2.6 / 5.0 / 6.6 µs, 1e-6 5.0 / 5.1 / 10.4 µs.
+  (default 1e-5) within [`quad_degree_far`, `quad_degree_near`] = [3, 19]; at the class boundary
+  of the n = 4 Mie mesh this gives 4.4e-7 (n = 1.5) and 2.5e-6 (Ag) (5.8e-8 and 4.4e-7 with
+  1e-6) instead of 4.3e-3 and 2.5e-2 with the fixed degrees 3 / 8. The default 1e-5 was chosen
+  over 1e-6 because the dense n = 3 Mie assembly is 20-38 % faster and eps_rr changes by at
+  most 1e-8 (absolute). Cost (release, icosphere n = 3 at 500 nm, |k| h ~ 1-5, so shared-edge
+  and shared-vertex blocks are averaged; mean per `element_blocks` call, WP7 options ->
+  defaults): identical 30 -> 125 µs (~4x), shared edge 55-75 -> 175-200 µs (2.4-3.5x), shared
+  vertex 55 -> 90-105 µs (1.6-1.8x), near 7-9 -> 9-12 µs (1.2-1.7x), far 1.0 -> 2.6-7.6 µs
+  (2.6-8x; the most for the Ag interior, where the selection resolves blocks that the
+  exp(-Im k R) decay makes negligible). Far-pair cost by target (vacuum / n = 1.5 / Ag
+  interior): 1e-4 1.8 / 2.1 / 3.9 µs, 1e-5 2.6 / 5.0 / 6.6 µs, 1e-6 5.0 / 5.1 / 10.4 µs. Far
+  pairs dominate dense assembly: the n = 3 icosphere (2N = 3840) takes 6.6 s (n = 1.5), 7.7 s
+  (Ag) and 11.8 s (Si) with the 1e-5 default on 3 threads (5.2 / 5.9 / 9.1 s on 4), against
+  6.3 s, 7.9 s and 14 s with 1e-6 in an earlier run and 2.7 s with the WP7 options (3 threads;
+  the paired comparison 1e-5 vs 1e-6 on one machine gave 20-38 % less assembly time).
   Touching outer points at level 4: 384 / 288 / 100 (identical / shared edge / shared vertex)
   instead of 25 (Dunavant degree 10); worst touching error by level 0..4: 2.7e-2, 8.8e-3,
   5.6e-5, 3.1e-7, 3.0e-9.
