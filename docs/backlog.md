@@ -28,13 +28,31 @@ taken from the phase's definition of done and the acceptance table in
 - Phase 1 is complete (milestone M1) when all seven WPs are `done` and the Phase 1 definition
   of done in docs/01 is met.
 
-## Phase 2 and later
+## Phase 2 — Dense SIE solver and Mie validation
 
-To be broken down when Phase 1 nears completion. Candidates in dependency order:
-`kernels::element_blocks` (WP7, needs WP3b + WP4), `excitation::PlaneWave` (WP8),
-`op::DenseStrategy` + RHS + diagonal (WP9), `solver::solve_direct` (WP10),
-`post::scattered_field` / `far_field` / `bistatic_rcs` (WP11), Mie validation test
-(WP12, needs WP5 + WP9–WP11), Fresnel flat-interface validation (WP13, needs WP2).
+Feasibility note (dense oracle, this 15 GB / 4-core machine without BLAS; CI runners have 7 GB):
+a dense `Z` with 2N unknowns needs 16·(2N)² bytes, i.e. 2N = 20 k → 6.4 GB. The Phase 2 DoD cases
+scale as follows: dielectric sphere d = 1 µm at λ/10 (icosphere n = 4, 5 120 triangles, ≈ λ/13):
+2N ≈ 15 k → 3.8 GB, feasible but slow without BLAS (`validation-large`); Ag sphere d = 1 µm at
+λ/20 (≈ 11 600 triangles): 2N ≈ 35 k → 20 GB, not feasible here (nightly on a large node);
+flat box for the Fresnel limit (needs L ≳ 3 w₀ ≳ 10 λ at λ/10): 2N ≳ 10⁵ → > 100 GB, **not
+feasible dense** and therefore deferred to Phase 4 (MLFMM). Unit-level tests use icospheres with
+n ≤ 3 (2N ≤ 3 840).
+
+| WP | Title | Phase | Depends on | Files | Acceptance criterion | Status | Branch | Issue |
+|----|-------|-------|------------|-------|----------------------|--------|--------|-------|
+| WP7 | `kernels::element_blocks`: Galerkin L and K blocks for a triangle pair with singularity subtraction | 2 | WP3a, WP3b, WP4 | `src/kernels/operators.cpp`, `tests/unit/test_operators.cpp` | Mixed-potential form of docs/03 (gradient moved onto the test function, K as principal value plus the explicit ±½ n̂ × f jump on coincident triangles); proximity class from `classify`; `OperatorOptions` degrees validated (positive-interior only for non-far classes, ADR 0004); far pairs agree with brute-force double Dunavant quadrature to 1e-10; touching pairs agree with an independent Duffy-transform cross-check to 1e-6 and converge with the smooth-remainder degree; L blocks symmetric under (test, source) swap to 1e-12; static limit k → 0 of the vector-potential part matches the static integrals; complex k (Ag, Si) handled; allocation-free inner loop | todo | `wp/07-element-blocks` | — |
+| WP8 | Excitations and direct solver: `excitation::PlaneWave`, paraxial `GaussianBeam`, `solver::solve_direct` | 2 | — | `src/excitation/excitation.cpp`, `src/solver/direct.cpp`, `tests/unit/test_excitation.cpp`, `tests/unit/test_direct.cpp` | PlaneWave: |E| = |e0|, H = k̂ × E / η1, `exp(−j k k̂·r)`, finite-difference Maxwell check `∇×E = −jωμH` to 1e-8; GaussianBeam (paraxial, Phase 2 model, Phase 5 replaces it): waist/focus/θ_in/polarisation per header, reduces to the plane wave for w₀ → ∞, Maxwell residual documented (few percent, flagged in the log); `solve_direct` = LAPACK `zgesv` when `SPECKLEBEM_HAVE_BLAS_LAPACK`, Eigen `PartialPivLU` otherwise, residual ‖Zx − b‖/‖b‖ < 1e-12 on random 200×200 systems, singular matrix throws | todo | `wp/08-excitation-direct` | — |
+| WP9 | Dense assembly: `op::DenseStrategy`, `assemble_rhs`, `assemble_diagonal` | 2 | WP7, WP8 | `src/operator/assembler.cpp`, `tests/unit/test_assembler.cpp` | 2N × 2N block system of docs/03 with formulation weights (a_i/η_i, b_i η_i), OpenMP over triangle pairs with deterministic results, `Z_PMCHWT` complex-symmetric to < 1e-6 relative (docs/01), diagonal equals the diagonal of the dense matrix, RHS by Dunavant quadrature of ⟨f_m, E_inc⟩ / ⟨f_m, H_inc⟩ converging with degree; assembly of an n = 3 icosphere (2N = 3 840) in < 30 s debug | todo | `wp/09-dense-assembly` | — |
+| WP10 | Post-processing: scattered/total near field, far field, bistatic RCS, polarised intensities | 2 | WP3b | `src/postprocessing/fields.cpp`, `src/postprocessing/scattering.cpp`, `tests/unit/test_fields.cpp` | Stratton–Chu evaluation from `[J; M]` with the sign conventions of docs/03 in R1 and R2; `far_field` is the r → ∞ limit of `scattered_field` (1e-6 at r = 10⁴ λ with Richardson); `bistatic_rcs` = 4π|F|²/|E_inc|²; `plane_grid`/`cylinder_grid` layouts; `polarized_intensity` decomposition; unit test with the currents of a Mie solution projected onto RWG (J = n̂ × H, M = −n̂ × E from WP5) reproduces the Mie far field within the projection error that decreases with refinement | todo | `wp/10-postprocessing` | — |
+| WP11 | Mie validation of the dense solver | 2 | WP5, WP9, WP10 | `tests/validation/test_mie_sphere_dense.cpp` | docs/05: dielectric sphere n = 1.5, d = 1 µm, λ = 500 nm: ε_rr < 1 % vs Mie (icosphere n = 4, label `validation-large`), monotone decrease over n = 2, 3, 4 (label `validation` for n ≤ 3); Ag sphere d = 1 µm with PMCHWT + LU: ε_rr at n = 3 and n = 4 documented, the λ/20 case (2N ≈ 35 k) labelled `validation-large` and skipped when memory is insufficient; power balance for Ag within 1 %; results stored under `benchmarks/results/` | todo | `wp/11-mie-validation` | — |
+| WP12 | Fresnel flat-interface validation (tapered beam, 0° and 45°, p and s) | 2 → 4 | WP2, WP8, WP10, MLFMM | `tests/validation/test_flat_interface_fresnel.cpp` | Deferred: dense system size > 10⁵ unknowns (see feasibility note); implemented with the MLFMM operator in Phase 4 | blocked | `wp/12-fresnel` | — |
+
+### Phase 2 schedule
+
+- Wave 1 (parallel, after WP4 is merged): WP7, WP8, WP10.
+- Wave 2: WP9 (after WP7 + WP8), then WP11 (after WP9 + WP10).
+- Phase 3 (GMRES, preconditioners, `Simulation` driver, formulation study) is broken down when WP9 lands.
 
 ## Notes for workers (lessons learned)
 
