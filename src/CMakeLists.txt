@@ -15,8 +15,8 @@ set(SPECKLEBEM_SOURCES
     geometry/mesh.cpp
     geometry/sphere.cpp
     geometry/rough_surface.cpp
+    geometry/mesh_io.cpp
     # --- to be added in the respective phase (see docs/01_project_plan.md) ---
-    # geometry/mesh_io.cpp
     basis/rwg.cpp
     kernels/quadrature.cpp
     # kernels/singularity.cpp kernels/operators.cpp

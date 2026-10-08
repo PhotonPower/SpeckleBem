@@ -1,0 +1,9 @@
+# Tetrahedron whose last face references vertex 7 (only 4 vertices exist).
+v 0 0 0
+v 1e-3 0 0
+v 0 1e-3 0
+v 0 0 1e-3
+f 1 3 2
+f 1 2 4
+f 1 4 3
+f 2 3 7

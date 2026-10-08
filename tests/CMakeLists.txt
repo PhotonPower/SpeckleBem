@@ -10,11 +10,12 @@ add_executable(specklebem_unit_tests
     unit/test_rwg.cpp
     unit/test_quadrature.cpp
     unit/test_rough_surface.cpp
+    unit/test_mesh_io.cpp
     # unit/test_singularity.cpp
     # unit/test_octree.cpp unit/test_gmres.cpp unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
-# Reference data (tests/data) read by regression tests.
+# Reference data and fixtures (tests/data) read by regression and I/O tests.
 target_compile_definitions(specklebem_unit_tests PRIVATE
     SPECKLEBEM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 catch_discover_tests(specklebem_unit_tests)

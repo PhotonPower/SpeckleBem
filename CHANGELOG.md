@@ -27,6 +27,9 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - tooling: `.clang-format` puts `<unsupported/Eigen/...>` into the third-party include block;
   `docs/compiler_notes/` documents a GCC 13.3 -O3 loop-vectoriser store-permutation bug that the
   box mesher works around.
+- geometry (WP6, #7): mesh import/export for binary and ASCII STL (exact vertex welding),
+  OBJ and Gmsh v4.1 ASCII with bit-exact text output, atomic writes, line-ending/BOM tolerance,
+  fixtures and adversarial-input regression tests.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).

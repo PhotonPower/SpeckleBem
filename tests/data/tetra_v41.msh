@@ -1,0 +1,40 @@
+$MeshFormat
+4.1 0 8
+$EndMeshFormat
+$PhysicalNames
+1
+2 1 "tetra surface"
+$EndPhysicalNames
+$Entities
+1 1 1 0
+1 0.005 0.005 0.005 0
+1 0 0 0 0.001 0 0 0 0
+1 0 0 0 0.001 0.001 0.001 1 1 0
+$EndEntities
+$Nodes
+2 5 10 99
+0 1 0 1
+99
+0.005 0.005 0.005
+2 1 0 4
+10
+20
+30
+40
+0 0 0
+1e-3 0 0
+0 1e-3 0
+0 0 1e-3
+$EndNodes
+$Elements
+3 6 1 6
+0 1 15 1
+1 99
+1 1 1 1
+2 10 20
+2 1 2 4
+3 10 30 20
+4 10 20 40
+5 10 40 30
+6 20 30 40
+$EndElements
