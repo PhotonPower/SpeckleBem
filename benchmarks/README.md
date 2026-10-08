@@ -13,3 +13,9 @@ Complexity exponents to beat: γ ≈ 1.35 (Si rough), γ ≈ 1.9 (Ag rough).
 
 Each benchmark writes a JSON record (N, levels, iterations, time per matvec,
 peak memory) to `benchmarks/results/` so regressions are visible in CI history.
+
+Curated result records (Markdown, tracked in git despite the global `results/` ignore rule):
+
+- [`results/mie_sphere_dense.md`](results/mie_sphere_dense.md) — Mie validation of the dense
+  PMCHWT + LU solver (WP11, Phase 2 DoD): ε_rr in the xz- and yz-planes, power balance,
+  assembly / LU timings and memory per icosphere level.

@@ -25,7 +25,9 @@ jobs:
               libspdlog-dev catch2 pybind11-dev python3-dev python3-numpy python3-pytest
 
       - name: Configure
-        env: { CC: ${{ matrix.cc }}, CXX: ${{ matrix.cxx }} }
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
@@ -35,11 +37,15 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
+      # ctest -L / -LE take regular expressions: -LE validation excludes both the `validation`
+      # and the `validation-large` labels, -L '^validation$' selects only `validation`.
+      # `ctest -L validation-large` (dense solves with 2N >= 15 k, minutes to hours, several GB)
+      # is nightly / manual only and never runs in CI.
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure -LE validation
 
       - name: Validation tests
-        run: ctest --test-dir build --output-on-failure -L validation
+        run: ctest --test-dir build --output-on-failure -L '^validation$'
 
       - name: Python tests
         run: |

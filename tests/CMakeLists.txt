@@ -42,7 +42,7 @@ add_executable(specklebem_validation_tests
     validation/test_mie_reference.cpp
     validation/test_post_mie_projection.cpp
     validation/test_assembler_mie.cpp
-    # validation/test_mie_sphere_dense.cpp
+    validation/test_mie_sphere_dense.cpp
     # validation/test_mie_sphere_mlfmm.cpp
     # validation/test_mlfmm_vs_dense.cpp
     # validation/test_flat_interface_fresnel.cpp
@@ -50,3 +50,14 @@ add_executable(specklebem_validation_tests
 target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 catch_discover_tests(specklebem_validation_tests PROPERTIES LABELS validation)
+
+# Large validation cases (dense solves with 2N >= 15 k unknowns: minutes to hours and several
+# GB of memory). Label `validation-large` only: never run in CI (which runs -L '^validation$'),
+# nightly / manual with `ctest --preset release -L validation-large`. The cases SKIP in
+# unoptimised builds and when the dense solve would exceed 60 % of the physical memory.
+add_executable(specklebem_validation_large_tests
+    validation_large/test_mie_sphere_dense_large.cpp
+)
+target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
+target_include_directories(specklebem_validation_large_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
+catch_discover_tests(specklebem_validation_large_tests PROPERTIES LABELS validation-large TIMEOUT 21600)

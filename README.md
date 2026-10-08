@@ -82,7 +82,7 @@ Optional: `-DSPECKLEBEM_USE_MKL=ON`, `-DSPECKLEBEM_ENABLE_CUDA=ON`, `-DSPECKLEBE
 
 ## Status
 
-Phase 1 (geometry and discretisation) complete: mesh topology and icospheres, Gaussian rough-surface generator and closed box mesh, STL/OBJ/Gmsh I/O, RWG basis, Dunavant and Gauss–Legendre quadrature, analytic static integrals, Mie reference solution. Phase 2 (dense SIE solver, Mie validation) in progress. See the [project plan](docs/01_project_plan.md), the [backlog](docs/backlog.md) and [CHANGELOG.md](CHANGELOG.md).
+Phase 1 (geometry and discretisation) complete: mesh topology and icospheres, Gaussian rough-surface generator and closed box mesh, STL/OBJ/Gmsh I/O, RWG basis, Dunavant and Gauss–Legendre quadrature, analytic static integrals, Mie reference solution. Phase 2 (dense SIE solver) complete: Galerkin element blocks with singularity subtraction, dense assembly, direct solver, excitations, near/far-field post-processing; validated against Mie (bistatic RCS error 0.07 % at λ/13 for dielectric and Ag spheres, power balance within 0.2 %). Open: Fresnel flat-interface check (needs MLFMM, Phase 4), Ag sphere at λ/20 (needs a ≥ 200 GB node). See the [project plan](docs/01_project_plan.md), the [backlog](docs/backlog.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
 

@@ -28,11 +28,12 @@ analytic (Mie, Fresnel, static integrals)
 | Dielectric sphere d = 1 µm, n = 1.5, λ/10 | Mie | ε_rr | < 1 % | 2 |
 | Ag sphere d = 1 µm, λ/20, PMCHWT + LU | Mie | ε_rr | < 1 % | 2 |
 | Mesh refinement λ/8 → λ/16 → λ/32 | Mie | ε_rr monotone decrease | — | 2 |
-| Flat box, tapered beam, 0° and 45° | Fresnel r_p, r_s | rel on |r|² | < 1 % | 2 |
+| Power balance, Ag and Si spheres d = 1 µm, PMCHWT + LU (P_abs = ½ Re ∮ (n̂ × M)·J* dS from the surface currents) | — | |P_ext − P_sca − P_abs| / P_ext | < 1 %: Si at λ/6.6 (icosphere n = 3), Ag at λ/13 (n = 4, `validation-large`); at λ/6.6 the Ag defect is 2.3 % because P_abs ≈ 1.6 % of P_ext | 2 |
+| Flat box, tapered beam, 0° and 45° | Fresnel r_p, r_s | rel on |r|² | < 1 % (deferred to Phase 4: dense system > 10⁵ unknowns) | 2 → 4 |
 | GMRES vs LU, 2·10⁴ unknowns | dense LU | rel | < tol | 3 |
 | MLFMM matvec, Si & Ag, 2·10⁴–10⁵ unknowns | dense matvec | rel | < 1e-3 (3 digits), < 1e-5 (5 digits) | 4 |
 | Ag sphere d = 4 µm, λ/27, MLFMM | Mie | ε_rr normal/parallel planes | ≤ 0.5 % | 4 |
-| Power balance, Ag and Si surfaces | — | rel | < 1 % | 4 |
+| Power balance, Ag and Si surfaces | — | rel | < 1 % (Ag at mesh ≤ λ/13: the surface P_abs of weakly absorbing Ag converges slowly, see benchmarks/results/mie_sphere_dense.md) | 4 |
 | Reciprocity, rough surface | — | rel | < 1 % | 4 |
 | Near field Ag sphere, xz-plane | Mie | rel per point | < 0.1 (lit), < 1 (shadow) | 5 |
 | Rigorous beam Maxwell check | — | ‖∇×E + jωμH‖ / ‖ωμH‖ | < 1e-8 | 5 |
@@ -53,6 +54,6 @@ analytic (Mie, Fresnel, static integrals)
 ## Test organisation
 
 - `tests/unit` – fast (< 1 s each in release; assembly tests that call `element_blocks` on an icosphere may take up to ~5 s under the sanitizer preset, documented per test), run on every push.
-- `tests/validation` – minutes, labelled `validation`, run on every push for the small cases; the 4 µm sphere and 30 µm surfaces are nightly / manual (`ctest -L validation-large`).
+- `tests/validation` – minutes, labelled `validation`, run on every push for the small cases (`ctest -L '^validation$'`; `-L` is a regex); `tests/validation_large` (dense solves with 2N ≥ 15 k, the 4 µm sphere and 30 µm surfaces later) is labelled `validation-large`, memory-guarded, release-only, nightly / manual (`ctest -L validation-large`).
 - `tests/python` – API smoke tests and the statistics tests on small precomputed fields.
 - Reference data: `tests/data/README.md`.

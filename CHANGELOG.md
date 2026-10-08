@@ -52,6 +52,13 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   triangle colouring), `assemble_rhs`, `assemble_diagonal` (bitwise equal to the diagonal),
   `Problem::omega` and `op::validate`; first dense Mie solves: ε_rr = 0.28 % (n = 1.5) and 0.36 % (Ag)
   on an icosphere of 1 280 triangles; tests for symmetry, per-region jump signs, exact-current residuals.
+- tests (WP11, #12): Mie validation of the dense solver in both scattering planes with refinement
+  (ε_rr 0.89 % → 0.27 % → 0.074 % for n = 1.5, 1.95 % → 0.35 % → 0.078 % for Ag on icospheres
+  n = 2/3/4), power balance (optical theorem, far-field integral, surface-current absorption), new
+  `validation-large` ctest label (release-only, memory-guarded), results in
+  `benchmarks/results/mie_sphere_dense.md`.
+- tooling: `.github/workflows/ci.yml` had an invalid flow-mapping `env` since the scaffold so CI
+  never ran; fixed. CI runs `-L '^validation$'`; `validation-large` is nightly/manual.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).

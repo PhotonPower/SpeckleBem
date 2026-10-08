@@ -94,16 +94,19 @@ inline Real symmetry_defect(const MatrixXc& Z, Complex ch, Complex ce) {
 }
 
 /// Bistatic-RCS error eps_rr of docs/05 (Eq. 7 of the paper) with E_ref = sqrt(sigma_Mie) and
-/// E_sie = sqrt(sigma), over na angles theta in [0, pi] of the xz-plane (plane normal +y).
-inline Real rcs_eps_rr(const post::SurfaceSolution& s, const MieSolution& mie, Index na = 37) {
+/// E_sie = sqrt(sigma), over na angles theta in [0, pi] of a scattering plane through z: by
+/// default the xz-plane (plane normal +y, Mie azimuth phi = 0); the yz-plane is plane normal -x
+/// with phi = pi / 2 (post::bistatic_rcs maps theta to k_hat = (0, sin theta, cos theta) there).
+inline Real rcs_eps_rr(const post::SurfaceSolution& s, const MieSolution& mie, Index na = 37,
+                       const Vec3& plane_normal = Vec3::UnitY(), Real mie_phi = 0.0) {
     VectorXr angles(na);
     for (Index i = 0; i < na; ++i)
         angles(i) = kPi * static_cast<Real>(i) / static_cast<Real>(na - 1);
-    const VectorXr sigma = post::bistatic_rcs(s, Vec3::UnitY(), angles);
+    const VectorXr sigma = post::bistatic_rcs(s, plane_normal, angles);
     Real sum = 0.0;
     Real max_ref = 0.0;
     for (Index i = 0; i < na; ++i) {
-        const Real ref = std::sqrt(mie.bistatic_rcs(angles(i), 0.0));
+        const Real ref = std::sqrt(mie.bistatic_rcs(angles(i), mie_phi));
         const Real d = ref - std::sqrt(sigma(i));
         sum += d * d;
         max_ref = std::max(max_ref, ref);

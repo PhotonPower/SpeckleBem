@@ -28,6 +28,9 @@ wheelhouse/
 *.h5
 *.hdf5
 results/
+# ...except the curated benchmark records (Markdown tables, docs/01 Phase 2/3 DoD)
+!benchmarks/results/
+benchmarks/results/*.json
 *.log
 
 # Secrets — never commit tokens or credentials
