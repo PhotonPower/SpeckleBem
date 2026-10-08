@@ -1,0 +1,36 @@
+# Build
+build/
+build-*/
+cmake-build-*/
+out/
+_deps/
+CMakeUserPresets.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+.venv/
+venv/
+.pytest_cache/
+_skbuild/
+wheelhouse/
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Data / results (keep small reference data under tests/data)
+*.h5
+*.hdf5
+results/
+*.log
+
+# Secrets — never commit tokens or credentials
+*.token
+*token*
+.env

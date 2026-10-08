@@ -1,0 +1,6 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(Eigen3 3.4)
+find_dependency(spdlog)
+include("${CMAKE_CURRENT_LIST_DIR}/SpeckleBemTargets.cmake")
+check_required_components(SpeckleBem)

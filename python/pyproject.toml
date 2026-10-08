@@ -1,0 +1,29 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13", "numpy>=1.24"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "specklebem"
+version = "0.1.0"
+description = "Rigorous electromagnetic scattering from rough surfaces via surface integral equations and fast BEM"
+readme = "../README.md"
+requires-python = ">=3.10"
+license = { file = "../LICENSE" }
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+io = ["h5py>=3.9"]
+plot = ["matplotlib>=3.7"]
+dev = ["pytest>=7", "pytest-xdist", "scipy>=1.10"]
+
+[tool.scikit-build]
+cmake.source-dir = ".."
+cmake.args = ["-DSPECKLEBEM_BUILD_TESTS=OFF", "-DSPECKLEBEM_BUILD_EXAMPLES=OFF"]
+wheel.packages = ["specklebem"]
+build-dir = "../build/python-{wheel_tag}"
+
+[tool.pytest.ini_options]
+testpaths = ["../tests/python"]
+
+[tool.ruff]
+line-length = 100

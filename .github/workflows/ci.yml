@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, compiler: gcc,   cc: gcc,   cxx: g++,     build_type: Release }
+          - { os: ubuntu-24.04, compiler: clang, cc: clang, cxx: clang++, build_type: Debug }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libeigen3-dev libopenblas-dev liblapack-dev \
+              libspdlog-dev catch2 pybind11-dev python3-dev python3-numpy python3-pytest
+
+      - name: Configure
+        env: { CC: ${{ matrix.cc }}, CXX: ${{ matrix.cxx }} }
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DSPECKLEBEM_WARNINGS_AS_ERRORS=ON
+          -DSPECKLEBEM_BUILD_PYTHON=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure -LE validation
+
+      - name: Validation tests
+        run: ctest --test-dir build --output-on-failure -L validation
+
+      - name: Python tests
+        run: |
+          PYTHONPATH=build/python:python python3 -m pytest tests/python -q
+
+  format-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: clang-format
+        run: |
+          pip install clang-format
+          find include src tests examples python/src -name '*.hpp' -o -name '*.cpp' | xargs clang-format --dry-run --Werror

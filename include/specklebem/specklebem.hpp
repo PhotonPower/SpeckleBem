@@ -1,0 +1,18 @@
+#pragma once
+/// Umbrella header.
+#include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
+#include "specklebem/core/config.hpp"
+#include "specklebem/core/types.hpp"
+#include "specklebem/excitation/excitation.hpp"
+#include "specklebem/formulation/formulation.hpp"
+#include "specklebem/geometry/mesh.hpp"
+#include "specklebem/geometry/rough_surface.hpp"
+#include "specklebem/geometry/sphere.hpp"
+#include "specklebem/material/material.hpp"
+#include "specklebem/operator/assembler.hpp"
+#include "specklebem/postprocessing/fields.hpp"
+#include "specklebem/postprocessing/scattering.hpp"
+#include "specklebem/postprocessing/speckle_statistics.hpp"
+#include "specklebem/reference/mie.hpp"
+#include "specklebem/simulation.hpp"
+#include "specklebem/solver/gmres.hpp"
