@@ -21,7 +21,7 @@ set(SPECKLEBEM_SOURCES
     # compression/mlfmm/octree.cpp compression/mlfmm/mlfmm_operator.cpp
     # solver/gmres.cpp solver/preconditioner.cpp solver/direct.cpp
     # postprocessing/fields.cpp postprocessing/scattering.cpp postprocessing/speckle_statistics.cpp
-    # reference/mie.cpp
+    reference/mie.cpp
     # io/result_writer.cpp
     # simulation.cpp
 )

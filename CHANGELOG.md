@@ -9,6 +9,10 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   boundary-edge count, non-manifold and duplicate-triangle rejection), orientation check and
   repair with per-component outward orientation, closedness, signed volume, bounding box,
   quality report; `make_icosphere` / `make_sphere`; unit tests `tests/unit/test_mesh.cpp`.
+- reference (WP5, #6): `MieSolution`, Bohren–Huffman Mie series adapted to exp(+jωt) (conjugated
+  coefficients and fields), near-field n_max criterion, scattered/internal near fields,
+  bistatic RCS, scattering and extinction cross sections; unit tests against the BH sample case,
+  the Rayleigh limit and surface boundary conditions; validation tests labelled `validation`.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).
