@@ -27,7 +27,11 @@ protected:
     material::Material background_;
 };
 
-/// Plane wave with unit propagation direction and complex polarization vector.
+/// Plane wave E(r) = e0 exp(-j k k_hat . r), H(r) = k_hat x E(r) / eta (exp(+jwt) convention).
+/// Constructed from the vacuum wavelength; k and eta are those of the (lossless) background.
+/// k_hat is normalised; e0 is complex (circular/elliptic polarisation) and must be transverse,
+/// |e0 . k_hat| <= 1e-12 |e0|. Throws std::invalid_argument for a non-positive wavelength, a zero
+/// k_hat or e0, a non-transverse e0 or a lossy background.
 class PlaneWave final : public Excitation {
 public:
     PlaneWave(Real wavelength, const Vec3& k_hat, const Vec3c& e0,
@@ -39,12 +43,30 @@ private:
     Vec3 k_hat_;
     Vec3c e0_;
     Complex k_;
+    Complex eta_;
 };
 
-/// Gaussian beam propagating along +z (waist at the focus), used to illuminate
-/// rough surfaces without touching the patch edges. Phase 2 uses the paraxial
+/// Gaussian beam propagating along k_hat = R_y(theta_in) z_hat (waist at the focus), used to
+/// illuminate rough surfaces without touching the patch edges. Phase 2 uses the paraxial
 /// model; a rigorous angular-spectrum representation that satisfies Maxwell's
 /// equations exactly is scheduled for Phase 5 (docs/01_project_plan.md).
+///
+/// Beam frame: k_hat = R_y(theta_in) z_hat (rotation about y; theta_in = 0 gives +z) with
+/// |theta_in| < pi/2, i.e. the beam always travels towards +z (docs/06); waist plane through
+/// `focus`; axial coordinate zeta = k_hat . (r - focus), transverse distance rho.
+/// p: e_hat = R_y(theta_in) x_hat (xz-plane, perpendicular to k_hat); s: e_hat = y_hat.
+/// Fundamental paraxial beam (unit amplitude 1 V/m on the axis at the focus):
+///   A = (w0/w) exp(-rho^2/w^2) exp(-j[k zeta + k rho^2/(2R) - psi]),
+///   w = w0 sqrt(1 + (zeta/z_R)^2), R = zeta (1 + (z_R/zeta)^2), psi = atan(zeta/z_R),
+///   z_R = pi w0^2 n / lambda (k = 2 pi n / lambda, real: the background must be lossless).
+/// Fields: E = e_hat A + k_hat E_zeta, eta H = (k_hat x e_hat) A + k_hat H_zeta, with the
+/// first-order longitudinal components E_zeta = -(j/k) e_hat . grad_t A and
+/// H_zeta = -(j/k) (k_hat x e_hat) . grad_t A (Lax et al. 1975). The transverse fields are the
+/// textbook paraxial beam with H_t = k_hat x E / eta; the longitudinal terms vanish on the axis
+/// and make the curl equations hold to O((lambda/(pi w0))^2) instead of O(lambda/(pi w0)).
+/// Every constructed beam logs one warning about the paraxial approximation.
+/// Throws std::invalid_argument for w0 <= 0, wavelength <= 0, a non-finite focus,
+/// |theta_in| >= pi/2 or a lossy background.
 class GaussianBeam final : public Excitation {
 public:
     struct Params {
@@ -60,7 +82,22 @@ public:
     [[nodiscard]] const Params& params() const { return p_; }
 
 private:
+    struct Sample {
+        Complex amplitude;  ///< scalar field A(r) including the carrier exp(-j k zeta)
+        Complex grad_e;     ///< e_hat . grad_t A
+        Complex grad_h;     ///< h_hat . grad_t A
+    };
+    [[nodiscard]] Sample sample(const Vec3& r) const;
+
     Params p_;
+    // Per-beam constants (fields are evaluated per quadrature point during assembly).
+    Vec3 k_hat_;  ///< propagation direction R_y(theta_in) z_hat
+    Vec3 e_p_;    ///< p direction R_y(theta_in) x_hat (transverse coordinate u)
+    Vec3 e_hat_;  ///< polarisation direction (e_p_ or y_hat)
+    Vec3 h_hat_;  ///< k_hat_ x e_hat_
+    Real k_ = 0;
+    Real z_r_ = 0;
+    Complex eta_;
 };
 
 }  // namespace specklebem::excitation

@@ -34,6 +34,10 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   ∫(r'−r)R, ∫∇'(1/R) with solid-angle normal part and in-plane principal value, stable log
   branches, boundary finite-part flag) and `classify` proximity classes; tests against composite
   Dunavant, graded Duffy references, solid-angle jump and invariances.
+- excitation (WP8, #9): `PlaneWave` and paraxial `GaussianBeam` (q-parameter form with first-order
+  longitudinal components, θ_in rotation about y, p/s polarisation; Maxwell residual (λ/πw₀)²/2);
+  solver (WP8): `solve_direct` with column equilibration, iterative refinement and
+  `DirectSolveInfo` diagnostics (Eigen LU, BLAS-accelerated when available).
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).

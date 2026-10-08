@@ -40,7 +40,7 @@ The plan is organised in phases. Each phase has deliverables, a *definition of d
 **Deliverables**
 - `kernels::element_blocks`: Galerkin blocks of `L_i` and `K_i` for a triangle pair, with singularity subtraction (ADR 0004) and adaptive quadrature degree by proximity.
 - `op::DenseStrategy`: full 2N×2N assembly for both regions combined by the formulation weights; `assemble_rhs`; `assemble_diagonal`.
-- `solver::solve_direct` (LAPACK `zgesv`).
+- `solver::solve_direct` (dense LU; Eigen with BLAS acceleration, LAPACK `zgesv` optional later).
 - `reference::MieSolution` (Bohren–Huffman, `exp(+jωt)` adapted; near/far field, bistatic RCS, cross sections, Wiscombe n_max).
 - `post::scattered_field`, `far_field`, `bistatic_rcs` (direct evaluation).
 - `excitation::PlaneWave`.
@@ -57,7 +57,7 @@ The plan is organised in phases. Each phase has deliverables, a *definition of d
 - `solver::gmres` (complex, full and restarted, callback for residual history), `DiagonalPreconditioner`, `IdentityPreconditioner`.
 - Convergence-study script reproducing the qualitative behaviour of Fig. 2(a,b): PMCHWT stalls, ICTF converges for Si, diagonal-preconditioned ICTF/MCTF converges fastest for Ag.
 - Automatic recommendation (`formulation::recommend`) wired into `Simulation`.
-- `excitation::GaussianBeam` (paraxial first; see Phase 5).
+- `excitation::GaussianBeam` (paraxial with first-order longitudinal components and `θ_in`; the rigorous angular-spectrum beam follows in Phase 5).
 
 **DoD**
 - GMRES reproduces the direct solution to residual tolerance on a 20 k-unknown problem.
