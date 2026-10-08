@@ -59,6 +59,9 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `benchmarks/results/mie_sphere_dense.md`.
 - tooling: `.github/workflows/ci.yml` had an invalid flow-mapping `env` since the scaffold so CI
   never ran; fixed. CI runs `-L '^validation$'`; `validation-large` is nightly/manual.
+- post (WP9a): `SurfaceSolution::omega` removed; the frequency comes only from `op::Problem::omega`
+  (checked against an attached excitation to 1e-12 relative); post-processing tests use
+  `excitation::PlaneWave`. `validation-large` tests run serially (RUN_SERIAL).
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).

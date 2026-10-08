@@ -21,8 +21,9 @@ struct Problem {
     const formulation::Formulation* formulation = nullptr;
     const excitation::Excitation* excitation = nullptr;
     kernels::OperatorOptions kernel_options;
-    /// Angular frequency [rad/s]; must be > 0 and equal to excitation->omega() when an
-    /// excitation is set (relative tolerance 1e-12). Additive member (WP9).
+    /// Angular frequency [rad/s]: the single source of the frequency for op:: and post::.
+    /// Must be > 0 and equal to excitation->omega() when an excitation is set (relative
+    /// tolerance 1e-12).
     Real omega = 0;
 };
 

@@ -211,7 +211,7 @@ inline DenseMieResult solve_mie_dense(const material::Material& mat, int subdivi
         res.assembly_s = std::chrono::duration<Real>(t1 - t0).count();
         res.solve_s = std::chrono::duration<Real>(t3 - t2).count();
     }
-    const post::SurfaceSolution sol{&c.problem(), x, 0.0};
+    const post::SurfaceSolution sol{&c.problem(), x};
     res.eps_xz = rcs_eps_rr(sol, c.setup.mie, kRcsAngles, Vec3::UnitY(), 0.0);
     res.eps_yz = rcs_eps_rr(sol, c.setup.mie, kRcsAngles, -Vec3::UnitX(), 0.5 * kPi);
     if (with_power) {

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <random>
 #include <stdexcept>
 #include <vector>
@@ -100,9 +101,8 @@ TEST_CASE("fields: far field is the r -> infinity limit of the scattered field",
 }
 
 TEST_CASE("fields: total field adds the incident field in R1 only", "[post]") {
-    MieSetup s(lossless_n15(), 2);  // coarse: projection error ~ 25 %
-    const TestPlaneWave wave(omega_of(kLambda));
-    s.problem.excitation = &wave;
+    MieSetup s(lossless_n15(), 2);             // coarse: projection error ~ 25 %
+    REQUIRE(s.problem.excitation == &s.wave);  // excitation::PlaneWave attached by MieSetup
 
     Vertices pts(2, 3);
     pts.row(0) = (2.0 * kRadius * direction(1.0, 0.5)).transpose();
@@ -125,13 +125,13 @@ TEST_CASE("fields: total field adds the incident field in R1 only", "[post]") {
     CHECK((Et.row(1).transpose() - s.mie.internal_E(pts.row(1).transpose())).cwiseAbs().maxCoeff() <
           0.4);
 
-    // The frequency is taken from the excitation when SurfaceSolution::omega is 0.
-    post::SurfaceSolution s_exc = s.solution;
-    s_exc.omega = 0.0;
+    // The frequency is Problem::omega only: with omega = 0 the excitation does not supply it.
     FieldMatrix E2;
     FieldMatrix H2;
-    post::total_field(s_exc, pts, E2, H2);
-    CHECK((E2 - Et).norm() == 0.0);
+    const Real omega = s.problem.omega;
+    s.problem.omega = 0.0;
+    CHECK_THROWS_AS(post::total_field(s.solution, pts, E2, H2), std::invalid_argument);
+    s.problem.omega = omega;
 
     // |E_inc| at the origin is 1 V/m, so the RCS is unchanged by attaching the excitation.
     VectorXr angles(3);
@@ -141,11 +141,11 @@ TEST_CASE("fields: total field adds the incident field in R1 only", "[post]") {
     const VectorXr without = post::bistatic_rcs(s.solution, Vec3::UnitY(), angles);
     for (Index i = 0; i < 3; ++i) CHECK_THAT(with_exc(i), WithinRel(without(i), 1e-14));
 
-    // Mismatched frequency and missing excitation throw.
-    s.problem.excitation = &wave;
-    post::SurfaceSolution s_bad = s.solution;
-    s_bad.omega = 1.01 * omega_of(kLambda);
-    CHECK_THROWS_AS(post::scattered_field(s_bad, pts, E2, H2), std::invalid_argument);
+    // Problem::omega different from the excitation's and a missing excitation throw.
+    s.problem.excitation = &s.wave;
+    s.problem.omega = 1.01 * omega;
+    CHECK_THROWS_AS(post::scattered_field(s.solution, pts, E2, H2), std::invalid_argument);
+    s.problem.omega = omega;
     s.problem.excitation = nullptr;
     CHECK_THROWS_AS(post::total_field(s.solution, pts, E2, H2), std::invalid_argument);
 }
@@ -210,7 +210,8 @@ TEST_CASE("fields: region detection by the generalised winding number", "[post]"
     const basis::RwgSpace space(mesh);
     op::Problem problem;
     problem.space = &space;
-    const post::SurfaceSolution sol{&problem, VectorXc::Zero(2 * space.size()), omega_of(kLambda)};
+    problem.omega = omega_of(kLambda);
+    const post::SurfaceSolution sol{&problem, VectorXc::Zero(2 * space.size())};
     FieldMatrix E;
     FieldMatrix H;
     on.row(0) = mesh.vertices().row(3);
@@ -325,32 +326,47 @@ TEST_CASE("fields: invalid input throws", "[post]") {
     VectorXr angles(1);
     angles << 0.0;
     const Real omega = omega_of(kLambda);
+    problem.omega = omega;
 
     // Wrong currents length.
-    const post::SurfaceSolution bad_len{&problem, VectorXc::Zero(2 * space.size() - 1), omega};
+    const post::SurfaceSolution bad_len{&problem, VectorXc::Zero(2 * space.size() - 1)};
     CHECK_THROWS_AS(post::scattered_field(bad_len, pts, E, H), std::invalid_argument);
     CHECK_THROWS_AS(post::far_field(bad_len, pts, E), std::invalid_argument);
     CHECK_THROWS_AS(post::bistatic_rcs(bad_len, Vec3::UnitY(), angles), std::invalid_argument);
 
     // Null problem / space.
-    const post::SurfaceSolution no_problem{nullptr, VectorXc::Zero(2 * space.size()), omega};
+    const post::SurfaceSolution no_problem{nullptr, VectorXc::Zero(2 * space.size())};
     CHECK_THROWS_AS(post::scattered_field(no_problem, pts, E, H), std::invalid_argument);
     CHECK_THROWS_AS(post::total_field(no_problem, pts, E, H), std::invalid_argument);
     CHECK_THROWS_AS(post::far_field(no_problem, pts, E), std::invalid_argument);
     CHECK_THROWS_AS(post::bistatic_rcs(no_problem, Vec3::UnitY(), angles), std::invalid_argument);
     op::Problem no_space;
-    const post::SurfaceSolution no_space_sol{&no_space, VectorXc::Zero(0), omega};
+    no_space.omega = omega;
+    const post::SurfaceSolution no_space_sol{&no_space, VectorXc::Zero(0)};
     CHECK_THROWS_AS(post::scattered_field(no_space_sol, pts, E, H), std::invalid_argument);
 
-    // Unknown frequency, negative frequency.
-    const post::SurfaceSolution no_omega{&problem, VectorXc::Zero(2 * space.size()), 0.0};
-    CHECK_THROWS_AS(post::scattered_field(no_omega, pts, E, H), std::invalid_argument);
-    CHECK_THROWS_AS(post::far_field(no_omega, pts, E), std::invalid_argument);
-    const post::SurfaceSolution neg_omega{&problem, VectorXc::Zero(2 * space.size()), -omega};
-    CHECK_THROWS_AS(post::scattered_field(neg_omega, pts, E, H), std::invalid_argument);
+    // Problem::omega is the only source of the frequency: missing (0), negative or non-finite
+    // throws, also when an excitation is attached (WP9a).
+    {
+        const post::SurfaceSolution sol{&problem, VectorXc::Zero(2 * space.size())};
+        const excitation::PlaneWave wave(kLambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0));
+        for (const Real bad : {0.0, -omega, std::nan(""), std::numeric_limits<Real>::infinity()}) {
+            problem.omega = bad;
+            problem.excitation = nullptr;
+            CHECK_THROWS_AS(post::scattered_field(sol, pts, E, H), std::invalid_argument);
+            CHECK_THROWS_AS(post::far_field(sol, pts, E), std::invalid_argument);
+            CHECK_THROWS_AS(post::bistatic_rcs(sol, Vec3::UnitY(), angles), std::invalid_argument);
+            problem.excitation = &wave;
+            CHECK_THROWS_AS(post::scattered_field(sol, pts, E, H), std::invalid_argument);
+            CHECK_THROWS_AS(post::total_field(sol, pts, E, H), std::invalid_argument);
+            CHECK_THROWS_AS(post::far_field(sol, pts, E), std::invalid_argument);
+        }
+        problem.excitation = nullptr;
+        problem.omega = omega;
+    }
 
     // Quadrature degree must be positive-interior; zero direction.
-    const post::SurfaceSolution ok{&problem, VectorXc::Ones(2 * space.size()), omega};
+    const post::SurfaceSolution ok{&problem, VectorXc::Ones(2 * space.size())};
     post::FieldOptions opt;
     opt.quad_degree = 3;  // negative weight
     CHECK_THROWS_AS(post::scattered_field(ok, pts, E, H, opt), std::invalid_argument);
@@ -359,27 +375,47 @@ TEST_CASE("fields: invalid input throws", "[post]") {
     Vertices zero_dir = Vertices::Zero(1, 3);
     CHECK_THROWS_AS(post::far_field(ok, zero_dir, E), std::invalid_argument);
 
-    // Problem::omega takes precedence (WP9): it alone defines the frequency (same field as
-    // SurfaceSolution::omega), a different SurfaceSolution::omega throws, a negative one throws.
+    // A valid frequency works without an excitation; an attached excitation with the same omega
+    // gives the identical field, one whose omega differs by more than 1e-12 relative throws (the
+    // rule of op::validate), a difference below 1e-12 relative is accepted.
     {
+        REQUIRE(problem.excitation == nullptr);
         FieldMatrix E_ref;
         FieldMatrix H_ref;
         post::scattered_field(ok, pts, E_ref, H_ref);
-        problem.omega = omega;
-        const post::SurfaceSolution from_problem{&problem, ok.currents, 0.0};
+        REQUIRE(E_ref.allFinite());
+        CHECK(E_ref.norm() > 0.0);
+        FieldMatrix F_ref;
+        post::far_field(ok, pts, F_ref);
+        CHECK(F_ref.norm() > 0.0);
+
+        const excitation::PlaneWave same(kLambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0));
+        REQUIRE(same.omega() == omega);
+        problem.excitation = &same;
         FieldMatrix Ep;
         FieldMatrix Hp;
-        post::scattered_field(from_problem, pts, Ep, Hp);
+        post::scattered_field(ok, pts, Ep, Hp);
         CHECK((Ep - E_ref).norm() == 0.0);
-        const post::SurfaceSolution mismatch{&problem, ok.currents, 1.01 * omega};
-        CHECK_THROWS_AS(post::scattered_field(mismatch, pts, Ep, Hp), std::invalid_argument);
-        problem.omega = -omega;
-        CHECK_THROWS_AS(post::scattered_field(from_problem, pts, Ep, Hp), std::invalid_argument);
-        problem.omega = 0.0;
+        CHECK((Hp - H_ref).norm() == 0.0);
+
+        const excitation::PlaneWave other(1.01 * kLambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0));
+        problem.excitation = &other;
+        CHECK_THROWS_AS(post::scattered_field(ok, pts, Ep, Hp), std::invalid_argument);
+        CHECK_THROWS_AS(post::total_field(ok, pts, Ep, Hp), std::invalid_argument);
+        CHECK_THROWS_AS(post::far_field(ok, pts, Ep), std::invalid_argument);
+        CHECK_THROWS_AS(post::bistatic_rcs(ok, Vec3::UnitY(), angles), std::invalid_argument);
+
+        problem.excitation = &same;
+        problem.omega = omega * (1.0 + 1e-10);
+        CHECK_THROWS_AS(post::scattered_field(ok, pts, Ep, Hp), std::invalid_argument);
+        problem.omega = omega * (1.0 + 1e-14);
+        CHECK_NOTHROW(post::scattered_field(ok, pts, Ep, Hp));
+        problem.omega = omega;
+        problem.excitation = nullptr;
     }
 
     // Zero currents radiate nothing.
-    const post::SurfaceSolution zero{&problem, VectorXc::Zero(2 * space.size()), omega};
+    const post::SurfaceSolution zero{&problem, VectorXc::Zero(2 * space.size())};
     post::scattered_field(zero, pts, E, H);
     CHECK(E.norm() == 0.0);
     CHECK(H.norm() == 0.0);
