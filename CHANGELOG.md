@@ -38,6 +38,10 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   longitudinal components, θ_in rotation about y, p/s polarisation; Maxwell residual (λ/πw₀)²/2);
   solver (WP8): `solve_direct` with column equilibration, iterative refinement and
   `DirectSolveInfo` diagnostics (Eigen LU, BLAS-accelerated when available).
+- post (WP10, #11): Stratton–Chu near-field evaluation in R1 and R2 (region by generalised winding
+  number), `total_field`, `far_field`, `bistatic_rcs`, grids, polarised intensities and relative DRC;
+  the representation signs are verified against exact Mie surface currents projected onto RWG
+  (unit test n = 2 → 3, validation test n = 3 → 4, O(h²) convergence).
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).

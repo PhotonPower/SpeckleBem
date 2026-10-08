@@ -14,9 +14,12 @@ add_executable(specklebem_unit_tests
     unit/test_singularity.cpp
     unit/test_excitation.cpp
     unit/test_direct.cpp
+    unit/test_fields.cpp
     # unit/test_octree.cpp unit/test_gmres.cpp unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
+# Shared test helpers (tests/support), included without relative paths.
+target_include_directories(specklebem_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 # Reference data and fixtures (tests/data) read by regression and I/O tests.
 target_compile_definitions(specklebem_unit_tests PRIVATE
     SPECKLEBEM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
@@ -28,10 +31,12 @@ catch_discover_tests(specklebem_unit_tests)
 add_executable(specklebem_validation_tests
     validation/test_placeholder.cpp
     validation/test_mie_reference.cpp
+    validation/test_post_mie_projection.cpp
     # validation/test_mie_sphere_dense.cpp
     # validation/test_mie_sphere_mlfmm.cpp
     # validation/test_mlfmm_vs_dense.cpp
     # validation/test_flat_interface_fresnel.cpp
 )
 target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
+target_include_directories(specklebem_validation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 catch_discover_tests(specklebem_validation_tests PROPERTIES LABELS validation)
