@@ -13,6 +13,7 @@
 
 The API sketch above is the specification for docs/10_python_api.md.
 """
+
 import specklebem as sb
 
 print(sb.__version__, sb.silver_500nm().n)
