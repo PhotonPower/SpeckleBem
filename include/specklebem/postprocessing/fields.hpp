@@ -41,9 +41,10 @@ namespace specklebem::post {
 struct SurfaceSolution {
     const op::Problem* problem = nullptr;
     VectorXc currents;  ///< [J; M]
-    /// Angular frequency [rad/s] of the currents. 0 (default) => problem->excitation->omega();
-    /// if both are given they must agree (relative 1e-12). Additive member (WP10): Problem
-    /// carries no frequency of its own and the excitation may be absent.
+    /// Angular frequency [rad/s] of the currents. Precedence: problem->omega (if > 0) >
+    /// SurfaceSolution::omega (if > 0) > problem->excitation->omega(); every frequency that is
+    /// given must agree with the one used (relative 1e-12), otherwise std::invalid_argument.
+    /// Additive member (WP10); with Problem::omega (WP9) it is a fallback only.
     Real omega = 0.0;
 };
 

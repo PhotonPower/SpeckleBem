@@ -359,6 +359,25 @@ TEST_CASE("fields: invalid input throws", "[post]") {
     Vertices zero_dir = Vertices::Zero(1, 3);
     CHECK_THROWS_AS(post::far_field(ok, zero_dir, E), std::invalid_argument);
 
+    // Problem::omega takes precedence (WP9): it alone defines the frequency (same field as
+    // SurfaceSolution::omega), a different SurfaceSolution::omega throws, a negative one throws.
+    {
+        FieldMatrix E_ref;
+        FieldMatrix H_ref;
+        post::scattered_field(ok, pts, E_ref, H_ref);
+        problem.omega = omega;
+        const post::SurfaceSolution from_problem{&problem, ok.currents, 0.0};
+        FieldMatrix Ep;
+        FieldMatrix Hp;
+        post::scattered_field(from_problem, pts, Ep, Hp);
+        CHECK((Ep - E_ref).norm() == 0.0);
+        const post::SurfaceSolution mismatch{&problem, ok.currents, 1.01 * omega};
+        CHECK_THROWS_AS(post::scattered_field(mismatch, pts, Ep, Hp), std::invalid_argument);
+        problem.omega = -omega;
+        CHECK_THROWS_AS(post::scattered_field(from_problem, pts, Ep, Hp), std::invalid_argument);
+        problem.omega = 0.0;
+    }
+
     // Zero currents radiate nothing.
     const post::SurfaceSolution zero{&problem, VectorXc::Zero(2 * space.size()), omega};
     post::scattered_field(zero, pts, E, H);

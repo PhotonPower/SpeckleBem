@@ -47,6 +47,11 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   symmetrised touching pairs, series remainder near R = 0, `jump_block` for the ±½ n̂ × f term,
   `validate(OperatorOptions)`; tests against brute-force and polar references, symmetry, static
   limit; hidden `[.slow]` sweeps; allocation test in a separate executable.
+- operator (WP9, #10): `DenseStrategy::build` (2N × 2N block system of docs/03 with formulation
+  weights and the effective jump terms K₁ = K^PV − ½ I, K₂ = K^PV + ½ I; deterministic OpenMP by
+  triangle colouring), `assemble_rhs`, `assemble_diagonal` (bitwise equal to the diagonal),
+  `Problem::omega` and `op::validate`; first dense Mie solves: ε_rr = 0.28 % (n = 1.5) and 0.36 % (Ag)
+  on an icosphere of 1 280 triangles; tests for symmetry, per-region jump signs, exact-current residuals.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).

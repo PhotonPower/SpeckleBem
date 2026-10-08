@@ -37,8 +37,8 @@ inline Real omega_of(Real lambda) {
     return 2 * kPi * constants::c0 / lambda;
 }
 
-inline Real k_vacuum() {
-    return omega_of(kLambda) / constants::c0;
+inline Real k_vacuum(Real lambda = kLambda) {
+    return omega_of(lambda) / constants::c0;
 }
 
 inline material::Material lossless_n15() {
@@ -49,12 +49,13 @@ inline Vec3 direction(Real theta, Real phi) {
     return {std::sin(theta) * std::cos(phi), std::sin(theta) * std::sin(phi), std::cos(theta)};
 }
 
-/// Incident field of docs/06 in vacuum: E = x exp(-j k z), H = y exp(-j k z) / eta0.
-inline Vec3c incident_E(const Vec3& r) {
-    return {std::exp(-kJ * k_vacuum() * r.z()), 0, 0};
+/// Incident field of docs/06 in vacuum: E = x exp(-j k z), H = y exp(-j k z) / eta0, with
+/// k = 2 pi / lambda (vacuum wavelength lambda, default kLambda).
+inline Vec3c incident_E(const Vec3& r, Real lambda = kLambda) {
+    return {std::exp(-kJ * k_vacuum(lambda) * r.z()), 0, 0};
 }
-inline Vec3c incident_H(const Vec3& r) {
-    return {0, std::exp(-kJ * k_vacuum() * r.z()) / constants::eta0, 0};
+inline Vec3c incident_H(const Vec3& r, Real lambda = kLambda) {
+    return {0, std::exp(-kJ * k_vacuum(lambda) * r.z()) / constants::eta0, 0};
 }
 
 /// Test-local analytic plane wave (WP8's PlaneWave is implemented concurrently and is not used
@@ -92,8 +93,10 @@ inline Vec3c curl_fd(const std::function<Vec3c(const Vec3&)>& f, const Vec3& r, 
 /// RWG coefficients of the exact Mie surface currents on the R1 side: J = n x H_total,
 /// M = -n x E_total at the edge midpoint projected radially onto the sphere (n the exact sphere
 /// normal there), x_n = X . nu_n with nu_n the in-plane unit normal of edge n in the plane of
-/// T_n^+, pointing from T_n^+ into T_n^- (the RWG normal component is 1 there).
-inline VectorXc project_mie_currents(const basis::RwgSpace& space, const MieSolution& mie) {
+/// T_n^+, pointing from T_n^+ into T_n^- (the RWG normal component is 1 there). `lambda` is the
+/// vacuum wavelength of the Mie solution (for the incident field).
+inline VectorXc project_mie_currents(const basis::RwgSpace& space, const MieSolution& mie,
+                                     Real lambda = kLambda) {
     const geometry::TriangleMesh& mesh = space.mesh();
     const Index N = space.size();
     VectorXc x(2 * N);
@@ -104,8 +107,8 @@ inline VectorXc project_mie_currents(const basis::RwgSpace& space, const MieSolu
         const Vec3 nu = (vb - va).cross(mesh.normal(space.plus_triangle(n))).normalized();
         const Vec3 rs = kRadius * (0.5 * (va + vb)).normalized();
         const Vec3 nh = rs.normalized();
-        const Vec3c E = incident_E(rs) + mie.scattered_E(rs);
-        const Vec3c H = incident_H(rs) + mie.scattered_H(rs);
+        const Vec3c E = incident_E(rs, lambda) + mie.scattered_E(rs);
+        const Vec3c H = incident_H(rs, lambda) + mie.scattered_H(rs);
         x(n) = dot_cr(cross_rc(nh, H), nu);
         x(N + n) = dot_cr(-cross_rc(nh, E), nu);
     }
@@ -113,18 +116,19 @@ inline VectorXc project_mie_currents(const basis::RwgSpace& space, const MieSolu
 }
 
 /// Sphere in vacuum, icosphere mesh, RWG space and projected Mie currents (no excitation, the
-/// frequency is given in SurfaceSolution::omega).
+/// frequency is given in SurfaceSolution::omega). Vacuum wavelength `lambda` (default kLambda;
+/// the near-field / RCS error helpers below assume kLambda).
 struct MieSetup {
-    MieSetup(const material::Material& sphere, int subdivisions)
+    MieSetup(const material::Material& sphere, int subdivisions, Real lambda = kLambda)
         : mesh(geometry::make_icosphere(kRadius, subdivisions)),
           space(mesh),
-          mie(MieParams{kRadius, kLambda, sphere, material::vacuum(), 0}) {
+          mie(MieParams{kRadius, lambda, sphere, material::vacuum(), 0}) {
         problem.space = &space;
         problem.exterior = material::vacuum();
         problem.object = sphere;
         solution.problem = &problem;
-        solution.currents = project_mie_currents(space, mie);
-        solution.omega = omega_of(kLambda);
+        solution.currents = project_mie_currents(space, mie, lambda);
+        solution.omega = omega_of(lambda);
     }
     MieSetup(const MieSetup&) = delete;
     MieSetup& operator=(const MieSetup&) = delete;

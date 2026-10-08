@@ -103,11 +103,26 @@ const basis::RwgSpace& checked_space(const SurfaceSolution& s, const std::string
     return space;
 }
 
-/// Angular frequency of the solution (SurfaceSolution::omega or the excitation's).
+/// Angular frequency of the solution: Problem::omega if > 0 (WP9; SurfaceSolution::omega and
+/// the excitation's must then agree with it), otherwise SurfaceSolution::omega or the
+/// excitation's.
 Real resolve_omega(const SurfaceSolution& s, const std::string& who) {
     const excitation::Excitation* exc = s.problem->excitation;
     if (!std::isfinite(s.omega) || s.omega < 0.0) {
         throw std::invalid_argument(who + ": SurfaceSolution::omega must be finite and >= 0");
+    }
+    const Real pw = s.problem->omega;
+    if (!std::isfinite(pw) || pw < 0.0) {
+        throw std::invalid_argument(who + ": Problem::omega must be finite and >= 0");
+    }
+    if (pw > 0.0) {
+        if ((s.omega > 0.0 && std::abs(s.omega - pw) > 1e-12 * pw) ||
+            (exc != nullptr && std::abs(exc->omega() - pw) > 1e-12 * pw)) {
+            throw std::invalid_argument(who +
+                                        ": Problem::omega differs from SurfaceSolution::omega "
+                                        "or the excitation's");
+        }
+        return pw;
     }
     if (s.omega > 0.0) {
         if (exc != nullptr && std::abs(exc->omega() - s.omega) > 1e-12 * s.omega) {
