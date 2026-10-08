@@ -60,5 +60,8 @@ n ≤ 3 (2N ≤ 3 840).
   The fetched Eigen is marked as a system include so that `-Werror` does not trip on Eigen
   internals; do not add Eigen include paths by hand.
 - BLAS/LAPACK are optional; the test machine may not have them (Eigen fallback, same results).
+- Eigen's `cross()` conjugates for complex vectors (it is the Hermitian cross product); never use it on
+  phasors. Write the cross product of complex vectors by hand or cast to a real/imag split.
+- The K operator uses the source-point gradient ∇'G = −`grad_green` (docs/03); E^s = −L J + K M.
 - `-Wconversion`/`-Wsign-conversion` are on: use `Index` (int64) for sizes, cast explicitly
   when indexing Eigen with `int` and when mixing `std::size_t` and `Index`.

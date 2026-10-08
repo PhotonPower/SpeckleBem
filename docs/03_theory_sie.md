@@ -15,11 +15,12 @@ from which the scattered fields in both regions follow from the Stratton–Chu r
 For region i with wavenumber `k_i` and Green's function `G_i(r, r') = e^{−jk_i R}/(4πR)`:
 ```
 L_i X (r) = jω μ_i ∫_S G_i X dS'  −  (1/(jω ε_i)) ∇ ∫_S G_i ∇'·X dS'
-K_i X (r) = ∫_S ∇G_i × X dS'      (principal value)
+K_i X (r) = ∫_S ∇'G_i × X dS'     (principal value; ∇' acts on the source point r')
 ```
+The gradient in `K` is taken with respect to the source point: `∇'G = −∇_r G` (`kernels::grad_green` returns `∇_r G`). Equivalently `K_i X = −∫ ∇_r G_i × X dS' = −∇ × ∫ G_i X dS'`, i.e. `K_i M = −(1/ε_i) ∇ × F` with the electric vector potential `F = ε_i ∫ G_i M dS'`. With this definition the representation below has the signs `−L J + K M`; a `K` defined with `∇_r G` would flip the sign of every `K` term.
 Scattered fields in region i:
 ```
-E_i^s = −L_i J_i + K_i M_i ,   H_i^s = −K_i J_i − (1/η_i²) L_i M_i     (up to the sign convention of J_i, M_i)
+E_i^s = −L_i J_i + K_i M_i ,   H_i^s = −K_i J_i − (1/η_i²) L_i M_i     (J_1 = J, M_1 = M in R1; J_2 = −J, M_2 = −M in R2; verified against exact Mie currents in tests/unit/test_fields.cpp)
 ```
 
 ## Tangential equations (Eqs. 1–2 of the paper)
