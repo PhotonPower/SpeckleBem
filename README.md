@@ -82,7 +82,7 @@ Optional: `-DSPECKLEBEM_USE_MKL=ON`, `-DSPECKLEBEM_ENABLE_CUDA=ON`, `-DSPECKLEBE
 
 ## Status
 
-Phase 0 (foundation) – build system, core types, materials, formulation weights, operator interface, Python binding skeleton, CI. See the [project plan](docs/01_project_plan.md) and [CHANGELOG.md](CHANGELOG.md).
+Phase 1 (geometry and discretisation) complete: mesh topology and icospheres, Gaussian rough-surface generator and closed box mesh, STL/OBJ/Gmsh I/O, RWG basis, Dunavant and Gauss–Legendre quadrature, analytic static integrals, Mie reference solution. Phase 2 (dense SIE solver, Mie validation) in progress. See the [project plan](docs/01_project_plan.md), the [backlog](docs/backlog.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
 
