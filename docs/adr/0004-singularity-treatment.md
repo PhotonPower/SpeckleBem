@@ -16,6 +16,13 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
 - Quadrature degrees for all classes except `far` must use Dunavant rules with all points inside the triangle and positive weights (degrees 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 17, 19; `kernels::triangle_rule_is_positive_interior`). The subtracted remainder is only finitely smooth at R = 0 and the analytic static potential is non-analytic across the source triangle's edges, so a test point outside its triangle samples the wrong branch; `OperatorOptions` validation rejects the other degrees for near and touching pairs.
 
 ## Consequences
-- Near-field accuracy to ~1e-6 relative with moderate quadrature cost.
+- Near-field accuracy: the inner (source) integration with subtraction is accurate to ~1e-10; the
+  outer (test) integration with a Dunavant rule limits touching-pair entries to ~2e-4 relative
+  (L, identical and shared-edge pairs, degree 10) and ~1e-4 of the ½ I jump term (K, folded
+  shared-edge pairs), because the inner potential is only finitely smooth (r log r) at the shared
+  edge. Blocks of touching pairs are symmetrised. A graded / Duffy outer rule (Sauter–Schwab) for
+  touching pairs and k-aware degree selection for far/near pairs are scheduled as WP7b before any
+  study that needs element accuracy below ~1e-3 (fine-mesh convergence, formulation study, MLFMM
+  near-field targets); the 1 % Mie validation of Phase 2 does not need it.
 - Analytic formulas must be verified carefully (unit tests vs extrapolated nested quadrature) — a Phase 1 deliverable.
 - The same routines serve dense, MLFMM near-field and ACA pivot evaluation.
