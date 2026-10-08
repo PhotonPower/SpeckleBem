@@ -30,7 +30,9 @@ Enforcing tangential continuity on S from each side and using the boundary condi
 T-EFIE_i :  E_inc,i |_tan =  L_i J |_tan − K_i M |_tan
 T-MFIE_i :  H_inc,i |_tan =  K_i J |_tan + (1/η_i²) L_i M |_tan
 ```
-with `E_inc,2 = H_inc,2 = 0`. The principal-value `K` is accompanied by the jump term `±½ n̂ × X`; the sign depends on the side. The code keeps the jump term explicit: `kernels::element_blocks` returns the principal value of `K`, `kernels::jump_block` returns `I_mn = ∫ f_m · (n̂ × f_n) dS` on a triangle, and the assembler adds `+½ I` on the R1 side and `−½ I` on the R2 side (n̂ points into R1).
+with `E_inc,2 = H_inc,2 = 0`. The principal-value `K` is accompanied by the jump term `±½ n̂ × X`; the sign depends on the side. The code keeps the jump term explicit: `kernels::element_blocks` returns the principal value `K^PV`, `kernels::jump_block` returns `I_mn = ∫ f_m · (n̂ × f_n) dS` on a triangle, and the assembler applies the effective operators of the tangential equations, `K_1 = K_1^PV − ½ n̂×` and `K_2 = K_2^PV + ½ n̂×` (blocks `K_1^PV − ½ I`, `K_2^PV + ½ I`). Derivation: the limit of `K X` from the R1 side is `K^PV X + ½ n̂ × X` (from the R2 side `− ½ n̂ × X`); inserting `n̂ × E_total = −M`, `n̂ × H_total = J` and `E_2 = L_2 J − K_2 M` (with `J_2 = −J`, `M_2 = −M`) into the tangential continuity conditions turns the `+½` field jump into the `−½` of the R1 equations and vice versa (`src/operator/assembler.cpp`). Check: region 1 MFIE with `M = 0` gives Harrington's PEC MFIE `n̂ × H_inc = ½ J + n̂ × K^PV J`.
+
+Because the Table 1 formulations below all have region-independent coefficients `a_i/η_i` and `b_i η_i`, the two jump terms cancel in every supported formulation, and ICTF / MCTF are block-row scalings of PMCHWT: identical currents with a direct solver, identical systems after the Jacobi preconditioner; they differ only in the unpreconditioned iterative conditioning. Whether the paper's ICTF/MCTF use region-dependent weights is an open question for the Phase 3 formulation study (docs/backlog.md).
 
 ## Combination (Eqs. 5–6, Table 1)
 
@@ -58,7 +60,7 @@ Resulting block system (`x = [J; M]`, `b = [E-part; H-part]`):
 - Galerkin testing with the same functions: matrix entries `<f_m, L_i f_n>`, `<f_m, K_i f_n>`.
 - The `L` operator is integrated in its mixed-potential form: the gradient is moved onto the test function (`<f_m, ∇φ> = −<∇·f_m, φ>`), so only `G` and `∇G` kernels appear and both are at most `1/R` or `1/R²` singular.
 - Quadrature: Dunavant rules, degree chosen by proximity class (`far`, `near`, touching). Touching pairs use singularity subtraction (ADR 0004): the static part of `G` and `∇G` (`1/R`, `∇(1/R)` and, for better smoothness, also the `R` term) is integrated analytically over the source triangle (Hänninen et al. 2006; Wilton et al. 1984; Graglia 1993), the remainder numerically.
-- Jump term of `K`: `±½ <f_m, n̂ × f_n>` on coincident triangles (`kernels::jump_block`; `+½` for R1, `−½` for R2, added by the assembler).
+- Jump term of `K`: `±½ <f_m, n̂ × f_n>` on coincident triangles (`kernels::jump_block`; effective block signs `−½ I` in the R1 equations and `+½ I` in the R2 equations, see above).
 
 ## Right-hand side
 

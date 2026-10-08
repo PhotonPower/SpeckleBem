@@ -52,7 +52,7 @@ analytic (Mie, Fresnel, static integrals)
 
 ## Test organisation
 
-- `tests/unit` – fast (< 1 s each), run on every push.
+- `tests/unit` – fast (< 1 s each in release; assembly tests that call `element_blocks` on an icosphere may take up to ~5 s under the sanitizer preset, documented per test), run on every push.
 - `tests/validation` – minutes, labelled `validation`, run on every push for the small cases; the 4 µm sphere and 30 µm surfaces are nightly / manual (`ctest -L validation-large`).
 - `tests/python` – API smoke tests and the statistics tests on small precomputed fields.
 - Reference data: `tests/data/README.md`.
