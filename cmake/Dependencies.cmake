@@ -9,7 +9,9 @@
 include(FetchContent)
 
 # --- Eigen (dense linear algebra, used throughout) ------------------------
-find_package(Eigen3 3.4 QUIET CONFIG)
+# NO_CMAKE_PACKAGE_REGISTRY: a previously fetched Eigen build tree (e.g. from another
+# preset) registers itself in ~/.cmake/packages; never pick that up.
+find_package(Eigen3 3.4 QUIET CONFIG NO_CMAKE_PACKAGE_REGISTRY)
 if(NOT Eigen3_FOUND)
     message(STATUS "Eigen3 not found on system - fetching 3.4.0")
     FetchContent_Declare(eigen
@@ -19,12 +21,24 @@ if(NOT Eigen3_FOUND)
     set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
+    set(CMAKE_EXPORT_NO_PACKAGE_REGISTRY ON)  # Eigen's export(PACKAGE) must not pollute ~/.cmake
     FetchContent_MakeAvailable(eigen)
     if(NOT TARGET Eigen3::Eigen)
         # Older Eigen trees do not export the imported target when added as a subdirectory.
         add_library(Eigen3::Eigen INTERFACE IMPORTED)
         set_target_properties(Eigen3::Eigen PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${eigen_SOURCE_DIR}")
     endif()
+    # Treat the fetched headers as system headers: the project warning set (and -Werror in
+    # the debug preset) applies to our code, not to Eigen internals.
+    foreach(_eigen_target eigen Eigen3::Eigen)
+        if(TARGET ${_eigen_target})
+            get_target_property(_aliased ${_eigen_target} ALIASED_TARGET)
+            if(NOT _aliased)
+                set_target_properties(${_eigen_target} PROPERTIES
+                    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${eigen_SOURCE_DIR}")
+            endif()
+        endif()
+    endforeach()
 endif()
 
 # --- BLAS / LAPACK ---------------------------------------------------------
