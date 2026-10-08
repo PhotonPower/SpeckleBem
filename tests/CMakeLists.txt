@@ -15,6 +15,7 @@ add_executable(specklebem_unit_tests
     unit/test_excitation.cpp
     unit/test_direct.cpp
     unit/test_fields.cpp
+    unit/test_operators.cpp
     # unit/test_octree.cpp unit/test_gmres.cpp unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -24,6 +25,13 @@ target_include_directories(specklebem_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_
 target_compile_definitions(specklebem_unit_tests PRIVATE
     SPECKLEBEM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 catch_discover_tests(specklebem_unit_tests)
+
+# Zero-allocation check of the element kernels. Separate executable because it replaces the
+# global operator new / delete (which would disable ASan's new/delete mismatch detection for
+# every other unit test).
+add_executable(specklebem_alloc_tests unit/test_operators_alloc.cpp)
+target_link_libraries(specklebem_alloc_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
+catch_discover_tests(specklebem_alloc_tests)
 
 # Validation tests compare against analytic references (Mie, flat-interface
 # Fresnel) and against the dense operator. They are slower and labelled so that

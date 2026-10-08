@@ -15,6 +15,7 @@ set(SPECKLEBEM_SOURCES
     kernels/green.cpp
     kernels/quadrature.cpp
     kernels/singularity.cpp
+    kernels/operators.cpp
     operator/dense_operator.cpp
     operator/linear_operator.cpp
     backend/backend.cpp
@@ -23,7 +24,6 @@ set(SPECKLEBEM_SOURCES
     postprocessing/fields.cpp
     postprocessing/scattering.cpp
     # --- to be added in the respective phase (see docs/01_project_plan.md) ---
-    # kernels/operators.cpp
     # operator/sparse_operator.cpp operator/assembler.cpp
     # compression/mlfmm/octree.cpp compression/mlfmm/mlfmm_operator.cpp
     # solver/gmres.cpp solver/preconditioner.cpp

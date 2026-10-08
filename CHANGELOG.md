@@ -42,6 +42,11 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   number), `total_field`, `far_field`, `bistatic_rcs`, grids, polarised intensities and relative DRC;
   the representation signs are verified against exact Mie surface currents projected onto RWG
   (unit test n = 2 → 3, validation test n = 3 → 4, O(h²) convergence).
+- kernels (WP7, #8): `element_blocks`, Galerkin L and K blocks for a triangle pair in mixed-potential
+  form with singularity subtraction of the 1/R and R terms (ADR 0004), proximity-class quadrature,
+  symmetrised touching pairs, series remainder near R = 0, `jump_block` for the ±½ n̂ × f term,
+  `validate(OperatorOptions)`; tests against brute-force and polar references, symmetry, static
+  limit; hidden `[.slow]` sweeps; allocation test in a separate executable.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).
