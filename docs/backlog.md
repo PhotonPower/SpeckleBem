@@ -66,6 +66,9 @@ n ≤ 3 (2N ≤ 3 840).
   The fetched Eigen is marked as a system include so that `-Werror` does not trip on Eigen
   internals; do not add Eigen include paths by hand.
 - BLAS/LAPACK are optional; the test machine may not have them (Eigen fallback, same results).
+- Ubuntu 24.04's `libspdlog-dev` links the system fmt 9.1 whose headers hit a GCC 13 `-Warray-bounds`
+  false positive under `-Werror`; use the fetched spdlog (do not install `libspdlog-dev`, or pass
+  `-DCMAKE_DISABLE_FIND_PACKAGE_spdlog=ON`). Clang needs `libomp-dev` for OpenMP.
 - Eigen's `cross()` conjugates for complex vectors (it is the Hermitian cross product); never use it on
   phasors. Write the cross product of complex vectors by hand or cast to a real/imag split.
 - The K operator uses the source-point gradient ∇'G = −`grad_green` (docs/03); E^s = −L J + K M.
