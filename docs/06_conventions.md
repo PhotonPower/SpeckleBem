@@ -23,7 +23,8 @@ Consequences:
 - Rough surfaces: mean surface at `z = 0`, patch centred at the origin, object occupies `z > ξ(x,y)` (below the interface when "above" means `−z`). Light arrives from `z < 0` and propagates in `+z`, beam waist at `z = 0`. Observation planes "above" the surface therefore have `z < 0` (as in the paper: `z = −4.5 µm`, `z = −1 mm`).
 - Spheres: centred at the origin; validation plane wave propagates in `+z`, E along `x` (p-polarisation in the xz-plane).
 - Polarisation: **p** – E in the plane of incidence (xz); **s** – E along `y`. Co-/cross-polarised intensities are taken with respect to the incident E direction.
-- Angles: incidence angle `θ_in` is a rotation about `y`; scattering angle `θ_s` is measured from `−z` in the xz-plane.
+- Angles: incidence angle `θ_in` is a rotation about `y`; scattering angle `θ_s` is measured from `−z` in the xz-plane (rough surfaces, reflection geometry).
+- Spheres and the Mie reference use ordinary spherical coordinates: polar angle `θ` from `+z` (forward scattering `θ = 0`, backscattering `θ = π`), azimuth `φ` from `+x`. In the xz-plane `θ_s = π − θ`. `reference::MieSolution::bistatic_rcs(theta, phi)` and the sphere validation tests follow this spherical convention.
 
 ## Discretisation
 - Flat triangles, consistently oriented (counter-clockwise seen from R1). RWG basis per interior edge; Galerkin testing.
