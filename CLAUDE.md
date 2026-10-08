@@ -7,7 +7,8 @@ Authoritative documents: `docs/01_project_plan.md` (phases, definition of done),
 `docs/02_architecture.md` (layers), `docs/03_theory_sie.md` (equations),
 `docs/05_validation.md` (acceptance table), `docs/06_conventions.md` (binding conventions),
 `docs/07_coding_guidelines.md` (style, review checklist), `docs/adr/` (decisions),
-`docs/backlog.md` (work packages and their status).
+`docs/backlog.md` (work packages and their status), `docs/handover.md` (state at the last session end,
+open decisions, how to continue).
 
 ## Build and test
 
