@@ -16,6 +16,9 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - basis (WP3b, #4): `RwgSpace`, Rao–Wilton–Glisson basis functions on interior edges with O(1)
   triangle → basis lookup, values, divergences and signed supports; unit tests for normal
   continuity, flux and divergence identities, open meshes and `flip_normals`.
+- kernels (WP3a, #3): Dunavant triangle rules of degree 1–20 (re-solved to double precision,
+  documented degrees with negative weights or exterior points, `triangle_rule_is_positive_interior`)
+  and Gauss–Legendre rules of any order; exactness tests up to degree 20 and n = 100.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).
