@@ -1,4 +1,5 @@
-/// Zero-allocation check of kernels::element_blocks and kernels::jump_block (WP7).
+/// Zero-allocation check of kernels::element_blocks and kernels::jump_block (WP7, WP7b: graded
+/// outer rules of every level, forced averaging, degree selection).
 ///
 /// Separate executable (specklebem_alloc_tests): it replaces the global allocation functions
 /// with counting versions that forward to malloc / aligned_alloc / free. Linking them into the
@@ -15,6 +16,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdlib>
+#include <limits>
 #include <new>
 #include <utility>
 #include <vector>
@@ -113,34 +115,58 @@ TEST_CASE("element_blocks and jump_block are allocation-free after the first cal
                                     constants::eps0 * ag.eps_r, constants::mu0 * ag.mu_r};
     const geometry::TriangleMesh mesh = geometry::make_icosphere(1e-7, 1);
     const basis::RwgSpace space(mesh);
-    const kernels::OperatorOptions opt;
-    // Three pairs of every proximity class.
+    // Two pairs of every proximity class (default options), the first of each class for the
+    // other option sets (keeps the sanitizer build below 1 s).
     std::vector<std::pair<Index, Index>> pairs;
     for (const Proximity cls : {Proximity::far, Proximity::near, Proximity::identical,
                                 Proximity::shared_edge, Proximity::shared_vertex}) {
         int found = 0;
-        for (Index a = 0; a < mesh.num_triangles() && found < 3; a += 7) {
-            for (Index b = 0; b < mesh.num_triangles() && found < 3; ++b) {
+        for (Index a = 0; a < mesh.num_triangles() && found < 2; a += 7) {
+            for (Index b = 0; b < mesh.num_triangles() && found < 2; ++b) {
                 if (kernels::classify(mesh, a, b) == cls) {
                     pairs.emplace_back(a, b);
                     ++found;
                 }
             }
         }
-        REQUIRE(found == 3);
+        REQUIRE(found == 2);
+    }
+    // Option sets: defaults (graded outer rule level 4, degree selection; at |k| h ~ 2 touching
+    // blocks are averaged over both orderings), the highest grading level (the hot path is the
+    // same for every level, only the cached table differs), the unaveraged graded path, another
+    // selection target, the WP7 scheme (level 0, fixed degrees).
+    std::vector<kernels::OperatorOptions> options(1);
+    for (const int level : {0, 6}) {
+        kernels::OperatorOptions o;
+        o.outer_grading_levels = level;
+        options.push_back(o);
+    }
+    {
+        kernels::OperatorOptions o;
+        o.symmetrize_touching_above_kh = std::numeric_limits<Real>::infinity();
+        options.push_back(o);
+        o.target_accuracy = 1e-10;
+        options.push_back(o);
+        o.target_accuracy = 0.0;
+        o.quad_degree_near = 8;
+        options.push_back(o);
     }
     Eigen::Matrix<Complex, 3, 3> L;
     Eigen::Matrix<Complex, 3, 3> K;
     Eigen::Matrix<Complex, 3, 3> J;
-    // First calls build the rule cache and the validation table.
-    for (const auto& [t1, t2] : pairs) {
-        kernels::element_blocks(space, t1, t2, reg, opt, L, K);
-    }
+    const auto run_all = [&]() {
+        for (std::size_t o = 0; o < options.size(); ++o) {
+            for (std::size_t p = 0; p < pairs.size(); p += (o == 0 ? 1 : 2)) {
+                kernels::element_blocks(space, pairs[p].first, pairs[p].second, reg, options[o], L,
+                                        K);
+            }
+        }
+    };
+    // First calls build the rule cache, the graded tables and the validation table.
+    run_all();
     kernels::jump_block(space, 0, J);
     const long long before = g_allocations.load();
-    for (const auto& [t1, t2] : pairs) {
-        kernels::element_blocks(space, t1, t2, reg, opt, L, K);
-    }
+    run_all();
     kernels::jump_block(space, 5, J);
     const long long after = g_allocations.load();
     CHECK(after - before == 0);
