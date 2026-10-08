@@ -18,6 +18,7 @@
 - Wilton D.R. et al. *Potential integrals for uniform and linear source distributions on polygonal and polyhedral domains.* IEEE TAP 32 (1984) 276.
 - Graglia R.D. *On the numerical integration of the linear shape functions times the 3-D Green's function or its gradient on a plane triangle.* IEEE TAP 41 (1993) 1448.
 - Dunavant D.A. *High degree efficient symmetrical Gaussian quadrature rules for the triangle.* IJNME 21 (1985) 1129.
+- Van Oosterom A., Strackee J. *The solid angle of a plane triangle.* IEEE Trans. Biomed. Eng. 30 (1983) 125. (solid-angle term of the static gradient integral)
 
 ## Fast multipole method
 - Greengard L., Rokhlin V. *A fast algorithm for particle simulations.* J. Comput. Phys. 73 (1987) 325.
