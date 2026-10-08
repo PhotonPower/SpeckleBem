@@ -1,5 +1,8 @@
 include(Catch)
 
+# Catch2 returns 4 when every test case of an invocation was skipped (SKIP()). Catch2 >= 3.5 sets
+# SKIP_RETURN_CODE itself; Ubuntu 24.04 ships 3.4.0, whose Catch.cmake does not, so set it here.
+
 add_executable(specklebem_unit_tests
     unit/test_material.cpp
     unit/test_formulation.cpp
@@ -25,14 +28,14 @@ target_include_directories(specklebem_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_
 # Reference data and fixtures (tests/data) read by regression and I/O tests.
 target_compile_definitions(specklebem_unit_tests PRIVATE
     SPECKLEBEM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
-catch_discover_tests(specklebem_unit_tests)
+catch_discover_tests(specklebem_unit_tests PROPERTIES SKIP_RETURN_CODE 4)
 
 # Zero-allocation check of the element kernels. Separate executable because it replaces the
 # global operator new / delete (which would disable ASan's new/delete mismatch detection for
 # every other unit test).
 add_executable(specklebem_alloc_tests unit/test_operators_alloc.cpp)
 target_link_libraries(specklebem_alloc_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
-catch_discover_tests(specklebem_alloc_tests)
+catch_discover_tests(specklebem_alloc_tests PROPERTIES SKIP_RETURN_CODE 4)
 
 # Validation tests compare against analytic references (Mie, flat-interface
 # Fresnel) and against the dense operator. They are slower and labelled so that
@@ -49,7 +52,7 @@ add_executable(specklebem_validation_tests
 )
 target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
-catch_discover_tests(specklebem_validation_tests PROPERTIES LABELS validation)
+catch_discover_tests(specklebem_validation_tests PROPERTIES SKIP_RETURN_CODE 4 LABELS validation)
 
 # Large validation cases (dense solves with 2N >= 15 k unknowns: minutes to hours and several
 # GB of memory). Label `validation-large` only: never run in CI (which runs -L '^validation$'),
@@ -60,4 +63,4 @@ add_executable(specklebem_validation_large_tests
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_large_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
-catch_discover_tests(specklebem_validation_large_tests PROPERTIES LABELS validation-large TIMEOUT 21600)
+catch_discover_tests(specklebem_validation_large_tests PROPERTIES SKIP_RETURN_CODE 4 LABELS validation-large TIMEOUT 21600)
