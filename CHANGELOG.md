@@ -30,6 +30,10 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - geometry (WP6, #7): mesh import/export for binary and ASCII STL (exact vertex welding),
   OBJ and Gmsh v4.1 ASCII with bit-exact text output, atomic writes, line-ending/BOM tolerance,
   fixtures and adversarial-input regression tests.
+- kernels (WP4, #5): analytic static integrals over a flat triangle (∫1/R, ∫(r'−r)/R, ∫R,
+  ∫(r'−r)R, ∫∇'(1/R) with solid-angle normal part and in-plane principal value, stable log
+  branches, boundary finite-part flag) and `classify` proximity classes; tests against composite
+  Dunavant, graded Duffy references, solid-angle jump and invariances.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).
