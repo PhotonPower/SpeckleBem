@@ -13,7 +13,7 @@ IncludeBlocks: Regroup
 IncludeCategories:
   - Regex: '^"specklebem/'
     Priority: 1
-  - Regex: '^<(Eigen|pybind11|catch2)'
+  - Regex: '^<(Eigen|unsupported/Eigen|pybind11|catch2)'
     Priority: 3
   - Regex: '^<.*\.h>'
     Priority: 4

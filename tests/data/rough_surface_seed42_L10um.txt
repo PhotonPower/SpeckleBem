@@ -1,0 +1,30 @@
+# SpeckleBem rough-surface regression reference (docs/05_validation.md).
+# generate_gaussian_height_map with seed = 42, edge_length_L = 10e-6 m, mesh_size = 50e-9 m,
+# rms_roughness = 50e-9 m, correlation_length = 500e-9 m, use_fft = true -> 201 x 201 grid.
+# Values in SI units (metres), 15 significant digits. Lines: 'rms <HeightMap::rms()>',
+# 'correlation_length <HeightMap::estimated_correlation_length()>', full-map checksums
+# 'sum_z <sum z>', 'sum_z2 <sum z^2>', 'sum_ij_z <sum (i + 2 j) z>', and 'z <i> <j> <z(i,j)>'.
+# A generator change that alters these numbers must be deliberate. Regenerate (from the
+# repository root) with
+#   SPECKLEBEM_REGEN_OUTPUT=tests/data/rough_surface_seed42_L10um.txt build/release/tests/specklebem_unit_tests "[.regen]"
+rms 5.23918878819681e-08
+correlation_length 4.90235115864930e-07
+sum_z 1.11710119593723e-04
+sum_z2 1.11205987735894e-10
+sum_ij_z 4.70707323670068e-02
+z 0 0 2.59038780733321e-08
+z 0 67 1.10339272880688e-08
+z 0 133 1.69327501785605e-09
+z 0 200 4.96801697216313e-08
+z 67 0 -6.96125264835658e-09
+z 67 67 -3.50401656398684e-08
+z 67 133 6.67208900739448e-08
+z 67 200 8.57864837460637e-09
+z 133 0 -8.11766369131273e-08
+z 133 67 -2.83378304079437e-08
+z 133 133 4.16227945524112e-08
+z 133 200 3.23909183932905e-08
+z 200 0 1.21775912784155e-07
+z 200 67 -8.66421157509498e-08
+z 200 133 -1.91875819292512e-08
+z 200 200 -4.89916030153923e-08
