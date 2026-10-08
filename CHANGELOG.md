@@ -62,6 +62,11 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - post (WP9a): `SurfaceSolution::omega` removed; the frequency comes only from `op::Problem::omega`
   (checked against an attached excitation to 1e-12 relative); post-processing tests use
   `excitation::PlaneWave`. `validation-large` tests run serially (RUN_SERIAL).
+- geometry (WP2b, #14): graded side walls and bottom plate of the rough-surface box
+  (`RoughSurfaceParams::box_mesh_size`, automatic coarse spacing min(depth/2, L/8, 10 h), conforming
+  2:1 transition strips, decay-based validity contract, rough-rim guard); reference case L = 10 µm,
+  50 nm, depth 2 µm: closing box 7.2 % of the top face instead of 180 % (224 000 → 85 750
+  triangles); uniform fallback bit-identical to the previous mesh.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).
