@@ -7,7 +7,8 @@ add_executable(specklebem_unit_tests
     unit/test_dense_operator.cpp
     unit/test_mesh.cpp
     unit/test_mie.cpp
-    # unit/test_rwg.cpp unit/test_quadrature.cpp unit/test_singularity.cpp
+    unit/test_rwg.cpp
+    # unit/test_quadrature.cpp unit/test_singularity.cpp
     # unit/test_octree.cpp unit/test_gmres.cpp unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)

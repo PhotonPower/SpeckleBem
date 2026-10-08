@@ -13,6 +13,9 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   coefficients and fields), near-field n_max criterion, scattered/internal near fields,
   bistatic RCS, scattering and extinction cross sections; unit tests against the BH sample case,
   the Rayleigh limit and surface boundary conditions; validation tests labelled `validation`.
+- basis (WP3b, #4): `RwgSpace`, Rao–Wilton–Glisson basis functions on interior edges with O(1)
+  triangle → basis lookup, values, divergences and signed supports; unit tests for normal
+  continuity, flux and divergence identities, open meshes and `flip_normals`.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).
