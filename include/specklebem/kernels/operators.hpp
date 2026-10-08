@@ -46,11 +46,18 @@ struct RegionParams {
 ///    |k| h <= 0.78: within 3e-9 (L, identical triangles), 1.2e-9 (L, shared edges; the R^3
 ///    term of the smooth remainder, growing like (|k| h)^4), 6e-10 (K) and 4e-10 (shared
 ///    vertices) of a relative-coordinate (Sauter-Schwab type) reference; raw swap asymmetry
-///    below 5e-10. A 30 degree fold (near-singular geometry): 1.3e-8.
-///  * near and far pairs: the degree is chosen per pair for target_accuracy = 1e-6 (see
+///    below 5e-10. Shared edges: within 1e-8 for dihedral angles >= ~90 degrees between the
+///    two triangles. Sharper folds are near-singular (the far vertex of one triangle comes
+///    close to the other, away from the graded edge), the error depends on the triangle shapes
+///    and is dominated by K (measured, slow test "sharp folds"): 60 degrees 1.5e-8 to 3.4e-7 at
+///    level 4 (3.4e-9 at level 6); 30 degrees 6.8e-8 (level 4) / 5.7e-9 (level 5) for the
+///    folded hinge of the tests, but 4.5e-5 (level 4) / 3.7e-6 (level 6) for a skewed pair.
+///  * near and far pairs: the degree is chosen per pair for target_accuracy = 1e-5 (default; see
 ///    target_accuracy); measured errors are 0.05 to 0.5 of the target for D/h = 1.1 .. 15 and
 ///    |k| h = 0.1 .. 3 (vacuum, Si, Ag); at the near/far class boundary of the n = 4 Mie mesh
-///    6e-8 (n = 1.5) and 4e-7 (Ag).
+///    4.4e-7 (n = 1.5) and 2.5e-6 (Ag) (target 1e-6: 5.8e-8 and 4.4e-7). Against
+///    target_accuracy = 1e-6 the dense n = 3 Mie assembly is 20 to 38 % faster and eps_rr
+///    changes by <= 1e-8 (absolute).
 ///  * WP7 defaults for comparison (outer_grading_levels = 0, target_accuracy = 0,
 ///    quad_degree_near = 8): touching about 2e-4 (L) and 1e-2 of the K block (about 1e-4 of the
 ///    1/2 I jump term); at the class boundary of the n = 4 Mie mesh (lambda/13) 4.3e-3
@@ -64,7 +71,9 @@ struct OperatorOptions {
     /// right-hand-side rule of op::assemble_rhs.
     int quad_degree_near = 19;
     /// Touching pairs: Dunavant degree of the smooth remainder of the singularity subtraction
-    /// (inner rule; for outer_grading_levels = 0 also the outer rule); positive-interior.
+    /// (inner rule; for outer_grading_levels = 0 also the outer rule); positive-interior. Fixed,
+    /// not chosen by target_accuracy: the remainder error grows like (|k| h)^4 (about 1e-9 at
+    /// |k| h = 0.78, about 1e-6 at |k| h = 4); a k-aware choice is a follow-up.
     int quad_degree_sing = 10;
     Real near_distance_factor = 2.0;
     /// Outer (test-triangle) rule of the analytic static part of touching pairs (WP7b):
@@ -74,17 +83,21 @@ struct OperatorOptions {
     /// triangles, 4 + 2 l for shared edges and 2 + 2 l for shared vertices (default: 384, 288
     /// and 100 points; table in src/kernels/operators.cpp). 0 restores the WP7 scheme (one Dunavant
     /// rule of degree quad_degree_sing for the whole outer integral, blocks averaged over both
-    /// orderings).
+    /// orderings). Level 4 reaches ~1e-8 of the block norm for shared edges with dihedral
+    /// angles >= ~90 degrees; sharper folds need levels 5 to 6 (60 degrees: up to 3.4e-7 at
+    /// level 4, 3.4e-9 at level 6); below ~45 degrees skewed pairs are not resolved better than
+    /// ~1e-5 (30 degrees: 4.5e-5 at level 4, 3.7e-6 at level 6; a grading towards the
+    /// near-singular vertex is a follow-up).
     int outer_grading_levels = 4;
     /// Graded path: touching blocks of pairs with |k| h > symmetrize_touching_above_kh (h the
     /// larger longest edge) are averaged over both orderings, (B(t1, t2) + B(t2, t1)^T) / 2
-    /// (twice the cost for shared edges and vertices, free for identical triangles), which
-    /// makes them bitwise symmetric. Below the threshold the raw asymmetry is < 1e-9 of the
-    /// block norm (measured <= 4.4e-10 at |k| h = 0.78) and the blocks are not averaged.
-    /// Above it the smooth remainder is no longer smooth on the triangle scale and the raw
-    /// asymmetry grows (unaveraged, the PMCHWT matrix of the Ag icosphere n = 1 at 500 nm,
-    /// |k| h ~ 12, is asymmetric by 1.5e-5). 0 = always average, infinity = never. Must not
-    /// be NaN or negative.
+    /// (twice the cost for shared edges and vertices), which makes them bitwise symmetric.
+    /// Identical-triangle L blocks are always symmetrised, (L + L^T) / 2 (free). Below the
+    /// threshold the raw asymmetry is < 1e-9 of the block norm (measured <= 4.4e-10 at |k| h =
+    /// 0.78) and the blocks are not averaged. Above it the smooth remainder is no longer smooth on
+    /// the triangle scale and the raw asymmetry grows (unaveraged, the PMCHWT matrix of the Ag
+    /// icosphere n = 1 at 500 nm, |k| h ~ 12, is asymmetric by 1.5e-5). 0 = always average,
+    /// infinity = never. Must not be NaN or negative.
     Real symmetrize_touching_above_kh = 1.0;
     /// Near and far pairs: the Dunavant degree d (the same rule on both triangles) is the
     /// smallest one in the ladder quad_degree_far, then every positive-interior degree up to
@@ -95,8 +108,12 @@ struct OperatorOptions {
     /// non-increasing in D. Near-class pairs only use positive-interior degrees. If no degree
     /// of the ladder reaches the target, quad_degree_near is used. 0 disables the selection
     /// (fixed degrees: quad_degree_far for far pairs, quad_degree_near for near pairs, as in
-    /// WP7). Must be finite and in [0, 1).
-    Real target_accuracy = 1e-6;
+    /// WP7). Must be finite and in [0, 1). Governs near and far pairs only: touching pairs
+    /// (identical, shared edge, shared vertex) use the fixed quad_degree_sing and
+    /// outer_grading_levels, whose remainder error grows like (|k| h)^4 (about 1e-9 at |k| h =
+    /// 0.78, about 1e-6 at |k| h = 4) independently of this target. Default 1e-5: against 1e-6
+    /// the dense Mie n = 3 assembly is 20 to 38 % faster and eps_rr changes by <= 1e-8.
+    Real target_accuracy = 1e-5;
 };
 
 /// Checks the options (ADR 0004): quad_degree_far in 1..20, quad_degree_near and
@@ -122,9 +139,10 @@ void validate(const OperatorOptions& opt);
 ///    (1/R, R, grad(1/R), grad R and, on the graded path, R (r' - r) analytically with
 ///    static_integrals over t_src, the smooth remainder with the degree-quad_degree_sing
 ///    rule). With outer_grading_levels >= 1 (default) the analytic part is integrated over
-///    t_test with the graded rule and the remainder with a Dunavant outer rule; the blocks are
-///    averaged over both orderings only for |k| h > symmetrize_touching_above_kh (raw
-///    asymmetry below 1e-9 of the block norm otherwise). With outer_grading_levels = 0 (WP7) the
+///    t_test with the graded rule and the remainder with a Dunavant outer rule; identical L
+///    blocks are symmetrised, shared-edge and shared-vertex blocks are averaged over both
+///    orderings only for |k| h > symmetrize_touching_above_kh (raw asymmetry below 1e-9 of the
+///    block norm otherwise). With outer_grading_levels = 0 (WP7) the
 ///    whole outer integral uses the degree-quad_degree_sing rule, shared-edge and shared-vertex
 ///    blocks are averaged over both orderings ((B(t1, t2) + B(t2, t1)^T) / 2, twice the cost) and
 ///    identical L blocks are symmetrised. Averaged blocks are exactly symmetric:

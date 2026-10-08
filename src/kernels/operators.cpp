@@ -32,7 +32,8 @@
 /// kernel, so a kernel split into parts may integrate each part with its own outer rule.
 ///
 /// Near and far pairs: Dunavant rules of one degree d for both integrals, plain kernel (the
-/// triangles do not touch, R > 0). d is chosen per pair (OperatorOptions::target_accuracy):
+/// triangles do not touch, R > 0). d is chosen per pair (OperatorOptions::target_accuracy,
+/// default 1e-5; touching pairs are not governed by it, see quad_degree_sing):
 /// the smallest degree of the ladder quad_degree_far, then the positive-interior degrees up to
 /// quad_degree_near (near-class pairs: positive-interior degrees only), whose estimated relative
 /// block error E_d <= target_accuracy, with the empirical model
@@ -120,7 +121,12 @@
 /// Accuracy of the analytic part at the default level 4 (self-convergence against level 6 and
 /// comparison with the relative-coordinate reference of the tests): ~3e-9 (identical, n = 8),
 /// ~6e-10 (K of folded shared edges, n = 12), ~1e-11 (shared vertices, n = 10) of the block
-/// norm. Geometric Gauss-Legendre grading needs ~30 levels (10^4 points) for 1e-10.
+/// norm, for shared-edge dihedral angles >= ~90 degrees. Sharper folds are near-singular: the
+/// far vertex of one triangle approaches the other triangle away from the shared edge, so the
+/// outer integrand varies sharply where the edge grading does not refine; the error depends on
+/// the triangle shapes (60 degrees: 1.5e-8 to 3.4e-7 at level 4, 3.4e-9 at level 6; 30
+/// degrees: 6.8e-8 to 4.5e-5 at level 4, up to 3.7e-6 at level 6). Geometric Gauss-Legendre grading
+/// needs ~30 levels (10^4 points) for 1e-10.
 ///
 /// The remainder of the graded path uses a Dunavant outer rule (it is far smoother: rem has
 /// R^2 and R^3 terms, the analytic part carries all of 1/R and R): degree quad_degree_sing for
@@ -138,9 +144,11 @@
 /// int R^3 in singularity.hpp): its Dunavant outer error is ~2e-9 for identical triangles and
 /// ~1e-9 for shared edges at |k| h = 0.78, growing like (|k| h)^4.
 ///
-/// Symmetry of touching blocks. Graded path: the blocks of the two orderings differ only by the
-/// quadrature errors (< 1e-9 of the block norm for |k| h <= 1), so they are averaged over both
-/// orderings only if |k| h > symmetrize_touching_above_kh (default 1): for coarse meshes the
+/// Symmetry of touching blocks. Graded path: identical L blocks are always replaced by
+/// (L + L^T) / 2 (no extra cost). For shared edges and vertices the blocks of the two orderings
+/// differ only by the quadrature errors (< 1e-9 of the block norm for |k| h <= 1), so they are
+/// averaged over both orderings only if |k| h > symmetrize_touching_above_kh (default 1): for
+/// coarse meshes the
 /// remainder is no longer smooth on the triangle scale (unaveraged, the PMCHWT matrix of the Ag
 /// icosphere n = 1 at 500 nm, |k| h ~ 12, is asymmetric by 1.5e-5) and the averaging keeps the
 /// Galerkin matrix exactly symmetric at twice the cost. WP7 path (outer_grading_levels = 0): a
@@ -630,7 +638,6 @@ struct Moments {
     C3 psi{};
 };
 
-/// Plain kernel (non-touching pairs, R > 0).
 /// Plain kernel (non-touching pairs, R > 0), in real arithmetic (the hot loop of every near and
 /// far pair; complex products would go through the NaN-checking library multiplication). With
 /// k = kr + j ki: e^{-jkR} = e^{ki R} (cos(kr R) - j sin(kr R)), 1 + jkR = (1 - ki R) + j kr R.
@@ -1026,14 +1033,12 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
         acc = integrate_touching_graded(test, src, shared_first(mesh, t_test, t_src), kind, opt,
                                         region.k, need_k);
         const Real kh = std::abs(region.k) * std::max(longest_edge(g_test), longest_edge(g_src));
-        if (kh > opt.symmetrize_touching_above_kh) {
-            if (prox == Proximity::identical) {
-                symmetrize_vec(acc);
-            } else {
-                average_with_transpose(
-                    acc, integrate_touching_graded(src, test, shared_first(mesh, t_src, t_test),
-                                                   kind, opt, region.k, need_k));
-            }
+        if (prox == Proximity::identical) {
+            symmetrize_vec(acc);  // free: always (K is zero, the scalar part has one entry)
+        } else if (kh > opt.symmetrize_touching_above_kh) {
+            average_with_transpose(
+                acc, integrate_touching_graded(src, test, shared_first(mesh, t_src, t_test), kind,
+                                               opt, region.k, need_k));
         }
     }
 
