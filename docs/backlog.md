@@ -77,6 +77,7 @@ n ≤ 3 (2N ≤ 3 840).
 | WP | Title | Phase | Depends on | Files | Acceptance criterion | Status | Branch | Issue |
 |----|-------|-------|------------|-------|----------------------|--------|--------|-------|
 | WP-W1 | Native Windows build with MSYS2 (`win-release` UCRT64 GCC + OpenBLAS, `win-debug` CLANG64 Clang + ASan/UBSan), `.gitattributes` LF checkout, fetched Eigen as `SYSTEM` for CMake 4, Windows memory guard, Windows CI job, CI on `wp/**` pushes | tooling | — | `CMakePresets.json`, `cmake/Dependencies.cmake`, `.gitattributes`, `.github/workflows/ci.yml`, `tests/support/system_memory.*` | Both win presets warning-free, 192/192 ctest (`-LE validation-large`), 13/13 `^validation$`, pytest green; Linux CI unchanged and green | done (squash-merged) | `wp/w1-windows-msys2` | — |
+| WP-P1 | UTF-8 file paths (ADR 0007): `core::path_from_utf8` / `path_to_utf8`, switch `geometry::mesh_io` and `io::result_writer` | tooling/core | WP16 | `include/specklebem/core/`, `src/core/`, `src/geometry/mesh_io.cpp`, `src/io/result_writer.cpp`, tests | Round trip (write → read) of a mesh and an `.npy` directory under a non-ASCII directory name (e.g. `Jürgen_µm_路径`) on Windows and Linux CI; error messages contain the UTF-8 path; no `path(std::string)` / `.string()` on user paths left (grep in review) | todo | `wp/p1-utf8-paths` | — |
 
 ## Notes for workers (lessons learned)
 
@@ -84,9 +85,8 @@ n ≤ 3 (2N ≤ 3 840).
   false positives that GCC 16 does not (e.g. `-Wnull-dereference` from `std::istreambuf_iterator`, WP16). The
   coordinator pushes every WP branch and merges only with all four CI jobs green. Prefer sized `read()` over
   `istreambuf_iterator` for whole-file reads.
-- Open project-wide question (follow-up, not yet a WP): file paths are passed as `std::string` and interpreted
-  in the ANSI code page on Windows (`mesh_io`, `io`); UTF-8 paths from Python (WP14b) need `std::u8string`-based
-  conversion. Decide before WP14b exposes file I/O.
+- Paths in the public API are UTF-8 on every platform (ADR 0007); convert only via `core::path_from_utf8` /
+  `core::path_to_utf8` (WP-P1), never `std::filesystem::path(std::string)` or `path::string()` on user paths.
 - Coordinator tooling: `SendMessage` is not available in the Windows sessions, so a finished worker cannot be resumed. Trivial review fixes (docs/comments, < 20 lines) are applied by the coordinator on the WP branch; substantive fixes go to a new worker whose brief contains the original brief, the review findings and the branch head.
 - Without system packages, Eigen/spdlog/Catch2/pybind11 are fetched by `cmake/Dependencies.cmake`.
   The fetched Eigen is marked as a system include so that `-Werror` does not trip on Eigen
