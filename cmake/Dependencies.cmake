@@ -69,10 +69,14 @@ endif()
 # --- spdlog (logging) ------------------------------------------------------
 find_package(spdlog QUIET CONFIG)
 if(NOT spdlog_FOUND)
+    # v1.15.3 bundles fmt 11.2: the fmt 10.2 of spdlog 1.14 fails to compile with Clang 22
+    # (FMT_STRING consteval check "subexpression not valid in a constant expression").
+    # SYSTEM: warnings inside the spdlog / fmt headers are not ours (-Werror in debug presets).
     FetchContent_Declare(spdlog
         GIT_REPOSITORY https://github.com/gabime/spdlog.git
-        GIT_TAG        v1.14.1
-        GIT_SHALLOW    TRUE)
+        GIT_TAG        v1.15.3
+        GIT_SHALLOW    TRUE
+        SYSTEM)
     set(SPDLOG_INSTALL ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(spdlog)
 endif()
@@ -81,10 +85,14 @@ endif()
 if(SPECKLEBEM_BUILD_TESTS)
     find_package(Catch2 3 QUIET CONFIG)
     if(NOT Catch2_FOUND)
+        # >= v3.14: Clang 22 flags the __COUNTER__ in Catch2's TEST_CASE / SECTION macros as a
+        # C2y extension (-Wc2y-extensions under -Wpedantic, at the expansion site in our code);
+        # Catch2 3.14 suppresses that itself. SYSTEM, as a package-manager Catch2 would be.
         FetchContent_Declare(Catch2
             GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-            GIT_TAG        v3.7.1
-            GIT_SHALLOW    TRUE)
+            GIT_TAG        v3.16.1
+            GIT_SHALLOW    TRUE
+            SYSTEM)
         FetchContent_MakeAvailable(Catch2)
         list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
     endif()
@@ -98,7 +106,8 @@ if(SPECKLEBEM_BUILD_PYTHON)
         FetchContent_Declare(pybind11
             GIT_REPOSITORY https://github.com/pybind/pybind11.git
             GIT_TAG        v2.13.6
-            GIT_SHALLOW    TRUE)
+            GIT_SHALLOW    TRUE
+            SYSTEM)
         FetchContent_MakeAvailable(pybind11)
     endif()
 endif()
