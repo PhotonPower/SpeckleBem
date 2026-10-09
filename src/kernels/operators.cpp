@@ -180,6 +180,9 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
+#include <cstdio>
+#include <initializer_list>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -202,6 +205,8 @@ constexpr Complex kJ{0.0, 1.0};
 constexpr Real kCoplanarTol = 1e-12;
 /// Highest outer_grading_levels.
 constexpr int kMaxGradingLevel = 6;
+/// Largest Gauss-Legendre table of the fold-adaptive rule.
+constexpr int kMaxLinePoints = 16;
 
 /// a_n = (-1)^n / n! for n = 3 .. kSeriesLast, stored at index n - 3.
 constexpr std::array<Real, kSeriesLast - 2> series_coefficients() {
@@ -519,17 +524,34 @@ std::vector<GradedNode> build_graded_table(GradedKind kind, int level) {
 /// are re-checked against their first two moments (transcription guard).
 struct GradedTables {
     std::array<std::array<std::vector<GradedNode>, kMaxGradingLevel + 1>, 3> nodes;
+    /// Gauss-Legendre rules on [0, 1], index n = 1 .. kMaxLinePoints (fold-adaptive rule).
+    std::array<std::vector<LineNode>, kMaxLinePoints + 1> gauss;
     GradedTables() {
-        for (const int n : {2, 4, 6, 8, 10, 12, 14, 16}) {
-            Real s0 = 0.0;
-            Real s1 = 0.0;
-            for (const LineNode& q : log_gauss_rule(n)) {
-                s0 += q.w;
-                s1 += q.w * std::log(q.x);
+        for (int n = 1; n <= kMaxLinePoints; ++n) {
+            const LineRule g = gauss_legendre(n);
+            std::vector<LineNode>& out = gauss[static_cast<std::size_t>(n)];
+            out.resize(g.nodes.size());
+            for (std::size_t i = 0; i < out.size(); ++i) {
+                out[i] = {0.5 * (g.nodes[i] + 1.0), 0.5 * g.weights[i]};
             }
-            if (std::abs(s0 - 1.0) > 1e-14 || std::abs(s1 + 1.0) > 1e-14) {
-                throw std::logic_error("operators.cpp: corrupted log-Gauss table, n = " +
-                                       std::to_string(n));
+        }
+        for (const int n : {2, 4, 6, 8, 10, 12, 14, 16}) {
+            // All 2n moments: int_0^1 x^j = 1 / (j + 1), int_0^1 x^j log x = -1 / (j + 1)^2.
+            for (int j = 0; j < n; ++j) {
+                Real s0 = 0.0;
+                Real s1 = 0.0;
+                for (const LineNode& q : log_gauss_rule(n)) {
+                    const Real xj = std::pow(q.x, j);
+                    s0 += q.w * xj;
+                    s1 += q.w * xj * std::log(q.x);
+                }
+                const Real jp = static_cast<Real>(j + 1);
+                if (std::abs(s0 - 1.0 / jp) > 1e-14 || std::abs(s1 + 1.0 / (jp * jp)) > 1e-14) {
+                    throw std::logic_error("operators.cpp: corrupted log-Gauss table, n = " +
+                                           std::to_string(n) + ", moment " + std::to_string(j) +
+                                           ": " + std::to_string(s0 - 1.0 / jp) + ", " +
+                                           std::to_string(s1 + 1.0 / (jp * jp)));
+                }
             }
         }
         for (const GradedKind kind :
@@ -542,9 +564,17 @@ struct GradedTables {
     }
 };
 
-std::span<const GradedNode> graded_table(GradedKind kind, int level) {
+const GradedTables& graded_tables() {
     static const GradedTables tables;
-    return tables.nodes[static_cast<std::size_t>(kind)][static_cast<std::size_t>(level)];
+    return tables;
+}
+
+std::span<const GradedNode> graded_table(GradedKind kind, int level) {
+    return graded_tables().nodes[static_cast<std::size_t>(kind)][static_cast<std::size_t>(level)];
+}
+
+std::span<const LineNode> gauss01_rule(int n) {
+    return graded_tables().gauss[static_cast<std::size_t>(n)];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -868,39 +898,6 @@ int identical_remainder_outer_degree(int sing) {
     return d;
 }
 
-/// Graded touching scheme (file comment). `abc` are the test-triangle vertices reordered with
-/// the shared vertices first.
-Accumulator integrate_touching_graded(const Side& test, const Side& src,
-                                      const std::array<Vec3, 3>& abc, GradedKind kind,
-                                      const OperatorOptions& opt, Complex k, bool need_k) {
-    Accumulator acc;
-    // Analytic part on the graded rule.
-    const P3 a = to_p3(abc[0]);
-    const P3 b = to_p3(abc[1]);
-    const P3 c = to_p3(abc[2]);
-    const Real area = test.geom->area;
-    for (const GradedNode& q : graded_table(kind, opt.outer_grading_levels)) {
-        const P3 r{q.l0 * a.x + q.l1 * b.x + q.l2 * c.x, q.l0 * a.y + q.l1 * b.y + q.l2 * c.y,
-                   q.l0 * a.z + q.l1 * b.z + q.l2 * c.z};
-        Moments mo;
-        add_static_moments(r, *src.geom, k, true, mo);
-        accumulate(r, q.w * area, mo, *test.slots, *src.slots, need_k, acc);
-    }
-    // Numerical remainder on Dunavant rules.
-    const int outer_degree = kind == GradedKind::identical
-                                 ? identical_remainder_outer_degree(opt.quad_degree_sing)
-                                 : opt.quad_degree_sing;
-    Points outer;
-    Points inner;
-    map_rule(triangle_rule(outer_degree), *test.geom, outer);
-    map_rule(triangle_rule(opt.quad_degree_sing), *src.geom, inner);
-    for (std::size_t i = 0; i < outer.count; ++i) {
-        accumulate(outer.r[i], outer.w[i], remainder_moments(outer.r[i], inner, k, true, need_k),
-                   *test.slots, *src.slots, need_k, acc);
-    }
-    return acc;
-}
-
 /// Vertices of t ordered with those shared with `other` first (cyclic order otherwise kept).
 std::array<Vec3, 3> shared_first(const geometry::TriangleMesh& mesh, Index t, Index other) {
     const Triangles& tri = mesh.triangles();
@@ -916,6 +913,279 @@ std::array<Vec3, 3> shared_first(const geometry::TriangleMesh& mesh, Index t, In
         }
     }
     return {vertex(mesh, order[0]), vertex(mesh, order[1]), vertex(mesh, order[2])};
+}
+
+// ---------------------------------------------------------------------------------------------
+// Fold-adaptive outer rule of the analytic part (WP7c, file comment).
+// ---------------------------------------------------------------------------------------------
+
+/// v grading of a Duffy piece (apex x, opposite side p1 -> p2, r = x + u [(p1 - x) + v (p2 -
+/// p1)]): Gauss-Legendre, or log-Gauss towards the side x p1 (v = 0) or x p2 (v = 1).
+enum class Grade { none, at_p1, at_p2 };
+
+struct DuffyPiece {
+    Vec3 x, p1, p2;
+    Grade grade;
+};
+
+/// Singular feature through the apex of a piece: the apex itself (point) or a source-triangle
+/// edge from the apex (ray along the unit vector d; the shared edge is one of them).
+struct Feature {
+    Vec3 d;
+    bool ray;
+};
+
+/// Capacity of a piece list and the split depth per initial piece.
+constexpr std::size_t kMaxPieces = 48;
+constexpr int kMaxSplitDepth = 8;
+/// Edge class: the projection P of the source's far vertex onto the test plane has the
+/// barycentric coordinate lambda_C (C the test's far vertex) > kFoldMin: fold clearly below 90
+/// degrees, the pieces are cut along the projected source edges (file comment).
+inline Real dbg_env(const char* n, Real d) { const char* s = std::getenv(n); return s ? std::atof(s) : d; }
+const Real kFoldMin = dbg_env("SBEM_LMIN", 0.1);
+/// Smallest distance (in units of the side p1 p2) of the complex zero of a feature from the
+/// real interval v in [0, 1]; closer zeros are split off.
+const Real kZeroMin = dbg_env("SBEM_ZMIN", 0.5);
+const Real kNearVertex = dbg_env("SBEM_NEARV", 0.2);
+/// A zero within kEndTol of an end point (real and imaginary part) lies on that side: graded.
+constexpr Real kEndTol = 1e-3;
+
+struct PieceList {
+    std::size_t count = 0;
+    std::array<DuffyPiece, kMaxPieces> p;
+    std::array<Feature, 4> features{};  ///< features of the current apex
+    std::size_t n_features = 0;
+    Real min_area = 0.0;  ///< pieces below this area are dropped (degenerate slivers)
+    bool changed = false; ///< a piece was split or the partition differs from the WP7b one
+};
+
+/// Complex zero v_f + j q (q >= 0) of the squared distance |w|^2 - (w . d)^2 (ray) or |w|^2
+/// (point) for w(v) = (p1 - x) + v (p2 - p1), the singularity of the outer integrand along the
+/// side. Returns false if the feature has no zero on this side (ray pointing away, or parallel).
+bool feature_zero(const Vec3& x, const Vec3& p1, const Vec3& p2, const Feature& f, Real& vf,
+                  Real& q) {
+    const Vec3 w0 = p1 - x;
+    const Vec3 e = p2 - p1;
+    Real a = e.squaredNorm();
+    Real b = w0.dot(e);
+    Real c = w0.squaredNorm();
+    if (f.ray) {
+        const Real ed = e.dot(f.d);
+        const Real wd = w0.dot(f.d);
+        a -= ed * ed;
+        b -= wd * ed;
+        c -= wd * wd;
+    }
+    if (!(a > 1e-14 * e.squaredNorm())) {
+        return false;
+    }
+    vf = -b / a;
+    q = std::sqrt(std::max(a * c - b * b, 0.0)) / a;
+    // A ray is singular only on its forward side (the backward extension is not part of the
+    // source triangle).
+    return !f.ray || (w0 + vf * e).dot(f.d) > 0.0;
+}
+
+/// Adds piece (x, p1, p2) for the features of pl (file comment): a zero within kEndTol of an
+/// end grades that side (log-Gauss; zeros at both ends: the piece is halved); the zero nearest
+/// to [0, 1] at a relative distance below kZeroMin splits the piece (at its real part if that is
+/// inside, else at the distance / kZeroMin from the nearer end). `reserve` slots stay free for
+/// pieces still to be added by the callers (count + reserve + 1 <= kMaxPieces on entry), so no
+/// piece is ever dropped; splitting stops when the list is full or at kMaxSplitDepth.
+void add_piece(PieceList& pl, const Vec3& x, const Vec3& p1, const Vec3& p2, int depth,
+               std::size_t reserve) {
+    if (0.5 * (p1 - x).cross(p2 - x).norm() <= pl.min_area) {
+        return;
+    }
+    bool at0 = false;
+    bool at1 = false;
+    Real worst = kZeroMin;
+    Real split = -1.0;
+    for (std::size_t i = 0; i < pl.n_features; ++i) {
+        Real vf = 0.0;
+        Real q = 0.0;
+        if (!feature_zero(x, p1, p2, pl.features[i], vf, q)) {
+            continue;
+        }
+        if (q <= kEndTol && std::abs(vf) <= kEndTol) {
+            at0 = true;
+            continue;
+        }
+        if (q <= kEndTol && std::abs(vf - 1.0) <= kEndTol) {
+            at1 = true;
+            continue;
+        }
+        const Real dv = vf < 0.0 ? -vf : (vf > 1.0 ? vf - 1.0 : 0.0);
+        const Real dist = std::sqrt(dv * dv + q * q);
+        if (dist < worst) {
+            worst = dist;
+            if (vf >= kEndTol && vf <= 1.0 - kEndTol) {
+                split = vf;
+            } else if (vf < kEndTol) {
+                split = std::hypot(vf, q) / kZeroMin;
+            } else {
+                split = 1.0 - std::hypot(vf - 1.0, q) / kZeroMin;
+            }
+        }
+    }
+    const bool can_split = pl.count + reserve + 2 <= kMaxPieces && depth < kMaxSplitDepth;
+    if (can_split && (split >= 0.0 || (at0 && at1))) {
+        const Real vs = split >= 0.0 ? std::clamp(split, 2.0 * kEndTol, 1.0 - 2.0 * kEndTol) : 0.5;
+        const Vec3 s = p1 + vs * (p2 - p1);
+        pl.changed = true;
+        add_piece(pl, x, p1, s, depth + 1, reserve + 1);
+        add_piece(pl, x, s, p2, depth + 1, reserve);
+        return;
+    }
+    pl.p[pl.count++] = {x, p1, p2, at0 ? Grade::at_p1 : (at1 ? Grade::at_p2 : Grade::none)};
+}
+
+/// Barycentric coordinates of p (in the plane of a, b, c) with respect to (a, b, c).
+std::array<Real, 3> barycentric_of(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& p) {
+    const Vec3 e1 = b - a;
+    const Vec3 e2 = c - a;
+    const Vec3 d = p - a;
+    const Real g11 = e1.dot(e1);
+    const Real g12 = e1.dot(e2);
+    const Real g22 = e2.dot(e2);
+    const Real r1 = d.dot(e1);
+    const Real r2 = d.dot(e2);
+    const Real det = g11 * g22 - g12 * g12;
+    const Real lb = (g22 * r1 - g12 * r2) / det;
+    const Real lc = (g11 * r2 - g12 * r1) / det;
+    return {1.0 - lb - lc, lb, lc};
+}
+
+/// Sets the features of apex x: the point itself and the source edges from x to `ends`.
+void set_features(PieceList& pl, const Vec3& x, std::initializer_list<Vec3> ends) {
+    pl.n_features = 0;
+    pl.features[pl.n_features++] = {Vec3::Zero(), false};
+    for (const Vec3& e : ends) {
+        pl.features[pl.n_features++] = {(e - x).normalized(), true};
+    }
+}
+
+/// Pieces of the fold-adaptive rule for a touching pair (file comment). abc: test vertices,
+/// shared first; far: the source vertices not shared (shared edge: far[0]; shared vertex: both).
+/// Returns false if the WP7b table applies unchanged (no split, WP7b partition and grading).
+bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::array<Vec3, 2>& far,
+                 PieceList& pl) {
+    const Vec3& A = abc[0];
+    const Vec3& B = abc[1];
+    const Vec3& C = abc[2];
+    pl.min_area = 1e-9 * 0.5 * (B - A).cross(C - A).norm();
+    if (kind == GradedKind::shared_vertex) {
+        set_features(pl, A, {far[0], far[1]});
+        add_piece(pl, A, B, C, 0, 0);
+        return pl.changed || pl.p[0].grade != Grade::none;
+    }
+    const Vec3 M = 0.5 * (A + B);
+    const Vec3 n = (B - A).cross(C - A).normalized();
+    const Vec3 P = far[0] - (far[0] - A).dot(n) * n;
+    const std::array<Real, 3> l = barycentric_of(A, B, C, P);
+    const Real la = std::max(l[0], 0.0);
+    const Real lb = std::max(l[1], 0.0);
+    const Vec3 S = (la * A + lb * B + l[2] * C) / (la + lb + l[2]);
+    const Real ab = (B - A).norm();
+    if (l[2] <= kFoldMin || std::min((S - A).norm(), (S - B).norm()) < kNearVertex * ab) {
+        set_features(pl, A, {B, far[0]});
+        add_piece(pl, A, M, C, 0, 1);
+        const std::size_t n_a = pl.count;
+        set_features(pl, B, {A, far[0]});
+        add_piece(pl, B, M, C, 0, 0);
+        return pl.changed || n_a != 1 || pl.count != 2 || pl.p[0].grade != Grade::at_p1 ||
+               pl.p[1].grade != Grade::at_p1;
+    }
+    // Fold below 90 degrees: the source edges A C' and B C' project onto the rays A S and B S
+    // (S = P clipped into T along those rays), which become sides of the pieces.
+    pl.changed = true;
+    set_features(pl, A, {B, far[0]});
+    add_piece(pl, A, M, S, 0, 3);
+    add_piece(pl, A, S, C, 0, 2);
+    set_features(pl, B, {A, far[0]});
+    add_piece(pl, B, M, S, 0, 1);
+    add_piece(pl, B, S, C, 0, 0);
+    return true;
+}
+
+/// Points per direction of the fold-adaptive pieces at grading level `level`.
+int adaptive_points_per_direction(int level) {
+    return static_cast<int>(dbg_env("SBEM_NAD", 4 + 2 * level));
+}
+
+/// Graded touching scheme (file comment). `abc` are the test-triangle vertices reordered with
+/// the shared vertices first; `pieces` the fold-adaptive rule of the analytic part, or nullptr
+/// for the WP7b table.
+Accumulator integrate_touching_graded(const Side& test, const Side& src,
+                                      const std::array<Vec3, 3>& abc, GradedKind kind,
+                                      const PieceList* pieces, const OperatorOptions& opt,
+                                      Complex k, bool need_k) {
+    Accumulator acc;
+    // Analytic part on the graded rule.
+    if (pieces != nullptr) {
+        const int n = adaptive_points_per_direction(opt.outer_grading_levels);
+        const std::span<const LineNode> lg = log_gauss_rule(static_cast<int>(dbg_env("SBEM_NV", n)));
+        std::array<LineNode, 40> unodes{};
+        std::size_t nun = 0;
+        {
+            const Real us = dbg_env("SBEM_USPLIT", 1.0);
+            for (const LineNode& q : log_gauss_rule(static_cast<int>(dbg_env("SBEM_NU", n)))) {
+                unodes[nun++] = {us * q.x, us * q.w};
+            }
+            if (us < 1.0) {
+                for (const LineNode& q : gauss01_rule(static_cast<int>(dbg_env("SBEM_NU2", n)))) {
+                    unodes[nun++] = {us + (1.0 - us) * q.x, (1.0 - us) * q.w};
+                }
+            }
+        }
+        const std::span<const LineNode> lgu(unodes.data(), nun);
+        const std::span<const LineNode> gl = gauss01_rule(static_cast<int>(dbg_env("SBEM_NV", n)));
+        for (std::size_t i = 0; i < pieces->count; ++i) {
+            const DuffyPiece& pc = pieces->p[i];
+            const P3 x = to_p3(pc.x);
+            const P3 e1 = to_p3(pc.p1 - pc.x);
+            const P3 e2 = to_p3(pc.p2 - pc.p1);
+            const Real area2 = (pc.p1 - pc.x).cross(pc.p2 - pc.x).norm();
+            const std::span<const LineNode> rv = pc.grade == Grade::none ? gl : lg;
+            for (const LineNode& nu : lgu) {
+                for (const LineNode& nv : rv) {
+                    const Real v = pc.grade == Grade::at_p2 ? 1.0 - nv.x : nv.x;
+                    const Real u = nu.x;
+                    const P3 r{x.x + u * (e1.x + v * e2.x), x.y + u * (e1.y + v * e2.y),
+                               x.z + u * (e1.z + v * e2.z)};
+                    Moments mo;
+                    add_static_moments(r, *src.geom, k, true, mo);
+                    accumulate(r, area2 * u * nu.w * nv.w, mo, *test.slots, *src.slots, need_k,
+                               acc);
+                }
+            }
+        }
+    } else {
+        const P3 a = to_p3(abc[0]);
+        const P3 b = to_p3(abc[1]);
+        const P3 c = to_p3(abc[2]);
+        const Real area = test.geom->area;
+        for (const GradedNode& q : graded_table(kind, opt.outer_grading_levels)) {
+            const P3 r{q.l0 * a.x + q.l1 * b.x + q.l2 * c.x, q.l0 * a.y + q.l1 * b.y + q.l2 * c.y,
+                       q.l0 * a.z + q.l1 * b.z + q.l2 * c.z};
+            Moments mo;
+            add_static_moments(r, *src.geom, k, true, mo);
+            accumulate(r, q.w * area, mo, *test.slots, *src.slots, need_k, acc);
+        }
+    }
+    // Numerical remainder on Dunavant rules.
+    const int outer_degree = kind == GradedKind::identical
+                                 ? identical_remainder_outer_degree(opt.quad_degree_sing)
+                                 : opt.quad_degree_sing;
+    Points outer;
+    Points inner;
+    map_rule(triangle_rule(outer_degree), *test.geom, outer);
+    map_rule(triangle_rule(opt.quad_degree_sing), *src.geom, inner);
+    for (std::size_t i = 0; i < outer.count; ++i) {
+        accumulate(outer.r[i], outer.w[i], remainder_moments(outer.r[i], inner, k, true, need_k),
+                   *test.slots, *src.slots, need_k, acc);
+    }
+    return acc;
 }
 
 /// out = (x + y^T) / 2 for the 3x3 parts and the scalar. Element-wise 0.5 (x + y) is
@@ -1030,15 +1300,42 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
         const GradedKind kind = prox == Proximity::identical     ? GradedKind::identical
                                 : prox == Proximity::shared_edge ? GradedKind::shared_edge
                                                                  : GradedKind::shared_vertex;
-        acc = integrate_touching_graded(test, src, shared_first(mesh, t_test, t_src), kind, opt,
-                                        region.k, need_k);
+        // Fold-adaptive pieces of the analytic part (nullptr: the WP7b table).
+        const auto touching_pass = [&](const Side& te, const Side& sr, Index tt, Index ts) {
+            const std::array<Vec3, 3> abc = shared_first(mesh, tt, ts);
+            PieceList pieces;
+            bool adaptive = false;
+            if (opt.fold_adaptive && kind != GradedKind::identical) {
+                const std::array<Vec3, 3> src_abc = shared_first(mesh, ts, tt);
+                const std::array<Vec3, 2> far =
+                    kind == GradedKind::shared_edge ? std::array<Vec3, 2>{src_abc[2], src_abc[2]}
+                                                    : std::array<Vec3, 2>{src_abc[1], src_abc[2]};
+                adaptive = fold_pieces(kind, abc, far, pieces);
+                if (std::getenv("SBEM_PIECES") != nullptr) {
+                    const Real hh = (abc[1] - abc[0]).norm();
+                    std::fprintf(stderr, "pair %lld %lld adaptive %d pieces %zu\n",
+                                 static_cast<long long>(tt), static_cast<long long>(ts),
+                                 adaptive ? 1 : 0, pieces.count);
+                    for (std::size_t i = 0; i < pieces.count; ++i) {
+                        const DuffyPiece& pc = pieces.p[i];
+                        std::fprintf(stderr,
+                                     "  x (%.3f %.3f %.3f) p1 (%.3f %.3f %.3f) p2 (%.3f %.3f "
+                                     "%.3f) grade %d\n",
+                                     pc.x(0) / hh, pc.x(1) / hh, pc.x(2) / hh, pc.p1(0) / hh,
+                                     pc.p1(1) / hh, pc.p1(2) / hh, pc.p2(0) / hh, pc.p2(1) / hh,
+                                     pc.p2(2) / hh, static_cast<int>(pc.grade));
+                    }
+                }
+            }
+            return integrate_touching_graded(te, sr, abc, kind, adaptive ? &pieces : nullptr, opt,
+                                             region.k, need_k);
+        };
+        acc = touching_pass(test, src, t_test, t_src);
         const Real kh = std::abs(region.k) * std::max(longest_edge(g_test), longest_edge(g_src));
         if (prox == Proximity::identical) {
             symmetrize_vec(acc);  // free: always (K is zero, the scalar part has one entry)
         } else if (kh > opt.symmetrize_touching_above_kh) {
-            average_with_transpose(
-                acc, integrate_touching_graded(src, test, shared_first(mesh, t_src, t_test), kind,
-                                               opt, region.k, need_k));
+            average_with_transpose(acc, touching_pass(src, test, t_src, t_test));
         }
     }
 

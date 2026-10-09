@@ -89,6 +89,8 @@ struct OperatorOptions {
     /// ~1e-5 (30 degrees: 4.5e-5 at level 4, 3.7e-6 at level 6; a grading towards the
     /// near-singular vertex is a follow-up).
     int outer_grading_levels = 4;
+    /// Fold-adaptive outer rule of shared-edge and shared-vertex pairs (WP7c; see src).
+    bool fold_adaptive = true;
     /// Graded path: touching blocks of pairs with |k| h > symmetrize_touching_above_kh (h the
     /// larger longest edge) are averaged over both orderings, (B(t1, t2) + B(t2, t1)^T) / 2
     /// (twice the cost for shared edges and vertices), which makes them bitwise symmetric.

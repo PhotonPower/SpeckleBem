@@ -2456,3 +2456,219 @@ TEST_CASE("element_blocks (full): cost of the WP7b defaults", "[kernels][.slow]"
     }
     CHECK(std::isfinite(sink.real()));
 }
+
+// ---------------------------------------------------------------------------------------------
+// WP7c: dihedral sweep of shared-edge and shared-vertex folds.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// Closed fan of four triangles around the shared vertex A = 0: T = (A, B, C) in the plane z = 0
+/// (y >= 0), T' = (A, D, E) and (A, E, B) in the half-plane at dihedral angle `degrees` about the
+/// x axis, (A, C, D) bridging the two; B = (a, 0, 0), C = (x2, y2, 0) a, and D, E at (xd, rd) a and
+/// (x3, r3) a in the folded half-plane (along the hinge, distance from it): (x, r) -> (x a, r a
+/// cos th, r a sin th). T (0) and T' (2) share only A and carry two RWG functions each.
+TriangleMesh vertex_fold(Real a, Real degrees, Real x2, Real y2, Real xd, Real rd, Real x3,
+                         Real r3) {
+    const Real c = std::cos(degrees * kPi / 180.0);
+    const Real s = std::sin(degrees * kPi / 180.0);
+    Vertices v(5, 3);
+    v << 0.0, 0.0, 0.0, a, 0.0, 0.0, x2 * a, y2 * a, 0.0, xd * a, rd * a * c, rd * a * s, x3 * a,
+        r3 * a * c, r3 * a * s;
+    Triangles f(4, 3);
+    f << 0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1;
+    return TriangleMesh(v, f);
+}
+
+/// Shapes of the sweep: apex of T at (x2, y2) a; far vertex of T' at x3 a along the hinge and
+/// r3 a from it (shared vertex: D at (xd, rd) a). Shared edge: regular (folded_hinge), skewed (the
+/// far vertex of T' close to B, small angle at A when folded) and obtuse (obtuse angles at the
+/// shared vertex A in both triangles, 106 and 120 degrees). Shared vertex (vertex_fold): regular,
+/// skewed (the edge A E at 19 degrees from the hinge, so that its projection onto T runs close to
+/// A B) and obtuse (106 and 104 degrees at A).
+struct FoldShape {
+    const char* name;
+    Real x2, y2, x3, r3, xd, rd;
+};
+constexpr std::array<FoldShape, 5> kEdgeShapes = {{{"regular", 0.4, 0.8, 0.55, 0.85, 0.0, 0.0}, {"obtS", 0.4, 0.8, -0.35, 0.6, 0.0, 0.0}, {"obtB", -0.2, 0.7, -0.35, 0.6, 0.0, 0.0},
+                                                    {"skewed", 0.3, 0.9, 0.8, 0.55, 0.0, 0.0},
+                                                    {"obtuse", -0.2, 0.7, 0.55, 0.85, 0.0, 0.0}}};
+constexpr std::array<FoldShape, 3> kVertexShapes = {
+    {{"regular", 0.4, 0.8, 0.3, 0.8, -0.3, 0.6},
+     {"skewed", 0.3, 0.9, 0.75, 0.45, -0.1, 0.7},
+     {"obtuse", -0.2, 0.7, 0.2, 0.8, -0.6, 0.0}}};
+
+struct FoldPair {
+    std::string name;
+    TriangleMesh mesh;
+    Index t1, t2;
+};
+
+/// The fold pair of class `edge` (shared edge / shared vertex), shape and dihedral angle, sized
+/// like the other touching geometries (a = 0.6 radius of the Si-sized sphere).
+FoldPair fold_pair(bool edge, const FoldShape& s, Real degrees) {
+    const Real a = 0.6 * scaled(kVacuumRadius, all_regions()[1].p);
+    std::ostringstream name;
+    name << (edge ? "edge " : "vertex ") << s.name << " " << degrees;
+    if (edge) {
+        return {name.str(), asymmetric_hinge(a, degrees, s.x2, s.y2, s.x3, s.r3), 0, 1};
+    }
+    return {name.str(), vertex_fold(a, degrees, s.x2, s.y2, s.xd, s.rd, s.x3, s.r3), 0, 2};
+}
+
+/// Worst relative L / K error over both orderings and all regions against the reference
+/// (one ordering, transposed for the other), and the worst raw swap asymmetry.
+GradedResult fold_errors(const FoldPair& p, const std::vector<NamedRegion>& regs,
+                         const std::vector<Blocks>& ref, const OperatorOptions& opt) {
+    const RwgSpace space(p.mesh);
+    GradedResult res;
+    for (std::size_t g = 0; g < regs.size(); ++g) {
+        const Blocks b12 = blocks(space, p.t1, p.t2, regs[g].p, opt);
+        const Blocks b21 = blocks(space, p.t2, p.t1, regs[g].p, opt);
+        res.err = std::max({res.err, rel_diff(b12.L, ref[g].L), rel_diff(b12.K, ref[g].K),
+                            rel_diff(b21.L.transpose(), ref[g].L),
+                            rel_diff(b21.K.transpose(), ref[g].K)});
+        res.asym = std::max({res.asym, rel_diff(b21.L.transpose(), b12.L),
+                             rel_diff(b21.K.transpose(), b12.K)});
+    }
+    return res;
+}
+
+}  // namespace
+
+TEST_CASE("static probe (experiment)", "[kernels][.slow][fold]") {
+    if (std::getenv("SBEM_PROBE") == nullptr) {
+        return;
+    }
+    // obtS at 90 degrees: source T = (A, B, C), test T' = (B, A, C').
+    const Real deg = std::atof(std::getenv("SBEM_PROBE"));
+    const FoldPair p = fold_pair(true, FoldShape{"obtS", 0.4, 0.8, -0.35, 0.6, 0.0, 0.0}, deg);
+    const auto src = corners(p.mesh, 0);
+    const auto tst = corners(p.mesh, 1);
+    const QuadSet fine = dunavant_points(p.mesh, 0, 20, 64);
+    std::ostringstream os;
+    os << std::scientific << std::setprecision(2);
+    std::mt19937_64 rng(7);
+    std::uniform_real_distribution<Real> U(0.0, 1.0);
+    Real worst = 0.0;
+    for (int i = 0; i < 400; ++i) {
+        Real s = U(rng);
+        Real t = U(rng);
+        if (s + t > 1.0) {
+            s = 1.0 - s;
+            t = 1.0 - t;
+        }
+        const Vec3 r = tst[0] + s * (tst[1] - tst[0]) + t * (tst[2] - tst[0]);
+        const kernels::StaticIntegrals si = kernels::static_integrals(r, src[0], src[1], src[2]);
+        Vec3 g = Vec3::Zero();
+        Real i1 = 0.0;
+        Real dmin = 1e300;
+        for (std::size_t q = 0; q < fine.r.size(); ++q) {
+            const Vec3 d = r - fine.r[q];  // grad'(1/R) = (r - r')/R^3
+            const Real R = d.norm();
+            g += fine.w[q] * d / (R * R * R);
+            i1 += fine.w[q] / R;
+            dmin = std::min(dmin, R);
+        }
+        const Real eg = (si.I_grad - g).norm() / g.norm();
+        const Real e1 = std::abs(si.I_1R - i1) / std::abs(i1);
+        const Real h = (src[1] - src[0]).norm();
+        if (dmin > 0.05 * h && std::max(eg, e1) > 1e-10) {
+            os << "\n s " << s << " t " << t << " dmin/h " << dmin / h << " I_grad " << eg
+               << " I_1R " << e1;
+        }
+        if (dmin > 0.05 * h) {
+            worst = std::max({worst, eg, e1});
+        }
+    }
+    WARN("static probe worst " << worst << os.str());
+}
+
+TEST_CASE("element_blocks (full): fold sweep (experiment)", "[kernels][.slow][fold]") {
+    const std::vector<NamedRegion> regs = all_regions();
+    std::ostringstream table;
+    table << std::scientific << std::setprecision(1);
+    for (const bool edge : {true, false}) {
+        for (const FoldShape& s : edge ? std::vector<FoldShape>(kEdgeShapes.begin(), kEdgeShapes.end()) : std::vector<FoldShape>(kVertexShapes.begin(), kVertexShapes.end())) {
+            for (const Real deg : {30.0, 45.0, 60.0, 75.0, 89.0, 90.0, 120.0, 179.0}) {
+                const FoldPair p = fold_pair(edge, s, deg);
+                const char* filt = std::getenv("SBEM_SWEEP");
+                if (filt != nullptr && p.name.find(filt) == std::string::npos) {
+                    continue;
+                }
+                const RwgSpace space(p.mesh);
+                const std::vector<Blocks> ref = relative_reference(space, p.t1, p.t2, regs, 28);
+                table << "\n" << p.name << ":";
+                if (std::getenv("SBEM_REF") != nullptr) {
+                    const std::vector<Blocks> r36 = relative_reference(space, p.t1, p.t2, regs, 36);
+                    Real e = 0.0;
+                    for (std::size_t g = 0; g < regs.size(); ++g) {
+                        e = std::max({e, rel_diff(ref[g].L, r36[g].L), rel_diff(ref[g].K, r36[g].K)});
+                    }
+                    table << " ref28-36 " << e;
+                    const std::vector<Blocks> rs = relative_reference(space, p.t2, p.t1, regs, 36);
+                    Real es = 0.0;
+                    for (std::size_t g = 0; g < regs.size(); ++g) {
+                        es = std::max({es, rel_diff(rs[g].L.transpose(), r36[g].L),
+                                       rel_diff(rs[g].K.transpose(), r36[g].K)});
+                    }
+                    table << " refswap " << es;
+                }
+                {
+                    OperatorOptions old;
+                    old.fold_adaptive = false;
+                    table << " old " << fold_errors(p, regs, ref, old).err;
+                }
+                if (std::getenv("SBEM_TIME") != nullptr) {
+                    OperatorOptions old;
+                    old.fold_adaptive = false;
+                    Block L;
+                    Block K;
+                    Real us[2] = {0.0, 0.0};
+                    for (int w = 0; w < 2; ++w) {
+                        const OperatorOptions o = w == 0 ? old : OperatorOptions{};
+                        const auto t0 = std::chrono::steady_clock::now();
+                        for (int it = 0; it < 200; ++it) {
+                            element_blocks(space, p.t1, p.t2, regs[1].p, o, L, K);
+                            element_blocks(space, p.t2, p.t1, regs[1].p, o, L, K);
+                        }
+                        us[w] = std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0)
+                                    .count() *
+                                1e6 / 400.0;
+                    }
+                    table << " t_old " << us[0] << " t_new " << us[1] << " x" << us[1] / us[0];
+                }
+                if (std::getenv("SBEM_DETAIL") != nullptr) {
+                    OperatorOptions dopt;
+                    dopt.outer_grading_levels = std::atoi(std::getenv("SBEM_DETAIL"));
+                    if (std::getenv("SBEM_DSING") != nullptr) dopt.quad_degree_sing = std::atoi(std::getenv("SBEM_DSING"));
+                    if (std::getenv("SBEM_DOLD") != nullptr) dopt.fold_adaptive = false;
+                    for (std::size_t g = 0; g < regs.size(); ++g) {
+                        const Blocks b12 = blocks(space, p.t1, p.t2, regs[g].p, dopt);
+                        const Blocks b21 = blocks(space, p.t2, p.t1, regs[g].p, dopt);
+                        table << " [" << regs[g].name << " L " << rel_diff(b12.L, ref[g].L) << "/"
+                              << rel_diff(b21.L.transpose(), ref[g].L) << " K "
+                              << rel_diff(b12.K, ref[g].K) << "/"
+                              << rel_diff(b21.K.transpose(), ref[g].K) << "]";
+                    }
+                }
+                for (const int level : {4, 6}) {
+                    OperatorOptions opt;
+                    opt.outer_grading_levels = level;
+                    const GradedResult r = fold_errors(p, regs, ref, opt);
+                    table << "  l" << level << " " << r.err << " (asym " << r.asym << ")";
+                }
+                {
+                    OperatorOptions opt;
+                    opt.outer_grading_levels = 6;
+                    opt.quad_degree_sing = 19;
+                    const GradedResult r = fold_errors(p, regs, ref, opt);
+                    table << "  l6s19 " << r.err;
+                    opt.fold_adaptive = false;
+                    table << "  old-l6s19 " << fold_errors(p, regs, ref, opt).err;
+                }
+            }
+        }
+    }
+    WARN("fold sweep" << table.str());
+}
