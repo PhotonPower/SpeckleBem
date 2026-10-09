@@ -1,7 +1,7 @@
 // Unit tests for solver::gmres and the preconditioners (WP13).
 //
 // Random systems use fixed seeds (std::mt19937_64). The BEM case solves the dense system of a
-// small icosphere (subdivision 2, 2N = 960) against solve_direct.
+// small icosphere (subdivision 1 at lambda = 1 um, 2N = 240) against solve_direct.
 #include "specklebem/operator/dense_operator.hpp"
 #include "specklebem/solver/direct.hpp"
 #include "specklebem/solver/gmres.hpp"
@@ -202,14 +202,16 @@ TEST_CASE("gmres: left Jacobi GMRES is invariant under row scaling (issue #15)",
 
     // Unpreconditioned, the row scaling changes the Krylov space and the stopping criterion.
     // Observed: 21 iterations on (Z, b) (left Jacobi: 21 on both systems), 200 = n iterations
-    // on (S Z, S b): the 1e-10 tolerance on |S b - S Z x| / |S b| is only reached once the
-    // Krylov space is complete.
+    // on (S Z, S b) without an iteration limit: the 1e-10 tolerance on |S b - S Z x| / |S b|
+    // is only reached once the Krylov space is complete. The limit 3 u.iterations keeps the
+    // sanitizer run short (observed residual after 63 iterations: 1.1e-2).
     const GmresResult u = solver::gmres(Z, b, kNone, params(1e-10));
-    const GmresResult us = solver::gmres(SZ, Sb, kNone, params(1e-10));
-    INFO("unpreconditioned: " << u.iterations << " vs row-scaled " << us.iterations
-                              << "; left Jacobi: " << r.iterations);
-    CHECK(u.iterations != us.iterations);
-    CHECK(us.iterations > 2 * u.iterations);
+    REQUIRE(u.converged);
+    const GmresResult us = solver::gmres(SZ, Sb, kNone, params(1e-10, 3 * u.iterations));
+    INFO("unpreconditioned: " << u.iterations << " vs row-scaled " << us.iterations << " (residual "
+                              << us.residual_history.back() << "); left Jacobi: " << r.iterations);
+    CHECK_FALSE(us.converged);
+    CHECK(us.iterations == 3 * u.iterations);
 }
 
 TEST_CASE("gmres: right preconditioning monitors the true residual", "[gmres]") {
@@ -306,15 +308,21 @@ TEST_CASE("gmres: DiagonalPreconditioner", "[gmres]") {
 TEST_CASE("gmres: dense BEM systems of a sphere match the LU solution", "[gmres]") {
     using namespace assembler_test;
     using formulation::Kind;
-    // Icosphere n = 2 (320 triangles, 2N = 960), r = 0.5 um, lambda = 500 nm, plane wave.
-    // Observed (tol 1e-8, win-release): Si ICTF unpreconditioned 93 iterations, true residual
-    // 7.0e-9, |x - x_LU| / |x_LU| = 1.1e-7; Ag PMCHWT + left Jacobi 193 iterations, true
-    // residual 1.7e-7 (the stopping criterion is on the preconditioned residual), 6.7e-7.
+    // Icosphere n = 1 (80 triangles, 2N = 240), r = 0.5 um, plane wave at lambda = 1 um: the
+    // same h / lambda as n = 2 at 500 nm (test_assembler.cpp), 16x cheaper to assemble (n = 2
+    // took 36 s in win-debug). The 500 nm material constants are used at 1 um (a solver test).
+    // Measured at n = 2, lambda = 500 nm (2N = 960, tol 1e-8, win-release): Si ICTF 93
+    // iterations, true residual 7.0e-9, |x - x_LU| / |x_LU| = 1.1e-7; Ag PMCHWT + left Jacobi
+    // 193 iterations, true residual 1.7e-7 (the stopping criterion is on the preconditioned
+    // residual), 6.7e-7. Observed at n = 1 (this test): Si ICTF 53 iterations, true residual
+    // 8.0e-9, |x - x_LU| / |x_LU| = 1.1e-6; Ag PMCHWT + left Jacobi 46 iterations, true
+    // residual 8.1e-8, 1.1e-7.
+    constexpr Real kLambdaBem = 1e-6;
     SECTION("Si, ICTF, no preconditioner") {
-        SphereCase c(material::silicon_500nm(), 2, Kind::ICTF);
+        SphereCase c(material::silicon_500nm(), 1, Kind::ICTF, kLambdaBem);
         const op::DenseOperator Z(assemble(c.problem()));
         const VectorXc b = op::assemble_rhs(c.problem());
-        const GmresResult r = solver::gmres(Z, b, kNone, params(1e-8, 960));
+        const GmresResult r = solver::gmres(Z, b, kNone, params(1e-8, 240));
         const VectorXc x_lu = solver::solve_direct(Z, b);
         INFO("Si ICTF: iterations " << r.iterations << ", true residual "
                                     << r.true_relative_residual << ", |x - x_LU| / |x_LU| "
@@ -324,11 +332,11 @@ TEST_CASE("gmres: dense BEM systems of a sphere match the LU solution", "[gmres]
         CHECK(rel_diff(r.x, x_lu) <= 1e-5);
     }
     SECTION("Ag, PMCHWT, left Jacobi") {
-        SphereCase c(material::silver_500nm(), 2, Kind::PMCHWT);
+        SphereCase c(material::silver_500nm(), 1, Kind::PMCHWT, kLambdaBem);
         const op::DenseOperator Z(assemble(c.problem()));
         const VectorXc b = op::assemble_rhs(c.problem());
         const solver::DiagonalPreconditioner M(op::assemble_diagonal(c.problem()));
-        const GmresResult r = solver::gmres(Z, b, M, params(1e-8, 960));
+        const GmresResult r = solver::gmres(Z, b, M, params(1e-8, 240));
         const VectorXc x_lu = solver::solve_direct(Z, b);
         INFO("Ag PMCHWT + Jacobi: iterations " << r.iterations << ", true residual "
                                                << r.true_relative_residual
