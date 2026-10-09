@@ -80,6 +80,13 @@ n ≤ 3 (2N ≤ 3 840).
 
 ## Notes for workers (lessons learned)
 
+- CI on `wp/**` pushes is the only Linux check (no WSL here): GCC 13 `-O3` in the ubuntu Release job reports
+  false positives that GCC 16 does not (e.g. `-Wnull-dereference` from `std::istreambuf_iterator`, WP16). The
+  coordinator pushes every WP branch and merges only with all four CI jobs green. Prefer sized `read()` over
+  `istreambuf_iterator` for whole-file reads.
+- Open project-wide question (follow-up, not yet a WP): file paths are passed as `std::string` and interpreted
+  in the ANSI code page on Windows (`mesh_io`, `io`); UTF-8 paths from Python (WP14b) need `std::u8string`-based
+  conversion. Decide before WP14b exposes file I/O.
 - Coordinator tooling: `SendMessage` is not available in the Windows sessions, so a finished worker cannot be resumed. Trivial review fixes (docs/comments, < 20 lines) are applied by the coordinator on the WP branch; substantive fixes go to a new worker whose brief contains the original brief, the review findings and the branch head.
 - Without system packages, Eigen/spdlog/Catch2/pybind11 are fetched by `cmake/Dependencies.cmake`.
   The fetched Eigen is marked as a system include so that `-Werror` does not trip on Eigen
