@@ -339,7 +339,7 @@ VectorXc assemble_rhs(const Problem& p) {
     const Index F = mesh.num_triangles();
     const Setup setup = make_setup(p);
     // kernels::validate (in validate) guarantees a positive-interior rule.
-    const kernels::TriangleRule& rule = kernels::triangle_rule(p.kernel_options.quad_degree_near);
+    const kernels::TriangleRule& rule = kernels::triangle_rule(p.kernel_options.quad_degree_rhs);
 
     // Per-triangle moments <f_a, E_inc>_t and <f_a, H_inc>_t (slot a of support(t)), computed in
     // parallel (each triangle writes its own row), then scattered in triangle order.

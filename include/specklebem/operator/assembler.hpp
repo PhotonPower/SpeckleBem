@@ -67,7 +67,8 @@ public:
 
 /// Right-hand side  b = [ (a1/eta1) <f, E_inc>_tan ; b1 eta1 <f, H_inc>_tan ].
 /// <f_m, E_inc> = sum over the two support triangles of int f_m . E_inc dS with the Dunavant
-/// rule of degree p.kernel_options.quad_degree_near (positive-interior).
+/// rule of degree p.kernel_options.quad_degree_rhs (positive-interior; WP7c, before:
+/// quad_degree_near).
 /// @throws std::invalid_argument for an invalid Problem (validate) or a null excitation.
 VectorXc assemble_rhs(const Problem& p);
 

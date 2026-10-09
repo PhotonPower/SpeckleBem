@@ -33,6 +33,13 @@ target_include_directories(specklebem_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_
 target_compile_definitions(specklebem_unit_tests PRIVATE
     SPECKLEBEM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 catch_discover_tests(specklebem_unit_tests PROPERTIES SKIP_RETURN_CODE 4)
+# Slow studies (hidden Catch2 cases, WP7c): label `slow`, minutes in release, manual only:
+# `ctest --preset release -L slow`. Standard runs and CI exclude them
+# (`-LE "validation|slow"`, `-LE "validation-large|slow"`). They SKIP in unoptimised builds.
+add_test(NAME "kernels: fold sweep (slow)" COMMAND specklebem_unit_tests "[fold]")
+add_test(NAME "assembler: rhs degree study (slow)" COMMAND specklebem_unit_tests "[rhsstudy]")
+set_tests_properties("kernels: fold sweep (slow)" "assembler: rhs degree study (slow)"
+    PROPERTIES LABELS slow SKIP_RETURN_CODE 4)
 
 # Zero-allocation check of the element kernels. Separate executable because it replaces the
 # global operator new / delete (which would disable ASan's new/delete mismatch detection for
