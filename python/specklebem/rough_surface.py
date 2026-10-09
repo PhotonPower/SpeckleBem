@@ -16,7 +16,8 @@ class RoughSurface:
     All lengths in metres. ``L``, ``sigma``, ``Lc``, ``mesh_size``, ``seed`` and ``use_fft``
     select the height map (``generate_gaussian_height_map``); ``box_depth``, ``box_mesh_size``
     and ``box_fine_depth`` the closing box (``make_mesh_from_height_map``, None = automatic).
-    ``seed=0`` draws a non-deterministic seed (logged by the C++ core).
+    ``seed=0`` draws a random seed that is only logged by the C++ core (not reproducible
+    from Python); pass a non-zero seed for reproducible surfaces.
     """
 
     def __init__(
@@ -56,10 +57,12 @@ class RoughSurface:
 
     @property
     def dx(self) -> float:
+        """Grid spacing along x [m]."""
         return self._heights.dx
 
     @property
     def dy(self) -> float:
+        """Grid spacing along y [m]."""
         return self._heights.dy
 
     @property

@@ -18,7 +18,8 @@ namespace py = pybind11;
 using MatrixX3c = Eigen::Matrix<Complex, Eigen::Dynamic, 3, Eigen::RowMajor>;
 using MatrixXrRow = Eigen::Matrix<Real, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
-/// Real (float or integer dtype) array -> C-contiguous float64 copy; ValueError otherwise.
+/// Real (float or integer dtype) array -> C-contiguous float64 array: a view of the input if it
+/// already is one, a converted copy otherwise; ValueError for other dtypes.
 inline py::array_t<double, py::array::c_style> real_array(const py::object& obj, const char* what) {
     const auto a = py::array::ensure(obj);
     if (!a || (a.dtype().kind() != 'f' && a.dtype().kind() != 'i' && a.dtype().kind() != 'u')) {
@@ -53,12 +54,22 @@ inline Triangles triangles_from_array(const py::object& obj) {
     return Eigen::Map<const Triangles>(t.data(), static_cast<Index>(t.shape(0)), 3);
 }
 
+/// ValueError unless every element of `a` is finite (checked while holding the GIL).
+template <class Derived>
+void require_all_finite(const Eigen::DenseBase<Derived>& a, const char* what) {
+    if (!a.allFinite()) {
+        throw py::value_error(std::string(what) + ": all values must be finite");
+    }
+}
+
 /// Evaluates the vector function f(Vec3) -> Vec3c at every row of an (n, 3) array (or a
 /// single (3,) point) with the GIL released; returns (n, 3) (or (3,)) complex128.
+/// ValueError for non-finite points.
 template <class F>
 py::object evaluate_at_points(const py::object& points, F&& f) {
     bool single = false;
     const Vertices p = points_from_array(points, "points", &single);
+    require_all_finite(p, "points");
     MatrixX3c out(p.rows(), 3);
     {
         py::gil_scoped_release release;
