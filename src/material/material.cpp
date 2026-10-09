@@ -4,6 +4,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace specklebem::material {
 
@@ -67,16 +68,49 @@ Real field_decay_length(const Material& m, Real wavelength) {
 DispersiveMaterial::DispersiveMaterial(VectorXr wavelengths_m, VectorXc refractive_indices)
     : lambda_(std::move(wavelengths_m)), n_(std::move(refractive_indices)) {
     if (lambda_.size() != n_.size() || lambda_.size() < 2) {
-        throw std::invalid_argument("DispersiveMaterial: need >= 2 matching samples");
+        throw std::invalid_argument("DispersiveMaterial: need >= 2 matching samples, got " +
+                                    std::to_string(lambda_.size()) + " wavelengths and " +
+                                    std::to_string(n_.size()) + " refractive indices");
+    }
+    for (Index i = 0; i < lambda_.size(); ++i) {
+        if (!std::isfinite(lambda_(i)) || !(lambda_(i) > 0.0)) {
+            throw std::invalid_argument(
+                "DispersiveMaterial: wavelengths must be finite and positive, got " +
+                std::to_string(lambda_(i)) + " at index " + std::to_string(i));
+        }
+        if (i > 0 && !(lambda_(i) > lambda_(i - 1))) {
+            throw std::invalid_argument(
+                "DispersiveMaterial: wavelengths must be strictly increasing (index " +
+                std::to_string(i) + ")");
+        }
+        if (!std::isfinite(n_(i).real()) || !std::isfinite(n_(i).imag())) {
+            throw std::invalid_argument(
+                "DispersiveMaterial: refractive indices must be finite (index " +
+                std::to_string(i) + ")");
+        }
+        if (n_(i).imag() > 0.0) {
+            throw std::invalid_argument(
+                "DispersiveMaterial: refractive index with Im(n) > 0 at index " +
+                std::to_string(i) +
+                "; the exp(+jwt) convention needs n - jk (Im(n) <= 0 for passive media), so "
+                "n + ik optics data (e.g. refractiveindex.info) must be conjugated "
+                "(docs/06_conventions.md)");
+        }
     }
 }
 
 Material DispersiveMaterial::at_wavelength(Real lambda_m) const {
-    if (lambda_m <= lambda_(0) || lambda_m >= lambda_(lambda_.size() - 1)) {
-        throw std::out_of_range("DispersiveMaterial: wavelength outside tabulated range");
+    if (!std::isfinite(lambda_m)) {
+        throw std::invalid_argument("DispersiveMaterial: wavelength must be finite");
+    }
+    const Index last = lambda_.size() - 1;
+    if (lambda_m < lambda_(0) || lambda_m > lambda_(last)) {
+        throw std::out_of_range("DispersiveMaterial: wavelength " + std::to_string(lambda_m) +
+                                " outside the tabulated range [" + std::to_string(lambda_(0)) +
+                                ", " + std::to_string(lambda_(last)) + "]");
     }
     Index i = 0;
-    while (lambda_(i + 1) < lambda_m) ++i;
+    while (i + 1 < last && lambda_(i + 1) < lambda_m) ++i;
     const Real t = (lambda_m - lambda_(i)) / (lambda_(i + 1) - lambda_(i));
     const Complex n = (1 - t) * n_(i) + t * n_(i + 1);
     return {n * n, Complex(1, 0)};
