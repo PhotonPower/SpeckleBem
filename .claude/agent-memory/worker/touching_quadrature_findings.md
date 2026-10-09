@@ -31,6 +31,18 @@ Measured in WP7c (2026-10-09) against the relative-coordinate reference in test_
 - Reference shared-edge n = 20 suffices (<= 1e-9) at 60 degrees for the doubly obtuse and
   near-B shapes (fast unit checks, Si only).
 
+- WP7d (2026-10-09): exact thresholds sit on structured-grid geometry: the apex zero of a right
+  isosceles piece is at exactly kZeroMin = 0.5 (not only cos < 0) -> use relative tolerances.
+  A hinge with C and C' both at 90 degrees over A and |AC| = |AC'| has K = 0 by symmetry (relative
+  K errors ~1e5 are meaningless): use unequal legs in sweep shapes. Box-rim shared vertex (top
+  test, wall source with its rim edge near the top plane) has a small K block (~6e-4 |k|a|L|):
+  10 radial points gave 1.2e-7, 14 gave 2e-10. Ray partition with S on side AC near A needs
+  more points on the *other* apex's pieces (far side passes A). The release fold sweep takes
+  ~35-80 s, so try kernel heuristics there directly (temporary getenv overrides + hidden case).
+- Small rough box for kernel tests: mesh_size 0.7 a (a = sweep size), L = 4 h, sigma 0.1 h,
+  Lc 2 h, depth 2 h, box_mesh_size = h, seed 7 -> 128 triangles; references n 20 / 16 converged
+  to 1e-10; one pair per TEST_CASE keeps win-debug ~2.5 s.
+
 **Why:** these took most of the WP7c turn budget to discover.
 **How to apply:** kernel/quadrature WPs (touching pairs, MLFMM near field, k-aware quad_degree_sing).
 See [[build-pitfalls-windows]].

@@ -155,10 +155,14 @@
 ///    kNearVertex |AB| of A (or B): the pieces of that apex, level l + 3 (16 x 16; 16 x 14 left
 ///    8e-8 at 60 degrees). For folds >= 90 degrees this only applies when the pair uses the
 ///    adaptive pieces anyway (an obtuse test triangle: 4.4e-7 -> 1e-8 at 90 degrees for an obtuse
-///    triangle with the far vertex 0.25 |AB| from B); otherwise the WP7b table stays (bitwise).
+///    triangle with the far vertex 0.25 |AB| from B); otherwise the WP7b table stays (bitwise);
+///  * ray partition (below) with S within kNearPoints = 0.3 |AB| of A (or B) (WP7d): the far
+///    sides of the pieces of the other apex pass close to A, level l + 3 on them (90 degrees
+///    at A in both triangles at a 75-degree fold, S on the side A C 0.26 |AB| from A: 3.8e-7
+///    -> 4.7e-8; WP7b table 7.3e-8).
 /// Hard bound per ordering: 48 pieces x 16 x 16 points = 12 288 outer points of the analytic
-/// part (WP7b table at level 4: 288 shared edge, 100 shared vertex); measured at most 2 624
-/// for both orderings together (doubly obtuse 75-degree hinge; touching_rule_info).
+/// part (WP7b table at level 4: 288 shared edge, 100 shared vertex); measured at most 2 376
+/// for both orderings together (75-degree hinge with right angles at A; touching_rule_info).
 /// Partition:
 ///  * shared edge A B (test vertex C, source vertex C', P the projection of C' onto the test
 ///    plane with barycentric coordinates lambda): for lambda_C > 0.1 (fold clearly below 90
@@ -173,8 +177,10 @@
 ///    shared edge for folds >= 90 degrees (the near-vertex case gets extra points, see above);
 ///  * shared vertex A: the single piece (A, B, C), features A and, if a source vertex projects
 ///    into the wedge of T at A (fold below 90 degrees), the two source edges from A.
-/// If no piece is split, no piece has extra points and the partition and gradings are those of
-/// WP7b, the WP7b table is used unchanged (bitwise identical blocks). For folds >= 90 degrees
+/// If no piece is split, the angles at the shared vertices are not doubly obtuse and the
+/// partition and gradings are those of WP7b, the WP7b table is used unchanged (bitwise identical
+/// blocks); the near-vertex extra points never make a pair adaptive by themselves, they apply
+/// only to pairs that use the adaptive pieces for one of these reasons. For folds >= 90 degrees
 /// (only the apex point and the shared edge are features) this holds unless the apex point
 /// splits a piece: shared edge A B with test vertex C, pieces (A, M, C) and (B, M, C): when
 /// the zero of |w|^2, at the foot of A (B) on the line M C with q = |AB| h_C / (2 |MC|^2)
@@ -182,24 +188,38 @@
 /// is longer than A B (isosceles: angle at C below 53 degrees) or the angle at A or B is obtuse;
 /// shared vertex A: the foot of A on B C with q = 2 area / |BC|^2, roughly an obtuse angle at
 /// A; or unless both triangles are obtuse at the same shared vertex. Every touching pair of an
-/// icosphere keeps the WP7b table. Accuracy (default level 4, |k| h <= 0.78, both orderings,
-/// vacuum / Si / Ag; tests/unit/test_operators.cpp "fold sweep", relative-coordinate reference
-/// converged to 1e-9): <= 8.3e-8 for dihedral angles 30 to 179 degrees, regular, skewed
-/// (projected source edge at a small angle to the shared edge), obtuse (106 degrees at the shared
-/// vertex), doubly obtuse (106 and 120 degrees) and near-B (far vertex 0.27 |AB| from B)
-/// shared-edge pairs and regular, skewed and obtuse shared-vertex pairs, where the WP7b table
-/// gave up to 4.5e-5 (skewed 30 degrees), 4.2e-5 (near B, 45 degrees) and 8.7e-5 (obtuse shared
-/// vertex, 30 degrees); without the extra points the doubly obtuse pairs reached 6.3e-7 (60
-/// degrees) and the near-B pairs 6.2e-7 (60 degrees). Not covered: the near-B pair at 90
-/// degrees keeps the WP7b table, 1.4e-7 (1.3e-7 at 91, 8.5e-8 at 95 degrees; similar shapes up
-/// to 1.5e-7). Cost (release, Si, time per call against the WP7b table, both orderings, timing of
-/// the quietest of three runs; single-pair maxima vary by up to x2 under load): folds below 90
-/// degrees mean x1.9 (shared edges, at most x3.3: doubly obtuse 75 degrees) and x1.6 (shared
-/// vertices, at most x3.2: obtuse 30 degrees); folds >= 90 degrees x1.3 (shared edges, at most
-/// x2.5: doubly obtuse) and x1.2 (shared vertices, at most x1.7: obtuse); unchanged for pairs on
-/// the WP7b table. Outer points of the analytic part against the WP7b table (touching_rule_info):
-/// mean x2.5 / x2.6 (shared edge / vertex, folds below 90 degrees), at most x4.6 / x6.3. The pieces
-/// are built per call on the stack (no allocation).
+/// icosphere keeps the WP7b table.
+/// Structured grids (WP7d): the top faces of rough surfaces consist of right isosceles cell
+/// halves and the box rim has right angles in the top and the wall triangles, where the exact
+/// tests (cosine < 0, zero distance < kZeroMin) picked a rule by rounding (the apex zero of a
+/// right isosceles piece lies exactly at kZeroMin). With kRightAngleTol right angles take the
+/// rule of acute ones (both rules meet 1e-7 there: sweep shapes "right A A" exact / +-1e-9:
+/// <= 5e-8, shared vertex "right" <= 3e-8). Rim shared vertices: a top test triangle with a wall
+/// source triangle whose rim edge runs next to the top plane outside the wedge reached 1.2e-7 of
+/// the (small, ~6e-4 |k| a |L|) K block with the WP7b table (10 radial points; the rim vertex
+/// is a radial near-singularity 0.47 side lengths from the test triangle), 2e-10 with the
+/// adaptive piece (14 radial points). Shared vertices with a steep source triangle
+/// (|n . n'| < kSteepCos) and a source vertex less than asin(kInPlaneTol) = 11.5 degrees above
+/// the test plane therefore use the adaptive piece (140 instead of 100 points at level 4).
+/// Over all top/top and top/wall touching pairs of a 4 x 4 rough box (sigma = 0.1 h): <= 1.6e-8.
+/// Accuracy (default level 4, |k| h <= 0.78, both orderings, vacuum / Si / Ag;
+/// tests/unit/test_operators.cpp "fold sweep", relative-coordinate reference converged to 1e-9):
+/// <= 8.3e-8 for dihedral angles 30 to 179 degrees, regular, skewed (projected source edge at a
+/// small angle to the shared edge), obtuse (106 degrees at the shared vertex), doubly obtuse (106
+/// and 120 degrees) and near-B (far vertex 0.27 |AB| from B) shared-edge pairs and regular, skewed
+/// and obtuse shared-vertex pairs, where the WP7b table gave up to 4.5e-5 (skewed 30
+/// degrees), 4.2e-5 (near B, 45 degrees) and 8.7e-5 (obtuse shared vertex, 30 degrees); without the
+/// extra points the doubly obtuse pairs reached 6.3e-7 (60 degrees) and the near-B pairs 6.2e-7 (60
+/// degrees). Not covered: the near-B pair at 90 degrees keeps the WP7b table, 1.4e-7 (1.3e-7 at
+/// 91, 8.5e-8 at 95 degrees; similar shapes up to 1.5e-7). Cost (release, Si, time per call against
+/// the WP7b table, both orderings, timing of the quietest of three runs; single-pair maxima vary by
+/// up to x2 under load; WP7c measurements, WP7d figures in ADR 0004): folds below 90 degrees mean
+/// x1.9 (shared edges, at most x3.3: doubly obtuse 75 degrees) and x1.6 (shared vertices, at most
+/// x3.2: obtuse 30 degrees); folds >= 90 degrees x1.3 (shared edges, at most x2.5: doubly obtuse)
+/// and x1.2 (shared vertices, at most x1.7: obtuse); unchanged for pairs on the WP7b table. Outer
+/// points of the analytic part against the WP7b table (touching_rule_info): mean x2.5 / x2.6
+/// (shared edge / vertex, folds below 90 degrees), at most x4.6 / x6.3. The pieces are built per
+/// call on the stack (no allocation).
 ///
 /// The remainder of the graded path uses a Dunavant outer rule (it is far smoother: rem has
 /// R^2 and R^3 terms, the analytic part carries all of 1/R and R): degree quad_degree_sing for
@@ -1018,6 +1038,9 @@ constexpr Real kFoldTol = 1e-6;
 /// lambda_C > kFoldMin and S is at least kNearVertex |AB| away from A and B.
 constexpr Real kFoldMin = 0.1;
 constexpr Real kNearVertex = 0.2;
+/// Ray partition with S within kNearPoints |AB| of A (B): the pieces of apex B (A) get the
+/// points of level l + kExtraLevelsNearVertex (WP7d; file comment).
+constexpr Real kNearPoints = 0.3;
 /// Extra point levels (adaptive_radial_points / adaptive_angular_points of level l + extra) of
 /// the shared-edge pieces with apex B when the angle at A is obtuse in both triangles, and of
 /// the pieces with apex A when S (folds below 90 degrees, else P) lies within kNearVertex |AB|
@@ -1027,6 +1050,22 @@ constexpr int kExtraLevelsNearVertex = 3;
 /// Smallest distance (in units of the side p1 p2) of the complex zero of a feature from the
 /// real interval v in [0, 1]; closer zeros are split off.
 constexpr Real kZeroMin = 0.5;
+/// Right angles (WP7d): structured grids (the halves of rough-surface grid cells, the box rim)
+/// have angles of exactly 90 degrees at shared vertices, where an exact test would pick a rule
+/// by rounding. An angle counts as obtuse only if its cosine is below -kRightAngleTol, and a
+/// zero splits a piece only if it is closer than kZeroMin (1 - kRightAngleTol): the apex zero
+/// of a right isosceles piece lies exactly at kZeroMin. Right angles therefore take the rule of
+/// acute angles (no extra points, no split); both rules meet 1e-7 there (sweep shapes "right
+/// A A" and "right vertex" with perturbations of +-1e-9). The split tolerance also removes a
+/// rounding decision for generic shapes: children of a geometric split have their zero at exactly
+/// kZeroMin and no longer split again (ADR 0004).
+constexpr Real kRightAngleTol = 1e-6;
+/// Shared vertex (WP7d): a source vertex at an elevation angle below asin(kInPlaneTol) (11.5
+/// degrees) over the test plane while the source triangle is steep (|n . n'| < kSteepCos,
+/// folds of ~46 to ~134 degrees) selects the adaptive piece (14 instead of 10 radial points at
+/// level 4; file comment: box rim).
+constexpr Real kInPlaneTol = 0.2;
+constexpr Real kSteepCos = 0.7;
 /// A zero within kEndTol of an end point (real and imaginary part) lies on that side: graded.
 constexpr Real kEndTol = 1e-3;
 
@@ -1080,7 +1119,7 @@ void add_piece(PieceList& pl, const Vec3& x, const Vec3& p1, const Vec3& p2, int
     }
     bool at0 = false;
     bool at1 = false;
-    Real worst = kZeroMin;
+    Real worst = kZeroMin * (1.0 - kRightAngleTol);
     Real split = -1.0;
     for (std::size_t i = 0; i < pl.n_features; ++i) {
         Real vf = 0.0;
@@ -1173,7 +1212,13 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
             set_features(pl, A, {});
         }
         add_piece(pl, A, B, C, 0, 0);
-        return folded || pl.changed || pl.p[0].grade != Grade::none;
+        // Steep source triangle with a vertex in the test plane (file comment: box rim).
+        const auto in_plane = [&](const Vec3& v) {
+            return std::abs((v - A).dot(n)) <= kInPlaneTol * (v - A).norm();
+        };
+        const Vec3 ns = (far[0] - A).cross(far[1] - A).normalized();
+        const bool rim = std::abs(ns.dot(n)) < kSteepCos && (in_plane(far[0]) || in_plane(far[1]));
+        return folded || rim || pl.changed || pl.p[0].grade != Grade::none;
     }
     const Vec3 M = 0.5 * (A + B);
     const std::array<Real, 3> l = projected(far[0]);
@@ -1187,8 +1232,11 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
     // apex A (B) if the clipped projection S (folds below 90 degrees, else the projection P)
     // lies within kNearVertex |AB| of A (B) (for folds >= 90 degrees only when the pair uses the
     // adaptive pieces anyway).
-    const bool obtuse_a = (B - A).dot(C - A) < 0.0 && (B - A).dot(far[0] - A) < 0.0;
-    const bool obtuse_b = (A - B).dot(C - B) < 0.0 && (A - B).dot(far[0] - B) < 0.0;
+    const auto obtuse = [](const Vec3& x, const Vec3& p, const Vec3& q) {
+        return (p - x).dot(q - x) < -kRightAngleTol * (p - x).norm() * (q - x).norm();
+    };
+    const bool obtuse_a = obtuse(A, B, C) && obtuse(A, B, far[0]);
+    const bool obtuse_b = obtuse(B, A, C) && obtuse(B, A, far[0]);
     const Vec3 P = l[0] * A + l[1] * B + l[2] * C;
     const Vec3& Q = folded ? S : P;
     const bool near_a = (Q - A).norm() < kNearVertex * ab;
@@ -1220,13 +1268,17 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
     }
     // Fold below 90 degrees: the source edges A C' and B C' project onto the rays A S and B S
     // (S = P clipped into T along those rays), which become sides of the pieces.
+    // S within kNearPoints |AB| of A (B): the far sides of the pieces of the other apex pass
+    // close to A (B), a radial near-singularity (file comment): their points of level l + 3.
+    const bool s_near_a = (S - A).norm() < kNearPoints * ab;
+    const bool s_near_b = (S - B).norm() < kNearPoints * ab;
     pl.changed = true;
     set_features(pl, A, {B, far[0]});
-    pl.extra_levels = extra_a;
+    pl.extra_levels = s_near_b ? kExtraLevelsNearVertex : extra_a;
     add_piece(pl, A, M, S, 0, 3);
     add_piece(pl, A, S, C, 0, 2);
     set_features(pl, B, {A, far[0]});
-    pl.extra_levels = extra_b;
+    pl.extra_levels = s_near_a ? kExtraLevelsNearVertex : extra_b;
     add_piece(pl, B, M, S, 0, 1);
     add_piece(pl, B, S, C, 0, 0);
     return true;
