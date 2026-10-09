@@ -153,5 +153,6 @@ outside the table.
 
     specklebem::python::bind_geometry(m);
     specklebem::python::bind_excitation(m);
-    // Simulation, operators, post-processing, I/O: WP14b2.
+    specklebem::python::bind_simulation(m);
+    specklebem::python::bind_io(m);
 }
