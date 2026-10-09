@@ -3,6 +3,7 @@
 set(SPECKLEBEM_SOURCES
     core/config.cpp
     core/logging.cpp
+    core/path.cpp
     core/timer.cpp
     material/material.cpp
     formulation/formulation.cpp
@@ -31,8 +32,8 @@ set(SPECKLEBEM_SOURCES
     solver/preconditioner.cpp
     # postprocessing/speckle_statistics.cpp
     reference/mie.cpp
-    # io/result_writer.cpp
-    # simulation.cpp
+    io/result_writer.cpp
+    simulation.cpp
 )
 
 add_library(specklebem ${SPECKLEBEM_SOURCES})

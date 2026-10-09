@@ -43,6 +43,11 @@ public:
     [[nodiscard]] virtual std::string name() const = 0;
 };
 
+/// Largest dense system DenseStrategy builds: 2N = 1e5 unknowns are 160 GB of matrix storage
+/// (16 (2N)^2 bytes); beyond that a dense matrix makes no sense (compressed operators are the
+/// tool, docs/01).
+inline constexpr Index kMaxDenseUnknowns = 100000;
+
 /// Dense reference: every interaction integrated explicitly.
 ///
 /// Z (2N x 2N, x = [J; M]) is the Galerkin matrix of the combined tangential equations
@@ -53,7 +58,7 @@ public:
 /// Memory 16 (2N)^2 bytes; time O(F^2) element_blocks calls per region. OpenMP over the test
 /// triangles of a greedy triangle colouring: the result is bitwise identical for any thread
 /// count. A region whose weights are all zero is skipped. @throws std::invalid_argument for an
-/// invalid Problem (validate) or 2N > 1e5 (160 GB of matrix storage).
+/// invalid Problem (validate) or 2N > kMaxDenseUnknowns.
 class DenseStrategy final : public CompressionStrategy {
 public:
     [[nodiscard]] std::shared_ptr<LinearOperator> build(const Problem& p) const override;

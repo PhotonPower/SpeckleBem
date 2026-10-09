@@ -1,6 +1,6 @@
 ---
 name: windows-msys2-build
-description: Pitfalls of the native Windows/MSYS2 build (win-release/win-debug presets) and of running commands from a worktree-isolated agent on Windows
+description: Pitfalls of the native Windows/MSYS2 build (win-release/win-debug presets)
 metadata:
   type: project
 ---
@@ -25,6 +25,24 @@ workers / Windows"; the non-obvious ones:
 - Catch2 runs hidden (`[.]`) cases when a tag filter like `[kernels]` matches them; add
   `~[.]` (`'[kernels]~[.]'`) to time only the regular cases (hidden slow ones take minutes
   under ASan).
+- MSYS2 Python defaults to cp1252: always `open(..., encoding='utf-8')` (or PYTHONUTF8=1).
+  `open(p, 'w')` truncates before the encode error, so a failed write empties the file
+  (restore with `git checkout -- <file>`). Text-mode writes emit CRLF: pass
+  `newline='\n'`. An open for write can also fail with EINVAL while a concurrent build
+  reads the file; just retry.
+- GCC 16 (win-release) false positive: `vec.insert(end, n, x)` followed by
+  `vec.insert(end, {a, b, c})` triggers -Warray-bounds in stl_uninitialized.h; push_back.
+- win-debug (-O0, ASan, Eigen asserts) runs per-triangle Eigen checks at ~200 us/triangle:
+  test helpers like check_box over 50k triangles take ~5 s; keep big per-triangle checks
+  release-only (`#ifdef NDEBUG`) and run a small analogue in debug.
 
-**Why:** these cost several iterations in WP-W1.
+- Paths (ADR 0007, WP-P1): narrow `std::string` paths are UTF-8; on Windows
+  `fs::path(std::string)`, `path.string()` and `std::ifstream(std::string)` use the ANSI code
+  page. Go through `core::path_from_utf8` / `path_to_utf8`, also in tests (temp dirs can be
+  non-ASCII). Both libstdc++ (win-release) and libc++ (win-debug) open fstreams from
+  `fs::path` with non-BMP names fine. A program's narrow `argv` is ANSI (lossy) on Windows and
+  libstdc++'s `path(const char*)` throws on non-ASCII: read `CommandLineToArgvW(GetCommandLineW())`
+  and convert the wide path with `path_to_utf8` (tests/support/npy_fixture_main.cpp).
+
+**Why:** these cost several iterations in WP-W1 and WP2c.
 **How to apply:** any WP that builds or tests on this Windows machine.

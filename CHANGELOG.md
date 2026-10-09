@@ -18,6 +18,57 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - operator (WP7c): `OperatorOptions::quad_degree_rhs` (default 8, positive-interior), the
   Dunavant degree of `op::assemble_rhs` (before: `quad_degree_near` = 19); relative error
   <= 7.5e-14 against degree 20 for plane waves and Gaussian beams on lambda/10 meshes.
+- python (WP14b1): bindings for `TriangleMesh` (read-only zero-copy `vertices`/`triangles`/`edges`
+  views kept alive by the mesh, `quality_report()` as `MeshQuality`), `make_icosphere`,
+  `make_sphere`, `HeightMap`, `generate_gaussian_height_map`, `make_rough_surface_mesh`,
+  `make_mesh_from_height_map` (keyword arguments incl. `box_depth`, `box_mesh_size`,
+  `box_fine_depth`), the Python class `RoughSurface`, `DispersiveMaterial`, `field_decay_length`,
+  `PlaneWave` / `GaussianBeam` (`shared_ptr` holders, vectorised `electric_field` /
+  `magnetic_field`) and `Mie` (broadcast `bistatic_rcs`, `scattered_E`, cross sections); GIL
+  released in mesh generation and field loops; invalid input raises `ValueError`. C++:
+  `geometry::MeshQuality`, `TriangleMesh::quality()` and `geometry::to_string(MeshQuality)`
+  (`quality_report()` unchanged). The module now builds with the project warning set (GCC's
+  `-Wnull-dereference`/`-Wmaybe-uninitialized` false positives in pybind11/Eigen headers are
+  disabled per source). Tests `tests/python/test_geometry.py`, `test_physics.py`.
+- core (WP-P1, ADR 0007): file paths are UTF-8 strings on every platform.
+  `core::path_from_utf8` (validating, via `std::u8string`; malformed UTF-8 or a NUL byte throws
+  `std::invalid_argument`), `core::path_to_utf8` (via `path::u8string()`) and
+  `core::find_invalid_utf8` in `core/path.hpp`. `geometry::io` mesh readers/writers and
+  `io::open_npy_directory` open files only through these helpers and name paths in UTF-8 in
+  error messages, so non-ASCII paths work on Windows (previously interpreted in the ANSI code
+  page). Tests: `tests/unit/test_path.cpp`, and mesh (STL/OBJ/Gmsh) and `.npy` directory round
+  trips under a directory named `sbem_Jürgen_µm_路径_🙂` in `test_mesh_io.cpp` /
+  `test_result_writer.cpp`.
+- solver (WP14a): `Simulation` driver (`src/simulation.cpp`, pimpl) for the dense strategy. Owns
+  mesh, RWG space, formulation, excitation, `op::Problem` (ω of the excitation), operator,
+  right-hand side, Jacobi diagonal (built lazily, only for a Jacobi-preconditioned GMRES solve)
+  and solution; automatic formulation / preconditioner via `formulation::recommend`
+  (`SimulationConfig::formulation` and `diagonal_preconditioner` are `std::optional`);
+  `SolverKind::Gmres` (left/right, Jacobi or none; `solve(GmresParams, cb)` overrides
+  `config.gmres` for one call, a non-converged solve keeps its solution and logs a warning) or
+  `SolverKind::Direct` (dense LU, mapped onto `GmresResult` with `residual_history` =
+  {LU residual}); `compression` defaults to `"dense"` (other strategies throw until Phase 4/8);
+  constructor checks (closed and outward-oriented mesh, 2N ≤ `op::kMaxDenseUnknowns` (now public),
+  wavelength and background vs the excitation, implemented formulation (JMCFIE rejected), kernel
+  options, GMRES parameters); idempotent `assemble()`; `report()` with mesh size, choices, memory,
+  timings, iterations and residuals; accessors `problem()`, `formulation_kind()`,
+  `diagonal_preconditioner()`, `num_unknowns()`, `system_operator()`, `rhs()`. Unit tests
+  `tests/unit/test_simulation.cpp`; validation `tests/validation/test_simulation_mie.cpp` (WP11
+  dielectric sphere through the driver: direct reproduces the WP11 ε_rr and stays below 1 % vs
+  Mie, GMRES/ICTF within 1e-4).
+- io (WP16): `io::open_npy_directory`, a dependency-free `ResultWriter` that stores vectors and
+  matrices as NumPy `.npy` files (format 1.0, little-endian, C order, `<f8`/`<c16`), meshes as
+  `<group>/vertices.npy` (`<f8`) and `<group>/triangles.npy` (`<i8`, 0-based) and attributes in
+  one `attributes.json` (rewritten on every call, shortest round-trip Reals, strict UTF-8);
+  validated names (`[A-Za-z0-9_.-]`, `/` for groups, Windows device names such as `CON` or
+  `com1.x` rejected on all platforms); every file is written to `<file>~tmp` and renamed over the
+  target, so targets are always complete; `open_hdf5` throws until HDF5 support lands. Unit tests
+  `tests/unit/test_result_writer.cpp` (independent NPY reader, bitwise data); NumPy round trip
+  `tests/python/test_result_writer.py` via the helper `specklebem_npy_fixture` (CI sets
+  `SPECKLEBEM_NPY_FIXTURE`, so a missing helper fails instead of skipping).
+- geometry (WP2c): rough-surface box with optional decay-aware fine band (`box_fine_depth`) and a
+  per-column stitched relaxation band under rough rims (vertical wall edges ≤ 2 h_g, M = 3 kept for
+  σ ≤ 250 nm, Lc ≥ 100 nm; box 7–14 % of the top face at L = 10 µm); `material::field_decay_length`.
 - kernels (WP7b): graded outer quadrature for touching triangle pairs (generalised Gauss-log rules on
   Duffy sub-triangles, `OperatorOptions::outer_grading_levels`, default 4) and k-aware near/far degree
   selection (`target_accuracy`, default 1e-5, within [`quad_degree_far`, `quad_degree_near`] = [3, 19]);

@@ -522,8 +522,7 @@ void TriangleMesh::flip_normals() {
     normals_ = -normals_;
 }
 
-std::string TriangleMesh::quality_report() const {
-    const Index nv = num_vertices();
+MeshQuality TriangleMesh::quality() const {
     const Index ne = num_edges();
     const Index nb = num_boundary_edges();
     const Index nf = num_triangles();
@@ -563,29 +562,55 @@ std::string TriangleMesh::quality_report() const {
         max_aspect = std::max(max_aspect, a * b * c * s / (8.0 * area_t * area_t));
     }
 
+    MeshQuality q;
+    q.num_vertices = num_vertices();
+    q.num_unreferenced_vertices = num_vertices() - num_used_vertices_;
+    q.num_edges = ne;
+    q.num_boundary_edges = nb;
+    q.num_nonmanifold_edges = num_nonmanifold_edges_;
+    q.num_triangles = nf;
+    q.euler_characteristic = euler_characteristic();
+    q.num_components = num_components_;
+    q.num_vertex_components = num_vertex_components_;
+    q.closed = is_closed();
+    q.consistently_oriented = consistently_oriented_;
+    if (n_all > 0) {
+        q.min_edge_length = lmin;
+        q.max_edge_length = lmax;
+        q.mean_edge_length = lsum / static_cast<Real>(n_all);
+    }
+    if (nf > 0) {
+        q.max_aspect_ratio = max_aspect;
+    }
+    return q;
+}
+
+std::string to_string(const MeshQuality& q) {
+    const Index n_all = q.num_edges + q.num_boundary_edges;
     std::ostringstream os;
     os << std::setprecision(6);
     os << "TriangleMesh quality report\n";
-    os << "  vertices (V)            : " << nv << "\n";
-    os << "  unreferenced vertices   : " << nv - num_used_vertices_ << "\n";
-    os << "  interior edges (E)      : " << ne << "\n";
-    os << "  triangles (F)           : " << nf << "\n";
-    os << "  Euler characteristic    : " << euler_characteristic()
+    os << "  vertices (V)            : " << q.num_vertices << "\n";
+    os << "  unreferenced vertices   : " << q.num_unreferenced_vertices << "\n";
+    os << "  interior edges (E)      : " << q.num_edges << "\n";
+    os << "  triangles (F)           : " << q.num_triangles << "\n";
+    os << "  Euler characteristic    : " << q.euler_characteristic
        << "  (V_used - E_all + F, E_all = " << n_all << " incl. boundary edges)\n";
-    os << "  components (by edges)   : " << num_components_ << "\n";
-    os << "  components (by vertices): " << num_vertex_components_ << "\n";
-    os << "  closed                  : " << (is_closed() ? "yes" : "no") << "\n";
-    os << "  consistently oriented   : " << (consistently_oriented_ ? "yes" : "no") << "\n";
-    os << "  boundary edges          : " << nb << "\n";
-    os << "  non-manifold edges      : " << num_nonmanifold_edges_ << "\n";
+    os << "  components (by edges)   : " << q.num_components << "\n";
+    os << "  components (by vertices): " << q.num_vertex_components << "\n";
+    os << "  closed                  : " << (q.closed ? "yes" : "no") << "\n";
+    os << "  consistently oriented   : " << (q.consistently_oriented ? "yes" : "no") << "\n";
+    os << "  boundary edges          : " << q.num_boundary_edges << "\n";
+    os << "  non-manifold edges      : " << q.num_nonmanifold_edges << "\n";
     if (n_all > 0) {
-        os << "  edge length min/max/mean: " << lmin << " / " << lmax << " / "
-           << lsum / static_cast<Real>(n_all) << " m\n";
+        os << "  edge length min/max/mean: " << q.min_edge_length << " / " << q.max_edge_length
+           << " / " << q.mean_edge_length << " m\n";
     } else {
         os << "  edge length min/max/mean: n/a\n";
     }
-    if (nf > 0) {
-        os << "  max aspect ratio        : " << max_aspect << "  (R / 2r, 1 = equilateral)\n";
+    if (q.num_triangles > 0) {
+        os << "  max aspect ratio        : " << q.max_aspect_ratio
+           << "  (R / 2r, 1 = equilateral)\n";
     } else {
         os << "  max aspect ratio        : n/a\n";
     }

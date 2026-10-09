@@ -1,3 +1,4 @@
+#include "specklebem/core/path.hpp"
 #include "specklebem/geometry/mesh.hpp"
 #include "specklebem/geometry/mesh_io.hpp"
 #include "specklebem/geometry/sphere.hpp"
@@ -21,6 +22,9 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
+
+#include "utf8_test_support.hpp"
 
 using namespace specklebem;
 using Catch::Matchers::ContainsSubstring;
@@ -35,6 +39,12 @@ namespace fs = std::filesystem;
 
 namespace {
 
+/// Filesystem path of a UTF-8 path string (ADR 0007), so that the tests also work below a
+/// non-ASCII temporary directory on Windows.
+fs::path to_fs(const std::string& utf8) {
+    return core::path_from_utf8(utf8);
+}
+
 std::string fixture(const std::string& name) {
     return std::string(SPECKLEBEM_TEST_DATA_DIR) + "/" + name;
 }
@@ -46,17 +56,17 @@ public:
         static std::atomic<unsigned> counter{0};
         const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
         const auto salt = std::random_device{}();  // uniqueness only, not test input
-        path_ = (fs::temp_directory_path() /
-                 ("specklebem_mesh_io_" + std::to_string(stamp) + "_" + std::to_string(salt) + "_" +
-                  std::to_string(counter++) + extension))
-                    .string();
+        path_ = core::path_to_utf8(fs::temp_directory_path() /
+                                   ("specklebem_mesh_io_" + std::to_string(stamp) + "_" +
+                                    std::to_string(salt) + "_" + std::to_string(counter++) +
+                                    extension));
     }
     TempFile(const TempFile&) = delete;
     TempFile& operator=(const TempFile&) = delete;
     ~TempFile() {
         std::error_code ec;
-        fs::remove(path_, ec);
-        fs::remove(path_ + ".tmp", ec);  // writer's temporary file, should never remain
+        fs::remove(to_fs(path_), ec);
+        fs::remove(to_fs(path_ + ".tmp"), ec);  // writer's temporary file, should never remain
     }
     [[nodiscard]] const std::string& path() const { return path_; }
 
@@ -65,7 +75,7 @@ private:
 };
 
 void write_text(const std::string& path, const std::string& text) {
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    std::ofstream out(to_fs(path), std::ios::binary | std::ios::trunc);
     out << text;
     REQUIRE(out.good());
 }
@@ -162,9 +172,9 @@ TEST_CASE("mesh_io: write_mesh with .stl writes binary STL", "[geometry][io]") {
     const TriangleMesh sphere = make_icosphere(1e-6, 1);
     TempFile file(".stl");
     io::write_mesh(sphere, file.path());
-    CHECK(fs::file_size(file.path()) ==
+    CHECK(fs::file_size(to_fs(file.path())) ==
           84 + 50 * static_cast<std::uintmax_t>(sphere.num_triangles()));
-    std::ifstream in(file.path(), std::ios::binary);
+    std::ifstream in(to_fs(file.path()), std::ios::binary);
     std::string head(5, '\0');
     in.read(head.data(), 5);
     CHECK(head != "solid");
@@ -199,11 +209,11 @@ TEST_CASE("mesh_io: extension dispatch and file errors", "[geometry][io]") {
     CHECK_THROWS_AS(io::read_mesh(no_extension.path()), std::invalid_argument);
     CHECK_THROWS_AS(io::write_mesh(sphere, foo.path()), std::invalid_argument);
     CHECK_THROWS_AS(io::write_mesh(TriangleMesh(), empty_out.path()), std::invalid_argument);
-    CHECK_FALSE(fs::exists(foo.path()));
-    CHECK_FALSE(fs::exists(empty_out.path()));
+    CHECK_FALSE(fs::exists(to_fs(foo.path())));
+    CHECK_FALSE(fs::exists(to_fs(empty_out.path())));
 
     const std::string missing =
-        (fs::temp_directory_path() / "specklebem_missing_mesh.stl").string();
+        core::path_to_utf8(fs::temp_directory_path() / "specklebem_missing_mesh.stl");
     CHECK_THAT(runtime_error_message([&] { (void)io::read_mesh(missing); }),
                ContainsSubstring("specklebem_missing_mesh.stl"));
     CHECK_THROWS_AS(io::read_obj(missing), std::runtime_error);
@@ -277,7 +287,7 @@ TEST_CASE("mesh_io: OBJ face forms, polygons and errors", "[geometry][io]") {
         TempFile file(".obj");
         write_text(file.path(), verts + "f 1 2 2\n");
         CHECK_THAT(runtime_error_message([&] { (void)io::read_obj(file.path()); }),
-                   ContainsSubstring(fs::path(file.path()).filename().string()));
+                   ContainsSubstring(core::path_to_utf8(to_fs(file.path()).filename())));
     }
     SECTION("inconsistent winding is repaired by the TriangleMesh constructor") {
         TempFile file(".obj");
@@ -358,7 +368,7 @@ TEST_CASE("mesh_io: ASCII STL errors carry the line number", "[geometry][io]") {
                "solid s\n facet normal 0 0 1\n  outer loop\n   vertex 0 0 0\n"
                "   vertex 1 0\n  endloop\n endfacet\nendsolid s\n");
     const std::string msg = runtime_error_message([&] { (void)io::read_stl(file.path()); });
-    CHECK_THAT(msg, ContainsSubstring(fs::path(file.path()).filename().string()));
+    CHECK_THAT(msg, ContainsSubstring(core::path_to_utf8(to_fs(file.path()).filename())));
     CHECK_THAT(msg, ContainsSubstring("line 6"));
 }
 
@@ -447,7 +457,7 @@ TEST_CASE("mesh_io: empty files are rejected", "[geometry][io]") {
     TempFile file(ext);
     write_text(file.path(), "");
     CHECK_THAT(runtime_error_message([&] { (void)io::read_mesh(file.path()); }),
-               ContainsSubstring(fs::path(file.path()).filename().string()));
+               ContainsSubstring(core::path_to_utf8(to_fs(file.path()).filename())));
 }
 
 TEST_CASE("mesh_io: binary STL with an implausible triangle count", "[geometry][io]") {
@@ -467,7 +477,7 @@ TEST_CASE("mesh_io: binary STL with an implausible triangle count", "[geometry][
         TempFile file(".stl");
         write_text(file.path(), binary_stl(4, 3, "solid binary header"));
         const std::string msg = runtime_error_message([&] { (void)io::read_stl(file.path()); });
-        CHECK_THAT(msg, ContainsSubstring(fs::path(file.path()).filename().string()));
+        CHECK_THAT(msg, ContainsSubstring(core::path_to_utf8(to_fs(file.path()).filename())));
         CHECK_THAT(msg, ContainsSubstring("triangle count 4"));
         CHECK_THAT(msg, ContainsSubstring("234 bytes"));
     }
@@ -545,13 +555,13 @@ TEST_CASE("mesh_io: failed write throws and leaves no partial file", "[geometry]
     const TriangleMesh sphere = make_icosphere(1.0, 1);
     const TempFile dir_name("");
     const std::string ext = GENERATE(as<std::string>{}, ".stl", ".obj", ".msh");
-    const std::string target = (fs::path(dir_name.path()) / ("mesh" + ext)).string();
+    const std::string target = core::path_to_utf8(to_fs(dir_name.path()) / ("mesh" + ext));
     INFO("target " << target);
-    REQUIRE_FALSE(fs::exists(dir_name.path()));  // parent directory does not exist
+    REQUIRE_FALSE(fs::exists(to_fs(dir_name.path())));  // parent directory does not exist
     CHECK_THAT(runtime_error_message([&] { io::write_mesh(sphere, target); }),
                ContainsSubstring(target));
-    CHECK_FALSE(fs::exists(target));
-    CHECK_FALSE(fs::exists(target + ".tmp"));
+    CHECK_FALSE(fs::exists(to_fs(target)));
+    CHECK_FALSE(fs::exists(to_fs(target + ".tmp")));
 }
 
 TEST_CASE("mesh_io: writing replaces an existing file and removes the temporary",
@@ -560,6 +570,72 @@ TEST_CASE("mesh_io: writing replaces an existing file and removes the temporary"
     write_text(file.path(), "stale content that is longer than nothing\n");
     const TriangleMesh sphere = make_icosphere(1.0, 0);
     io::write_mesh(sphere, file.path());
-    CHECK_FALSE(fs::exists(file.path() + ".tmp"));
+    CHECK_FALSE(fs::exists(to_fs(file.path() + ".tmp")));
     CHECK(io::read_mesh(file.path()).num_triangles() == 20);
+}
+
+namespace {
+
+/// Unique directory below the system temp directory whose name contains non-ASCII characters
+/// (test::non_ascii_dir_name), removed with its contents on destruction. path() is UTF-8.
+class NonAsciiTempDir {
+public:
+    NonAsciiTempDir() {
+        const TempFile unique("");  // unique ASCII stem, never created as a file
+        utf8_ = unique.path() + "_" + test::non_ascii_dir_name();
+        fs_ = to_fs(utf8_);
+        fs::create_directories(fs_);
+    }
+    NonAsciiTempDir(const NonAsciiTempDir&) = delete;
+    NonAsciiTempDir& operator=(const NonAsciiTempDir&) = delete;
+    ~NonAsciiTempDir() {
+        std::error_code ec;
+        fs::remove_all(fs_, ec);
+    }
+    [[nodiscard]] const std::string& path() const { return utf8_; }
+    [[nodiscard]] const fs::path& fs_path() const { return fs_; }
+
+private:
+    std::string utf8_;
+    fs::path fs_;
+};
+
+}  // namespace
+
+TEST_CASE("mesh_io: round trip under a non-ASCII directory name (UTF-8 paths)", "[geometry][io]") {
+    const NonAsciiTempDir dir;
+    const TriangleMesh sphere = make_icosphere(1.0, 1);
+    const std::string ext = GENERATE(as<std::string>{}, ".stl", ".obj", ".msh");
+    const std::string name = test::utf8(u8"Kugel_ü_路") + ext;
+    const std::string file = dir.path() + "/" + name;
+    INFO("file " << file);
+    io::write_mesh(sphere, file);
+    // The file exists under the intended Unicode name and is the only directory entry.
+    REQUIRE(fs::exists(core::path_from_utf8(file)));
+    std::vector<std::string> entries;
+    for (const auto& e : fs::directory_iterator(dir.fs_path())) {
+        entries.push_back(core::path_to_utf8(e.path().filename()));
+    }
+    CHECK(entries == std::vector<std::string>{name});
+    const TriangleMesh back = io::read_mesh(file);
+    CHECK(back.num_triangles() == sphere.num_triangles());
+    CHECK(back.num_vertices() == sphere.num_vertices());
+    CHECK(max_corner_deviation(sphere, back) <= 1e-6);  // float32 for binary STL
+
+    // Error messages contain the exact UTF-8 path.
+    const std::string missing = dir.path() + "/" + test::utf8(u8"fehlt_ä") + ext;
+    CHECK_THAT(runtime_error_message([&] { (void)io::read_mesh(missing); }),
+               ContainsSubstring(missing));
+    const std::string no_parent = dir.path() + "/" + test::utf8(u8"gibt_es_nicht_ö/m") + ext;
+    CHECK_THAT(runtime_error_message([&] { io::write_mesh(sphere, no_parent); }),
+               ContainsSubstring(no_parent));
+}
+
+TEST_CASE("mesh_io: paths that are not valid UTF-8 are rejected", "[geometry][io]") {
+    const TriangleMesh sphere = make_icosphere(1.0, 0);
+    const std::string bad = "specklebem_\xff_invalid.obj";
+    CHECK_THROWS_AS(io::read_mesh(bad), std::invalid_argument);
+    CHECK_THROWS_AS(io::read_obj(bad), std::invalid_argument);
+    CHECK_THROWS_AS(io::write_mesh(sphere, bad), std::invalid_argument);
+    CHECK_THROWS_AS(io::write_obj(sphere, bad), std::invalid_argument);
 }

@@ -63,6 +63,57 @@ sim.save("run.h5")                                # mesh, currents, config, hist
 sb.load_fields("run.h5")
 ```
 
+## Bound so far (WP14b1) and differences from the target
+
+Geometry, materials, excitations and the Mie reference are bound; `Simulation`, operators,
+post-processing and I/O follow in WP14b2 (`read_mesh` after the UTF-8 path work WP-P1).
+Actual signatures (all lengths in metres, angles in radians):
+
+```python
+sb.TriangleMesh(vertices, triangles)    # (V,3) real, (F,3) integer; copied; ValueError if invalid
+mesh.vertices, mesh.triangles, mesh.edges   # read-only zero-copy views (base = the mesh)
+mesh.num_vertices, mesh.num_triangles, mesh.num_edges, mesh.num_boundary_edges, mesh.num_components
+mesh.is_closed(), mesh.signed_volume(), mesh.bounding_box(), mesh.flip_normals()
+mesh.quality_report()                   # sb.MeshQuality: attributes; str(q) gives the text report
+sb.make_icosphere(radius, subdivisions, center=(0, 0, 0))
+sb.make_sphere(radius, target_edge_length, center=(0, 0, 0))
+sb.generate_gaussian_height_map(*, L, sigma, Lc, mesh_size, seed=0, use_fft=True)  # sb.HeightMap
+sb.HeightMap(z, dx, dy)                 # z: (n_x, n_y) heights at (x_i, y_j); .z (copy), .rms()
+sb.make_mesh_from_height_map(height_map, *, box_depth=None, box_mesh_size=None, box_fine_depth=None)
+sb.make_rough_surface_mesh(*, L, sigma, Lc, mesh_size, seed=0, box_depth=None,
+                           box_mesh_size=None, box_fine_depth=None, use_fft=True)
+sb.RoughSurface(L, sigma, Lc, mesh_size, seed=0, *, box_depth=None, box_mesh_size=None,
+                box_fine_depth=None, use_fft=True)  # .mesh (lazy), .height_map, .heights, .dx, .dy
+sb.field_decay_length(material, wavelength) / sb.field_decay_length(eps_r, wavelength)
+sb.DispersiveMaterial(wavelengths, refractive_indices)   # .at(wl) == .at_wavelength(wl)
+sb.PlaneWave(wavelength, direction, polarization, background=sb.vacuum())
+sb.GaussianBeam(wavelength, waist, polarization="p", incidence_angle=0.0, focus=(0, 0, 0),
+                background=sb.vacuum())
+exc.electric_field(points), exc.magnetic_field(points), exc.omega, exc.wavelength, exc.background
+sb.Mie(radius, wavelength, material, exterior=sb.vacuum(), n_max=0)
+mie.bistatic_rcs(theta, phi)            # NumPy broadcasting; a float for scalar input
+mie.scattered_E(points), mie.scattered_H(points), mie.internal_E(points)
+mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
+```
+
+- Defaults of the rough-surface keywords are those of `geometry::RoughSurfaceParams`
+  (`L` = `edge_length_L`, `sigma` = `rms_roughness`, `Lc` = `correlation_length`); `seed=0`
+  draws a non-deterministic seed. `RoughSurface` validates the box keywords when `.mesh` is
+  first built.
+- `PlaneWave.direction` is `k_hat` (normalised by the constructor), `polarization` the complex
+  amplitude `e0` [V/m] (transverse). `GaussianBeam.waist` is `Params::waist_radius` (1/e^2
+  intensity radius); `polarization` is `"p"`, `"s"` (any case) or `sb.Polarization.P/S`.
+- `Mie.material` is `MieParams::sphere`, `exterior` is `MieParams::medium` (lossless).
+- `points` is an `(n, 3)` real array (or one `(3,)` point); fields are `(n, 3)` (or `(3,)`)
+  complex128.
+- `DispersiveMaterial` takes n in the exp(+jwt) form `n - jk`; the refractiveindex.info loader
+  (`from_refractiveindex_info`, conjugating `n + ik`) is not implemented yet.
+- Exceptions: `std::invalid_argument`, `std::domain_error` (e.g. a Mie point on the wrong side
+  of the sphere) and `std::out_of_range` (wavelength outside a `DispersiveMaterial` table) raise
+  `ValueError`; `std::runtime_error` and `std::logic_error` raise `RuntimeError`.
+- The GIL is released during mesh construction and generation, height-map generation and
+  field / RCS evaluation loops.
+
 ## Rules
 
 - SI units; no implicit scaling.
