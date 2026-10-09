@@ -1,8 +1,9 @@
 // Unit tests of the Simulation driver (WP14a): solver / preconditioner / formulation selection,
 // agreement with the low-level pipeline, idempotence, input checks and post-processing on the
 // owned solution. Sphere of radius 0.5 um, icosphere n = 1 (2N = 240) at lambda = 1 um with
-// cheap quadrature (far 1, near 2, singular 2), as in test_assembler.cpp, so that every case
-// stays well below a second in release and a few seconds in the sanitizer build. Physics
+// cheap quadrature (far 1, near 2, singular 2, and the WP7 rules: no outer grading, fixed
+// degrees, as wp7_options() in test_assembler.cpp), so that every case stays well below a second
+// in release and a few seconds in the sanitizer build. Physics
 // (eps_rr against Mie) is in tests/validation/test_simulation_mie.cpp.
 #include "specklebem/simulation.hpp"
 
@@ -28,6 +29,10 @@ kernels::OperatorOptions cheap_options() {
     o.quad_degree_far = 1;
     o.quad_degree_near = 2;
     o.quad_degree_sing = 2;
+    // WP7 rules: the WP7b defaults (graded touching pairs, k-aware degrees) cost 2 to 10x the
+    // sanitizer time here and are not what these driver tests check.
+    o.outer_grading_levels = 0;
+    o.target_accuracy = 0.0;
     return o;
 }
 
@@ -92,9 +97,9 @@ TEST_CASE("simulation: direct solve equals the low-level pipeline", "[simulation
     CHECK(rd.iterations == 0);
     CHECK(rd.converged);
     CHECK(rd.true_relative_residual < 1e-12);
-    REQUIRE(rd.residual_history.size() == 2);
-    CHECK(rd.residual_history[0] == 1.0);
-    CHECK(rd.residual_history[1] == rd.true_relative_residual);
+    // gmres.hpp size rule: iterations + 1 entries.
+    REQUIRE(rd.residual_history.size() == 1);
+    CHECK(rd.residual_history[0] == rd.true_relative_residual);
     CHECK(rel_diff(direct.solution().currents, x_ref) < 1e-12);
     CHECK(rel_diff(rd.x, x_ref) < 1e-12);
     CHECK(contains(direct.report(), "unused by the direct solver"));
@@ -251,6 +256,135 @@ TEST_CASE("simulation: constructor input checks", "[simulation]") {
     c = ok;
     c.object.eps_r = Complex(0.0, 0.0);
     CHECK_THROWS_AS(Simulation(sphere_mesh(0), wave, c), std::invalid_argument);
+}
+
+TEST_CASE("simulation: further constructor checks", "[simulation]") {
+    const auto wave = plane_wave();
+    const SimulationConfig ok = base_config(lossless_n15());
+
+    SECTION("wavelength within the relative tolerance, NaN rejected") {
+        SimulationConfig c = ok;
+        c.wavelength = kLambdaFast * (1 + 1e-13);
+        CHECK_NOTHROW(Simulation(sphere_mesh(0), wave, c));
+        c.wavelength = kLambdaFast * (1 - 1e-13);
+        const Simulation sim(sphere_mesh(0), wave, c);
+        // omega is the excitation's (bitwise), not recomputed from config.wavelength.
+        CHECK(sim.problem().omega == wave->omega());
+        c.wavelength = std::nan("");
+        CHECK_THROWS_AS(Simulation(sphere_mesh(0), wave, c), std::invalid_argument);
+    }
+    SECTION("mu_r of the background must match") {
+        SimulationConfig c = ok;
+        c.exterior.mu_r = Complex(2.0, 0.0);  // same eps_r as the wave's vacuum background
+        CHECK_THROWS_AS(Simulation(sphere_mesh(0), wave, c), std::invalid_argument);
+    }
+    SECTION("GMRES parameters") {
+        SimulationConfig c = ok;
+        c.gmres.max_iter = 0;
+        CHECK_THROWS_AS(Simulation(sphere_mesh(0), wave, c), std::invalid_argument);
+        c = ok;
+        c.gmres.restart = -1;
+        CHECK_THROWS_AS(Simulation(sphere_mesh(0), wave, c), std::invalid_argument);
+        c = ok;
+        c.gmres.tolerance = std::nan("");
+        CHECK_THROWS_AS(Simulation(sphere_mesh(0), wave, c), std::invalid_argument);
+    }
+    SECTION("JMCFIE is rejected by the constructor") {
+        SimulationConfig c = ok;
+        c.formulation = Kind::JMCFIE;
+        CHECK_THROWS_AS(Simulation(sphere_mesh(0), wave, c), std::invalid_argument);
+    }
+    SECTION("inward-pointing normals are rejected") {
+        geometry::TriangleMesh inward = sphere_mesh(0);
+        REQUIRE(inward.signed_volume() > 0);
+        inward.flip_normals();
+        REQUIRE(inward.is_closed());
+        REQUIRE(inward.signed_volume() < 0);
+        CHECK_THROWS_AS(Simulation(inward, wave, ok), std::invalid_argument);
+        inward.flip_normals();
+        CHECK_NOTHROW(Simulation(inward, wave, ok));
+    }
+#ifdef NDEBUG
+    SECTION("dense size limit") {
+        // Icosphere n = 6: 122 880 edges, 2N = 245 760 > op::kMaxDenseUnknowns; rejected before
+        // anything is assembled. Release only (the mesh construction of 81 920 triangles takes
+        // seconds in the sanitizer build).
+        const geometry::TriangleMesh big = sphere_mesh(6);
+        REQUIRE(2 * big.num_edges() > op::kMaxDenseUnknowns);
+        CHECK_THROWS_AS(Simulation(big, wave, ok), std::invalid_argument);
+    }
+#endif
+}
+
+TEST_CASE("simulation: per-call GMRES parameters", "[simulation]") {
+    SimulationConfig cfg = base_config(lossless_n15());
+    cfg.formulation = Kind::ICTF;
+    cfg.diagonal_preconditioner = false;
+    cfg.gmres.tolerance = 1e-3;
+    Simulation sim(sphere_mesh(), plane_wave(), cfg);
+
+    solver::GmresParams invalid = cfg.gmres;
+    invalid.max_iter = 0;
+    CHECK_THROWS_AS(sim.solve(invalid), std::invalid_argument);
+    invalid = cfg.gmres;
+    invalid.restart = -1;
+    CHECK_THROWS_AS(sim.solve(invalid), std::invalid_argument);
+    invalid = cfg.gmres;
+    invalid.tolerance = 0.0;
+    CHECK_THROWS_AS(sim.solve(invalid), std::invalid_argument);
+    CHECK_THROWS_AS(sim.solution(), std::logic_error);
+
+    const solver::GmresResult coarse = sim.solve();  // config().gmres: tolerance 1e-3
+    REQUIRE(coarse.converged);
+    CHECK(contains(sim.report(), "GMRES (tol 0.001,"));
+    solver::GmresParams fine = cfg.gmres;
+    fine.tolerance = 1e-10;
+    int calls = 0;
+    const solver::GmresResult r = sim.solve(fine, [&calls](int, Real) { ++calls; });
+    INFO("iterations: tol 1e-3 " << coarse.iterations << ", tol 1e-10 " << r.iterations);
+    REQUIRE(r.converged);
+    CHECK(r.iterations > coarse.iterations);
+    CHECK(calls == r.iterations);
+    CHECK(r.residual_history.back() <= 1e-10);
+    CHECK(sim.config().gmres.tolerance == 1e-3);  // the config is unchanged
+    CHECK(contains(sim.report(), "GMRES (tol 1e-10,"));
+    CHECK(rel_diff(sim.solution().currents, reference_currents()) < 1e-7);
+}
+
+TEST_CASE("simulation: non-converged GMRES keeps the solution", "[simulation]") {
+    SimulationConfig cfg = base_config(lossless_n15());
+    cfg.formulation = Kind::ICTF;
+    cfg.diagonal_preconditioner = false;
+    cfg.gmres.tolerance = 1e-10;
+    cfg.gmres.max_iter = 1;
+    Simulation sim(sphere_mesh(), plane_wave(), cfg);
+    const solver::GmresResult r = sim.solve();
+    CHECK_FALSE(r.converged);
+    CHECK(r.iterations == 1);
+    CHECK(r.residual_history.size() == 2);
+    REQUIRE_NOTHROW(sim.solution());
+    CHECK(sim.solution().currents.size() == sim.num_unknowns());
+    CHECK(sim.solution().currents.allFinite());
+    CHECK(sim.solution().currents.norm() > 0.0);
+    CHECK(contains(sim.report(), "1 iterations, NOT converged"));
+}
+
+TEST_CASE("simulation: the direct solver assembles no diagonal", "[simulation]") {
+    SimulationConfig cfg = pmchwt_config(SolverKind::Direct);
+    cfg.diagonal_preconditioner = true;
+    Simulation sim(sphere_mesh(), plane_wave(), cfg);
+    CHECK(sim.diagonal_preconditioner());
+    sim.assemble();
+    const solver::GmresResult r = sim.solve();
+    CHECK(r.converged);
+    const std::string rep = sim.report();
+    const auto pos = rep.find("  assembly:");
+    REQUIRE(pos != std::string::npos);
+    const std::string assembly_line = rep.substr(pos, rep.find('\n', pos) - pos);
+    INFO(assembly_line);
+    CHECK(contains(assembly_line, "rhs"));
+    CHECK_FALSE(contains(assembly_line, "diagonal"));
+    CHECK(contains(rep, "diagonal (Jacobi) (explicit), unused by the direct solver"));
 }
 
 TEST_CASE("simulation: far field and RCS on the owned solution", "[simulation]") {

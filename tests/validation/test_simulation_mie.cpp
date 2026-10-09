@@ -4,7 +4,8 @@
 //  * direct LU with PMCHWT through the driver reproduces eps_rr of the low-level WP11 pipeline
 //    (mie_dense_test_support.hpp, solve_mie_dense) to 1e-10 relative in the xz- and yz-planes
 //    (same Problem, so the results are in fact bitwise equal);
-//  * GMRES with ICTF, tol 1e-8, no preconditioner reaches the direct eps_rr to 1e-4 (absolute).
+//  * GMRES with ICTF, tol 1e-8, no preconditioner reaches the direct eps_rr to 1e-4 (absolute);
+//  * absolute guard: the direct eps_rr against Mie is below 1 % (2 % at n = 2).
 // The sanitizer build runs the same checks at n = 2 (the LU of 2N = 3840 is too slow there, as in
 // test_mie_sphere_dense.cpp).
 #include "specklebem/simulation.hpp"
@@ -64,6 +65,11 @@ TEST_CASE("Simulation driver: Mie dielectric sphere n = 1.5 (direct and GMRES)",
     CHECK(direct.res.true_relative_residual < 1e-10);
     CHECK(rel_error(direct.eps_xz, wp11.eps_xz) < 1e-10);
     CHECK(rel_error(direct.eps_yz, wp11.eps_yz) < 1e-10);
+    // Absolute guard against Mie (docs/05: eps_rr < 1 % at lambda / 10; the same bounds as
+    // test_mie_sphere_dense.cpp: 1 % at n = 3, 2 % at the coarser n = 2 of the sanitizer build).
+    const Real eps_bound = n >= 3 ? 0.01 : 0.02;
+    CHECK(direct.eps_xz < eps_bound);
+    CHECK(direct.eps_yz < eps_bound);
 
     const DriverResult gm = run_driver(n, SolverKind::Gmres, formulation::Kind::ICTF);
     WARN("icosphere n = " << n << ": eps_rr direct xz / yz = " << direct.eps_xz << " / "

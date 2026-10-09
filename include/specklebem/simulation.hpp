@@ -20,7 +20,7 @@ namespace specklebem {
 
 /// Linear solver of Simulation::solve().
 enum class SolverKind {
-    Gmres,  ///< solver::gmres with config.gmres (incl. the preconditioner side)
+    Gmres,  ///< solver::gmres with config.gmres or the per-call parameters (incl. the side)
     Direct  ///< solver::solve_direct (dense LU) on the dense operator
 };
 
@@ -52,13 +52,18 @@ struct SimulationConfig {
 /// copyable or movable (the RWG space and the Problem hold pointers into it).
 class Simulation {
 public:
-    /// Cheap (no assembly): validates and resolves the configuration.
-    /// @throws std::invalid_argument for a mesh that is not closed or not consistently oriented,
-    ///         a null excitation, config.wavelength not finite and > 0 or different from the
-    ///         excitation's wavelength (relative 1e-12), an excitation background different
-    ///         from config.exterior, an unknown or unavailable compression, invalid kernel
-    ///         options or GMRES parameters (tolerance <= 0, max_iter < 1, restart < 0), and
-    ///         everything op::validate rejects. std::logic_error for formulation::Kind::JMCFIE.
+    /// Cheap (no assembly): validates and resolves the configuration. The angular frequency is
+    /// the excitation's, excitation->omega() (its wavelength is checked against
+    /// config.wavelength).
+    /// @throws std::invalid_argument for a mesh that is not closed or whose normals point
+    ///         inward (signed_volume() <= 0; they must point out of R2 into R1, docs/06), a
+    ///         null excitation, config.wavelength not finite and > 0 or different from the
+    ///         excitation's wavelength (relative 1e-12), an excitation background (eps_r or
+    ///         mu_r) different from config.exterior, an unknown or unavailable compression,
+    ///         2N > op::kMaxDenseUnknowns for the dense strategy, a formulation that is not
+    ///         implemented (formulation::Kind::JMCFIE), invalid kernel options or GMRES
+    ///         parameters (tolerance not finite or <= 0, max_iter < 1, restart < 0), and
+    ///         everything op::validate rejects.
     Simulation(geometry::TriangleMesh mesh, std::shared_ptr<excitation::Excitation> excitation,
                SimulationConfig config);
     ~Simulation();
@@ -68,20 +73,32 @@ public:
     Simulation& operator=(Simulation&&) = delete;
 
     /// Assembles the operator, the right-hand side and (GMRES with the Jacobi preconditioner
-    /// only) the diagonal, and times them. Idempotent: later calls do nothing.
+    /// only) the diagonal, and times them. Idempotent: what is already assembled is kept, so
+    /// later calls do nothing (after an exception a later call retries the missing parts).
     void assemble();
-    /// Assembles if needed and solves; the solution replaces any previous one.
-    ///
-    /// GMRES: the result of solver::gmres (callback cb per iteration). Direct: the dense LU
-    /// result mapped onto GmresResult: iterations 0, converged true, true_relative_residual =
-    /// the LU residual |b - Z x| / |b| (DirectSolveInfo::residual), residual_history
-    /// {1, residual}, wall_seconds the LU time; cb is not called.
-    /// @throws std::runtime_error from the solvers (singular system, non-finite values).
+    /// Same as solve(config().gmres, cb).
     solver::GmresResult solve(const solver::IterationCallback& cb = {});
+    /// Assembles if needed and solves with the GMRES parameters `params` for this call only
+    /// (config().gmres is not changed); the solution replaces any previous one, also when GMRES
+    /// does not converge (converged = false, logged as a warning, shown by report()). The
+    /// Jacobi diagonal is built here if the GMRES solve uses it and it is not assembled yet.
+    ///
+    /// GMRES: the result of solver::gmres (callback cb per iteration). Direct: params are
+    /// validated but unused; the dense LU result is mapped onto GmresResult following the
+    /// size rule of residual_history (iterations + 1 entries): iterations 0, converged true,
+    /// residual_history {residual} and true_relative_residual = residual, the LU residual
+    /// |b - Z x| / |b| (DirectSolveInfo::residual; {0} for b = 0), wall_seconds the LU time;
+    /// cb is not called.
+    /// @throws std::invalid_argument for invalid params (tolerance not finite or <= 0,
+    ///         max_iter < 1, restart < 0). std::runtime_error from the solvers (singular
+    ///         system, non-finite values).
+    solver::GmresResult solve(const solver::GmresParams& params,
+                              const solver::IterationCallback& cb = {});
     /// @throws std::logic_error before the first solve().
     [[nodiscard]] const post::SurfaceSolution& solution() const;
     /// Multi-line report: mesh size, formulation / preconditioner used (and whether automatic),
-    /// solver, compression, operator memory, timings, iterations and residuals.
+    /// solver (with the GMRES parameters of the last solve, config().gmres before the first),
+    /// compression, operator memory, timings, iterations and residuals.
     [[nodiscard]] std::string report() const;
 
     [[nodiscard]] const geometry::TriangleMesh& mesh() const;
