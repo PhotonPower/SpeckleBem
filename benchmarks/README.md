@@ -19,3 +19,18 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
 - [`results/mie_sphere_dense.md`](results/mie_sphere_dense.md) — Mie validation of the dense
   PMCHWT + LU solver (WP11, Phase 2 DoD): ε_rr in the xz- and yz-planes, power balance,
   assembly / LU timings and memory per icosphere level.
+- [`results/formulation_convergence.md`](results/formulation_convergence.md) — formulation
+  convergence study (WP15, Phase 3 DoD; Fu et al. 2023 Fig. 2a,b): GMRES iteration counts of
+  PMCHWT / ICTF / MCTF without and with the left Jacobi preconditioner on Si and Ag Gaussian rough
+  surfaces (dense operator, L reduced to 3.2 µm). Histories (every 10th iteration):
+  [`results/formulation_convergence_histories.csv`](results/formulation_convergence_histories.csv).
+
+## Executables (`-DSPECKLEBEM_BUILD_BENCHMARKS=ON`)
+
+- `specklebem_formulation_convergence` (`formulation_convergence.cpp`): the WP15 study. Options
+  `--materials si,ag`, `--formulations pmchwt,ictf,mctf`, `--L <m>`, `--seed <n>`,
+  `--max-iter <n>`, `--tol <t>`, `--out <dir>` (.npy directory with the residual histories, the
+  meshes and attributes), `--csv <file>` (appended, `--csv-stride` 10), `--waist-factor`
+  (w0 = L / factor, default 3), `--fine-band` (ADR 0006 fine band 3δ + 3σ), `--mesh-only`
+  (print the setup and the unknown count, no assembly). Each dense system (2N ≈ 3·10⁴) needs
+  ~16 GB; the systems are processed one after the other.
