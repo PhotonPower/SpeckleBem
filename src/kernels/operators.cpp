@@ -192,13 +192,14 @@
 /// vertex, 30 degrees); without the extra points the doubly obtuse pairs reached 6.3e-7 (60
 /// degrees) and the near-B pairs 6.2e-7 (60 degrees). Not covered: the near-B pair at 90
 /// degrees keeps the WP7b table, 1.4e-7 (1.3e-7 at 91, 8.5e-8 at 95 degrees; similar shapes up
-/// to 1.5e-7). Cost (release, Si, time per call against the WP7b table, both orderings, timing
-/// noise ~15 %): folds below 90 degrees mean x1.9 (shared edges, at most x3.3: doubly obtuse
-/// 75 degrees) and x1.6 (shared vertices, at most x3.2: obtuse 30 degrees); folds >= 90 degrees
-/// x1.3 (shared edges, at most x2.5: doubly obtuse) and x1.2 (shared vertices, at most x1.7:
-/// obtuse); unchanged for pairs on the WP7b table. Outer points of the analytic part against
-/// the WP7b table (touching_rule_info): mean x2.5 / x2.6 (shared edge / vertex, folds below 90
-/// degrees), at most x4.6 / x6.3. The pieces are built per call on the stack (no allocation).
+/// to 1.5e-7). Cost (release, Si, time per call against the WP7b table, both orderings, timing of
+/// the quietest of three runs; single-pair maxima vary by up to x2 under load): folds below 90
+/// degrees mean x1.9 (shared edges, at most x3.3: doubly obtuse 75 degrees) and x1.6 (shared
+/// vertices, at most x3.2: obtuse 30 degrees); folds >= 90 degrees x1.3 (shared edges, at most
+/// x2.5: doubly obtuse) and x1.2 (shared vertices, at most x1.7: obtuse); unchanged for pairs on
+/// the WP7b table. Outer points of the analytic part against the WP7b table (touching_rule_info):
+/// mean x2.5 / x2.6 (shared edge / vertex, folds below 90 degrees), at most x4.6 / x6.3. The pieces
+/// are built per call on the stack (no allocation).
 ///
 /// The remainder of the graded path uses a Dunavant outer rule (it is far smoother: rem has
 /// R^2 and R^3 terms, the analytic part carries all of 1/R and R): degree quad_degree_sing for

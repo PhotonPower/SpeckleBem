@@ -110,7 +110,8 @@ struct OperatorOptions {
     /// |BC|^2, roughly a non-obtuse angle at A) and without obtuse angles at the same shared
     /// vertex in both triangles, e.g. all touching pairs of the Mie icospheres. Accuracy: see the
     /// struct comment. Cost against the WP7b rule (release, Si, time per call, both orderings;
-    /// fold sweep, timing noise ~15 %): folds below 90 degrees mean x1.9 (shared edges, at most
+    /// fold sweep, quietest of three runs; single-pair maxima vary by up to x2 under load):
+    /// folds below 90 degrees mean x1.9 (shared edges, at most
     /// x3.3 for doubly obtuse pairs) and x1.6 (shared vertices, at most x3.2), folds >= 90
     /// degrees x1.3 (shared edges, at most x2.5) and x1.2 (shared vertices, at most x1.7).
     /// Deterministic outer points of the analytic part: see touching_rule_info; hard bound 48

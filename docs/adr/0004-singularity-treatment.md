@@ -129,8 +129,9 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   obtuse, doubly obtuse and near-B shared edges, regular, skewed and obtuse shared vertices;
   WP7b table: up to 4.5e-5 skewed edge, 4.2e-5 near-B edge (45 degrees), 3.1e-5 obtuse edge,
   8.7e-5 obtuse vertex); raw asymmetry <= 2e-7. Cost (release, Si, time per `element_blocks`
-  call against the WP7b table, both orderings, timing noise ~15 %): folds below 90 degrees mean
-  x1.9 for shared edges (at most x3.3, doubly obtuse 75 degrees; x2.8 without the extra points)
+  call against the WP7b table, both orderings, quietest of three runs; single-pair maxima vary
+  by up to x2 under machine load, the point ratios are the deterministic measure): folds below
+  90 degrees mean x1.9 for shared edges (at most x3.3, doubly obtuse 75 degrees; x2.8 without the extra points)
   and x1.6 for shared vertices (at most x3.2, obtuse 30 degrees); folds >= 90 degrees x1.3
   (shared edges, at most x2.5 doubly obtuse) and x1.2 (shared vertices, at most x1.7 obtuse);
   outer points of the analytic part mean x2.5 / x2.6, at most x4.6 / x6.3 (shared edge /
