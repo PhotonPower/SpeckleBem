@@ -195,10 +195,11 @@ TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p);
 ///    WP2 box. Safety net: every column must be strictly monotone and the middle upper node
 ///    of every 2:1 cell must lie at least half its band height above the edge below it, and
 ///    the transitions and half a coarse row must fit below the anchor row (or the fine band)
-///    in the mean column with z_S < depth everywhere; otherwise M is reduced by one until
-///    the rows fit, ultimately down to the uniform box (one SBEM_WARN per mesh). With the
-///    construction above only an anchor row reaching the bottom plate (a rim pit within a
-///    few h_g of it) or a too deep fine band triggers it.
+///    in the mean column, and every column must keep at least a quarter of the mean column
+///    height depth - z_S (no rows squeezed against the bottom plate); otherwise M is reduced
+///    by one until the rows fit, ultimately down to the uniform box (one SBEM_WARN per
+///    mesh). With the construction above only an anchor row close to the bottom plate (a
+///    deep rim pit) or a too deep fine band triggers it.
 ///  * The bottom plate is the structured grid of the level-M nodes, welded to the lowest
 ///    wall row.
 /// @throws std::invalid_argument for a grid smaller than 2 x 2, non-positive spacing,

@@ -1300,31 +1300,47 @@ TEST_CASE("rough surface mesh: invalid box_mesh_size throws", "[geometry]") {
     }
 }
 
+// Manual (hidden): reproduces the box fractions documented in rough_surface.hpp and ADR 0006.
+// Run: specklebem_unit_tests "[.stats]"
 TEST_CASE("rough surface mesh: box statistics (manual)", "[.stats]") {
-    for (const Real L : {4e-6, 10e-6}) {
-        for (const auto& [sigma, lc] : std::vector<std::pair<Real, Real>>{{250e-9, 100e-9},
-                                                                          {50e-9, 500e-9},
-                                                                          {250e-9, 500e-9},
-                                                                          {50e-9, 100e-9},
-                                                                          {50e-9, 200e-9}}) {
-            for (std::uint64_t seed = 1; seed <= 5; ++seed) {
-                const HeightMap h =
-                    generate_gaussian_height_map(make_params(L, 50e-9, sigma, lc, seed));
-                const Index nx = h.z.rows();
-                const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 2e-6);
-                const auto [v, f] = geometry::detail::rough_box_arrays(h, 2e-6);
-                const auto [vu, fu] = geometry::detail::rough_box_arrays(h, 2e-6, 50e-9);
-                const BoxCheck bc = check_box(v, f, h, 2e-6);
-                const BoxCheck bu = check_box(vu, fu, h, 2e-6);
-                const Index top = 2 * (nx - 1) * (nx - 1);
-                WARN("L " << L << " sigma " << sigma << " lc " << lc << " seed " << seed << " M "
-                          << g.levels << "/" << g.levels_unreduced << " R " << g.relaxation_rows
-                          << " box% "
-                          << 100.0 * static_cast<Real>(f.rows() - top) / static_cast<Real>(top)
-                          << " aspect box " << bc.max_aspect_box << " uniform " << bu.max_aspect_box
-                          << " top " << bc.max_aspect_top << " closed " << closed_and_consistent(f)
-                          << " minarea " << bc.min_area << " ok " << bc.wall_ok << bc.bottom_ok);
-            }
+    const auto box_percent = [](const HeightMap& h, const geometry::detail::BoxGrading& g) {
+        const Index nx = h.z.rows();
+        const Index ny = h.z.cols();
+        const Index top = 2 * (nx - 1) * (ny - 1);
+        return 100.0 * static_cast<Real>(graded_triangle_count(nx, ny, g) - top) /
+               static_cast<Real>(top);
+    };
+    for (const auto& [sigma, lc] : std::vector<std::pair<Real, Real>>{
+             {250e-9, 100e-9}, {50e-9, 500e-9}, {250e-9, 500e-9}, {50e-9, 100e-9}}) {
+        for (std::uint64_t seed = 1; seed <= 5; ++seed) {
+            const HeightMap h =
+                generate_gaussian_height_map(make_params(10e-6, 50e-9, sigma, lc, seed));
+            const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 2e-6);
+            WARN("sigma " << sigma << " Lc " << lc << " seed " << seed << ": M " << g.levels
+                          << ", R " << g.relaxation_rows << ", box " << box_percent(h, g) << " %");
         }
     }
+    // Fine band for Si at 500 nm: 3 delta = 3.387 um (material::field_decay_length).
+    for (const Real L : {10e-6, 30e-6}) {
+        for (const Real depth : {4e-6, 5.65e-6}) {
+            const HeightMap h =
+                generate_gaussian_height_map(make_params(L, 50e-9, 50e-9, 500e-9, 1));
+            const geometry::detail::BoxGrading g =
+                geometry::detail::box_grading(h, depth, std::nullopt, 3.387e-6);
+            const geometry::detail::BoxGrading gu = geometry::detail::box_grading(h, depth, 50e-9);
+            WARN("Si fine band: L " << L << " depth " << depth << ": M " << g.levels
+                                    << ", fine rows " << g.fine_rows << ", box "
+                                    << box_percent(h, g) << " %, uniform box " << box_percent(h, gu)
+                                    << " %");
+        }
+    }
+    RoughSurfaceParams p = make_params(10e-6, 50e-9, 50e-9, 500e-9, 1);
+    p.box_depth = 4e-6;
+    p.box_fine_depth = 3.387e-6;
+    const auto start = std::chrono::steady_clock::now();
+    const TriangleMesh mesh = make_rough_surface_mesh(p);
+    WARN("Si fine band mesh L = 10 um, depth 4 um: "
+         << mesh.num_triangles() << " triangles, "
+         << std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count()
+         << " s");
 }
