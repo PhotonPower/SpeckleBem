@@ -108,12 +108,16 @@ struct OperatorOptions {
     /// feature (shared edge: |AB| h_C >= |MC|^2 with h_C the height of C over AB and M the
     /// midpoint of AB, roughly the median MC not longer than AB; shared vertex: 4 area >=
     /// |BC|^2, roughly a non-obtuse angle at A) and without obtuse angles at the same shared
-    /// vertex in both triangles, e.g. all touching pairs of the Mie icospheres. Accuracy: see the
-    /// struct comment. Cost against the WP7b rule (release, Si, time per call, both orderings;
-    /// fold sweep, quietest of three runs; single-pair maxima vary by up to x2 under load):
-    /// folds below 90 degrees mean x1.9 (shared edges, at most
-    /// x3.3 for doubly obtuse pairs) and x1.6 (shared vertices, at most x3.2), folds >= 90
-    /// degrees x1.3 (shared edges, at most x2.5) and x1.2 (shared vertices, at most x1.7).
+    /// vertex in both triangles, e.g. all touching pairs of the Mie icospheres. Right angles
+    /// (structured rough-surface grids, the box rim) count as non-obtuse with a relative
+    /// tolerance of 1e-6, so they select one rule independently of rounding (WP7d). Shared
+    /// vertices with a steep source triangle (fold ~46 to ~134 degrees) that has a vertex less
+    /// than 11.5 degrees above the test plane (box rim) use the adaptive piece (WP7d). Accuracy:
+    /// see the struct comment. Cost against the WP7b rule (release, Si, time per call, both
+    /// orderings; fold sweep, quietest of three runs; single-pair maxima vary by up to x2 under
+    /// load): folds below 90 degrees mean x1.9 (shared edges, at most x3.3 for doubly obtuse
+    /// pairs) and x1.6 (shared vertices, at most x3.2), folds >= 90 degrees x1.3 (shared edges,
+    /// at most x2.5) and x1.2 (shared vertices, at most x1.7).
     /// Deterministic outer points of the analytic part: see touching_rule_info; hard bound 48
     /// pieces of at most 16 x 16 points per ordering. false restores the WP7b rule for every pair.
     bool fold_adaptive = true;
@@ -200,7 +204,9 @@ struct TouchingRuleInfo {
 
 /// The outer rule element_blocks uses for the analytic part of the touching pair (t_test, t_src)
 /// with options opt (one ordering; pairs averaged over both orderings evaluate both). Pure
-/// geometry: deterministic point counts for cost studies. Hard bound per ordering: 48 pieces of
+/// geometry: deterministic point counts for cost studies. Independent of the RWG space: it
+/// reports a rule also for triangles without interior edges, for which element_blocks returns
+/// zero blocks without evaluating any rule. Hard bound per ordering: 48 pieces of
 /// at most 16 x 16 points (12 288 points; WP7b table at level 4: 384 identical, 288 shared edge,
 /// 100 shared vertex).
 /// @throws std::invalid_argument for invalid options, outer_grading_levels = 0 (WP7 scheme, no

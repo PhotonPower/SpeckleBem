@@ -116,7 +116,8 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   degrees, 5.4e-7 at 75 degrees for the far vertex 0.27 |AB| from B) the pieces of that apex use
   level l + 3 (16 x 16; 16 x 14 left 8e-8). Hard bound per ordering: 48 pieces x 16 x 16 =
   12 288 outer points (WP7b table at level 4: 288 / 100); measured at most 2 624 for both
-  orderings (doubly obtuse 75-degree hinge; `kernels::touching_rule_info` reports the counts).
+  orderings (doubly obtuse 75-degree hinge; `kernels::touching_rule_info` reports the counts;
+  2 376 in the WP7d sweep run).
   Pairs that need no split and are not doubly obtuse keep the WP7b table (the near-vertex extra
   points never make a pair adaptive by themselves; they apply only to pairs that use the
   adaptive pieces anyway), so their blocks and the Mie
@@ -147,6 +148,31 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   the apex nor the far vertex (e.g. the opposite source edge of a shared-vertex pair passing
   close over the test triangle at folds below 30 degrees) only enter through the radial point
   number.
+- Structured grids (WP7d review follow-up). Rough-surface top faces consist of right isosceles
+  cell halves and the box rim has right angles in the top and the wall triangles; the exact
+  tests of WP7c (cosine < 0 for obtuse angles, zero distance < 0.5 for splits; the apex zero of
+  a right isosceles piece lies exactly at 0.5) chose a rule by rounding (sweep shape with 90
+  degrees at A in both triangles: 908 to 1 696 points, depending on +-1e-9 perturbations). An
+  angle now counts as obtuse only if its cosine is below -1e-6 and a zero splits only if it is
+  closer than 0.5 (1 - 1e-6): right angles take the rule of acute ones, which meets the bound
+  there (exact and perturbed shapes select the same rule; <= 5e-8 at level 4). Box rim: a
+  shared-vertex pair of a top test triangle and a wall source triangle whose rim edge runs
+  close to the top plane outside the wedge reached 1.2e-7 of its (small) K block with the WP7b
+  table (10 radial points; the rim vertex is a radial near-singularity ~0.47 side lengths away),
+  2e-10 with the adaptive piece (14 radial points). Shared vertices with a steep source
+  triangle (|n . n'| < 0.7, folds ~46 to ~134 degrees) and a source vertex less than 11.5
+  degrees above the test plane therefore use the adaptive piece (140 instead of 100 points).
+  This also applies to the reversed ordering of the sweep's regular and skewed shared vertices
+  at 90 and 120 degrees (vertex B on the hinge lies in the test plane), which so leave the WP7b
+  table; icosphere pairs are unaffected (bitwise, tested). All top/top and top/wall touching
+  pairs of a 4 x 4 rough box (sigma = 0.1 h, Si): <= 1.6e-8 (before: up to 1.85e-7). Rim pairs
+  with rim slopes steeper than ~11 degrees against the top triangle keep the WP7b table. The
+  new sweep shape with 90 degrees at A in both triangles revealed a gap of the ray partition at
+  a 75-degree fold (S on the side A C, 0.26 |AB| from A, just outside the 0.2 |AB| near-vertex
+  radius: 3.8e-7, WP7b table 7.3e-8): the far sides of the pieces of apex B pass close to A, a
+  radial near-singularity; with S within 0.3 |AB| of A (B) the pieces of the other apex now use
+  level l + 3 (4.7e-8). Sweep at level 4 including the right-angle shapes: <= 8.3e-8 (near-B
+  at 90 degrees 1.4e-7, the accepted deviation, pinned by a test); right-angle shapes <= 4.7e-8.
 - Right-hand side (WP7c): own Dunavant degree `quad_degree_rhs`, default 8. Relative error of
   <f_m, E_inc> / <f_m, H_inc> against degree 20 for a plane wave and a paraxial Gaussian beam
   (w0 = lambda) on an icosphere and a rough-surface box at h = lambda/10 (lambda/27): degree 4
