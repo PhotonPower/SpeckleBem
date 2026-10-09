@@ -110,3 +110,20 @@ Decisions replacing the corresponding parts of §2, §3 and §6:
   for d₀ ≤ 5; d₀ > 5 must be measured first). When the oversampled leaf sampling equals the
   parent sampling (λ/4 leaves at d₀ = 3) the leaf-to-parent interpolation is the identity and may
   be skipped.
+
+## Amendment 2026-10-09 (WP19b single-level measurements)
+
+Single-level FMM far blocks of RWG functions against the dense entries (relative Frobenius error at the
+order found by `search_truncation_order`): leaf edge a = λ/2: 1.3e-3 (d₀ = 3) and 3.6e-4 (d₀ = 5);
+10^{−3} is met from a ≈ 0.75 λ, 10^{−5} from a ≈ 1.5 λ (lossy Si from ≈ 1 λ); the errors depend only on
+a/λ (in the medium) and r_max/a and come from corner-near basis pairs at the nearest interaction
+offsets, which the volume-random check rarely samples. Decisions:
+- **Per-level acceptance check:** block-based — sampled far blocks of real basis functions (`far_block`
+  vs dense entries) at the nearest interaction offsets present in the tree, or an equivalent point check
+  with points on box faces and corners. The volume-random check remains a fast pre-screen for the order
+  search only.
+- **Leaf level:** the finest level that passes the block check at 10^{−d₀} for the chosen L (coarser
+  leaves otherwise), unless WP20 shows that the docs/05 matvec criterion (norm-wise, dominated by the
+  exact near field) is met with finer leaves; WP20 measures both and the result is recorded here before
+  WP21 fixes the policy. Expected default: λ/2–0.75 λ leaves for d₀ = 3.
+- Pattern quadrature target 0.01 × 10^{−d₀} (`PatternOptions::target_accuracy`).
