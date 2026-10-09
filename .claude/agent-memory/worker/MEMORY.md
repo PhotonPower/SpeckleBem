@@ -1,2 +1,3 @@
+- [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython registry, ctest -j oversubscription
 - [Windows build pitfalls](build_pitfalls_windows.md) — GCC null-deref false positive, debug -O0 timings, sandbox limits, ctest -R case
 - [GMRES observations](gmres_observations.md) — measured iteration counts/residuals (sphere, 2e4 rough box) for test budgets

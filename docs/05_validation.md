@@ -30,7 +30,7 @@ analytic (Mie, Fresnel, static integrals)
 | Mesh refinement λ/8 → λ/16 → λ/32 | Mie | ε_rr monotone decrease | — | 2 |
 | Power balance, Ag and Si spheres d = 1 µm, PMCHWT + LU (P_abs = ½ Re ∮ (n̂ × M)·J* dS from the surface currents) | — | |P_ext − P_sca − P_abs| / P_ext | < 1 %: Si at λ/6.6 (icosphere n = 3), Ag at λ/13 (n = 4, `validation-large`); at λ/6.6 the Ag defect is 2.3 % because P_abs ≈ 1.6 % of P_ext | 2 |
 | Flat box, tapered beam, 0° and 45° | Fresnel r_p, r_s | rel on |r|² | < 1 % (deferred to Phase 4: dense system > 10⁵ unknowns) | 2 → 4 |
-| GMRES vs LU, 2·10⁴ unknowns | dense LU | rel | < tol | 3 |
+| GMRES vs LU, 2·10⁴ unknowns | dense LU | true relative residual ≤ tol (solution difference vs LU documented, κ-limited) | < tol | 3 |
 | MLFMM matvec, Si & Ag, 2·10⁴–10⁵ unknowns | dense matvec | rel | < 1e-3 (3 digits), < 1e-5 (5 digits) | 4 |
 | Ag sphere d = 4 µm, λ/27, MLFMM | Mie | ε_rr normal/parallel planes | ≤ 0.5 % | 4 |
 | Power balance, Ag and Si surfaces | — | rel | < 1 % (Ag at mesh ≤ λ/13: the surface P_abs of weakly absorbing Ag converges slowly, see benchmarks/results/mie_sphere_dense.md) | 4 |

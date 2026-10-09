@@ -1,6 +1,7 @@
 #pragma once
 /// @file preconditioner.hpp
-/// Left preconditioners M^{-1} for the iterative solver.
+/// Preconditioners M^{-1} for the iterative solver, usable on either side (default left; see
+/// solver::PreconditionerSide in gmres.hpp).
 #include "specklebem/operator/linear_operator.hpp"
 
 #include <memory>

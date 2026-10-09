@@ -59,7 +59,7 @@ n ≤ 3 (2N ≤ 3 840).
 - Wave 2: WP9 (after WP7 + WP8), then WP11 (after WP9 + WP10). Done: WP7, WP8, WP9, WP10, WP11 merged
   (main, 187 tests). Phase 2 DoD status: dielectric sphere ε_rr 0.074 % at λ/13 (target < 1 % at λ/10) met;
   Ag sphere 0.078 % at λ/13 met, the λ/20 case awaits a large node; symmetry met; Fresnel (WP12) deferred.
-- Phase 3 (GMRES, preconditioners, `Simulation` driver, formulation study) is broken down when WP9 lands.
+- Phase 3 breakdown: see the Phase 3 table.
 
 ## Phase 3
 

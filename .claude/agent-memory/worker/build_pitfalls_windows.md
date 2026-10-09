@@ -16,9 +16,8 @@ metadata:
 - Timings under `ctest -j` or while other workers build fluctuate 5x; rerun serially before
   concluding a test is too slow.
 - `ctest -R` is case-sensitive: name test cases so the brief's `-R <module>` filter matches.
-- Worktree sandbox: Bash commands with shell variables as sed args, `cd && exe "[tag]" > file`,
-  or heredoc + mv chains are refused. Use Edit/Write for file changes; to see Catch2 INFO
-  values, temporarily switch INFO to WARN (sed with literal path) and run `ctest -V -R ...`.
+- Use Edit/Write for file changes; to see Catch2 INFO values, temporarily change INFO to WARN
+  with Edit and run `ctest -V -R ...`.
 - No `python3` on PATH in Git Bash (Windows Store alias only).
 
 **Why:** cost several rebuild cycles in WP13 (2026-10-09).
