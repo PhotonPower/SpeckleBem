@@ -20,6 +20,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   classification from `ijk`, list symmetry and completeness over all leaf pairs (each pair near
   or translated on exactly one level), the λ/4 floor (4 µm sphere regression) and `max_levels`
   bounds, input errors, and the build time (122,880 basis functions in ~0.03 s, release).
+- solver / tooling (WP15, Phase 3 DoD): rough-box helpers `default_box_depth(object, λ)` =
+  max(10 intensity absorption lengths δ/2, 2 µm) (`kMinBoxDepth`; Si 5.65 µm, Ag 2 µm) and
+  `default_box_fine_depth(object, λ, σ)` = 3δ + 3σ in `simulation.hpp` (ADR 0006; a lossless
+  dielectric object throws `std::invalid_argument`), with `[simulation]` unit tests. Study
+  executable `benchmarks/formulation_convergence.cpp` (`SPECKLEBEM_BUILD_BENCHMARKS`): PMCHWT,
+  ICTF and MCTF without and with left Jacobi on Si and Ag Gaussian rough surfaces (σ = 50 nm,
+  Lc = 500 nm, h = 50 nm, L = 3.2 µm, 2N ≈ 3·10⁴, dense, full GMRES, tol 1e-3); record
+  `benchmarks/results/formulation_convergence.md` and histories
+  `benchmarks/results/formulation_convergence_histories.csv`. Si: ICTF 219, MCTF 254, PMCHWT 315,
+  Jacobi 272 iterations; Ag: ICTF 622, MCTF 651, PMCHWT 886, Jacobi 1069; the three
+  Jacobi-preconditioned formulations iterate identically (≤ 5e-13, issue #15). Fu et al.'s
+  "PMCHWT does not converge" and "Jacobi best for Ag" are not reproduced at this size.
 - python (WP14b3): calls on one `Simulation` from several Python threads are serialised by a
   per-object timed mutex taken with the GIL released (re-entrant calls from a `solve()` callback
   raise `RuntimeError`; from inside a callback another busy `Simulation` raises "Simulation

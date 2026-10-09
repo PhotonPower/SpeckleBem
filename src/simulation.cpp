@@ -54,6 +54,48 @@ const char* side_name(solver::PreconditionerSide s) {
 
 }  // namespace
 
+namespace {
+
+/// Field decay length of the object, finite (decaying field) or std::invalid_argument.
+Real decaying_field_length(const material::Material& object, Real wavelength, const char* caller) {
+    if (object.eps_r.imag() > 0.0 || object.mu_r.imag() > 0.0) {
+        throw std::invalid_argument(std::string(caller) +
+                                    ": Im(eps_r) > 0 or Im(mu_r) > 0 is an active medium in the "
+                                    "exp(+jwt) convention (docs/06)");
+    }
+    const Real delta = material::field_decay_length(object, wavelength);
+    if (!std::isfinite(delta)) {
+        throw std::invalid_argument(
+            std::string(caller) +
+            ": the object's field does not decay (lossless dielectric); ADR 0006 covers only "
+            "absorbing substrates, pass the box depth explicitly");
+    }
+    return delta;
+}
+
+}  // namespace
+
+Real default_box_depth(const material::Material& object, Real wavelength) {
+    const Real delta = decaying_field_length(object, wavelength, "default_box_depth");
+    const Real intensity_absorption_length = 0.5 * delta;  // 1 / alpha
+    const Real depth = std::max(10.0 * intensity_absorption_length, kMinBoxDepth);
+    if (depth > kLargeBoxDepthWarning) {
+        SBEM_WARN(
+            "default_box_depth: {:.3g} m for a weakly absorbing object (delta = {:.3g} m); "
+            "ADR 0006 assumes absorbing substrates, check the box size",
+            depth, delta);
+    }
+    return depth;
+}
+
+Real default_box_fine_depth(const material::Material& object, Real wavelength, Real sigma) {
+    if (!(std::isfinite(sigma) && sigma >= 0.0)) {
+        throw std::invalid_argument("default_box_fine_depth: sigma must be finite and >= 0");
+    }
+    const Real delta = decaying_field_length(object, wavelength, "default_box_fine_depth");
+    return 3.0 * delta + 3.0 * sigma;
+}
+
 struct Simulation::Impl {
     Impl(geometry::TriangleMesh m, std::shared_ptr<excitation::Excitation> exc,
          SimulationConfig cfg)

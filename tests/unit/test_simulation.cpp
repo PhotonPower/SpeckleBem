@@ -437,3 +437,67 @@ TEST_CASE("simulation: far field and RCS on the owned solution", "[simulation]")
     // Forward RCS from the far field: sigma = 4 pi |F|^2 / |E0|^2 with |E0| = 1 V/m.
     CHECK(std::abs(rcs(0) - 4 * kPi * F.row(0).squaredNorm()) <= 1e-12 * rcs(0));
 }
+
+TEST_CASE("simulation: default rough-box depth (ADR 0006)", "[simulation]") {
+    constexpr Real lambda = 500e-9;
+    // Si: delta = 1.129 um, 10 intensity absorption lengths = 5 delta = 5.65 um.
+    const Real d_si = material::field_decay_length(material::silicon_500nm(), lambda);
+    CHECK(std::abs(d_si - 1.129e-6) <= 1e-9);
+    CHECK(default_box_depth(material::silicon_500nm(), lambda) == 5.0 * d_si);
+    CHECK(std::abs(default_box_depth(material::silicon_500nm(), lambda) - 5.65e-6) <= 0.01e-6);
+    // Ag: delta = 25.4 nm, 5 delta = 127 nm < 2 um -> the minimum.
+    CHECK(default_box_depth(material::silver_500nm(), lambda) == kMinBoxDepth);
+    CHECK(kMinBoxDepth == 2e-6);
+    // Scales with the wavelength (delta is proportional to lambda for a fixed eps_r).
+    CHECK(std::abs(default_box_depth(material::silicon_500nm(), 2 * lambda) - 10.0 * d_si) <=
+          1e-12 * d_si);
+    // Lossless metal: evanescent decay, accepted (minimum depth).
+    material::Material lossless_metal;
+    lossless_metal.eps_r = Complex(-9.794, 0.0);
+    CHECK(default_box_depth(lossless_metal, lambda) == kMinBoxDepth);
+}
+
+TEST_CASE("simulation: default rough-box fine band (ADR 0006)", "[simulation]") {
+    constexpr Real lambda = 500e-9;
+    constexpr Real sigma = 50e-9;
+    const Real d_si = material::field_decay_length(material::silicon_500nm(), lambda);
+    const Real f_si = default_box_fine_depth(material::silicon_500nm(), lambda, sigma);
+    CHECK(f_si == 3.0 * d_si + 3.0 * sigma);
+    CHECK(std::abs(f_si - 3.54e-6) <= 0.01e-6);
+    CHECK(f_si < default_box_depth(material::silicon_500nm(), lambda));
+    const Real d_ag = material::field_decay_length(material::silver_500nm(), lambda);
+    CHECK(std::abs(d_ag - 25.4e-9) <= 0.1e-9);
+    CHECK(default_box_fine_depth(material::silver_500nm(), lambda, sigma) ==
+          3.0 * d_ag + 3.0 * sigma);
+    CHECK(default_box_fine_depth(material::silicon_500nm(), lambda, 0.0) == 3.0 * d_si);
+}
+
+TEST_CASE("simulation: rough-box helpers reject invalid input", "[simulation]") {
+    constexpr Real lambda = 500e-9;
+    const material::Material si = material::silicon_500nm();
+    // Lossless dielectric: the field does not decay (ADR 0006 does not cover it).
+    CHECK_THROWS_AS(default_box_depth(lossless_n15(), lambda), std::invalid_argument);
+    CHECK_THROWS_AS(default_box_depth(material::vacuum(), lambda), std::invalid_argument);
+    CHECK_THROWS_AS(default_box_fine_depth(lossless_n15(), lambda, 50e-9), std::invalid_argument);
+    // Wavelength and eps_r checks of material::field_decay_length.
+    for (const Real bad : {0.0, -500e-9, std::nan(""), HUGE_VAL}) {
+        CHECK_THROWS_AS(default_box_depth(si, bad), std::invalid_argument);
+        CHECK_THROWS_AS(default_box_fine_depth(si, bad, 50e-9), std::invalid_argument);
+    }
+    material::Material nan_eps;
+    nan_eps.eps_r = Complex(std::nan(""), -1.0);
+    CHECK_THROWS_AS(default_box_depth(nan_eps, lambda), std::invalid_argument);
+    // Active medium (Im eps_r > 0 in the exp(+jwt) convention) is rejected.
+    material::Material gain = si;
+    gain.eps_r = std::conj(si.eps_r);
+    CHECK_THROWS_AS(default_box_depth(gain, lambda), std::invalid_argument);
+    CHECK_THROWS_AS(default_box_fine_depth(gain, lambda, 50e-9), std::invalid_argument);
+    // A weakly absorbing object gets a (huge) depth with a warning, not an exception.
+    material::Material weak;
+    weak.eps_r = Complex(2.25, -1e-6);
+    CHECK(default_box_depth(weak, lambda) > kLargeBoxDepthWarning);
+    // sigma must be finite and >= 0.
+    for (const Real bad : {-1e-9, std::nan(""), HUGE_VAL}) {
+        CHECK_THROWS_AS(default_box_fine_depth(si, lambda, bad), std::invalid_argument);
+    }
+}

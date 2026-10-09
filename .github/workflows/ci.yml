@@ -38,6 +38,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DSPECKLEBEM_WARNINGS_AS_ERRORS=ON
           -DSPECKLEBEM_BUILD_PYTHON=ON
+          -DSPECKLEBEM_BUILD_BENCHMARKS=ON
 
       - name: Build
         run: cmake --build build --parallel

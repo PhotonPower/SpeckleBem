@@ -44,5 +44,10 @@ workers / Windows"; the non-obvious ones:
   libstdc++'s `path(const char*)` throws on non-ASCII: read `CommandLineToArgvW(GetCommandLineW())`
   and convert the wide path with `path_to_utf8` (tests/support/npy_fixture_main.cpp).
 
+- Debug "builds quickly" timing tests (icosphere n = 6) fail under heavy machine load (a dense
+  study running); rerun them alone before reporting.
+- A background command is stopped after 2 h: split multi-hour studies into one process per
+  case (e.g. per formulation) so a stop loses at most one case.
+
 **Why:** these cost several iterations in WP-W1 and WP2c.
 **How to apply:** any WP that builds or tests on this Windows machine.

@@ -22,6 +22,14 @@ Measured 2026-10-09 with `solver::gmres` (WP13, full GMRES, win-release):
   1e-3..1e3 row-scaled n = 200 system), so a "monitored == true to 1e-10 relative" check only
   holds for residuals >~ 1e-6; at tol 1e-12 the gap was 1e-5 relative.
 
+- WP15 rough box (L 3.2 um, h 50 nm, sigma 50 / Lc 500 nm, seed 1, graded box, no fine band,
+  Gaussian beam w0 = L/3, tol 1e-3, full GMRES): Si 2N = 31 200 -> ICTF 219, MCTF 254, PMCHWT
+  315, left Jacobi 272 it; Ag 2N = 29 280 -> ICTF 622, MCTF 651, PMCHWT 886, Jacobi 1069 it.
+  ~0.5-0.7 s/it (shared machine). Left-Jacobi histories of the 3 formulations agree to 5e-13.
+  Left-Jacobi true residual at stop is 2-30x the monitored 1e-3 (PMCHWT rows worst).
+- Dense assembly of those rough boxes took 1050-1540 s each (WP7b defaults, shared machine),
+  ~5x beyond N^2 scaling of a 2N = 4320 smoke case (4-8 s): budget ~25 min per 3e4 system.
+
 **Why:** gives realistic budgets/tolerances for later solver, MLFMM and formulation-study WPs.
 **How to apply:** use as baseline when setting max_iter or tolerances; re-measure if the
 assembler quadrature changes (WP7b). See [[build-pitfalls-windows]].
