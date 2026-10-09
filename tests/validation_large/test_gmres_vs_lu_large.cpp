@@ -117,6 +117,8 @@ TEST_CASE("gmres vs LU large: Si rough-surface box, 2N ~ 2e4, ICTF unpreconditio
     CHECK(g.residual_history.back() <= gp.tolerance);
     // Unpreconditioned: the monitored residual is the true one (Arnoldi estimate).
     CHECK(g.true_relative_residual <= 1e-6);
-    CHECK(err <= 1e-3);
+    // docs/05 row "GMRES vs LU, 2e4 unknowns" is read as: true relative residual <= tol; the
+    // solution difference vs LU is kappa-limited and documented. Measured 5.3e-6 (win-release).
+    CHECK(err <= 1e-4);
 #endif
 }

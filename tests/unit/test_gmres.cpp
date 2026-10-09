@@ -9,12 +9,16 @@
 
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <random>
 #include <stdexcept>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "assembler_test_support.hpp"
@@ -143,6 +147,23 @@ TEST_CASE("gmres: happy breakdown terminates with the exact solution", "[gmres]"
         CHECK(finite(r));
         CHECK(r.true_relative_residual <= 1e-12);
     }
+    SECTION("I + rank 2, tol 1e-300: stops at the happy breakdown, not converged") {
+        // The tolerance is unreachable, so the loop can only end through the happy-breakdown
+        // branch (h_{k+1,k} <= 100 eps |w_k|) after the Krylov space became invariant (dim 3).
+        MatrixXc A = MatrixXc::Identity(n, n);
+        A += random_vector(n, 32) * random_vector(n, 33).adjoint() / static_cast<Real>(n);
+        A += random_vector(n, 34) * random_vector(n, 35).adjoint() / static_cast<Real>(n);
+        const op::DenseOperator Z(A);
+        const VectorXc b = random_vector(n, 36);
+        const GmresResult r = solver::gmres(Z, b, kNone, params(1e-300));
+        INFO("iterations " << r.iterations << ", monitored " << r.residual_history.back()
+                           << ", true residual " << r.true_relative_residual);
+        CHECK(r.iterations <= 3);
+        CHECK_FALSE(r.converged);  // documented: converged follows the monitored residual
+        CHECK(r.residual_history.size() == static_cast<std::size_t>(r.iterations) + 1);
+        CHECK(finite(r));
+        CHECK(r.true_relative_residual <= 1e-12);
+    }
 }
 
 TEST_CASE("gmres: monotone history, restart and callback", "[gmres]") {
@@ -166,8 +187,16 @@ TEST_CASE("gmres: monotone history, restart and callback", "[gmres]") {
         CHECK(cb_values[k] == full.residual_history[k + 1]);
     }
 
-    const GmresResult restarted = solver::gmres(Z, b, kNone, params(1e-10, 1000, 5));
+    cb_iters.clear();
+    cb_values.clear();
+    const GmresResult restarted = solver::gmres(Z, b, kNone, params(1e-10, 1000, 5), cb);
     INFO("full " << full.iterations << ", GMRES(5) " << restarted.iterations);
+    // History and callback agree entry for entry across restarts as well.
+    REQUIRE(cb_values.size() == static_cast<std::size_t>(restarted.iterations));
+    for (std::size_t k = 0; k < cb_values.size(); ++k) {
+        CHECK(cb_iters[k] == static_cast<int>(k) + 1);
+        CHECK(cb_values[k] == restarted.residual_history[k + 1]);
+    }
     CHECK(restarted.converged);
     CHECK(restarted.iterations >= full.iterations);  // observed: 49 full, 55 GMRES(5)
     CHECK(restarted.residual_history.size() == static_cast<std::size_t>(restarted.iterations) + 1);
@@ -238,6 +267,122 @@ TEST_CASE("gmres: right preconditioning monitors the true residual", "[gmres]") 
     CHECK(t.converged);
     CHECK(t.true_relative_residual <= 1e-11);
     CHECK(rel_diff(t.x, solver::solve_direct(op::DenseOperator(A), b)) <= 1e-8);
+}
+
+TEST_CASE("gmres: restarted right preconditioning (GMRES(5), Jacobi) on a row-scaled system",
+          "[gmres]") {
+    const Index n = 200;
+    const MatrixXc A = well_conditioned(n, 11);
+    const VectorXc b = random_vector(n, 12);
+    const VectorXc s = wide_diagonal(n, 51);
+    const MatrixXc SA = s.asDiagonal() * A;
+    const VectorXc Sb = s.cwiseProduct(b);
+    const op::DenseOperator SZ(SA);
+    const solver::DiagonalPreconditioner M(SA.diagonal());
+
+    // The x update after each cycle goes through M^{-1}; the restart residual is the true one.
+    // Tight tolerance: the solution matches LU of the unscaled system (observed 25 iterations,
+    // |x - x_LU| / |x_LU| = 1.1e-12).
+    const GmresResult t =
+        solver::gmres(SZ, Sb, M, params(1e-12, 1000, 5, PreconditionerSide::Right));
+    const VectorXc x_lu = solver::solve_direct(op::DenseOperator(A), b);
+    INFO("tol 1e-12: iterations " << t.iterations << ", monitored " << t.residual_history.back()
+                                  << ", true " << t.true_relative_residual
+                                  << ", |x - x_LU| / |x_LU| " << rel_diff(t.x, x_lu));
+    CHECK(t.converged);
+    CHECK(t.iterations > 5);  // at least one restart happened
+    CHECK(t.true_relative_residual <= 1e-11);
+    CHECK(rel_diff(t.x, x_lu) <= 1e-8);
+
+    // Monitored == true residual at the end, checked at the default tol 1e-3. The Arnoldi
+    // estimate and the explicit residual differ by rounding, absolutely ~1e-17 .. 1e-16
+    // (observed for tol 1e-2 .. 1e-6), so a 1e-10 relative check is only meaningful at
+    // residuals >~ 1e-6 (at tol 1e-12: 9.36378e-13 vs 9.3637e-13). Observed at tol 1e-3:
+    // 7 iterations (one restart), monitored 5.64e-4, difference 1.0e-16.
+    const GmresResult r =
+        solver::gmres(SZ, Sb, M, params(1e-3, 1000, 5, PreconditionerSide::Right));
+    INFO("tol 1e-3: iterations " << r.iterations << ", monitored " << r.residual_history.back()
+                                 << ", true " << r.true_relative_residual);
+    CHECK(r.converged);
+    CHECK(r.iterations > 5);
+    CHECK(std::abs(r.residual_history.back() - r.true_relative_residual) <=
+          1e-10 * r.true_relative_residual);
+}
+
+namespace {
+
+/// Test double: y = A x, except that the `bad_call`-th application (1-based) returns NaN.
+class NanAfterOperator final : public op::LinearOperator {
+public:
+    NanAfterOperator(MatrixXc A, int bad_call) : A_(std::move(A)), bad_call_(bad_call) {}
+    [[nodiscard]] Index rows() const override { return A_.rows(); }
+    [[nodiscard]] Index cols() const override { return A_.cols(); }
+    void apply(const VectorXc& x, VectorXc& y) const override {
+        ++calls_;
+        y = A_ * x;
+        if (calls_ >= bad_call_)
+            y(0) = Complex(std::numeric_limits<Real>::quiet_NaN(), 0.0);
+    }
+    [[nodiscard]] std::string describe() const override { return "NanAfterOperator"; }
+    [[nodiscard]] std::size_t memory_bytes() const override { return 0; }
+    [[nodiscard]] int calls() const { return calls_; }
+
+private:
+    MatrixXc A_;
+    int bad_call_;
+    mutable int calls_ = 0;
+};
+
+/// Test double: M^{-1} that returns +Inf in one entry.
+class InfPreconditioner final : public solver::Preconditioner {
+public:
+    void apply(const VectorXc& r, VectorXc& z) const override {
+        z = r;
+        z(1) = Complex(0.0, std::numeric_limits<Real>::infinity());
+    }
+    [[nodiscard]] std::string name() const override { return "inf"; }
+};
+
+}  // namespace
+
+TEST_CASE("gmres: non-finite operator or preconditioner output throws immediately", "[gmres]") {
+    const Index n = 40;
+    const MatrixXc A = well_conditioned(n, 61);
+    const VectorXc b = random_vector(n, 62);
+
+    SECTION("operator returns NaN at the 3rd application (left and right, full and restarted)") {
+        for (const auto side : {PreconditionerSide::Left, PreconditionerSide::Right}) {
+            for (const int restart : {0, 2}) {
+                const NanAfterOperator Z(A, 3);
+                CHECK_THROWS_AS(solver::gmres(Z, b, kNone, params(1e-14, 1000, restart, side)),
+                                std::runtime_error);
+                CHECK(Z.calls() == 3);  // stops at the first bad product, not after max_iter
+            }
+        }
+    }
+    SECTION("message names the iteration") {
+        const NanAfterOperator Z(A, 2);
+        CHECK_THROWS_WITH(
+            solver::gmres(Z, b, kNone, params(1e-14)),
+            "gmres: operator or preconditioner produced non-finite values at iteration 2");
+    }
+    SECTION("dense operator containing NaN") {
+        MatrixXc An = A;
+        An(5, 7) = Complex(std::numeric_limits<Real>::quiet_NaN(), 0.0);
+        CHECK_THROWS_AS(solver::gmres(op::DenseOperator(An), b, kNone, params(1e-14)),
+                        std::runtime_error);
+    }
+    SECTION("preconditioner returns Inf") {
+        const InfPreconditioner M;
+        const op::DenseOperator Z(A);
+        // Left: already M^{-1} b is non-finite (iteration 0); right: the first product.
+        CHECK_THROWS_WITH(
+            solver::gmres(Z, b, M, params(1e-14)),
+            "gmres: operator or preconditioner produced non-finite values at iteration 0");
+        CHECK_THROWS_WITH(
+            solver::gmres(Z, b, M, params(1e-14, 1000, 0, PreconditionerSide::Right)),
+            "gmres: operator or preconditioner produced non-finite values at iteration 1");
+    }
 }
 
 TEST_CASE("gmres: max_iter, b = 0 and argument errors", "[gmres]") {

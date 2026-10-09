@@ -121,6 +121,15 @@ private:
     VectorXc tmp_;
 };
 
+/// Throws if a norm computed from an operator or preconditioner output is not finite.
+void check_finite_norm(Real norm, int iteration) {
+    if (!std::isfinite(norm)) {
+        throw std::runtime_error(
+            "gmres: operator or preconditioner produced non-finite values at iteration " +
+            std::to_string(iteration));
+    }
+}
+
 const char* side_name(PreconditionerSide side) {
     return side == PreconditionerSide::Left ? "left" : "right";
 }
@@ -152,9 +161,9 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
     }
     Real beta = r.norm();
     const Real norm0 = beta;
-    if (!(norm0 > 0) || !std::isfinite(norm0)) {
-        throw std::runtime_error("gmres: the preconditioner maps the right-hand side to " +
-                                 std::string(norm0 > 0 ? "a non-finite vector" : "zero"));
+    check_finite_norm(norm0, 0);
+    if (!(norm0 > 0)) {
+        throw std::runtime_error("gmres: the preconditioner maps the right-hand side to zero");
     }
 
     const int m = p.restart > 0 ? std::min(p.restart, p.max_iter) : p.max_iter;
@@ -189,6 +198,7 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
         while (k < m && total < p.max_iter) {
             op.apply(V[static_cast<std::size_t>(k)], w);
             const Real w_norm0 = w.norm();
+            check_finite_norm(w_norm0, total + 1);
             VectorXc h = VectorXc::Zero(k + 2);
             // Modified Gram-Schmidt, plus a second pass if |w| dropped by more than 0.7.
             for (int pass = 0; pass < 2; ++pass) {
@@ -275,10 +285,13 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
         // Restart: recompute the residual of the GMRES system explicitly.
         op.residual(b, res.x, r);
         beta = r.norm();
+        check_finite_norm(beta, total);
         SBEM_DEBUG("gmres: restart after {} iterations, recomputed relative residual {:.3e}", total,
                    beta / norm0);
-        if (beta == 0) {  // exact solution found at the restart
-            res.residual_history.back() = 0;
+        if (beta == 0) {
+            // Exact solution at the restart: stop. residual_history keeps the Arnoldi estimate
+            // already passed to the callback (see gmres.hpp).
+            SBEM_DEBUG("gmres: exact solution at the restart after {} iterations", total);
             break;
         }
     }

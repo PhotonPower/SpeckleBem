@@ -54,7 +54,11 @@ using IterationCallback = std::function<void(int iter, Real residual)>;
 /// - Arnoldi with modified Gram-Schmidt and one re-orthogonalisation pass whenever the norm of
 ///   the new vector drops below 0.7 of its norm before orthogonalisation ("twice is enough");
 ///   Givens rotations on the Hessenberg matrix; the iterate is formed at convergence, at each
-///   restart and at max_iter. At a restart the residual is recomputed explicitly.
+///   restart and at max_iter. At a restart the residual is recomputed explicitly and starts
+///   the next cycle; it is not recorded: residual_history (and the callback) always hold the
+///   Arnoldi estimates, entry for entry identical. If the recomputed residual is exactly zero,
+///   the iteration stops with that x; residual_history.back() stays the estimate that was
+///   reported, and converged follows it (true_relative_residual shows the exact residual).
 /// - Happy breakdown: if h_{k+1,k} <= 100 eps |w_k| (w_k the new Arnoldi vector before
 ///   orthogonalisation) the Krylov space is invariant; the iteration stops with the
 ///   least-squares solution in it (exact up to rounding; converged if the monitored residual
@@ -69,7 +73,10 @@ using IterationCallback = std::function<void(int iter, Real residual)>;
 /// - No OpenMP of its own (A and Eigen/BLAS parallelise the work).
 /// @throws std::invalid_argument if A is not square, b.size() != A.rows(), b has non-finite
 ///         entries, tolerance is <= 0 or non-finite, max_iter < 1 or restart < 0.
-/// @throws std::runtime_error if M^{-1} maps b != 0 to zero (singular preconditioner).
+/// @throws std::runtime_error if M^{-1} maps b != 0 to zero (singular preconditioner), or if
+///         A or M^{-1} produces non-finite values (checked on the norm of the initial residual,
+///         of every new Arnoldi vector and of every recomputed restart residual; the solver
+///         stops at the first such iteration instead of returning NaN).
 GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Preconditioner& M,
                   const GmresParams& p, const IterationCallback& cb = {});
 
