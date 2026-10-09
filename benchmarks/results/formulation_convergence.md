@@ -123,8 +123,10 @@ whether PMCHWT stalls and Jacobi overtakes ICTF for Ag at larger L.
 - Dense assembly took 1050–1540 s per system (24 threads, shared machine), much more than the
   N² extrapolation of the sphere records (2N = 15 360 in ~8–11 s, `mie_sphere_dense.md`). Not
   analysed here; see the WP15 report.
-- WP7c check (fold-adaptive touching rule, own RHS degree; main 601abb9): Ag ICTF re-run —
-  WP7C_CHECK.
+- WP7c check: after merging main 601abb9 (WP7c fold-adaptive touching rule and own RHS degree)
+  Ag ICTF was re-run: 622 iterations without and 1069 with Jacobi, as above; the residual
+  histories differ by at most 3.2e-6 (none) and 3.4e-5 (Jacobi) relative. The table, measured
+  before WP7c, therefore stands (assembly 1293 s in the re-run).
 
 ## Reproduce
 
