@@ -6,8 +6,12 @@
 // Metric: max over 3 fixed-seed random x of |Z_dense x - Z_mlfmm x| / |Z_dense x|. One dense
 // matrix per case (geometry, interior, formulation), shared by the MLFMM configurations:
 //  * d0 = 3 with lambda / 4 leaves (the default floor; ADR 0008 WP20a amendment),
-//  * d0 = 5 with lambda / 2 leaves (r_max / a ~ 0.2 on these meshes; the WP20a amendment asks
-//    for r_max / a <= 0.3).
+//  * d0 = 5 with lambda / 2 leaves (r_max / a ~ 0.29 on these meshes; the WP20a amendment asks
+//    for r_max / a <= 0.3), and lambda leaves on a coarser plate.
+// Measured 2026-10-10 (win-release, 24 cores): d0 = 3: 1.7e-4 / 2.1e-4 (icosphere n = 1.5 / Si),
+// 7.2e-5 / 4.3e-5 (rough box n = 1.5 / Si), 5.4e-6 (plate, lambda leaves); d0 = 5: 3.7e-6 /
+// 6.5e-6 (icosphere), 6.7e-6 / 4.2e-6 (rough box), 5.5e-7 (plate, lambda leaves); 2N = 8.8e4
+// rows: 2.9e-4.
 // lambda = 500 nm (vacuum exterior), dense quadrature target 1e-6 (0.1 x 10^-5; the near entries
 // are identical in both operators, so only the far entries of the oracle matter).
 // The 2N ~ 9e4 case has no dense oracle: 64 exact rows (op::assemble_sparse) are compared.
@@ -38,6 +42,7 @@
 #include <utility>
 #include <vector>
 
+#include "mlfmm_simulation_support.hpp"
 #include "system_memory.hpp"
 
 using namespace specklebem;
@@ -95,7 +100,6 @@ struct Setup {
 struct Config {
     Real digits;
     Real leaf_lambda;  ///< min_box_size_lambda (leaf floor)
-    bool asserted;     ///< false: report only (d0 = 5, ADR 0008 status still open)
 };
 
 [[maybe_unused]] mlfmm::MlfmmParams mlfmm_params(const Config& c) {
@@ -139,34 +143,28 @@ struct Config {
     for (const Config& c : configs) {
         std::ostringstream id;
         id << name << ", d0 = " << c.digits << ", leaf floor " << c.leaf_lambda << " lambda";
-        try {
-            t0 = std::chrono::steady_clock::now();
-            const mlfmm::MlfmmOperator Zm(s.problem, mlfmm_params(c));
-            const double setup_s = seconds_since(t0);
-            const mlfmm::Octree& tree = Zm.octree();
-            const Real a = tree.box_size(tree.leaf_level());
-            Real err = 0.0;
-            VectorXc y;
-            t0 = std::chrono::steady_clock::now();
-            for (std::size_t i = 0; i < x.size(); ++i) {
-                Zm.apply(x[i], y);
-                err = std::max(err, (y - yd[i]).norm() / yd[i].norm());
-            }
-            const double apply_s = seconds_since(t0) / 3.0;
-            WARN(id.str() << ": " << tree.levels() << " levels, leaf a = " << a / kLambda
-                          << " lambda0, r_max / a = " << rmax / a << ": matvec error " << err
-                          << " (target " << std::pow(10.0, -c.digits) << "); setup " << setup_s
-                          << " s, apply " << apply_s << " s; memory "
-                          << mb(Zm.memory_bytes()) << " MB (near "
-                          << mb(Zm.near_operator().memory_bytes()) << ", far "
-                          << mb(Zm.far_operator().memory_bytes()) << ")\n"
-                          << Zm.describe());
-            if (c.asserted)
-                CHECK(err < std::pow(10.0, -c.digits));
-        } catch (const std::runtime_error& e) {
-            WARN(id.str() << ": not built: " << e.what());
-            CHECK(!c.asserted);
+        INFO(id.str());
+        t0 = std::chrono::steady_clock::now();
+        const mlfmm::MlfmmOperator Zm(s.problem, mlfmm_params(c));
+        const double setup_s = seconds_since(t0);
+        const mlfmm::Octree& tree = Zm.octree();
+        const Real a = tree.box_size(tree.leaf_level());
+        Real err = 0.0;
+        VectorXc y;
+        t0 = std::chrono::steady_clock::now();
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            Zm.apply(x[i], y);
+            err = std::max(err, (y - yd[i]).norm() / yd[i].norm());
         }
+        const double apply_s = seconds_since(t0) / 3.0;
+        WARN(id.str() << ": " << tree.levels() << " levels, leaf a = " << a / kLambda
+                      << " lambda0, r_max / a = " << rmax / a << ": matvec error " << err
+                      << " (target " << std::pow(10.0, -c.digits) << "); setup " << setup_s
+                      << " s, apply " << apply_s << " s; memory " << mb(Zm.memory_bytes())
+                      << " MB (near " << mb(Zm.near_operator().memory_bytes()) << ", far "
+                      << mb(Zm.far_operator().memory_bytes()) << ")\n"
+                      << Zm.describe());
+        CHECK(err < std::pow(10.0, -c.digits));
     }
 }
 
@@ -178,9 +176,9 @@ TEST_CASE("mlfmm vs dense large: icosphere n = 1.5, PMCHWT", "[validation-large]
 #else
     // R = 1 um, subdivision 4: 2N = 15360, h ~ lambda / 7.6; root 4 lambda (5 levels at the
     // lambda / 4 floor, 4 at lambda / 2).
-    const Setup s(geometry::make_icosphere(2.0 * kLambda, 4), {Complex(2.25, 0.0), Complex(1.0, 0.0)},
-                  Kind::PMCHWT);
-    run_case("icosphere R = 1 um, n = 1.5, PMCHWT", s, {{3.0, 0.25, true}, {5.0, 0.5, false}});
+    const Setup s(geometry::make_icosphere(2.0 * kLambda, 4),
+                  {Complex(2.25, 0.0), Complex(1.0, 0.0)}, Kind::PMCHWT);
+    run_case("icosphere R = 1 um, n = 1.5, PMCHWT", s, {{3.0, 0.25}, {5.0, 0.5}});
 #endif
 }
 
@@ -190,7 +188,7 @@ TEST_CASE("mlfmm vs dense large: icosphere Si, ICTF", "[validation-large][mlfmm]
 #else
     const Setup s(geometry::make_icosphere(2.0 * kLambda, 4), material::silicon_500nm(),
                   Kind::ICTF);
-    run_case("icosphere R = 1 um, Si, ICTF", s, {{3.0, 0.25, true}, {5.0, 0.5, false}});
+    run_case("icosphere R = 1 um, Si, ICTF", s, {{3.0, 0.25}, {5.0, 0.5}});
 #endif
 }
 
@@ -199,8 +197,9 @@ TEST_CASE("mlfmm vs dense large: rough box n = 1.5, ICTF", "[validation-large][m
     SKIP("validation-large cases run in optimised builds only");
 #else
     // 2 um x 2 um x 0.3 um, mesh 50 nm (lambda / 10): 2N ~ 2.5e4; root 4 lambda.
-    const Setup s(rough_box(2e-6, 0.3e-6, 50e-9), {Complex(2.25, 0.0), Complex(1.0, 0.0)}, Kind::ICTF);
-    run_case("rough box 2 um, n = 1.5, ICTF", s, {{3.0, 0.25, true}, {5.0, 0.5, false}});
+    const Setup s(rough_box(2e-6, 0.3e-6, 50e-9), {Complex(2.25, 0.0), Complex(1.0, 0.0)},
+                  Kind::ICTF);
+    run_case("rough box 2 um, n = 1.5, ICTF", s, {{3.0, 0.25}, {5.0, 0.5}});
 #endif
 }
 
@@ -209,7 +208,7 @@ TEST_CASE("mlfmm vs dense large: rough box Si, PMCHWT", "[validation-large][mlfm
     SKIP("validation-large cases run in optimised builds only");
 #else
     const Setup s(rough_box(2e-6, 0.3e-6, 50e-9), material::silicon_500nm(), Kind::PMCHWT);
-    run_case("rough box 2 um, Si, PMCHWT", s, {{3.0, 0.25, true}, {5.0, 0.5, false}});
+    run_case("rough box 2 um, Si, PMCHWT", s, {{3.0, 0.25}, {5.0, 0.5}});
 #endif
 }
 
@@ -219,10 +218,32 @@ TEST_CASE("mlfmm vs dense large: rough plate with lambda leaves, d0 = 5",
     SKIP("validation-large cases run in optimised builds only");
 #else
     // 4 um x 4 um x 0.3 um, mesh 100 nm (lambda / 5): 2N ~ 2.2e4; root 8 lambda, 4 levels at the
-    // lambda floor (r_max / a ~ 0.2).
+    // lambda floor (r_max / a ~ 0.28).
     const Setup s(rough_box(4e-6, 0.3e-6, 100e-9), {Complex(2.25, 0.0), Complex(1.0, 0.0)},
                   Kind::PMCHWT);
-    run_case("rough plate 4 um, n = 1.5, PMCHWT", s, {{5.0, 1.0, false}, {3.0, 1.0, true}});
+    run_case("rough plate 4 um, n = 1.5, PMCHWT", s, {{5.0, 1.0}, {3.0, 1.0}});
+#endif
+}
+
+TEST_CASE("mlfmm simulation large: rough box n = 1.5, ICTF + Jacobi, lambda / 4 leaves",
+          "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    // GMRES through Simulation, "mlfmm" vs "dense" (tests/support/mlfmm_simulation_support.hpp):
+    // 1 um x 1 um x 0.3 um, mesh 50 nm (2N = 7680), 4 levels with lambda / 4 leaves, default
+    // kernel options. Measured 2026-10-10: 329 GMRES iterations each (~22 s), currents 3.2e-4,
+    // RCS 8.2e-6.
+    SimulationConfig cfg;
+    cfg.object = {Complex(2.25, 0.0), Complex(1.0, 0.0)};
+    cfg.formulation = formulation::Kind::ICTF;
+    cfg.diagonal_preconditioner = true;
+    mlfmm::MlfmmParams m;
+    m.octree.max_elements_per_leaf = 4;
+    const mlfmm_simulation_test::Comparison c =
+        mlfmm_simulation_test::compare(rough_box(1e-6, 0.3e-6, 50e-9), cfg, m, "rough box 1 um");
+    CHECK(c.currents <= 1e-3);
+    CHECK(c.rcs <= 1e-3);
 #endif
 }
 
@@ -252,7 +273,7 @@ TEST_CASE("mlfmm large: rough box 2N ~ 9e4 against exact rows", "[validation-lar
     const auto exact = op::assemble_sparse(s.problem, pat);
     const double rows_s = seconds_since(t0);
     t0 = std::chrono::steady_clock::now();
-    const mlfmm::MlfmmOperator Zm(s.problem, mlfmm_params({3.0, 0.25, true}));
+    const mlfmm::MlfmmOperator Zm(s.problem, mlfmm_params({3.0, 0.25}));
     const double setup_s = seconds_since(t0);
     Real num = 0.0, den = 0.0;
     double apply_s = 0.0;
@@ -271,17 +292,15 @@ TEST_CASE("mlfmm large: rough box 2N ~ 9e4 against exact rows", "[validation-lar
     }
     const Real err = std::sqrt(num / den);
     const mlfmm::Octree& tree = Zm.octree();
-    WARN("rough box 4 um, Si, ICTF: " << s.mesh.num_triangles() << " triangles, 2N = " << 2 * n
-                                      << ", " << tree.levels() << " levels, leaf a = "
-                                      << tree.box_size(tree.leaf_level()) / kLambda
-                                      << " lambda0: error on 128 exact rows " << err
-                                      << " (rows assembled in " << rows_s << " s); setup "
-                                      << setup_s << " s, apply " << apply_s << " s, memory "
-                                      << mb(Zm.memory_bytes()) << " MB (dense would need "
-                                      << 16.0 * 4.0 * static_cast<Real>(n * n) / 1048576.0
-                                      << " MB); peak RSS "
-                                      << system_memory::peak_rss_bytes() / 1e9 << " GB\n"
-                                      << Zm.describe());
+    WARN("rough box 4 um, Si, ICTF: "
+         << s.mesh.num_triangles() << " triangles, 2N = " << 2 * n << ", " << tree.levels()
+         << " levels, leaf a = " << tree.box_size(tree.leaf_level()) / kLambda
+         << " lambda0: error on 128 exact rows " << err << " (rows assembled in " << rows_s
+         << " s); setup " << setup_s << " s, apply " << apply_s << " s, memory "
+         << mb(Zm.memory_bytes()) << " MB (dense would need "
+         << 16.0 * 4.0 * static_cast<Real>(n * n) / 1048576.0 << " MB); peak RSS "
+         << system_memory::peak_rss_bytes() / 1e9 << " GB\n"
+         << Zm.describe());
     CHECK(2 * n > 80000);
     CHECK(err < 1e-3);
 #endif

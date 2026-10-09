@@ -5,6 +5,28 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm (WP20b): `mlfmm::MlfmmOperator` = Z_near + Z_far (`compression/mlfmm/mlfmm_operator.hpp`):
+  owns the octree (leaf floor in wavelengths of R1), the far operator (built first, so that
+  unusable configurations fail before the near assembly) and the exact near field
+  (`assemble_near`); accessors `near_operator()`, `far_operator()`; `describe()` with octree,
+  near nnz / memory / time, far per-level data and totals; `memory_bytes()` includes the
+  interpolator tables and the pooled apply workspaces. `MlfmmStrategy::build` returns it.
+  `MlfmmFarOperator`: a mutex-guarded pool of reusable apply workspaces (one block of
+  uninitialised storage; each pass zeroes the box segments it accumulates into, by the owning
+  thread) instead of per-call allocation and zero-fill: apply of a 2N = 61 440 icosphere
+  (1 GB of fields) 1.52 s -> 0.66 s; `workspace_bytes()`, `workspaces()`; explicit
+  `std::invalid_argument` when r_max >= leaf edge (far pairs could share a triangle, whose K jump
+  term Z_far omits). `SphereInterpolator::memory_bytes()`. `Simulation`: compression "mlfmm"
+  (GMRES only; Jacobi diagonal still from `assemble_diagonal`, bitwise equal to the near field's
+  diagonal), `SimulationConfig::mlfmm` checked at construction, no dense size limit, a failed
+  order search (e.g. Ag interior) is rethrown with the remedies; Python `compression="mlfmm"`
+  and `mlfmm=dict(accuracy_digits=, max_elements_per_leaf=, min_box_size_lambda=)`. Tests:
+  `tests/unit/test_mlfmm_operator.cpp` (near/far complementarity per column, Jacobi diagonal,
+  two `std::thread`s vs serial applies, reused workspaces on 4 levels, guard, describe/memory),
+  Simulation and Python cases, `tests/validation/test_mlfmm_simulation.cpp` (GMRES MLFMM vs
+  dense: currents and RCS), `tests/validation_large/test_mlfmm_vs_dense_large.cpp` (matvec vs
+  dense, 2N = 1.5e4 ... 2.5e4, d₀ = 3 and 5; 2N ~ 8.8e4 against exact rows); slow
+  `[mlfmm_apply_timing]`.
 - mlfmm (WP20a): `mlfmm::MlfmmFarOperator` (`compression/mlfmm/far_operator.hpp`), the
   multilevel FMM far part Z_far of the full 2N × 2N system (both regions, all four blocks with the
   formulation weights a_i/η_i, b_i η_i, b_i/η_i; all leaf pairs that are neither the same leaf nor
