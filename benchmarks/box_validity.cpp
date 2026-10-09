@@ -36,6 +36,7 @@
 // Usage: specklebem_box_validity --material ag|si [--L 2e-6] [--L-gen 2.4e-6] [--seed 1]
 //            [--waist W | --waist-factor 3] [--depth-factor 1 | --depth D]
 //            [--box-mesh-size 400e-9|auto|uniform] [--fine-band] [--beam spectrum|paraxial]
+//            [--eps-imag X (diagnostic: Im eps_r of the object, < 0)]
 //            [--tol 1e-6] [--max-iter 6000] [--max-gb 60] [--ff-degree 10] [--tag NAME]
 //            [--out DIR] [--summary FILE] [--reference DIR]... [--mesh-only]
 //        specklebem_box_validity --compare DIR_A DIR_B [DIR_C ...]
@@ -102,6 +103,7 @@ struct Options {
     std::optional<Real> depth;
     std::string box_mesh_size = "400e-9";
     bool fine_band = false;
+    std::optional<Real> eps_imag;  // diagnostic: override Im(eps_r) of the object
     std::string beam = "spectrum";
     Real tol = 1e-6;
     int max_iter = 6000;
@@ -142,6 +144,8 @@ Options parse(int argc, char** argv) {
             o.depth = std::stod(value());
         } else if (a == "--box-mesh-size") {
             o.box_mesh_size = value();
+        } else if (a == "--eps-imag") {
+            o.eps_imag = std::stod(value());
         } else if (a == "--fine-band") {
             o.fine_band = true;
         } else if (a == "--beam") {
@@ -183,6 +187,8 @@ Options parse(int argc, char** argv) {
             "need L > 0, L-gen >= L, seed > 0 (fixed), waist > 0, waist-factor > 0, depth(-factor) "
             "> 0, tol > 0, max-iter >= 1, max-gb > 0");
     }
+    if (o.eps_imag && !(*o.eps_imag < 0))
+        throw std::invalid_argument("--eps-imag must be negative (passive, exp(+jwt))");
     if (o.beam != "spectrum" && o.beam != "paraxial")
         throw std::invalid_argument("--beam must be spectrum or paraxial");
     return o;
@@ -599,7 +605,9 @@ void append_summary(const std::string& path, const std::string& line) {
 }
 
 int run(const Options& o) {
-    const material::Material object = material_by_name(o.material);
+    material::Material object = material_by_name(o.material);
+    if (o.eps_imag)
+        object.eps_r = Complex(object.eps_r.real(), *o.eps_imag);
     const Real delta = material::field_decay_length(object, kLambda);
     const Real depth = o.depth ? *o.depth : o.depth_factor * default_box_depth(object, kLambda);
     const Real L_gen = o.L_gen ? *o.L_gen : o.L;
