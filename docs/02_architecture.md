@@ -78,7 +78,7 @@ with the sign and principal-value conventions documented in docs/03_theory_sie.m
 The octree groups RWG functions by edge midpoint. It is shared with ACA/H-matrix cluster trees in Phase 8 (the octree *is* a cluster tree with geometric admissibility). The MLFMM operator holds per-level sampling, translators, and radiation patterns; `apply` runs aggregation → translation → disaggregation for each of the four blocks and both regions.
 
 ### `solver::gmres`
-Operator-only Krylov solver with left preconditioning, residual callback, full or restarted. Results carry the full history for convergence studies.
+Operator-only Krylov solver with left or right preconditioning (default left), residual callback, full or restarted. Results carry the full history for convergence studies.
 
 ### `post::*`
 Field evaluation (direct and tree-accelerated), scattering observables, speckle statistics on regular grids (FFT-based autocorrelation).

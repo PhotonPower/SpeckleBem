@@ -20,7 +20,8 @@ add_executable(specklebem_unit_tests
     unit/test_fields.cpp
     unit/test_operators.cpp
     unit/test_assembler.cpp
-    # unit/test_octree.cpp unit/test_gmres.cpp unit/test_speckle_statistics.cpp
+    unit/test_gmres.cpp
+    # unit/test_octree.cpp unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
 # Shared test helpers (tests/support), included without relative paths.
@@ -61,6 +62,7 @@ catch_discover_tests(specklebem_validation_tests PROPERTIES SKIP_RETURN_CODE 4 L
 # unoptimised builds and when the dense solve would exceed 60 % of the physical memory.
 add_executable(specklebem_validation_large_tests
     validation_large/test_mie_sphere_dense_large.cpp
+    validation_large/test_gmres_vs_lu_large.cpp
     support/system_memory.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
