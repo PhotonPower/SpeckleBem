@@ -14,6 +14,13 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
 - Keep a Duffy-transform implementation as an independent cross-check in the test suite.
 - Proximity classes: `identical`, `shared_edge`, `shared_vertex`, `near` (distance < 2× size), `far`; quadrature degrees are `OperatorOptions` parameters.
 - Quadrature degrees for all classes except `far` must use Dunavant rules with all points inside the triangle and positive weights (degrees 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 17, 19; `kernels::triangle_rule_is_positive_interior`). The subtracted remainder is only finitely smooth at R = 0 and the analytic static potential is non-analytic across the source triangle's edges, so a test point outside its triangle samples the wrong branch; `OperatorOptions` validation rejects the other degrees for near and touching pairs.
+- Defaults since WP7b (`kernels::OperatorOptions`): touching pairs use the graded outer rule
+  with `outer_grading_levels = 4` (0 restores the WP7 scheme) and the smooth-remainder degree
+  `quad_degree_sing = 10`; near and far pairs choose their Dunavant degree per pair for
+  `target_accuracy = 1e-5` within [`quad_degree_far`, `quad_degree_near`] = [3, 19]
+  (`target_accuracy = 0` uses fixed degrees, `quad_degree_near = 8` then gives the WP7
+  near degree); `quad_degree_near` is also the right-hand-side rule. Shared-edge / shared-vertex blocks are
+  averaged over both orderings above `symmetrize_touching_above_kh = 1`.
 
 ## Consequences
 - Near-field accuracy (WP7b, measured against independent references in
