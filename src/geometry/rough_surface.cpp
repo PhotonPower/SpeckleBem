@@ -67,7 +67,8 @@ constexpr Real kDefaultBoxDepth = 2e-6;     ///< ADR 0006 fixed minimum [m]
 constexpr Real kKernelRadiusInLc = 4.0;     ///< kernel truncation radius / Lc
 constexpr Real kRoundingSlack = 1e-9;       ///< relative slack for floor/ceil of ratios
 constexpr Real kMaxGridPoints = 1048576.0;  ///< 2^20 grid points per axis
-constexpr Index kMaxRelaxationRows = 1;     ///< cap of R, the graded-box relaxation rows
+/// Largest vertical edge of the graded-box relaxation band (rim to anchor row), in h_g.
+constexpr Real kMaxRelaxationEdge = 2.0;
 /// Smallest column height below the anchor row, relative to the mean column (graded box).
 constexpr Real kMinColumnScale = 0.25;
 /// Aspect ratio R / (2 r) that the graded wall rows may always reach (graded box).
@@ -508,17 +509,20 @@ std::vector<GridNode> level_ring(const std::vector<Index>& px, const std::vector
 /// Resolved layout of the closing box.
 ///
 /// Wall rows of the graded box (M >= 1), from the rim (row 0) down:
-///  * rows 1 .. R: level-0 relaxation rows, z = z_rim + (z_S - z_rim) b_k with b_k = k / (R + 1);
-///  * row S = R + 1: the anchor row z_S (level 0), piecewise linear along the rim between the
-///    level-M nodes and at least (R + 1) h_g below the rim in every column;
+///  * the relaxation band between the rim and row 1: column p (level-0 ring position) holds
+///    n_p - 1 interior nodes splitting z_rim .. z_S evenly into n_p segments of at most
+///    kMaxRelaxationEdge h_g; adjacent columns are stitched (stitch_columns());
+///  * row 1: the anchor row z_S (level 0), piecewise linear along the rim between the
+///    level-M nodes and at least h_g below the rim in every column;
 ///  * the fine band (box_fine_depth, level-0 rows), the M transition rows and the coarse
-///    rows, all z = z_S + (depth - z_S) tau_k with tau_S = 0 < tau_k <= tau_K = 1.
-/// Every row below the rim is linear within each level-M cell, so a 2:1 cell is an affine
-/// shear of the flat one (it cannot invert); the relaxation strips are quads with vertical
-/// edges, which cannot invert because every column is monotone (z_S > z_rim).
+///    rows, all z = z_S + (depth - z_S) tau_k with tau_1 = 0 < tau_k <= tau_K = 1.
+/// Every row below the anchor is linear within each level-M cell, so a 2:1 cell is an
+/// affine shear of the flat one (it cannot invert); the stitch triangles of the relaxation
+/// band have one edge on a vertical column, so they cannot invert either.
 struct BoxPlan {
     Index levels = 0;                    ///< M (0 = uniform WP2 box)
     Index levels_unreduced = 0;          ///< M before the rim checks
+    Index levels_without_fine_band = 0;  ///< M the depth would allow without the fine band
     Real target = 0.0;                   ///< requested / automatic coarse spacing h_c [m]
     bool target_below_top = false;       ///< requested h_c < h / sqrt(2) (warned once)
     Real h = 0.0;                        ///< top-face spacing min(dx, dy) [m]
@@ -530,13 +534,16 @@ struct BoxPlan {
     std::vector<std::vector<Index>> px;  ///< node levels along x (axis_levels)
     std::vector<std::vector<Index>> py;  ///< node levels along y
     std::vector<Index> row_level;        ///< level of wall row k = 0 .. K
-    /// M = 0: height fraction of wall row k (0 rim, 1 bottom). M >= 1: b_k for the
-    /// relaxation rows k = 1 .. R, tau_k for the rows k >= R + 1 (see above).
+    /// M = 0: height fraction of wall row k (0 rim, 1 bottom). M >= 1: tau_k for the rows
+    /// k >= 1 (see above; row 0 is the rim).
     std::vector<Real> row_fraction;
     Real wall_aspect = 0.0;     ///< largest wall aspect ratio of the graded rows (M >= 1)
     Real uniform_aspect = 0.0;  ///< same for the uniform WP2 box (reference; M_unreduced >= 1)
-    Index relax_rows = 0;       ///< R (M >= 1)
-    Index fine_rows = 0;        ///< level-0 rows of the fine band below row S
+    Index relax_rows = 0;       ///< R = max_p (n_p - 1) (M >= 1)
+    Index relax_vertices = 0;   ///< sum_p (n_p - 1): interior relaxation nodes (M >= 1)
+    std::vector<Index> relax_n;      ///< n_p, relaxation segments of column p
+    std::vector<Index> relax_first;  ///< sum_(q < p) (n_q - 1): first interior node of p
+    Index fine_rows = 0;             ///< level-0 rows of the fine band below row 1
     std::vector<std::vector<GridNode>> rings;  ///< level rings 0 .. M (M >= 1)
     std::vector<std::vector<Index>> ring_pos;  ///< level-0 ring position of each ring node
     std::vector<Real> rim_z;                   ///< rim height at level-0 ring position p
@@ -558,11 +565,44 @@ struct BoxPlan {
             return zr;
         const Real zs = anchor_z[ps];
         const Real f = row_fraction[static_cast<std::size_t>(k)];
-        if (k <= relax_rows)
-            return zr + (zs - zr) * f;
         return zs + (depth - zs) * f;
     }
+    /// z of relaxation node i = 0 (rim) .. n_p (anchor row) of column p (M >= 1).
+    [[nodiscard]] Real relax_z(Index p, Index i) const {
+        const auto ps = static_cast<std::size_t>(p);
+        const Index n = relax_n[ps];
+        if (i == 0)
+            return rim_z[ps];
+        if (i == n)
+            return anchor_z[ps];
+        return rim_z[ps] +
+               (anchor_z[ps] - rim_z[ps]) * static_cast<Real>(i) / static_cast<Real>(n);
+    }
 };
+
+/// Stitch of the relaxation band between two adjacent wall columns: the left column holds
+/// the nodes 0 .. nl, the right one 0 .. nr (0 = rim, last = anchor row), with heights
+/// zl(i), zr(j) increasing. Emits nl + nr triangles through tri(right, i, j):
+/// right = false is (left i, right j, left i + 1), right = true is (left i, right j,
+/// right j + 1). Seen from outside (left -> right along the ring, z downwards) both are
+/// counter-clockwise for any node heights (signed area d (z_(i+1) - z_i) / 2 > 0 with d the
+/// column distance), so the band cannot invert. The column whose next node is higher
+/// advances first (ties: right), which joins nodes of similar height; for nl = nr = 1 this
+/// is the quad (r0, r1, s1), (r0, s1, s0) of the other strips when the right anchor node
+/// is not lower than the left one.
+template <class ZL, class ZR, class Tri>
+void stitch_columns(Index nl, Index nr, const ZL& zl, const ZR& zr, const Tri& tri) {
+    Index i = 0;
+    Index j = 0;
+    while (i < nl || j < nr) {
+        const bool right = j < nr && (i == nl || zr(j + 1) <= zl(i + 1));
+        tri(right, i, j);
+        if (right)
+            ++j;
+        else
+            ++i;
+    }
+}
 
 /// Uniform box rows (M = 0, uniform_box_arrays): n_z rows of level 0.
 void set_uniform_rows(BoxPlan& plan) {
@@ -591,7 +631,10 @@ void set_rings(BoxPlan& plan, const HeightMap& h) {
         pos.reserve(ring.size());
         std::size_t p = 0;
         for (const GridNode& node : ring) {
-            while (ring0[p] != node) ++p;  // subsequence: always found
+            while (p < ring0.size() && ring0[p] != node) ++p;
+            if (p == ring0.size()) {
+                throw std::logic_error("set_rings: a level ring is not a subsequence of ring 0");
+            }
             pos.push_back(static_cast<Index>(p));
         }
         plan.ring_pos.push_back(std::move(pos));
@@ -600,62 +643,74 @@ void set_rings(BoxPlan& plan, const HeightMap& h) {
     for (const auto& [i, j] : ring0) plan.rim_z.push_back(h.z(i, j));
 }
 
-/// Anchor row z_S and relaxation row count R (M >= 1). Per level-M cell c (nodes a, b):
+/// Anchor row z_S and the relaxation columns (M >= 1). Per level-M cell c (nodes a, b):
 /// z~ = linear interpolation of the rim between a and b, d = z_rim - z~, D_c = max_c d >= 0.
 /// The node offset D(a) is the larger D_c of the two cells at a, and
-///   z_S = z~ + (linear interpolation of D between a and b) + (R + 1) h_g,
-/// so z_S >= z_rim + (R + 1) h_g in every column. The excess e = z_S - z_rim - (R + 1) h_g
-/// is spread over the R + 1 strips above row S: R = 0 if max e <= 2 h_g, otherwise
-/// min(kMaxRelaxationRows, ceil(max e / (2 h_g)) - 1) (strip heights <= 3 h_g below the cap).
+///   z_S = z~ + (linear interpolation of D between a and b) + h_g,
+/// so z_S >= z_rim + h_g in every column. Column p gets
+///   n_p = max(1, ceil((z_S - z_rim) / (kMaxRelaxationEdge h_g)))
+/// relaxation segments, so every vertical edge between the rim and the anchor row is at
+/// most kMaxRelaxationEdge h_g long; columns under a smooth rim (z_S - z_rim <= 2 h_g) keep
+/// a single segment, so the extra nodes are confined to the parts of the ring that dip.
 void set_anchor(BoxPlan& plan) {
     const std::vector<Index>& knots = plan.ring_pos.back();
     const auto q0 = static_cast<Index>(plan.rim_z.size());
     const auto qm = static_cast<Index>(knots.size());
-    std::vector<Real> base(static_cast<std::size_t>(q0));
-    std::vector<Real> dev(static_cast<std::size_t>(q0));
-    std::vector<Real> cell_max(static_cast<std::size_t>(qm), 0.0);
-    const auto rim = [&](Index p) { return plan.rim_z[static_cast<std::size_t>(p % q0)]; };
+    // z_S must lie at least h_g below the rim: z_S(p) >= need(p).
+    const auto need = [&](Index p) {
+        return plan.rim_z[static_cast<std::size_t>(p % q0)] + plan.hg;
+    };
     const auto cell_end = [&](Index q) {
         return q + 1 < qm ? knots[static_cast<std::size_t>(q + 1)] : q0;
     };
+    const auto weight = [](Index p, Index pa, Index pb) {
+        return static_cast<Real>(p - pa) / static_cast<Real>(pb - pa);
+    };
+    // Node value need(a) + D(a), D(a) the largest rim excess over the chord of the two
+    // level-M cells at node a; z_S is linear between the node values.
+    std::vector<Real> cell_max(static_cast<std::size_t>(qm), 0.0);
     for (Index q = 0; q < qm; ++q) {
         const Index pa = knots[static_cast<std::size_t>(q)];
         const Index pb = cell_end(q);
         for (Index p = pa; p < pb; ++p) {
-            const Real w = static_cast<Real>(p - pa) / static_cast<Real>(pb - pa);
-            const Real smooth = (1.0 - w) * rim(pa) + w * rim(pb);
-            dev[static_cast<std::size_t>(p)] = rim(p) - smooth;
-            base[static_cast<std::size_t>(p)] = smooth;
+            const Real w = weight(p, pa, pb);
+            const Real dev = need(p) - ((1.0 - w) * need(pa) + w * need(pb));
             Real& cm = cell_max[static_cast<std::size_t>(q)];
-            cm = std::max(cm, dev[static_cast<std::size_t>(p)]);
+            cm = std::max(cm, dev);
         }
     }
-    Real excess = 0.0;
+    std::vector<Real> node(static_cast<std::size_t>(qm));
+    for (Index q = 0; q < qm; ++q) {
+        const Real d = std::max(cell_max[static_cast<std::size_t>((q + qm - 1) % qm)],
+                                cell_max[static_cast<std::size_t>(q)]);
+        node[static_cast<std::size_t>(q)] = need(knots[static_cast<std::size_t>(q)]) + d;
+    }
+    plan.anchor_z.assign(static_cast<std::size_t>(q0), 0.0);
     for (Index q = 0; q < qm; ++q) {
         const Index pa = knots[static_cast<std::size_t>(q)];
         const Index pb = cell_end(q);
-        const auto offset = [&](Index c) {
-            const Index cp = (c + qm - 1) % qm;
-            return std::max(cell_max[static_cast<std::size_t>(cp)],
-                            cell_max[static_cast<std::size_t>(c)]);
-        };
-        const Real da = offset(q);
-        const Real db = offset((q + 1) % qm);
+        const Real za = node[static_cast<std::size_t>(q)];
+        const Real zb = node[static_cast<std::size_t>((q + 1) % qm)];
         for (Index p = pa; p < pb; ++p) {
-            const Real w = static_cast<Real>(p - pa) / static_cast<Real>(pb - pa);
-            const Real d = (1.0 - w) * da + w * db;
-            base[static_cast<std::size_t>(p)] += d;
-            excess = std::max(excess, d - dev[static_cast<std::size_t>(p)]);
+            const Real w = weight(p, pa, pb);
+            // Guard against rounding: never less than h_g below the rim.
+            plan.anchor_z[static_cast<std::size_t>(p)] = std::max((1.0 - w) * za + w * zb, need(p));
         }
     }
+    plan.relax_n.clear();
+    plan.relax_first.clear();
     plan.relax_rows = 0;
-    if (excess > 2.0 * plan.hg) {
-        const auto r = static_cast<Index>(std::ceil(excess / (2.0 * plan.hg))) - 1;
-        plan.relax_rows = std::min(kMaxRelaxationRows, r);
+    plan.relax_vertices = 0;
+    const Real edge = kMaxRelaxationEdge * plan.hg;
+    for (Index p = 0; p < q0; ++p) {
+        const Real gap = plan.anchor_z[static_cast<std::size_t>(p)] - plan.rim_z[static_cast<std::size_t>(p)];
+        const Index n = std::max<Index>(
+            1, static_cast<Index>(std::ceil(gap / edge * (1.0 - kRoundingSlack))));
+        plan.relax_n.push_back(n);
+        plan.relax_first.push_back(plan.relax_vertices);
+        plan.relax_vertices += n - 1;
+        plan.relax_rows = std::max(plan.relax_rows, n - 1);
     }
-    const Real band = static_cast<Real>(plan.relax_rows + 1) * plan.hg;
-    plan.anchor_z.clear();
-    for (const Real b : base) plan.anchor_z.push_back(b + band);
 }
 
 /// Node levels and wall rows of the plan for M = m (see make_mesh_from_height_map()).
@@ -670,6 +725,9 @@ bool set_levels(BoxPlan& plan, const HeightMap& h, Index m) {
     plan.px = axis_levels(cx, m);
     plan.py = axis_levels(cy, m);
     plan.relax_rows = 0;
+    plan.relax_vertices = 0;
+    plan.relax_n.clear();
+    plan.relax_first.clear();
     plan.fine_rows = 0;
     if (m == 0) {
         set_uniform_rows(plan);
@@ -677,13 +735,8 @@ bool set_levels(BoxPlan& plan, const HeightMap& h, Index m) {
     }
     set_rings(plan, h);
     set_anchor(plan);
-    const Index r = plan.relax_rows;
-    plan.row_level.assign(static_cast<std::size_t>(r + 2), 0);  // rim, relaxation, anchor
-    plan.row_fraction.clear();
-    for (Index k = 0; k <= r; ++k) {
-        plan.row_fraction.push_back(static_cast<Real>(k) / static_cast<Real>(r + 1));
-    }
-    plan.row_fraction.push_back(0.0);  // anchor row: tau = 0
+    plan.row_level.assign(2, 0);         // rim, anchor row (level 0)
+    plan.row_fraction.assign(2, 0.0);  // rim (unused), anchor row: tau = 0
 
     // Column heights below the anchor row: mean (nominal row heights), min and max.
     Real h_sum = 0.0;
@@ -793,7 +846,28 @@ Real wall_rows_aspect(const BoxPlan& plan, const HeightMap& h) {
     const auto q0 = static_cast<Index>(ring0.size());
     const Real fail = std::numeric_limits<Real>::infinity();
     Real aspect = 0.0;
-    for (Index k = 0; k < plan.rows(); ++k) {
+    // Relaxation band (rim -> anchor row): monotone columns, stitched (never inverted).
+    for (Index p = 0; p < q0; ++p) {
+        const Index n = plan.relax_n[static_cast<std::size_t>(p)];
+        for (Index i = 0; i < n; ++i) {
+            if (!(plan.relax_z(p, i + 1) > plan.relax_z(p, i)))
+                return fail;
+        }
+        const Index pn = (p + 1) % q0;
+        const GridNode& n0 = ring0[static_cast<std::size_t>(p)];
+        const GridNode& n1 = ring0[static_cast<std::size_t>(pn)];
+        const Real d = n0.second == n1.second ? h.dx : h.dy;
+        const auto zl = [&](Index i) { return plan.relax_z(p, i); };
+        const auto zr = [&](Index j) { return plan.relax_z(pn, j); };
+        stitch_columns(n, plan.relax_n[static_cast<std::size_t>(pn)], zl, zr,
+                       [&](bool right, Index i, Index j) {
+                           const Real third = right ? d : 0.0;
+                           const Real z3 = right ? zr(j + 1) : zl(i + 1);
+                           aspect =
+                               std::max(aspect, wall_aspect(0.0, zl(i), d, zr(j), third, z3));
+                       });
+    }
+    for (Index k = 1; k < plan.rows(); ++k) {
         const Index m = plan.row_level[static_cast<std::size_t>(k)];
         const Index m1 = plan.row_level[static_cast<std::size_t>(k + 1)];
         const std::vector<Index>& upper = plan.ring_pos[static_cast<std::size_t>(m)];
@@ -876,14 +950,21 @@ BoxPlan make_box_plan(const HeightMap& h, Real depth, std::optional<Real> box_me
     // depth - z_f (transition rows and half a coarse row below z_f).
     const Real ratio = plan.target / plan.hb;
     const Index cmin = std::min(cx, cy);
-    const auto fits = [&](Index levels) {
+    const auto fits = [&](Index levels, bool with_fine_band) {
         const Real need = 1.5 * pow2r(levels) * plan.hg;
-        return need <= plan.height &&
-               (!box_fine_depth.has_value() || need - plan.hg <= depth - *box_fine_depth);
+        return need <= plan.height && (!with_fine_band || !box_fine_depth.has_value() ||
+                                       need - plan.hg <= depth - *box_fine_depth);
     };
-    Index m = 0;
-    while (pow2i(m + 1) <= cmin && ratio >= sqrt2 * pow2r(m) && fits(m + 1)) ++m;
+    const auto max_levels = [&](bool with_fine_band) {
+        Index levels = 0;
+        while (pow2i(levels + 1) <= cmin && ratio >= sqrt2 * pow2r(levels) &&
+               fits(levels + 1, with_fine_band))
+            ++levels;
+        return levels;
+    };
+    Index m = max_levels(true);
     plan.levels_unreduced = m;
+    plan.levels_without_fine_band = max_levels(false);
     // Safety net (documented in the header): a rim too rough for the rows reduces M.
     if (m > 0)
         plan.uniform_aspect = uniform_wall_aspect(h, depth);
@@ -898,13 +979,22 @@ BoxPlan make_box_plan(const HeightMap& h, Real depth, std::optional<Real> box_me
     return plan;
 }
 
-/// The warnings of a plan, one line each, emitted once per mesh built.
+/// The warnings (and the fine-band note) of a plan, one line each, emitted once per mesh
+/// built.
 void warn_plan(const BoxPlan& plan) {
     if (plan.target_below_top) {
         SBEM_WARN(
             "rough box mesh: box_mesh_size {} m is below the top-face spacing {} m (the walls "
             "are never finer than the top face); using the uniform box",
             plan.target, plan.h);
+    }
+    if (plan.levels_unreduced < plan.levels_without_fine_band) {
+        // Requested by the caller (box_fine_depth close to the bottom plate): not a warning.
+        SBEM_INFO(
+            "rough box mesh: the fine band down to {} m leaves room for {} of {} coarsening "
+            "levels above the bottom plate at {} m{}",
+            plan.fine_depth.value_or(0.0), plan.levels_unreduced, plan.levels_without_fine_band,
+            plan.depth, plan.levels_unreduced == 0 ? " (uniform box)" : "");
     }
     if (plan.levels < plan.levels_unreduced) {
         SBEM_WARN(
@@ -933,14 +1023,17 @@ std::pair<Vertices, Triangles> graded_box_arrays(const HeightMap& h, Real depth,
         return rings[static_cast<std::size_t>(level)];
     };
 
-    // First vertex of every interior wall row; vertex and triangle counts.
+    // First vertex of the relaxation nodes and of every interior wall row; vertex and
+    // triangle counts (the relaxation band has sum_p (n_p + n_(p+1)) = 2 (q0 + interior
+    // relaxation nodes) triangles, the other strips R_k + R_(k+1)).
+    const Index relax_base = n_grid + n_bottom;
     std::vector<Index> row_offset(static_cast<std::size_t>(n_rows + 1), -1);
-    Index nv = n_grid + n_bottom;
+    Index nv = relax_base + plan.relax_vertices;
     for (Index k = 1; k < n_rows; ++k) {
         row_offset[static_cast<std::size_t>(k)] = nv;
         nv += static_cast<Index>(ring_of_row(k).size());
     }
-    Index nf = 2 * (nx - 1) * (ny - 1) + 2 * ncx * ncy;
+    Index nf = 2 * (nx - 1) * (ny - 1) + 2 * ncx * ncy + 2 * plan.relax_vertices;
     for (Index k = 0; k < n_rows; ++k) {
         nf += static_cast<Index>(ring_of_row(k).size() + ring_of_row(k + 1).size());
     }
@@ -982,6 +1075,14 @@ std::pair<Vertices, Triangles> graded_box_arrays(const HeightMap& h, Real depth,
             set_vertex(k, xi(i), yj(j), depth);
         }
     }
+    const std::vector<GridNode>& ring0 = rings.front();
+    const auto q0 = static_cast<Index>(ring0.size());
+    for (Index p = 0; p < q0; ++p) {
+        const auto [i, j] = ring0[static_cast<std::size_t>(p)];
+        const Index first = relax_base + plan.relax_first[static_cast<std::size_t>(p)];
+        const Index n = plan.relax_n[static_cast<std::size_t>(p)];
+        for (Index q = 1; q < n; ++q) set_vertex(first + q - 1, xi(i), yj(j), plan.relax_z(p, q));
+    }
     for (Index k = 1; k < n_rows; ++k) {
         const std::vector<GridNode>& ring = ring_of_row(k);
         const Index level = plan.row_level[static_cast<std::size_t>(k)];
@@ -1005,6 +1106,14 @@ std::pair<Vertices, Triangles> graded_box_arrays(const HeightMap& h, Real depth,
             return n_grid + a * (ncy + 1) + b;
         }
         return row_offset[static_cast<std::size_t>(k)] + p;
+    };
+    // Relaxation node q = 0 (rim) .. n_p (anchor row, wall row 1) of column p.
+    const auto relax_vertex = [&](Index p, Index q) -> Index {
+        if (q == 0)
+            return wall_vertex(0, p);
+        if (q == plan.relax_n[static_cast<std::size_t>(p)])
+            return wall_vertex(1, p);
+        return relax_base + plan.relax_first[static_cast<std::size_t>(p)] + q - 1;
     };
 
     // GCC 13 -O3 vectoriser workaround (see uniform_box_arrays()): every vertex index is
@@ -1034,7 +1143,21 @@ std::pair<Vertices, Triangles> graded_box_arrays(const HeightMap& h, Real depth,
     // cell with upper nodes r0, r1, r2 and lower nodes s0, s1 gives (r0, r1, s0),
     // (r1, r2, s1), (r1, s1, s0), all counter-clockwise seen from outside. The lower ring
     // is a subset of the upper one and both start at the corner (0, 0).
-    for (Index k = 0; k < n_rows; ++k) {
+    // Relaxation band (rim -> anchor row): stitch_columns() between adjacent columns.
+    for (Index p = 0; p < q0; ++p) {
+        const Index pn = (p + 1) % q0;
+        const auto zl = [&](Index q) { return plan.relax_z(p, q); };
+        const auto zr = [&](Index q) { return plan.relax_z(pn, q); };
+        stitch_columns(plan.relax_n[static_cast<std::size_t>(p)],
+                       plan.relax_n[static_cast<std::size_t>(pn)], zl, zr,
+                       [&](bool right, Index i, Index j) {
+                           const Index a = relax_vertex(p, i);
+                           const Index b = relax_vertex(pn, j);
+                           const Index c = right ? relax_vertex(pn, j + 1) : relax_vertex(p, i + 1);
+                           emit(a, b, c);
+                       });
+    }
+    for (Index k = 1; k < n_rows; ++k) {
         const Index k1 = k + 1;
         const std::vector<GridNode>& upper = ring_of_row(k);
         const std::vector<GridNode>& lower = ring_of_row(k1);
@@ -1108,11 +1231,11 @@ TriangleMesh box_mesh(const HeightMap& h, Real depth, std::optional<Real> box_me
     const Index n_wall = triangles.rows() - n_top - n_bottom;
     SBEM_INFO(
         "rough box mesh: {} x {} grid, {} top + {} wall + {} bottom triangles (closing box / "
-        "top = {:.3f}), depth {} m, {} coarsening levels, {} relaxation + {} fine-band rows, "
+        "top = {:.3f}), depth {} m, {} coarsening levels, {} relaxation nodes (<= {} per column), {} fine-band rows, "
         "bottom {} x {} cells (target spacing {} m)",
         h.z.rows(), h.z.cols(), n_top, n_wall, n_bottom,
         static_cast<Real>(n_wall + n_bottom) / static_cast<Real>(n_top), depth, plan.levels,
-        plan.relax_rows, plan.fine_rows, ncx, ncy, plan.target);
+        plan.relax_vertices, plan.relax_rows, plan.fine_rows, ncx, ncy, plan.target);
     return {std::move(vertices), std::move(triangles)};
 }
 
@@ -1136,6 +1259,8 @@ BoxGrading box_grading(const HeightMap& h, Real depth, std::optional<Real> box_m
     g.coarse_cells_y = plan.cells_y(plan.levels);
     g.target_spacing = plan.target;
     g.relaxation_rows = plan.relax_rows;
+    g.relaxation_vertices = plan.relax_vertices;
+    g.anchor_z = plan.anchor_z;
     g.fine_rows = plan.fine_rows;
     g.wall_aspect = plan.wall_aspect;
     g.uniform_wall_aspect = plan.uniform_aspect;

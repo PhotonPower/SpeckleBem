@@ -215,15 +215,15 @@ std::string regression_reference_text() {
 
 // ---- Graded box (WP2b) helpers ------------------------------------------------------
 
-/// Counts the warnings logged while it is alive (logger level lowered to warn if needed and
-/// restored afterwards).
+/// Counts the warnings (or the messages of at least the given level) logged while it is
+/// alive (logger level lowered if needed and restored afterwards).
 class WarningCounter {
 public:
-    WarningCounter()
+    explicit WarningCounter(spdlog::level::level_enum level = spdlog::level::warn)
         : sink_(std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64)),
           saved_level_(spdlog::default_logger()->level()) {
-        sink_->set_level(spdlog::level::warn);
-        spdlog::default_logger()->set_level(std::min(saved_level_, spdlog::level::warn));
+        sink_->set_level(level);
+        spdlog::default_logger()->set_level(std::min(saved_level_, level));
         spdlog::default_logger()->sinks().push_back(sink_);
     }
     ~WarningCounter() {
@@ -234,6 +234,13 @@ public:
     WarningCounter(const WarningCounter&) = delete;
     WarningCounter& operator=(const WarningCounter&) = delete;
     [[nodiscard]] std::size_t count() const { return sink_->last_formatted().size(); }
+    /// Number of the logged messages that contain the given text.
+    [[nodiscard]] std::size_t count(const std::string& text) const {
+        const std::vector<std::string> lines = sink_->last_formatted();
+        return static_cast<std::size_t>(std::count_if(lines.begin(), lines.end(), [&](const std::string& l) {
+            return l.find(text) != std::string::npos;
+        }));
+    }
 
 private:
     std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> sink_;
@@ -271,15 +278,17 @@ HeightMap bump_map(Index nx, Index ny, Real dx, Real dy, Real a) {
 }
 
 /// Expected graded counts from the resolved layout: V = n_x n_y + (n_cx + 1)(n_cy + 1) +
-/// sum over interior rows of the ring sizes (rim and bottom ring are shared);
-/// F = 2 (n_x - 1)(n_y - 1) + sum over strips (R_k + R_(k+1)) + 2 n_cx n_cy.
+/// relaxation nodes + sum over interior rows of the ring sizes (rim and bottom ring are
+/// shared); F = 2 (n_x - 1)(n_y - 1) + sum over strips (R_k + R_(k+1)) + 2 relaxation
+/// nodes + 2 n_cx n_cy.
 Index graded_vertex_count(Index nx, Index ny, const geometry::detail::BoxGrading& g) {
-    Index v = nx * ny + (g.coarse_cells_x + 1) * (g.coarse_cells_y + 1);
+    Index v = nx * ny + (g.coarse_cells_x + 1) * (g.coarse_cells_y + 1) + g.relaxation_vertices;
     for (std::size_t k = 1; k + 1 < g.row_ring_sizes.size(); ++k) v += g.row_ring_sizes[k];
     return v;
 }
 Index graded_triangle_count(Index nx, Index ny, const geometry::detail::BoxGrading& g) {
-    Index f = 2 * (nx - 1) * (ny - 1) + 2 * g.coarse_cells_x * g.coarse_cells_y;
+    Index f = 2 * (nx - 1) * (ny - 1) + 2 * g.coarse_cells_x * g.coarse_cells_y +
+              2 * g.relaxation_vertices;
     for (std::size_t k = 0; k + 1 < g.row_ring_sizes.size(); ++k) {
         f += g.row_ring_sizes[k] + g.row_ring_sizes[k + 1];
     }
@@ -458,6 +467,54 @@ void check_graded_box(const HeightMap& h, Real depth, std::optional<Real> box_me
     const auto [lo, hi] = mesh.bounding_box();
     CHECK(hi.z() == depth);
     CHECK(lo.z() == h.z.minCoeff());
+}
+
+/// Longest vertical wall edges (both ends in one rim column) of a box: between the rim and
+/// the anchor row of the column (BoxGrading::anchor_z; empty for the uniform box), with the
+/// upper end above z_f, and overall.
+struct VerticalEdges {
+    Real above_anchor = 0.0;
+    Real above_fine = 0.0;
+    Real all = 0.0;
+};
+VerticalEdges vertical_wall_edges(const Vertices& v, const Triangles& f, const HeightMap& h,
+                                  const std::vector<Real>& anchor_z, std::optional<Real> zf) {
+    const Index nx = h.z.rows();
+    const Index ny = h.z.cols();
+    // Rim walk of BoxGrading::anchor_z: column index of every rim grid node.
+    std::vector<Index> column(static_cast<std::size_t>(nx * ny), -1);
+    Index c = 0;
+    for (Index i = 0; i + 1 < nx; ++i) column[static_cast<std::size_t>(i * ny)] = c++;
+    for (Index j = 0; j + 1 < ny; ++j) column[static_cast<std::size_t>((nx - 1) * ny + j)] = c++;
+    for (Index i = nx - 1; i > 0; --i) column[static_cast<std::size_t>(i * ny + ny - 1)] = c++;
+    for (Index j = ny - 1; j > 0; --j) column[static_cast<std::size_t>(j)] = c++;
+    const Real x0 = -0.5 * static_cast<Real>(nx - 1) * h.dx;
+    const Real y0 = -0.5 * static_cast<Real>(ny - 1) * h.dy;
+    const Real tol = 1e-9 * std::min(h.dx, h.dy);
+    VerticalEdges e;
+    for (Index t = 0; t < f.rows(); ++t) {
+        for (Index q = 0; q < 3; ++q) {
+            const Index a = f(t, q);
+            const Index b = f(t, (q + 1) % 3);
+            if (std::abs(v(a, 0) - v(b, 0)) > tol || std::abs(v(a, 1) - v(b, 1)) > tol)
+                continue;
+            const Real upper = std::min(v(a, 2), v(b, 2));
+            const Real lower = std::max(v(a, 2), v(b, 2));
+            const Real len = lower - upper;
+            e.all = std::max(e.all, len);
+            if (zf.has_value() && upper < *zf - tol)
+                e.above_fine = std::max(e.above_fine, len);
+            if (anchor_z.empty())
+                continue;
+            const auto i = static_cast<Index>(std::llround((v(a, 0) - x0) / h.dx));
+            const auto j = static_cast<Index>(std::llround((v(a, 1) - y0) / h.dy));
+            const Index col = column[static_cast<std::size_t>(i * ny + j)];
+            REQUIRE(col >= 0);
+            if (lower <= anchor_z[static_cast<std::size_t>(col)] + tol)
+                e.above_anchor = std::max(e.above_anchor, len);
+        }
+    }
+    return e;
 }
 
 }  // namespace
@@ -1064,26 +1121,38 @@ TEST_CASE("rough surface mesh: rim pits are absorbed by the relaxation rows", "[
     h.z = MatrixXr::Zero(21, 21);
     CHECK(geometry::detail::box_grading(h, 2e-6).levels == 1);
     CHECK(geometry::detail::box_grading(h, 2e-6).relaxation_rows == 0);
-    SECTION("moderate pit: no relaxation row") {
-        // Excess 50 nm <= 2 h_g: R = 0, the rim strip is 100 .. 150 nm tall.
+    SECTION("moderate pit: no relaxation node") {
+        // Excess 50 nm: the rim-to-anchor gaps are 100 .. 150 nm <= 2 h_g, one segment each.
         h.z(1, 0) = 50e-9;
         check_graded_box(h, 2e-6, std::nullopt, 1);
-        CHECK(geometry::detail::box_grading(h, 2e-6).relaxation_rows == 0);
+        const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 2e-6);
+        CHECK(g.relaxation_rows == 0);
+        CHECK(g.relaxation_vertices == 0);
     }
-    SECTION("deep pit: grading kept with one relaxation row") {
+    SECTION("deep pit: grading kept with local relaxation nodes") {
         h.z(1, 0) = 300e-9;
         WarningCounter warnings;
         const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 2e-6);
         CHECK(g.levels == 1);
         CHECK(g.levels_unreduced == 1);
-        // Node offsets D = 300 nm at the level-1 nodes i = 0 and 2: excess 300 nm > 2 h_g,
-        // R = ceil(300 / 200) - 1 = 1. Rows: rim, relaxation, anchor (level 0), level 1.
+        // Node offsets D = 300 nm at the level-1 nodes i = 0 and 2, so z_S = 400 nm there:
+        // gaps of 400 nm (two segments) at i = 0 and 2, 100 nm at the pit, and 250 nm at the
+        // neighbouring columns i = 3 and (0, 1) where z_S falls back to 100 nm: four
+        // relaxation nodes, at most one per column. Rows: rim, anchor (level 0), level 1.
         CHECK(g.relaxation_rows == 1);
-        REQUIRE(g.row_ring_sizes.size() >= 5);
+        CHECK(g.relaxation_vertices == 4);
+        REQUIRE(g.row_ring_sizes.size() >= 4);
         CHECK(g.row_ring_sizes[1] == 80);
-        CHECK(g.row_ring_sizes[2] == 80);
-        CHECK(g.row_ring_sizes[3] == 40);
+        CHECK(g.row_ring_sizes[2] == 40);
+        REQUIRE(g.anchor_z.size() == 80);
+        CHECK_THAT(g.anchor_z[0], WithinRel(400e-9, 1e-12));
+        CHECK_THAT(g.anchor_z[1], WithinRel(400e-9, 1e-12));
+        CHECK_THAT(g.anchor_z[3], WithinRel(250e-9, 1e-12));
+        CHECK_THAT(g.anchor_z[79], WithinRel(250e-9, 1e-12));
         check_graded_box(h, 2e-6, std::nullopt, 1, rough_rim_aspect_bound(h, 2e-6));
+        const auto [v, f] = geometry::detail::rough_box_arrays(h, 2e-6);
+        CHECK(vertical_wall_edges(v, f, h, g.anchor_z, std::nullopt).above_anchor <=
+              2.0 * h.dx * (1.0 + 1e-9));
         CHECK(warnings.count() == 0);
     }
     SECTION("deep pits, two levels requested: both levels kept") {
@@ -1094,6 +1163,7 @@ TEST_CASE("rough surface mesh: rim pits are absorbed by the relaxation rows", "[
             h.z(i, 0) = 300e-9;
             WarningCounter warnings;
             check_graded_box(h, 2e-6, 400e-9, 2, rough_rim_aspect_bound(h, 2e-6, 400e-9));
+            // Gaps up to 400 nm: at most one relaxation node per column.
             CHECK(geometry::detail::box_grading(h, 2e-6, 400e-9).relaxation_rows == 1);
             CHECK(warnings.count() == 0);
         }
@@ -1121,9 +1191,10 @@ TEST_CASE("rough surface mesh: generated rough rims keep M = 3 (WP2c acceptance)
     // Backlog WP2c: default rough surfaces with sigma <= 250 nm and Lc >= 100 nm at 50 nm
     // spacing keep M = 3. L = 4 um (81 x 81), depth 2 um: automatic h_c = min(1 um, 500 nm,
     // 500 nm) = 500 nm -> M = 3. Under WP2b sigma = 250 nm, Lc = 100 nm gave the uniform box.
-    // (The closing box fraction scales like 1 / L; the 10 % bound is checked at L = 10 um.)
-    // The per-triangle checks run on seed 1 of the rough corner only in the sanitizer build
-    // (time limit; the debug build checks rough rims per triangle in the tests above).
+    // (The closing box fraction scales like 1 / L; it is checked at L = 10 um below.)
+    // Layout checks on all maps in both builds; the per-triangle checks of these 81 x 81
+    // maps in the release build only (time limit of the sanitizer build, which runs the
+    // small smooth-rim case below and the rough rims of the tests above per triangle).
     const Real depth = 2e-6;
     for (const auto& [sigma, lc] :
          std::vector<std::pair<Real, Real>>{{250e-9, 100e-9}, {50e-9, 500e-9}}) {
@@ -1133,64 +1204,154 @@ TEST_CASE("rough surface mesh: generated rough rims keep M = 3 (WP2c acceptance)
                 generate_gaussian_height_map(make_params(4e-6, 50e-9, sigma, lc, seed));
             REQUIRE(h.z.rows() == 81);
             const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, depth);
+            CAPTURE(g.relaxation_rows, g.relaxation_vertices, g.wall_aspect,
+                    g.uniform_wall_aspect);
             CHECK(g.levels == 3);
             CHECK(g.levels_unreduced == 3);
-            CHECK(g.relaxation_rows == (sigma > 100e-9 ? 1 : 0));
+            // Smooth rims need (almost) no relaxation nodes, rough ones many (measured:
+            // <= 3 of 320 columns for sigma = 50 nm, Lc = 500 nm; ~1000 for 250 nm, 100 nm).
+            if (sigma < 100e-9)
+                CHECK(g.relaxation_vertices <= 8);
+            else
+                CHECK(g.relaxation_vertices > 320);
             CHECK(g.wall_aspect <= std::max(4.0, 2.0 * g.uniform_wall_aspect));
-#ifndef NDEBUG
-            if (seed != 1 || sigma < 100e-9)
-                continue;
-#endif
+#ifdef NDEBUG
             // The plan's reference equals the uniform arrays (walls dominate the bottom).
             const Real uniform = uniform_box_aspect(h, depth);
             CHECK_THAT(g.uniform_wall_aspect, WithinRel(uniform, 1e-9));
             WarningCounter warnings;
-            check_graded_box(h, depth, std::nullopt, 3, std::max(4.0, 2.0 * uniform));
+            // Smooth rims: the explicit bound 4; rough rims: the safety-net bound.
+            check_graded_box(h, depth, std::nullopt, 3,
+                             sigma < 100e-9 ? 4.0 : std::max(4.0, 2.0 * uniform));
             CHECK(warnings.count() == 0);
+#endif
+        }
+    }
+    SECTION("small smooth-rim case, per triangle in both builds") {
+        // sigma = 50 nm, Lc = 500 nm on L = 2 um (41 x 41); h_c = 400 nm gives M = 3.
+        const HeightMap h = generate_gaussian_height_map(make_params(2e-6, 50e-9, 50e-9, 500e-9, 1));
+        REQUIRE(h.z.rows() == 41);
+        WarningCounter warnings;
+        check_graded_box(h, depth, 400e-9, 3, 4.0);
+        CHECK(warnings.count() == 0);
+    }
+}
+
+TEST_CASE("rough surface mesh: relaxation band keeps vertical wall edges <= 2 h_g (WP2c)",
+          "[geometry]") {
+    // Review C1: under a rough rim every vertical wall edge between the rim and the anchor
+    // row is at most 2 h_g long (h_g = 50 nm), with and without a fine band, and with a fine
+    // band (depth 4 um, z_f = 3 um) every vertical wall edge above z_f is at most 2 h_g and
+    // at most twice the longest one of the uniform box (~58 nm). Before the fix the
+    // relaxation strips under sigma = 250 nm, Lc = 100 nm rims were 500-620 nm tall.
+    const Real hs = 50e-9;
+    const Real bound = 2.0 * hs * (1.0 + 1e-9);
+    for (const auto& [sigma, lc] :
+         std::vector<std::pair<Real, Real>>{{250e-9, 100e-9}, {50e-9, 100e-9}}) {
+        for (const std::uint64_t seed : {1ULL, 2ULL, 3ULL}) {
+            CAPTURE(sigma, lc, seed);
+            const HeightMap h = generate_gaussian_height_map(make_params(4e-6, hs, sigma, lc, seed));
+            REQUIRE(h.z.rows() == 81);
+            {
+                // No fine band: depth 2 um, automatic M = 3.
+                const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 2e-6);
+                CHECK(g.levels == 3);
+                CHECK(g.relaxation_rows >= 1);
+                const auto [v, f] = geometry::detail::rough_box_arrays(h, 2e-6);
+                CHECK(closed_and_consistent(f));
+                const VerticalEdges e = vertical_wall_edges(v, f, h, g.anchor_z, std::nullopt);
+                CAPTURE(e.above_anchor, g.relaxation_rows, g.relaxation_vertices);
+                CHECK(e.above_anchor > hs);
+                CHECK(e.above_anchor <= bound);
+            }
+            {
+                // Fine band: depth 4 um, z_f = 3 um.
+                const Real depth = 4e-6;
+                const Real zf = 3e-6;
+                const geometry::detail::BoxGrading g =
+                    geometry::detail::box_grading(h, depth, std::nullopt, zf);
+                CHECK(g.levels == 3);
+                CHECK(g.fine_rows >= 59);
+                const auto [v, f] = geometry::detail::rough_box_arrays(h, depth, std::nullopt, zf);
+                CHECK(closed_and_consistent(f));
+                const VerticalEdges e = vertical_wall_edges(v, f, h, g.anchor_z, zf);
+                const auto [vu, fu] = geometry::detail::rough_box_arrays(h, depth, hs);
+                const VerticalEdges eu = vertical_wall_edges(vu, fu, h, {}, zf);
+                CAPTURE(e.above_anchor, e.above_fine, eu.above_fine);
+                CHECK(e.above_anchor <= bound);
+                CHECK(e.above_fine <= bound);
+                CHECK(e.above_fine <= 2.0 * eu.above_fine);
+            }
         }
     }
 }
 
-TEST_CASE("rough surface mesh: squeezed rows under a very rough rim fall back", "[geometry]") {
-    // Shape safety net: a 1 um deep box under sigma = 250 nm, Lc = 100 nm (L = 2 um, 41 x 41,
-    // automatic M = 2). Deep rim pits push the anchor row towards the bottom plate and the
-    // rows below it become slivers (graded walls 3.4 x worse than the uniform box, measured),
-    // so M is reduced down to the uniform box, with one warning per mesh.
-    const HeightMap h = generate_gaussian_height_map(make_params(2e-6, 50e-9, 250e-9, 100e-9, 1));
-    const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 1e-6);
-    CHECK(g.levels_unreduced == 2);
-    CHECK(g.levels == 0);
-    WarningCounter warnings;
-    const TriangleMesh mesh = make_mesh_from_height_map(h, 1e-6);
-    CHECK(warnings.count() == 1);
-    const auto [vu, fu] = geometry::detail::rough_box_arrays(h, 1e-6, 50e-9);
-    CHECK(mesh.triangles() == fu);
-    CHECK(mesh.is_closed());
+TEST_CASE("rough surface mesh: very rough rims and the shape safety net", "[geometry]") {
+    SECTION("shallow box under a very rough rim keeps its levels") {
+        // A 1 um deep box under sigma = 250 nm, Lc = 100 nm (L = 2 um, 41 x 41, automatic
+        // M = 2). With the stitched relaxation band the rows below the anchor row keep their
+        // shape (with one relaxation row per ring, as before review C1, this map fell back
+        // to the uniform box: graded walls 3.4 x worse than the uniform ones).
+        const HeightMap h =
+            generate_gaussian_height_map(make_params(2e-6, 50e-9, 250e-9, 100e-9, 1));
+        const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 1e-6);
+        CHECK(g.levels_unreduced == 2);
+        CHECK(g.levels == 2);
+        WarningCounter warnings;
+        check_graded_box(h, 1e-6, std::nullopt, 2, rough_rim_aspect_bound(h, 1e-6));
+        CHECK(warnings.count() == 0);
+    }
+    SECTION("an unlucky seed falls back to fewer levels with one warning") {
+        // sigma = 250 nm, Lc = 500 nm, L = 4 um, depth 2 um, seed 9: with M = 3 the anchor
+        // row of the steep rim shears the 2:1 cells beyond max(4, 2 x the uniform walls), so
+        // the safety net reduces M (expected behaviour, documented in rough_surface.hpp and
+        // ADR 0006; 1 of 20 seeds in the [.stats] sweep).
+        const HeightMap h =
+            generate_gaussian_height_map(make_params(4e-6, 50e-9, 250e-9, 500e-9, 9));
+        const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 2e-6);
+        CAPTURE(g.wall_aspect, g.uniform_wall_aspect);
+        CHECK(g.levels_unreduced == 3);
+        CHECK(g.levels == 2);
+        CHECK(g.wall_aspect <= std::max(4.0, 2.0 * g.uniform_wall_aspect));
+        WarningCounter warnings;
+        const TriangleMesh mesh = make_mesh_from_height_map(h, 2e-6);
+        CHECK(warnings.count() == 1);
+        CHECK(warnings.count("using 2 levels") == 1);
+        CHECK(mesh.is_closed());
+        CHECK(mesh.num_triangles() == graded_triangle_count(81, 81, g));
+    }
 }
 
-TEST_CASE("rough surface mesh: closing box <= 10 % of the top face at L = 10 um (WP2c)",
-          "[geometry]") {
-    // Layout only (no arrays): 201 x 201 grid, depth 2 um, automatic M = 3. Measured:
-    // 7.2 % for R = 0 (smooth rims), 8.9 .. 9.2 % with one relaxation row. Seed 2 in the
-    // release build only (time limit of the sanitizer build).
+TEST_CASE("rough surface mesh: closing box fraction at L = 10 um (WP2c)", "[geometry]") {
+    // Layout only (no arrays): 201 x 201 grid, depth 2 um, automatic M = 3. Backlog WP2c:
+    // closing box <= 10 % of the top-face triangles. Measured (seeds 1-5): sigma = 50 nm,
+    // Lc = 500 nm 7.19 %; sigma = 250 nm, Lc = 500 nm 7.93-8.12 %; sigma = 50 nm,
+    // Lc = 100 nm 8.43-8.54 %. sigma = 250 nm, Lc = 100 nm needs 13.7-14.0 % (about 2700
+    // relaxation nodes keep the vertical wall edges under the rim <= 2 h_g, review C1):
+    // above the 10 % target, bounded here at the measured worst + 0.5 % (ADR 0006).
 #ifdef NDEBUG
-    const std::vector<std::uint64_t> seeds{1, 2};
+    const std::vector<std::uint64_t> seeds{1, 2, 3, 4, 5};
 #else
     const std::vector<std::uint64_t> seeds{1};
 #endif
-    for (const auto& [sigma, lc] : std::vector<std::pair<Real, Real>>{
-             {250e-9, 100e-9}, {50e-9, 500e-9}, {50e-9, 100e-9}, {250e-9, 500e-9}}) {
+    struct Corner {
+        Real sigma;
+        Real lc;
+        Real max_ratio;
+    };
+    for (const Corner& c : {Corner{250e-9, 100e-9, 0.145}, Corner{50e-9, 500e-9, 0.10},
+                            Corner{50e-9, 100e-9, 0.10}, Corner{250e-9, 500e-9, 0.10}}) {
         for (const std::uint64_t seed : seeds) {
-            CAPTURE(sigma, lc, seed);
+            CAPTURE(c.sigma, c.lc, seed);
             const HeightMap h =
-                generate_gaussian_height_map(make_params(10e-6, 50e-9, sigma, lc, seed));
+                generate_gaussian_height_map(make_params(10e-6, 50e-9, c.sigma, c.lc, seed));
             const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 2e-6);
             CHECK(g.levels == 3);
             const Index n_top = 2 * 200 * 200;
             const Real ratio = static_cast<Real>(graded_triangle_count(201, 201, g) - n_top) /
                                static_cast<Real>(n_top);
-            CAPTURE(ratio, g.relaxation_rows);
-            CHECK(ratio <= 0.10);
+            CAPTURE(ratio, g.relaxation_rows, g.relaxation_vertices);
+            CHECK(ratio <= c.max_ratio);
         }
     }
 }
@@ -1267,12 +1428,13 @@ TEST_CASE("rough surface mesh: fine band keeps the top-face spacing down to box_
         CHECK(g0.row_ring_sizes[2] == 80);
     }
     SECTION("rough rim") {
-        // sigma = 50 nm, Lc = 250 nm (seed 3: one relaxation row); the strips between rim and
-        // anchor row stay below 3 h_g here, the fine-band rows are at most h_g tall.
+        // sigma = 50 nm, Lc = 250 nm, seed 3: relaxation nodes under the rim; every vertical
+        // wall edge above z_f is at most 2 h_g (fine-band rows at most h_g), and the wall
+        // triangles there are at most 3 h_g tall (rim steps).
         const HeightMap h = generate_gaussian_height_map(make_params(2e-6, hs, 50e-9, 250e-9, 3));
         REQUIRE(h.z.rows() == 41);
         const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, depth, 400e-9, zf);
-        CHECK(g.relaxation_rows == 1);
+        CHECK(g.relaxation_rows >= 1);
         CHECK(g.fine_rows >= 59);
         check_graded_box(h, depth, 400e-9, 3, rough_rim_aspect_bound(h, depth, 400e-9, zf), zf);
         const auto [v, f] = geometry::detail::rough_box_arrays(h, depth, 400e-9, zf);
@@ -1281,6 +1443,7 @@ TEST_CASE("rough surface mesh: fine band keeps the top-face spacing down to box_
         CHECK(e.horizontal <= hs * (1.0 + 1e-9));
         CHECK(e.vertical <= 3.0 * hs);
         CHECK(e.horizontal_below > 300e-9);
+        CHECK(vertical_wall_edges(v, f, h, g.anchor_z, zf).above_fine <= 2.0 * hs * (1.0 + 1e-9));
         // make_rough_surface_mesh passes RoughSurfaceParams::box_fine_depth through.
         RoughSurfaceParams p = make_params(2e-6, hs, 50e-9, 250e-9, 3);
         p.box_depth = depth;
@@ -1323,6 +1486,16 @@ TEST_CASE("rough surface mesh: box_fine_depth validation and the uniform fallbac
     const auto [v, f] = geometry::detail::rough_box_arrays(h, depth, std::nullopt, 1.85e-6);
     CHECK(v == vu);
     CHECK(f == fu);
+    {
+        // Logged once per mesh as SBEM_INFO (requested by the caller), not as a warning.
+        WarningCounter warnings;
+        WarningCounter infos(spdlog::level::info);
+        const TriangleMesh mesh = make_mesh_from_height_map(h, depth, std::nullopt, 1.85e-6);
+        CHECK(mesh.triangles() == fu);
+        CHECK(warnings.count() == 0);
+        CHECK(infos.count("leaves room for 0 of 1 coarsening levels") == 1);
+        CHECK(infos.count("(uniform box)") == 1);
+    }
     // A fine depth above the anchor row adds no rows.
     const auto [v0, f0] = geometry::detail::rough_box_arrays(h, depth);
     const auto [v1, f1] = geometry::detail::rough_box_arrays(h, depth, std::nullopt, 10e-9);
@@ -1361,11 +1534,51 @@ TEST_CASE("rough surface mesh: box statistics (manual)", "[.stats]") {
                 const HeightMap h =
                     generate_gaussian_height_map(make_params(L, 50e-9, sigma, lc, seed));
                 const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 2e-6);
-                WARN("sigma " << sigma << " Lc " << lc << " seed " << seed << ": M " << g.levels
-                              << ", R " << g.relaxation_rows << ", box " << box_percent(h, g)
-                              << " %, wall aspect " << g.wall_aspect << " (uniform box "
-                              << g.uniform_wall_aspect << ")");
+                const auto [v, f] = geometry::detail::rough_box_arrays(h, 2e-6);
+                const VerticalEdges e = vertical_wall_edges(v, f, h, g.anchor_z, std::nullopt);
+                WARN("L " << L << " sigma " << sigma << " Lc " << lc << " seed " << seed << ": M "
+                          << g.levels << " (of " << g.levels_unreduced << "), R "
+                          << g.relaxation_rows << ", relaxation nodes "
+                          << g.relaxation_vertices << ", box " << box_percent(h, g)
+                          << " %, wall aspect " << g.wall_aspect << " (uniform box "
+                          << g.uniform_wall_aspect << ", ratio "
+                          << g.wall_aspect / g.uniform_wall_aspect
+                          << "), longest vertical edge above the anchor " << e.above_anchor);
             }
+        }
+    }
+    // Vertical resolution under the rim (review C1): L = 4 um, depth 4 um, fine band to 3 um.
+    for (const auto& [sigma, lc] : std::vector<std::pair<Real, Real>>{
+             {250e-9, 100e-9}, {100e-9, 200e-9}, {50e-9, 100e-9}, {50e-9, 500e-9}}) {
+        for (std::uint64_t seed = 1; seed <= 3; ++seed) {
+            const HeightMap h = generate_gaussian_height_map(make_params(4e-6, 50e-9, sigma, lc, seed));
+            const geometry::detail::BoxGrading g =
+                geometry::detail::box_grading(h, 4e-6, std::nullopt, 3e-6);
+            const auto [v, f] = geometry::detail::rough_box_arrays(h, 4e-6, std::nullopt, 3e-6);
+            const VerticalEdges e = vertical_wall_edges(v, f, h, g.anchor_z, 3e-6);
+            const geometry::detail::BoxGrading g0 = geometry::detail::box_grading(h, 4e-6);
+            const auto [v0, f0] = geometry::detail::rough_box_arrays(h, 4e-6);
+            const VerticalEdges e0 = vertical_wall_edges(v0, f0, h, g0.anchor_z, std::nullopt);
+            const auto [vu, fu] = geometry::detail::rough_box_arrays(h, 4e-6, 50e-9);
+            const VerticalEdges eu = vertical_wall_edges(vu, fu, h, {}, 3e-6);
+            WARN("C1 sigma " << sigma << " Lc " << lc << " seed " << seed << ": fine band M "
+                             << g.levels << " R " << g.relaxation_rows << ", above z_f "
+                             << e.above_fine << ", above anchor " << e.above_anchor
+                             << "; no fine band M " << g0.levels << " R " << g0.relaxation_rows
+                             << ", above anchor " << e0.above_anchor << "; uniform above z_f "
+                             << eu.above_fine);
+        }
+    }
+    // Aspect safety net: seed sweep of the rough corners (review W3).
+    for (const auto& [sigma, lc] :
+         std::vector<std::pair<Real, Real>>{{250e-9, 100e-9}, {250e-9, 500e-9}}) {
+        for (std::uint64_t seed = 1; seed <= 20; ++seed) {
+            const HeightMap h = generate_gaussian_height_map(make_params(4e-6, 50e-9, sigma, lc, seed));
+            const geometry::detail::BoxGrading g = geometry::detail::box_grading(h, 2e-6);
+            WARN("W3 sigma " << sigma << " Lc " << lc << " seed " << seed << ": M " << g.levels
+                             << " (of " << g.levels_unreduced << "), wall aspect "
+                             << g.wall_aspect << ", uniform " << g.uniform_wall_aspect
+                             << ", ratio " << g.wall_aspect / g.uniform_wall_aspect);
         }
     }
     // Fine band for Si at 500 nm: 3 delta = 3.387 um (material::field_decay_length).

@@ -224,15 +224,27 @@ struct BoxGrading {
     Index coarse_cells_x = 0;    ///< bottom-plate cells along x (n_x - 1 for M = 0)
     Index coarse_cells_y = 0;    ///< bottom-plate cells along y (n_y - 1 for M = 0)
     Real target_spacing = 0.0;   ///< requested or automatic h_c [m]
-    Index relaxation_rows = 0;   ///< R, level-0 relaxation rows between rim and anchor row
-    Index fine_rows = 0;         ///< level-0 fine-band rows below the anchor row
+    /// R, the largest number of interior relaxation nodes in a wall column (between the rim
+    /// and the anchor row; 0 for a smooth rim).
+    Index relaxation_rows = 0;
+    /// Interior relaxation nodes of all wall columns (vertices between rim and anchor row
+    /// that belong to no wall row); the relaxation band adds twice as many triangles to the
+    /// strip rim -> anchor row (2 x ring 0 for a smooth rim).
+    Index relaxation_vertices = 0;
+    Index fine_rows = 0;  ///< level-0 fine-band rows below the anchor row
+    /// z of the anchor row [m] in every wall column (M >= 1, else empty), in the order of the
+    /// rim walk: from grid node (0, 0) counter-clockwise seen from +z, i.e. (i, 0) for
+    /// i = 0 .. n_x - 2, (n_x - 1, j) for j = 0 .. n_y - 2, (i, n_y - 1) for i = n_x - 1 .. 1,
+    /// (0, j) for j = n_y - 1 .. 1.
+    std::vector<Real> anchor_z;
     /// Largest aspect ratio R / (2 r) of the graded side walls (M >= 1; 0 for M = 0).
     Real wall_aspect = 0.0;
     /// Same for the side walls of the uniform WP2 box on the same map (the reference of the
     /// shape check; computed only when M >= 1 before the checks, else 0).
     Real uniform_wall_aspect = 0.0;
     /// Number of wall vertices in every wall row, from the rim (row 0, shared with the top
-    /// face) to the lowest row (shared with the bottom plate); size = wall rows + 1.
+    /// face) over the anchor row (row 1 for M >= 1) to the lowest row (shared with the bottom
+    /// plate); size = wall rows + 1. The relaxation nodes are not part of any row.
     std::vector<Index> row_ring_sizes;
 };
 
