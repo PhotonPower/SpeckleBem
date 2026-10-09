@@ -182,6 +182,8 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
             o.quad_degree_rhs = dict_value<int>(v, key, "kernels");
         } else if (key == "fold_adaptive") {
             o.fold_adaptive = dict_value<bool>(v, key, "kernels");
+        } else if (key == "decay_aware_target") {
+            o.decay_aware_target = dict_value<bool>(v, key, "kernels");
         } else {
             throw py::value_error("kernels: unknown key '" + key + "'");
         }
@@ -481,7 +483,8 @@ gmres : dict, optional
 kernels : dict, optional
     Quadrature options (kernels::OperatorOptions member names): quad_degree_far,
     quad_degree_near, quad_degree_sing, outer_grading_levels, near_distance_factor,
-    symmetrize_touching_above_kh, target_accuracy, quad_degree_rhs, fold_adaptive.
+    symmetrize_touching_above_kh, target_accuracy, quad_degree_rhs, fold_adaptive,
+    decay_aware_target.
 
 Raises
 ------

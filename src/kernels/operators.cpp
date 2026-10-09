@@ -381,8 +381,27 @@ constexpr Real kModelMargin = 0.3;
 /// Weight of |k| h in kappa.
 constexpr Real kModelBeta = 0.15;
 
-/// Degree of the plain double Dunavant rule for a near or far pair (file comment).
-int select_degree(Proximity prox, Real distance, Real size, Real abs_k,
+/// log10(S_d^2 + 1) per degree d = 1..20, S_d = sum |w| of the Dunavant rule (1 for rules with
+/// positive weights, 2.125 for degree 3): (S_d^2 + 1) max|integrand| A_test A_src bounds the
+/// error of the double rule for any integrand (decay-aware target, file comment).
+const std::array<Real, kMaxDegree + 1>& log_rule_error_bound() {
+    static const std::array<Real, kMaxDegree + 1> table = [] {
+        std::array<Real, kMaxDegree + 1> t{};
+        for (int d = 1; d <= kMaxDegree; ++d) {
+            Real s = 0.0;
+            for (const Real w : triangle_rule(d).weights) {
+                s += std::abs(w);
+            }
+            t[static_cast<std::size_t>(d)] = std::log10(s * s + 1.0);
+        }
+        return t;
+    }();
+    return table;
+}
+
+/// Degree of the plain double Dunavant rule for a near or far pair (file comment). log_decay =
+/// log10 delta <= 0 of the decay-aware target (0: no relaxation).
+int select_degree(Proximity prox, Real distance, Real size, Real abs_k, Real log_decay,
                   const OperatorOptions& opt) {
     if (opt.target_accuracy == 0.0) {
         return prox == Proximity::near ? opt.quad_degree_near : opt.quad_degree_far;
@@ -391,14 +410,23 @@ int select_degree(Proximity prox, Real distance, Real size, Real abs_k,
     const Real kh = kModelBeta * abs_k * size;
     const Real log_kappa = 0.5 * std::log10(inv * inv + kh * kh);
     const Real log_target = std::log10(opt.target_accuracy);
+    // Relative block error allowed by the decay-aware target: target / delta (exactly the
+    // target for log_decay = 0, so lossless regions select bitwise as before).
+    const Real log_relative = log_target - log_decay;
     for (int d = opt.quad_degree_far; d < opt.quad_degree_near; ++d) {
         const bool allowed =
             is_positive_interior(d) || (prox == Proximity::far && d == opt.quad_degree_far);
         if (!allowed) {
             continue;
         }
-        const DegreeModel& m = kDegreeModel[static_cast<std::size_t>(d)];
-        if (m.a + kModelMargin + m.p * log_kappa <= log_target) {
+        const auto di = static_cast<std::size_t>(d);
+        // Negligible block: any rule's error is below target U (never for log_decay = 0, since
+        // log10(S_d^2 + 1) >= log10 2 > log10 target).
+        if (log_decay + log_rule_error_bound()[di] <= log_target) {
+            return d;
+        }
+        const DegreeModel& m = kDegreeModel[di];
+        if (m.a + kModelMargin + m.p * log_kappa <= log_relative) {
             return d;
         }
     }
@@ -725,6 +753,43 @@ TriangleGeometry triangle_geometry(const geometry::TriangleMesh& mesh, Index t) 
 Real longest_edge(const TriangleGeometry& g) {
     return std::sqrt(std::max(
         {(g.v1 - g.v0).squaredNorm(), (g.v2 - g.v1).squaredNorm(), (g.v0 - g.v2).squaredNorm()}));
+}
+
+/// Largest distance of a vertex from the centroid c: the triangle lies in the ball of this
+/// radius about c.
+Real centroid_radius(const TriangleGeometry& g, const Vec3& c) {
+    return std::sqrt(
+        std::max({(g.v0 - c).squaredNorm(), (g.v1 - c).squaredNorm(), (g.v2 - c).squaredNorm()}));
+}
+
+/// log10 delta of the decay-aware target (file comment): delta = (1 + a R_lb) exp(-a R_lb) with
+/// a = -Im k and R_lb = D - rho_test - rho_src; 0 (no relaxation) for a <= 0, R_lb <= 0, fixed
+/// degrees or decay_aware_target = false.
+Real log_decay_factor(const TriangleGeometry& g_test, const Vec3& c_test,
+                      const TriangleGeometry& g_src, const Vec3& c_src, Real distance, Complex k,
+                      const OperatorOptions& opt) {
+    const Real alpha = -k.imag();
+    if (!opt.decay_aware_target || opt.target_accuracy == 0.0 || !(alpha > 0.0)) {
+        return 0.0;
+    }
+    const Real r_lb = distance - centroid_radius(g_test, c_test) - centroid_radius(g_src, c_src);
+    if (!(r_lb > 0.0)) {
+        return 0.0;
+    }
+    const Real x = alpha * r_lb;
+    return std::log10(1.0 + x) - x / std::log(10.0);
+}
+
+/// Dunavant degree of a near or far pair (select_degree with the pair's centroid distance, larger
+/// longest edge and decay factor).
+int plain_degree(Proximity prox, const TriangleGeometry& g_test, const TriangleGeometry& g_src,
+                 Complex k, const OperatorOptions& opt) {
+    const Vec3 c_test = (g_test.v0 + g_test.v1 + g_test.v2) / 3.0;
+    const Vec3 c_src = (g_src.v0 + g_src.v1 + g_src.v2) / 3.0;
+    const Real distance = (c_test - c_src).norm();
+    return select_degree(prox, distance, std::max(longest_edge(g_test), longest_edge(g_src)),
+                         std::abs(k),
+                         log_decay_factor(g_test, c_test, g_src, c_src, distance, k, opt), opt);
 }
 
 /// Quadrature points mapped to a triangle; weights include the area. Fixed capacity.
@@ -1464,11 +1529,7 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
     const bool need_k = !k_zero;
     Accumulator acc;
     if (!touching) {
-        const Vec3 c_test = (g_test.v0 + g_test.v1 + g_test.v2) / 3.0;
-        const Vec3 c_src = (g_src.v0 + g_src.v1 + g_src.v2) / 3.0;
-        const int degree = select_degree(prox, (c_test - c_src).norm(),
-                                         std::max(longest_edge(g_test), longest_edge(g_src)),
-                                         std::abs(region.k), opt);
+        const int degree = plain_degree(prox, g_test, g_src, region.k, opt);
         acc = integrate_plain(test, src, triangle_rule(degree), region.k);
     } else if (opt.outer_grading_levels == 0) {
         const TriangleRule& rule = triangle_rule(opt.quad_degree_sing);
@@ -1554,6 +1615,22 @@ TouchingRuleInfo touching_rule_info(const geometry::TriangleMesh& mesh, Index t_
         info.points += adaptive_radial_points(level) * adaptive_angular_points(level);
     }
     return info;
+}
+
+int plain_rule_degree(const geometry::TriangleMesh& mesh, Index t_test, Index t_src, Complex k,
+                      const OperatorOptions& opt) {
+    validate(opt);
+    if (t_test < 0 || t_test >= mesh.num_triangles() || t_src < 0 ||
+        t_src >= mesh.num_triangles()) {
+        throw std::out_of_range("plain_rule_degree: triangle index out of range");
+    }
+    const Proximity prox = classify(mesh, t_test, t_src, opt.near_distance_factor);
+    if (prox != Proximity::near && prox != Proximity::far) {
+        throw std::invalid_argument("plain_rule_degree: triangles " + std::to_string(t_test) +
+                                    " and " + std::to_string(t_src) + " touch");
+    }
+    return plain_degree(prox, triangle_geometry(mesh, t_test), triangle_geometry(mesh, t_src), k,
+                        opt);
 }
 
 void jump_block(const basis::RwgSpace& space, Index t, Eigen::Matrix<Complex, 3, 3>& I) {

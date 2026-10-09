@@ -138,7 +138,9 @@ struct OperatorOptions {
     /// estimate is an empirical upper envelope E_d(kappa), kappa = sqrt((h / D)^2 +
     /// (0.15 |k| h)^2), D the centroid distance and h the larger longest edge (calibration in
     /// src/kernels/operators.cpp). The choice is monotone: non-decreasing in |k| and h,
-    /// non-increasing in D. Near-class pairs only use positive-interior degrees. If no degree
+    /// non-increasing in D (with the decay-aware target of lossy regions: non-decreasing in
+    /// |Re k| and h, non-increasing in D and -Im k). Near-class pairs only use positive-interior
+    /// degrees. If no degree
     /// of the ladder reaches the target, quad_degree_near is used. 0 disables the selection
     /// (fixed degrees: quad_degree_far for far pairs, quad_degree_near for near pairs, as in
     /// WP7). Must be finite and in [0, 1). Governs near and far pairs only: touching pairs
@@ -146,7 +148,25 @@ struct OperatorOptions {
     /// outer_grading_levels, whose remainder error grows like (|k| h)^4 (about 1e-9 at |k| h =
     /// 0.78, about 1e-6 at |k| h = 4) independently of this target. Default 1e-5: against 1e-6
     /// the dense Mie n = 3 assembly is 20 to 38 % faster and eps_rr changes by <= 1e-8.
+    /// Lossy regions: see decay_aware_target.
     Real target_accuracy = 1e-5;
+    /// Decay-aware target for near and far pairs in lossy regions (WP-P2, WP7c part 4; ADR 0004).
+    /// With alpha = -Im k > 0 and R_lb = D - rho_test - rho_src > 0 a lower bound of |r - r'| over
+    /// the pair (rho the largest centroid-vertex distance of a triangle), |G| and |grad G| are
+    /// at most delta = (1 + alpha R_lb) exp(-alpha R_lb) times their undamped bounds 1 / (4 pi R)
+    /// and (1 + |Re k| R) / (4 pi R^2). The degree selection then asks for the relative block error
+    /// target_accuracy / delta instead of target_accuracy, and uses the lowest degree of the ladder
+    /// when (S_d^2 + 1) delta <= target_accuracy (S_d = sum |w| of the rule: any rule meets the
+    /// bound). Guarantee per block B (Frobenius norm, L and K separately):
+    ///   ||B_d - B|| <= target_accuracy ||U||,
+    /// U the entrywise bound A_test A_src max |integrand| with the undamped kernel magnitudes
+    /// above: the error allowed to a block equals what the same pair may have in a lossless region
+    /// (target_accuracy ||B|| <= target_accuracy ||U||), so the error summed over a matrix row
+    /// is bounded as for a lossless medium of the same geometry, while blocks that the
+    /// attenuation makes negligible get cheap rules. Lossless regions (Im k = 0) and touching
+    /// pairs are unaffected (bitwise). Ag at 500 nm (alpha = 39 / um): pairs with R_lb > ~0.4 um
+    /// are negligible at target 1e-5. false: the relative target applies to every block.
+    bool decay_aware_target = true;
 };
 
 /// Checks the options (ADR 0004): quad_degree_far in 1..20, quad_degree_near, quad_degree_rhs and
@@ -215,6 +235,16 @@ struct TouchingRuleInfo {
 /// @throws std::out_of_range for indices outside the mesh.
 [[nodiscard]] TouchingRuleInfo touching_rule_info(const geometry::TriangleMesh& mesh, Index t_test,
                                                   Index t_src, const OperatorOptions& opt);
+
+/// Dunavant degree element_blocks uses for both integrals of the near or far pair (t_test,
+/// t_src) in a region with wavenumber k (the selection of OperatorOptions::target_accuracy;
+/// quad_degree_near / quad_degree_far for target_accuracy = 0). Pure geometry and k:
+/// diagnostics for cost studies (WP-P2). Symmetric in (t_test, t_src).
+/// @throws std::invalid_argument for invalid options or a touching pair (identical,
+///         shared_edge, shared_vertex).
+/// @throws std::out_of_range for indices outside the mesh.
+[[nodiscard]] int plain_rule_degree(const geometry::TriangleMesh& mesh, Index t_test, Index t_src,
+                                    Complex k, const OperatorOptions& opt);
 
 /// Local Gram block of the K operator's jump term on triangle t:
 ///
