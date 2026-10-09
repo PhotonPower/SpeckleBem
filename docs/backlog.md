@@ -50,7 +50,7 @@ n ≤ 3 (2N ≤ 3 840).
 
 | WP2c | Decay-aware fine band and rim-decoupled grading rows for the rough-surface box | 1/3 (follow-up) | WP2b | `src/geometry/rough_surface.cpp`, `rough_surface.hpp`, tests | Optional `box_fine_depth`: walls keep the top spacing down to ~3 field decay lengths δ = λ₀/(2π|Im n₂|) (Si at 500 nm: ~3 µm), then grade; `Simulation` passes it from the material. Interior rows follow the piecewise-linear level-M rim interpolation with a few level-0 relaxation rows (quads with vertical edges) so that 2:1 cells cannot invert for any roughness; the global-M guard stays as a safety net. Acceptance: default rough surfaces with σ ≤ 250 nm, Lc ≥ 100 nm at 50 nm spacing keep M = 3 (box ≤ 10 % of the top); all closedness/orientation/aspect tests green | todo | `wp/02c-box-fine-band` | — |
 | WP7b | Graded outer quadrature for touching pairs and k-aware degree selection | 2/3 (follow-up) | WP7 | `src/kernels/operators.cpp`, `tests/unit/test_operators.cpp`, ADR 0004 | Sauter–Schwab or graded/Duffy outer rule for identical, shared-edge and shared-vertex pairs: L and K blocks accurate to 1e-8 against the hp-graded reference, raw (unsymmetrised) swap asymmetry < 1e-9; far/near degree chosen from |k|·distance and h/distance so that the class-boundary error is ≤ the touching error (currently far-degree-3 K errors reach 1e-3 dielectric / 1e-2 Ag on a λ/13 mesh); cost per touching pair ≤ 3× current | review done, fix round committed, merge pending (see docs/handover.md) | `wp/07b-graded-outer` | — |
-| WP-F | Decision: formulation weights. With Table 1 as transcribed, a_i/η_i and b_i η_i are region-independent, so ICTF/MCTF = block-row scalings of PMCHWT (identical direct-solver currents; identical after Jacobi preconditioning; conditioning Ag n = 2: PMCHWT 2.5e6, ICTF 8.4e5, MCTF 9.7e5). Confirm against Fu et al. 2023 / Solís 2015 / Karaosmanoğlu 2017 whether region-dependent (CTF-like) weights are intended before the Phase 3 study; `formulation::recommend` depends on it | 3 (decision) | WP9 | `include/specklebem/formulation/formulation.hpp`, `docs/03_theory_sie.md` | Project lead confirms or corrects Table 1 | open | — | — |
+| WP-F | Decision: formulation weights. Resolved 2026-10-09 by the coordinator from the sources: Table 1 of Fu et al. 2023 is transcribed exactly in `formulation.hpp`; Fu et al. state that the three Jacobi-preconditioned formulations show no obvious difference ("we thus refer them simply as the preconditioned formulation"), which is exactly the consequence of region-independent a_i/η_i, b_i η_i; Karaosmanoğlu et al. 2017 define MCTF as a = b = 1, c = d = η_o η_p, i.e. also a block-row scaling of PMCHWT (identity terms cancel). Only CTF (a = 1/η_o, b = 1/η_p) is region-dependent and is not needed (inaccurate for plasmonics per Karaosmanoğlu). Consequences: code and `recommend` unchanged; direct-solver currents identical for all three, so the Mie validation covers them; differences appear only in unpreconditioned GMRES (WP15) | 3 (decision) | WP9 | `docs/03_theory_sie.md` | Table 1 confirmed against the sources | done (Table 1 confirmed) | — | — |
 | WP9a | Single source of truth for ω: `Problem::omega` replaces `SurfaceSolution::omega`; replace the test-local `TestPlaneWave` by `excitation::PlaneWave` | 2 (follow-up) | WP9, WP10 | `include/specklebem/operator/assembler.hpp`, `include/specklebem/postprocessing/fields.hpp`, `src/postprocessing/fields.cpp`, `tests/support/fields_test_support.hpp` | `Problem::omega` exists and `post::*` prefers it (done in WP9); remaining: remove `SurfaceSolution::omega` before the Phase 3 `Simulation` driver; tests unchanged in outcome | done (squash-merged) | `wp/09a-omega` | — |
 
 ### Phase 2 schedule
@@ -61,8 +61,15 @@ n ≤ 3 (2N ≤ 3 840).
   Ag sphere 0.078 % at λ/13 met, the λ/20 case awaits a large node; symmetry met; Fresnel (WP12) deferred.
 - Phase 3 (GMRES, preconditioners, `Simulation` driver, formulation study) is broken down when WP9 lands.
 
+## Platform and tooling
+
+| WP | Title | Phase | Depends on | Files | Acceptance criterion | Status | Branch | Issue |
+|----|-------|-------|------------|-------|----------------------|--------|--------|-------|
+| WP-W1 | Native Windows build with MSYS2 (`win-release` UCRT64 GCC + OpenBLAS, `win-debug` CLANG64 Clang + ASan/UBSan), `.gitattributes` LF checkout, fetched Eigen as `SYSTEM` for CMake 4, Windows memory guard, Windows CI job, CI on `wp/**` pushes | tooling | — | `CMakePresets.json`, `cmake/Dependencies.cmake`, `.gitattributes`, `.github/workflows/ci.yml`, `tests/support/system_memory.*` | Both win presets warning-free, 192/192 ctest (`-LE validation-large`), 13/13 `^validation$`, pytest green; Linux CI unchanged and green | done (squash-merged) | `wp/w1-windows-msys2` | — |
+
 ## Notes for workers (lessons learned)
 
+- Coordinator tooling: `SendMessage` is not available in the Windows sessions, so a finished worker cannot be resumed. Trivial review fixes (docs/comments, < 20 lines) are applied by the coordinator on the WP branch; substantive fixes go to a new worker whose brief contains the original brief, the review findings and the branch head.
 - Without system packages, Eigen/spdlog/Catch2/pybind11 are fetched by `cmake/Dependencies.cmake`.
   The fetched Eigen is marked as a system include so that `-Werror` does not trip on Eigen
   internals; do not add Eigen include paths by hand.
@@ -75,3 +82,35 @@ n ≤ 3 (2N ≤ 3 840).
 - The K operator uses the source-point gradient ∇'G = −`grad_green` (docs/03); E^s = −L J + K M.
 - `-Wconversion`/`-Wsign-conversion` are on: use `Index` (int64) for sizes, cast explicitly
   when indexing Eigen with `int` and when mixing `std::size_t` and `Index`.
+
+### Windows (MSYS2, WP-W1)
+
+- Presets `win-release` (UCRT64 GCC, libstdc++, OpenMP, OpenBLAS) and `win-debug` (CLANG64 Clang,
+  libc++, ASan + UBSan, `-Werror`); commands and packages in README.md "Windows (MSYS2)". Two
+  environments because MinGW GCC has no sanitizers and UCRT64's Clang has no ASan runtime.
+  Never mix them: objects/DLLs of UCRT64 (libstdc++) and CLANG64 (libc++) are not ABI compatible.
+- Line endings: `.gitattributes` forces LF (`* text=auto eol=lf`, `*.stl -text`). Without it,
+  `core.autocrlf=true` checks out CRLF and bash scripts and byte-compared fixtures break. Open
+  files that are compared byte by byte with `std::ios::binary` (text mode on Windows writes CRLF).
+- DLL lookup: a Windows executable finds its DLLs in its own directory, then on `PATH`. Git for
+  Windows puts `/mingw64/bin` (an older `libstdc++-6.dll`) early on `PATH` in Git Bash; a test
+  executable that picks it up dies with `0xc0000139` (entry point not found), already at build
+  time because `catch_discover_tests` runs the executable. The presets prepend
+  `$env{MSYS2_ROOT}/<env>/bin` for configure, build and test; outside the presets, put the MSYS2
+  `bin` first yourself. The Python extension's DLLs are found next to MSYS2's `python.exe`; use
+  the Python of the same environment as the compiler (`PYTHONPATH` separator is `;` there).
+- LLP64: `long` is 32 bit on Windows. Use `Index` / `std::int64_t` / `std::size_t` for sizes and
+  byte counts, `std::stoll` rather than `std::stol`, never `%ld`. No POSIX-only headers in shared
+  code (`sysconf`, `getrusage`, `<unistd.h>`; `std::aligned_alloc` does not exist on Windows,
+  `_aligned_malloc` needs `_aligned_free`). Keep `<windows.h>` out of headers: it defines the
+  macros `near` and `far` (collide with `kernels::Proximity`) and `min`/`max`; the platform code
+  of the tests lives in `tests/support/system_memory.cpp`.
+- Fetched dependencies are declared `SYSTEM` (CMake ≥ 3.25) so their headers do not trip
+  `-Werror`. Setting `INTERFACE_SYSTEM_INCLUDE_DIRECTORIES` on the fetched Eigen target by hand
+  breaks Eigen's `install(EXPORT)` with CMake 4. Clang 22 needs spdlog ≥ 1.15 (fmt 11; fmt 10's
+  `FMT_STRING` fails to compile) and Catch2 ≥ 3.14 (`__COUNTER__` is flagged by
+  `-Wc2y-extensions` at the macro expansion site, which `SYSTEM` cannot suppress).
+- CMake's FindPython also searches the Windows registry: pin `Python3_EXECUTABLE` /
+  `PYTHON_EXECUTABLE` to MSYS2's python (the presets and the CI job do).
+- Running dense validation tests with `ctest -j 12` oversubscribes the cores (each test runs an
+  OpenMP region on all cores): they take ~48 s each in parallel vs 3–6 s serially in win-release.

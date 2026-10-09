@@ -1,0 +1,16 @@
+# Normalise line endings: every text file is stored and checked out with LF, independent of
+# core.autocrlf (Windows checkouts with autocrlf=true otherwise get CRLF, which breaks the bash
+# scripts and changes the bytes of the text fixtures in tests/data).
+* text=auto eol=lf
+
+# Mesh fixtures are compared byte by byte: never convert them. tests/data contains both ASCII
+# and binary STL files; -text keeps either exactly as committed.
+*.stl -text
+
+# Binary formats.
+*.png  binary
+*.jpg  binary
+*.pdf  binary
+*.h5   binary
+*.npy  binary
+*.npz  binary

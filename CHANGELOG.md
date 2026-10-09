@@ -5,6 +5,13 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tooling (WP-W1): native Windows build with MSYS2: presets `win-release` (UCRT64 GCC, OpenMP,
+  OpenBLAS) and `win-debug` (CLANG64 Clang/libc++, ASan + UBSan, `-Werror`), a Windows MSYS2
+  UCRT64 CI job, `.gitattributes` (LF checkouts everywhere), Windows memory guard of the dense
+  validation tests (`tests/support/system_memory.cpp`). CMake ≥ 3.25 (FetchContent `SYSTEM`);
+  fetched Eigen/spdlog/Catch2/pybind11 are system includes; fetched spdlog 1.14.1 → 1.15.3 and
+  Catch2 3.7.1 → 3.16.1 (Clang 22 compatibility; the fetched Catch2 runs only in the Windows job,
+  Linux CI uses the system Catch2 3.4). CI also runs on pushes to `wp/**` branches.
 - geometry (WP1, #1): `TriangleMesh` edge topology (interior edges with plus/minus triangles,
   boundary-edge count, non-manifold and duplicate-triangle rejection), orientation check and
   repair with per-component outward orientation, closedness, signed volume, bounding box,

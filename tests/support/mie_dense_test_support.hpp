@@ -14,12 +14,7 @@
 #include <cmath>
 
 #include "assembler_test_support.hpp"
-
-#if __has_include(<sys/resource.h>) && __has_include(<unistd.h>)
-#include <sys/resource.h>
-#include <unistd.h>
-#define SPECKLEBEM_TEST_HAVE_POSIX_MEMORY 1
-#endif
+#include "system_memory.hpp"
 
 namespace mie_dense_test {
 
@@ -138,24 +133,13 @@ inline Real dense_solve_bytes(Index unknowns) {
 
 /// Physical memory of the machine in bytes (0 if unknown).
 inline Real physical_memory_bytes() {
-#ifdef SPECKLEBEM_TEST_HAVE_POSIX_MEMORY
-    const long pages = sysconf(_SC_PHYS_PAGES);
-    const long page_size = sysconf(_SC_PAGE_SIZE);
-    if (pages > 0 && page_size > 0)
-        return static_cast<Real>(pages) * static_cast<Real>(page_size);
-#endif
-    return 0.0;
+    return system_memory::physical_memory_bytes();
 }
 
-/// Peak resident set size of this process in bytes (0 if unknown; ru_maxrss is in KiB on
-/// Linux). catch_discover_tests runs every test case in its own process.
+/// Peak resident set size of this process in bytes (0 if unknown).
+/// catch_discover_tests runs every test case in its own process.
 inline Real peak_rss_bytes() {
-#ifdef SPECKLEBEM_TEST_HAVE_POSIX_MEMORY
-    rusage ru{};
-    if (getrusage(RUSAGE_SELF, &ru) == 0)
-        return 1024.0 * static_cast<Real>(ru.ru_maxrss);
-#endif
-    return 0.0;
+    return system_memory::peak_rss_bytes();
 }
 
 /// Memory guard of the validation-large cases: true if the estimated dense-solve memory of

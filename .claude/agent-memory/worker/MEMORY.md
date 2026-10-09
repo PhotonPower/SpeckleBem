@@ -1,0 +1,1 @@
+- [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython registry, ctest -j oversubscription, worktree-guard workarounds
