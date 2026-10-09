@@ -33,8 +33,23 @@ static_assert(std::numeric_limits<Real>::is_iec559 && sizeof(Real) == 8,
               "the .npy writer needs IEEE-754 binary64 doubles");
 static_assert(sizeof(Index) == 8, "the .npy writer stores indices as int64");
 
-/// Validates a name: '/'-separated components of [A-Za-z0-9_.-], no empty, ".", ".." or
-/// dot-terminated components.
+/// True if the stem (the part before the first '.') of a component is a Windows device name:
+/// CON, PRN, AUX, NUL, COM1-COM9 or LPT1-LPT9, case-insensitive.
+bool is_device_name(std::string_view comp) {
+    const std::string_view stem = comp.substr(0, comp.find('.'));
+    std::string up(stem);
+    for (char& c : up) {
+        if (c >= 'a' && c <= 'z')
+            c = static_cast<char>(c - 'a' + 'A');
+    }
+    if (up == "CON" || up == "PRN" || up == "AUX" || up == "NUL")
+        return true;
+    return up.size() == 4 && (up.starts_with("COM") || up.starts_with("LPT")) && up[3] >= '1' &&
+           up[3] <= '9';
+}
+
+/// Validates a name: '/'-separated components of [A-Za-z0-9_.-], no empty, ".", "..",
+/// dot-terminated or Windows device-name components.
 void check_name(const std::string& name, std::string_view what) {
     const auto fail = [&](const char* why) {
         throw std::invalid_argument("ResultWriter: invalid " + std::string(what) + " '" + name +
@@ -58,6 +73,8 @@ void check_name(const std::string& name, std::string_view what) {
             if (!ok)
                 fail("allowed characters are [A-Za-z0-9_.-] and '/' between groups");
         }
+        if (is_device_name(comp))
+            fail("Windows device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9) are not allowed");
         if (end == name.size())
             break;
         start = end + 1;
@@ -73,18 +90,59 @@ void create_dirs(const fs::path& dir) {
     }
 }
 
-std::ofstream open_out(const fs::path& path) {
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    if (!out)
-        throw std::runtime_error("ResultWriter: cannot open '" + path.string() + "'");
-    return out;
-}
+/// Output file written to a temporary file next to the target ("<target>~tmp"; '~' cannot
+/// occur in a valid name) and renamed over the target by commit(), so the target is either the
+/// complete old or the complete new file. Without commit() the temporary file is removed.
+class AtomicFile {
+public:
+    explicit AtomicFile(fs::path path) : path_(std::move(path)), tmp_(path_) {
+        tmp_ += "~tmp";
+        std::error_code ec;
+        if (fs::is_directory(path_, ec))
+            fail("is a directory");
+        out_.open(tmp_, std::ios::binary | std::ios::trunc);
+        if (!out_)
+            fail("cannot open temporary file '" + tmp_.string() + "' for writing");
+    }
+    AtomicFile(const AtomicFile&) = delete;
+    AtomicFile& operator=(const AtomicFile&) = delete;
+    ~AtomicFile() {
+        if (committed_)
+            return;
+        if (out_.is_open())
+            out_.close();
+        std::error_code ec;
+        fs::remove(tmp_, ec);
+    }
 
-void close_out(std::ofstream& out, const fs::path& path) {
-    out.close();
-    if (!out)
-        throw std::runtime_error("ResultWriter: error writing '" + path.string() + "'");
-}
+    void write(std::string_view bytes) {
+        out_.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        if (!out_)
+            fail("write error");
+    }
+
+    /// Closes the temporary file and renames it over the target (replacing an existing file).
+    void commit() {
+        out_.close();
+        if (!out_)
+            fail("write error");
+        std::error_code ec;
+        fs::rename(tmp_, path_, ec);
+        if (ec)
+            fail("cannot rename '" + tmp_.string() + "' over it: " + ec.message());
+        committed_ = true;
+    }
+
+private:
+    [[noreturn]] void fail(const std::string& why) const {
+        throw std::runtime_error("ResultWriter: '" + path_.string() + "': " + why);
+    }
+
+    fs::path path_;
+    fs::path tmp_;
+    std::ofstream out_;
+    bool committed_ = false;
+};
 
 void put_le64(std::string& buf, std::uint64_t bits) {
     for (int b = 0; b < 8; ++b) buf.push_back(static_cast<char>((bits >> (8 * b)) & 0xffU));
@@ -122,18 +180,18 @@ std::string npy_header(std::string_view descr, Index rows, Index cols, bool is_v
 template <class At>
 void write_npy(const fs::path& path, std::string_view descr, Index rows, Index cols, bool is_vector,
                const At& at) {
-    std::ofstream out = open_out(path);
+    AtomicFile out(path);
     std::string buf = npy_header(descr, rows, cols, is_vector);
     constexpr std::size_t kChunk = std::size_t{1} << 16;
     for (Index i = 0; i < rows; ++i) {
         for (Index j = 0; j < cols; ++j) put_value(buf, at(i, j));
         if (buf.size() >= kChunk) {
-            out.write(buf.data(), static_cast<std::streamsize>(buf.size()));
+            out.write(buf);
             buf.clear();
         }
     }
-    out.write(buf.data(), static_cast<std::streamsize>(buf.size()));
-    close_out(out, path);
+    out.write(buf);
+    out.commit();
 }
 
 /// Throws std::invalid_argument unless s is well-formed UTF-8 (no overlongs, surrogates or
@@ -263,8 +321,9 @@ private:
         bool found = false;
         for (auto& [key, val] : attributes_) {
             if (key == name) {
-                val = json_value;
+                val = std::move(json_value);
                 found = true;
+                break;
             }
         }
         if (!found)
@@ -276,9 +335,9 @@ private:
         }
         text += "\n}\n";
         const fs::path path = root_ / "attributes.json";
-        std::ofstream out = open_out(path);
-        out.write(text.data(), static_cast<std::streamsize>(text.size()));
-        close_out(out, path);
+        AtomicFile out(path);
+        out.write(text);
+        out.commit();
     }
 
     fs::path root_;

@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <limits>
 #include <random>
 #include <stdexcept>
@@ -48,7 +47,32 @@ private:
 std::string read_file(const fs::path& p) {
     std::ifstream in(p, std::ios::binary);
     REQUIRE(in.good());
-    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    const auto size = static_cast<std::size_t>(fs::file_size(p));
+    std::string bytes(size, '\0');
+    in.read(bytes.data(), static_cast<std::streamsize>(size));
+    REQUIRE(in.good());
+    return bytes;
+}
+
+/// Number of leftover temporary files ("*~tmp") below dir.
+int count_temp_files(const fs::path& dir) {
+    int n = 0;
+    for (const auto& e : fs::recursive_directory_iterator(dir)) {
+        const std::string f = e.path().filename().string();
+        n += f.size() >= 4 && f.ends_with("~tmp") ? 1 : 0;
+    }
+    return n;
+}
+
+/// Runs f, which must throw std::runtime_error whose message contains needle.
+template <class F>
+void check_runtime_error(F&& f, const std::string& needle) {
+    try {
+        f();
+        FAIL("expected std::runtime_error");
+    } catch (const std::runtime_error& e) {
+        CHECK_THAT(e.what(), ContainsSubstring(needle));
+    }
 }
 
 /// Independent NPY 1.0 reader: checks the preamble, returns the header dict (padding and
@@ -142,6 +166,7 @@ TEST_CASE("result_writer: vectors and matrices are bitwise exact, C order", "[io
     const Npy nv2 = read_npy(root / "current.npy");
     CHECK(nv2.dict == "{'descr': '<c16', 'fortran_order': False, 'shape': (2,), }");
     CHECK(nv2.data.size() == 2 * 16);
+    CHECK(count_temp_files(tmp.path()) == 0);  // temporary files renamed over the targets
 }
 
 TEST_CASE("result_writer: mesh vertices and 0-based triangles", "[io]") {
@@ -224,8 +249,10 @@ TEST_CASE("result_writer: invalid names and paths throw", "[io]") {
     TempDir tmp;
     const auto w = io::open_npy_directory(tmp.path().string());
     const geometry::TriangleMesh mesh = geometry::make_icosphere(1.0, 0);
-    for (const char* bad : {"", "/abs", "a/", "a//b", ".", "..", "a/../b", "a.", "a b", "a\\b",
-                            "C:x", "\xc3\xa9", "a\nb"}) {
+    for (const char* bad :
+         {"",      "/abs", "a/",   "a//b",     ".",        "..",    "a/../b", "a.",
+          "a b",   "a\\b", "C:x",  "\xc3\xa9", "a\nb",     "CON",   "nul",    "Aux",
+          "prn.x", "COM1", "com9", "LPT1",     "lpt9.a.b", "g/CON", "Com5/x", "a/NUL.tar"}) {
         INFO("name '" << bad << "'");
         CHECK_THROWS_AS(w->write_vector(bad, VectorXc(1)), std::invalid_argument);
         CHECK_THROWS_AS(w->write_matrix(bad, MatrixXr(1, 1)), std::invalid_argument);
@@ -236,16 +263,38 @@ TEST_CASE("result_writer: invalid names and paths throw", "[io]") {
     }
     w->write_vector("a.b-c_D/x.y", VectorXc(1));  // all allowed characters
     CHECK(fs::exists(tmp.path() / "a.b-c_D" / "x.y.npy"));
+    // Device names only as the whole stem: these are ordinary names.
+    for (const char* ok : {"CONX", "xcon", "COM10", "LPT", "a.con", "NULL", "aux_1"}) {
+        INFO("name '" << ok << "'");
+        CHECK_NOTHROW(w->write_vector(ok, VectorXc(1)));
+        CHECK_NOTHROW(w->write_attribute(ok, 1.0));
+    }
+    CHECK(fs::exists(tmp.path() / "a.con.npy"));
 
     CHECK_THROWS_AS(io::open_npy_directory(""), std::invalid_argument);
     // A regular file where the directory should be: runtime_error naming the path.
     std::ofstream(tmp.path() / "plain_file") << "x";
-    try {
-        (void)io::open_npy_directory((tmp.path() / "plain_file").string());
-        FAIL("expected std::runtime_error");
-    } catch (const std::runtime_error& e) {
-        CHECK_THAT(e.what(), ContainsSubstring("plain_file"));
-    }
+    check_runtime_error([&] { (void)io::open_npy_directory((tmp.path() / "plain_file").string()); },
+                        "plain_file");
+}
+
+TEST_CASE("result_writer: a target that is a directory throws and leaves no temporary file",
+          "[io]") {
+    TempDir tmp;
+    const auto w = io::open_npy_directory(tmp.path().string());
+    fs::create_directories(tmp.path() / "x.npy");
+    fs::create_directories(tmp.path() / "g" / "m.npy");
+    fs::create_directories(tmp.path() / "mesh" / "triangles.npy");
+    fs::create_directories(tmp.path() / "attributes.json");
+    check_runtime_error([&] { w->write_vector("x", VectorXc(2)); }, "x.npy");
+    check_runtime_error([&] { w->write_matrix("x", MatrixXr(2, 2)); }, "x.npy");
+    check_runtime_error([&] { w->write_matrix("g/m", MatrixXc(2, 2)); }, "m.npy");
+    check_runtime_error([&] { w->write_mesh("mesh", geometry::make_icosphere(1.0, 0)); },
+                        "triangles.npy");
+    check_runtime_error([&] { w->write_attribute("a", 1.0); }, "attributes.json");
+    CHECK(fs::is_directory(tmp.path() / "x.npy"));
+    CHECK(fs::is_directory(tmp.path() / "attributes.json"));
+    CHECK(count_temp_files(tmp.path()) == 0);
 }
 
 TEST_CASE("result_writer: open_hdf5 is unavailable", "[io]") {

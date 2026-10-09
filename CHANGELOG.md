@@ -9,9 +9,12 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   matrices as NumPy `.npy` files (format 1.0, little-endian, C order, `<f8`/`<c16`), meshes as
   `<group>/vertices.npy` (`<f8`) and `<group>/triangles.npy` (`<i8`, 0-based) and attributes in
   one `attributes.json` (rewritten on every call, shortest round-trip Reals, strict UTF-8);
-  validated names (`[A-Za-z0-9_.-]`, `/` for groups); `open_hdf5` throws until HDF5 support
-  lands. Unit tests `tests/unit/test_result_writer.cpp` (independent NPY reader, bitwise data);
-  NumPy round trip `tests/python/test_result_writer.py` via the helper `specklebem_npy_fixture`.
+  validated names (`[A-Za-z0-9_.-]`, `/` for groups, Windows device names such as `CON` or
+  `com1.x` rejected on all platforms); every file is written to `<file>~tmp` and renamed over the
+  target, so targets are always complete; `open_hdf5` throws until HDF5 support lands. Unit tests
+  `tests/unit/test_result_writer.cpp` (independent NPY reader, bitwise data); NumPy round trip
+  `tests/python/test_result_writer.py` via the helper `specklebem_npy_fixture` (CI sets
+  `SPECKLEBEM_NPY_FIXTURE`, so a missing helper fails instead of skipping).
 - geometry (WP2c): rough-surface box with optional decay-aware fine band (`box_fine_depth`) and a
   per-column stitched relaxation band under rough rims (vertical wall edges ≤ 2 h_g, M = 3 kept for
   σ ≤ 250 nm, Lc ≥ 100 nm; box 7–14 % of the top face at L = 10 µm); `material::field_decay_length`.
