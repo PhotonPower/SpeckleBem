@@ -44,9 +44,10 @@ jobs:
       # ctest -L / -LE take regular expressions: -LE validation excludes both the `validation`
       # and the `validation-large` labels, -L '^validation$' selects only `validation`.
       # `ctest -L validation-large` (dense solves with 2N >= 15 k, minutes to hours, several GB)
-      # is nightly / manual only and never runs in CI.
+      # and `ctest -L slow` (hidden accuracy and cost studies, minutes) are nightly / manual
+      # only and never run in CI.
       - name: Unit tests
-        run: ctest --test-dir build --output-on-failure -LE validation
+        run: ctest --test-dir build --output-on-failure -LE 'validation|slow'
 
       - name: Validation tests
         run: ctest --test-dir build --output-on-failure -L '^validation$'
@@ -96,7 +97,7 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Unit tests
-        run: ctest --test-dir build --output-on-failure -LE validation
+        run: ctest --test-dir build --output-on-failure -LE 'validation|slow'
 
       - name: Validation tests
         run: ctest --test-dir build --output-on-failure -L '^validation$'
