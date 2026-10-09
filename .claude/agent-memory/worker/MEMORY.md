@@ -3,4 +3,5 @@
 - [GMRES observations](gmres_observations.md) — measured iteration counts/residuals (sphere, 2e4 rough box) for test budgets
 - [Touching-pair quadrature findings](touching_quadrature_findings.md) — Duffy error sources (rays, obtuse apex, radial), reference n at sharp folds
 - [Rough box grading facts](rough_box_grading.md) — anchor row, stitched relaxation band (edges <= 2 h_g), safety net, measured box % and aspects
+- [MLFMM plane-wave accuracy](mlfmm_plane_wave_accuracy.md) — ADR truncation vs box size, corner worst case, Lagrange p, Hankel refs, Eigen dot
 - [Python bindings pitfalls](python_bindings.md) — flags order, vectorize, views, exceptions, GIL callbacks, Simulation lock design, test sensitivity
