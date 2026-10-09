@@ -41,7 +41,8 @@ def npy_dir(tmp_path_factory):
             "specklebem_npy_fixture not found: set SPECKLEBEM_NPY_FIXTURE or use the build-tree "
             "package (PYTHONPATH=<build>/python) of a build with tests"
         )
-    out = tmp_path_factory.mktemp("npy") / "result"
+    # Non-ASCII directory name: UTF-8 paths end to end (ADR 0007, WP-P1).
+    out = tmp_path_factory.mktemp("npy") / "result_Jürgen_µm_路径"
     env = dict(os.environ)
     if os.name == "nt":  # MinGW runtime DLLs live next to python.exe (MSYS2)
         env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")

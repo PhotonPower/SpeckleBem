@@ -23,6 +23,7 @@ add_executable(specklebem_unit_tests
     unit/test_gmres.cpp
     unit/test_result_writer.cpp
     unit/test_simulation.cpp
+    unit/test_path.cpp
     # unit/test_octree.cpp unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -45,6 +46,9 @@ catch_discover_tests(specklebem_alloc_tests PROPERTIES SKIP_RETURN_CODE 4)
 # <build>/tests/specklebem_npy_fixture next to <build>/python. Not a CTest test itself.
 add_executable(specklebem_npy_fixture support/npy_fixture_main.cpp)
 target_link_libraries(specklebem_npy_fixture PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
+if(WIN32)
+    target_link_libraries(specklebem_npy_fixture PRIVATE shell32)  # CommandLineToArgvW
+endif()
 
 # Validation tests compare against analytic references (Mie, flat-interface
 # Fresnel) and against the dense operator. They are slower and labelled so that

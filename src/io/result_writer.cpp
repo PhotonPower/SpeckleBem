@@ -6,6 +6,8 @@
 /// a fixed-size buffer (no full row-major copy of large matrices).
 #include "specklebem/io/result_writer.hpp"
 
+#include "specklebem/core/path.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -85,7 +87,8 @@ void create_dirs(const fs::path& dir) {
     std::error_code ec;
     fs::create_directories(dir, ec);
     if (ec || !fs::is_directory(dir)) {
-        throw std::runtime_error("ResultWriter: cannot create directory '" + dir.string() + "'" +
+        throw std::runtime_error("ResultWriter: cannot create directory '" +
+                                 core::path_to_utf8(dir) + "'" +
                                  (ec ? ": " + ec.message() : std::string()));
     }
 }
@@ -102,7 +105,7 @@ public:
             fail("is a directory");
         out_.open(tmp_, std::ios::binary | std::ios::trunc);
         if (!out_)
-            fail("cannot open temporary file '" + tmp_.string() + "' for writing");
+            fail("cannot open temporary file '" + core::path_to_utf8(tmp_) + "' for writing");
     }
     AtomicFile(const AtomicFile&) = delete;
     AtomicFile& operator=(const AtomicFile&) = delete;
@@ -129,13 +132,13 @@ public:
         std::error_code ec;
         fs::rename(tmp_, path_, ec);
         if (ec)
-            fail("cannot rename '" + tmp_.string() + "' over it: " + ec.message());
+            fail("cannot rename '" + core::path_to_utf8(tmp_) + "' over it: " + ec.message());
         committed_ = true;
     }
 
 private:
     [[noreturn]] void fail(const std::string& why) const {
-        throw std::runtime_error("ResultWriter: '" + path_.string() + "': " + why);
+        throw std::runtime_error("ResultWriter: '" + core::path_to_utf8(path_) + "': " + why);
     }
 
     fs::path path_;
@@ -197,40 +200,9 @@ void write_npy(const fs::path& path, std::string_view descr, Index rows, Index c
 /// Throws std::invalid_argument unless s is well-formed UTF-8 (no overlongs, surrogates or
 /// code points above U+10FFFF).
 void check_utf8(const std::string& s, const std::string& name) {
-    const auto byte = [&](std::size_t k) { return static_cast<unsigned char>(s[k]); };
-    std::size_t k = 0;
-    while (k < s.size()) {
-        const unsigned char c = byte(k);
-        std::size_t n = 0;
-        std::uint32_t cp = 0;
-        if (c < 0x80U) {
-            ++k;
-            continue;
-        } else if ((c & 0xe0U) == 0xc0U) {
-            n = 1;
-            cp = c & 0x1fU;
-        } else if ((c & 0xf0U) == 0xe0U) {
-            n = 2;
-            cp = c & 0x0fU;
-        } else if ((c & 0xf8U) == 0xf0U) {
-            n = 3;
-            cp = c & 0x07U;
-        } else {
-            n = 99;
-        }
-        bool ok = n <= 3 && k + n < s.size();  // continuation bytes at k+1 .. k+n
-        for (std::size_t m = 1; ok && m <= n; ++m) {
-            ok = (byte(k + m) & 0xc0U) == 0x80U;
-            if (ok)
-                cp = (cp << 6) | (byte(k + m) & 0x3fU);
-        }
-        constexpr std::array<std::uint32_t, 4> kMin = {0, 0x80U, 0x800U, 0x10000U};
-        ok = ok && cp >= kMin[n] && cp <= 0x10ffffU && (cp < 0xd800U || cp > 0xdfffU);
-        if (!ok) {
-            throw std::invalid_argument("ResultWriter: attribute '" + name +
-                                        "' is not valid UTF-8 (byte " + std::to_string(k) + ")");
-        }
-        k += n + 1;
+    if (const std::size_t bad = core::find_invalid_utf8(s); bad != std::string_view::npos) {
+        throw std::invalid_argument("ResultWriter: attribute '" + name +
+                                    "' is not valid UTF-8 (byte " + std::to_string(bad) + ")");
     }
 }
 
@@ -272,7 +244,7 @@ public:
 
     void write_mesh(const std::string& group, const geometry::TriangleMesh& m) override {
         check_name(group, "group");
-        const fs::path dir = root_ / fs::path(group);
+        const fs::path dir = root_ / core::path_from_utf8(group);
         create_dirs(dir);
         const Vertices& v = m.vertices();
         const Triangles& t = m.triangles();
@@ -311,7 +283,7 @@ private:
     /// Validated <root>/<name>.npy; creates the group directories.
     fs::path array_path(const std::string& name) const {
         check_name(name, "name");
-        const fs::path path = root_ / fs::path(name + ".npy");
+        const fs::path path = root_ / core::path_from_utf8(name + ".npy");
         create_dirs(path.parent_path());
         return path;
     }
@@ -360,7 +332,7 @@ std::unique_ptr<ResultWriter> open_hdf5(const std::string& path) {
 std::unique_ptr<ResultWriter> open_npy_directory(const std::string& dir) {
     if (dir.empty())
         throw std::invalid_argument("open_npy_directory: empty directory path");
-    return std::make_unique<NpyDirectoryWriter>(fs::path(dir));
+    return std::make_unique<NpyDirectoryWriter>(core::path_from_utf8(dir));
 }
 
 }  // namespace specklebem::io
