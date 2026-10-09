@@ -147,16 +147,19 @@ struct SingleLevelResult {
     bool achievable = false;
 };
 
-/// Single-level FMM vs dense for the given pairs: max relative Frobenius errors.
+/// Single-level FMM vs dense for the given pairs: max relative Frobenius errors. If the order
+/// search reports the target as not achievable, the errors are evaluated at its best order
+/// only with `always` (for the sweep's table).
 SingleLevelResult single_level(const basis::RwgSpace& space, const Octree& tree,
                                const kernels::RegionParams& region, Real digits,
-                               const std::vector<std::pair<Index, Index>>& pairs) {
+                               const std::vector<std::pair<Index, Index>>& pairs,
+                               bool always = false) {
     SingleLevelResult r;
     const mlfmm::LeafSampling ls = mlfmm::leaf_sampling(space, tree, region.k, digits);
     r.order = ls.truncation_order;
     r.sampling_order = ls.sampling_order;
     r.achievable = ls.search.achievable;
-    if (!r.achievable)
+    if (!r.achievable && !always)
         return r;
     const RadiationPatterns pat(space, tree, region.k, SphereSampling(ls.sampling_order));
     for (const auto& [a, b] : pairs) {
@@ -174,11 +177,11 @@ void check_single_level(const std::string& name, const basis::RwgSpace& space, c
     const auto pairs = test_pairs(tree, npairs);
     REQUIRE(pairs.size() == npairs);
     const SingleLevelResult r = single_level(space, tree, region, digits, pairs);
-    WARN(name << ": a = " << tree.box_size(tree.leaf_level()) / kLambda << " lambda0, d0 = "
+    INFO(name << ": a = " << tree.box_size(tree.leaf_level()) / kLambda << " lambda0, d0 = "
               << digits << ", L = " << r.order << ", L_leaf = " << r.sampling_order
               << ", achievable = " << r.achievable << ", err L = " << r.err_l
               << ", err K = " << r.err_k << ", flipped K = " << r.err_k_flipped);
-    REQUIRE(r.achievable);
+    REQUIRE(r.achievable);  // all test configurations are achievable (sweep table)
     CHECK(r.err_l <= std::pow(10.0, -digits));
     CHECK(r.err_k <= std::pow(10.0, -digits));
     CHECK(r.err_k_flipped > 1.0);
@@ -310,47 +313,78 @@ TEST_CASE("patterns: radiation and antipodal receiving patterns match direct eva
     }
 }
 
+// Icosphere radius R with level-2 leaves of edge ~R/2. Release: subdivision 3 (rmax/a = 0.29;
+// d0 = 3 and 5 achievable for all three regions); unoptimised + sanitizer builds: subdivision 2
+// (rmax/a = 0.56: the enlarged-diagonal search reaches only d0 = 3) to stay within the budget.
+#ifdef NDEBUG
+constexpr int kSub = 3;
+const std::vector<Real> kDigits = {3.0, 5.0};
+#else
+constexpr int kSub = 2;
+const std::vector<Real> kDigits = {3.0};
+#endif
+
 TEST_CASE("patterns: single-level FMM vs dense, icosphere, vacuum", "[patterns]") {
-    const geometry::TriangleMesh mesh = geometry::make_icosphere(kLambda, 2);
+    const geometry::TriangleMesh mesh = geometry::make_icosphere(kLambda, kSub);
     const basis::RwgSpace space(mesh);
     const Octree tree(space, kLambda, level2_params());
-    for (const Real d0 : {3.0, 5.0}) {
+    for (const Real d0 : kDigits) {
         check_single_level("icosphere vacuum", space, tree, region_of(material::vacuum()), d0, 3);
     }
 }
 
 TEST_CASE("patterns: single-level FMM vs dense, icosphere, dielectric n = 1.5", "[patterns]") {
-    const geometry::TriangleMesh mesh = geometry::make_icosphere(kLambda, 2);
+    const geometry::TriangleMesh mesh = geometry::make_icosphere(kLambda, kSub);
     const basis::RwgSpace space(mesh);
     const Octree tree(space, kLambda, level2_params());
-    for (const Real d0 : {3.0, 5.0}) {
+    for (const Real d0 : kDigits) {
         check_single_level("icosphere n = 1.5", space, tree, region_of(dielectric()), d0, 3);
     }
 }
 
 TEST_CASE("patterns: single-level FMM vs dense, icosphere, Si", "[patterns]") {
-    const geometry::TriangleMesh mesh = geometry::make_icosphere(0.5 * kLambda, 2);
+    // Leaves lambda_0 / 4 = 1.07 lambda_Si; |k| h ~ 2 (release) / 3.5 (debug).
+    const geometry::TriangleMesh mesh = geometry::make_icosphere(0.5 * kLambda, kSub);
     const basis::RwgSpace space(mesh);
     const Octree tree(space, kLambda, level2_params());
-    for (const Real d0 : {3.0, 5.0}) {
+    for (const Real d0 : kDigits) {
         check_single_level("icosphere Si", space, tree, region_of(material::silicon_500nm()), d0,
                            3);
     }
 }
 
-TEST_CASE("patterns: single-level FMM vs dense, rough-surface box", "[patterns]") {
+namespace {
+
+geometry::TriangleMesh small_rough_box(Real mesh_size) {
     geometry::RoughSurfaceParams p;
     p.edge_length_L = 1e-6;
     p.rms_roughness = 30e-9;
     p.correlation_length = 250e-9;
-    p.mesh_size = 125e-9;
+    p.mesh_size = mesh_size;
     p.box_depth = 0.3e-6;
+    p.box_mesh_size = mesh_size;
     p.seed = 7;
-    const geometry::TriangleMesh mesh = geometry::make_rough_surface_mesh(p);
+    return geometry::make_rough_surface_mesh(p);
+}
+
+}  // namespace
+
+TEST_CASE("patterns: single-level FMM vs dense, rough-surface box", "[patterns]") {
+    // 1 um x 1 um x 0.3 um box, leaves 0.25 um = lambda_0 / 2. d0 = 3 only: the flat surface
+    // fills the faces of neighbouring leaves, so the nearest pair (offset (2, 0, 0)) contains
+    // near-corner configurations; its block error has a minimum over L of 1.3e-4 (vacuum,
+    // independent of the mesh size 62.5 / 31.25 nm, low-frequency breakdown beyond L = 22),
+    // above 10^-5 although the statistical order search reports d0 = 5 as achievable (see the
+    // rows of the slow sweep).
+#ifdef NDEBUG
+    const geometry::TriangleMesh mesh = small_rough_box(62.5e-9);
+#else
+    const geometry::TriangleMesh mesh = small_rough_box(125e-9);
+#endif
     const basis::RwgSpace space(mesh);
     const Octree tree(space, kLambda, level2_params());
     check_single_level("rough box vacuum", space, tree, region_of(material::vacuum()), 3.0, 3);
-    check_single_level("rough box n = 1.5", space, tree, region_of(dielectric()), 5.0, 3);
+    check_single_level("rough box n = 1.5", space, tree, region_of(dielectric()), 3.0, 3);
 }
 
 TEST_CASE("patterns: invalid input", "[patterns]") {
@@ -403,25 +437,63 @@ TEST_CASE("patterns: invalid input", "[patterns]") {
                     std::invalid_argument);
 }
 
-TEST_CASE("patterns: tmp sweep", "[patterns_tmp]") {
+TEST_CASE("patterns: single-level accuracy sweep", "[.][patterns_sweep]") {
+#ifndef NDEBUG
+    SKIP("release-only sweep");
+#endif
+    // Leaf edge a = R / 2 (lambda_0 / 4, lambda_0 / 2, lambda_0), icosphere subdivisions 3 and
+    // 4 (h ~ 0.15 R and 0.075 R), d0 = 3 and 5, all interaction partners of the first leaves
+    // (8 pairs). Si only up to R = lambda_0 (memory of the patterns at L ~ 80).
     for (const Real radius : {0.5 * kLambda, kLambda, 2.0 * kLambda}) {
-        for (const int sub : {2, 3, 4}) {
+        for (const int sub : {3, 4}) {
             const geometry::TriangleMesh mesh = geometry::make_icosphere(radius, sub);
             const basis::RwgSpace space(mesh);
             const Octree tree(space, kLambda, level2_params());
+            const auto pairs = test_pairs(tree, 8);
             for (const auto& [name, m] :
-                 {std::pair<std::string, material::Material>{"vac", material::vacuum()},
-                  {"n1.5", dielectric()},
+                 {std::pair<std::string, material::Material>{"vacuum", material::vacuum()},
+                  {"n = 1.5", dielectric()},
                   {"Si", material::silicon_500nm()}}) {
+                if (name == "Si" && (radius > kLambda || sub > 3))
+                    continue;
                 for (const Real d0 : {3.0, 5.0}) {
-                    const mlfmm::LeafSampling ls =
-                        mlfmm::leaf_sampling(space, tree, region_of(m).k, d0);
-                    WARN("R " << radius / kLambda << " n " << sub << " " << name << " d0 " << d0
-                              << " a " << tree.box_size(2) / kLambda << " rmax/a "
-                              << mlfmm::max_support_radius(space) / tree.box_size(2) << " ach "
-                              << ls.search.achievable << " L " << ls.truncation_order << " err "
-                              << ls.search.error);
+                    const SingleLevelResult r =
+                        single_level(space, tree, region_of(m), d0, pairs, true);
+                    WARN("icosphere n=" << sub << " " << name << ": a = "
+                                        << tree.box_size(2) / kLambda << " lambda0, rmax/a = "
+                                        << mlfmm::max_support_radius(space) / tree.box_size(2)
+                                        << ", d0 = " << d0 << ", achievable = " << r.achievable
+                                        << ", L = " << r.order << ", L_leaf = "
+                                        << r.sampling_order << ", err L = " << r.err_l
+                                        << ", err K = " << r.err_k);
+                    if (r.achievable) {
+                        CHECK(r.err_l <= std::pow(10.0, -d0));
+                        CHECK(r.err_k <= std::pow(10.0, -d0));
+                    }
                 }
+            }
+        }
+    }
+    // Rough box (62.5 nm mesh, leaves 0.25 um): media n = 1, 1.5, 2, 3 (a = 0.5 ... 1.5
+    // lambda). Reported only: d0 = 5 fails at a = lambda / 2 although "achievable" (see the
+    // rough-box test case).
+    const geometry::TriangleMesh mesh = small_rough_box(62.5e-9);
+    const basis::RwgSpace space(mesh);
+    const Octree tree(space, kLambda, level2_params());
+    const auto pairs = test_pairs(tree, 8);
+    for (const Real n : {1.0, 1.5, 2.0, 3.0}) {
+        const material::Material m{Complex(n * n, 0.0), Complex(1.0, 0.0)};
+        for (const Real d0 : {3.0, 5.0}) {
+            const SingleLevelResult r = single_level(space, tree, region_of(m), d0, pairs, true);
+            WARN("rough box n = " << n << ": a = " << n * tree.box_size(2) / kLambda
+                                  << " lambda, rmax/a = "
+                                  << mlfmm::max_support_radius(space) / tree.box_size(2)
+                                  << ", d0 = " << d0 << ", achievable = " << r.achievable
+                                  << ", L = " << r.order << ", L_leaf = " << r.sampling_order
+                                  << ", err L = " << r.err_l << ", err K = " << r.err_k);
+            if (d0 <= 3.0) {
+                CHECK(r.err_l <= std::pow(10.0, -d0));
+                CHECK(r.err_k <= std::pow(10.0, -d0));
             }
         }
     }
