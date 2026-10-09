@@ -40,12 +40,26 @@ Real seconds_since(std::chrono::steady_clock::time_point t0) {
     return std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count();
 }
 
+/// Cheap kernel options of the structural cases (the WP7 scheme: one Dunavant outer rule for
+/// touching pairs, fixed near / far degrees 8 / 3). Symmetry, signs, determinism and the smoke
+/// solve do not depend on the WP7b accuracy, and the graded touching rule with the degree
+/// selection would make the sanitizer run of these cases 5x to 10x slower (64 s for the
+/// determinism case).
+kernels::OperatorOptions wp7_options() {
+    kernels::OperatorOptions opt;
+    opt.outer_grading_levels = 0;
+    opt.target_accuracy = 0.0;
+    opt.quad_degree_near = 8;
+    return opt;
+}
+
 }  // namespace
 
 TEST_CASE("assembler: structure, diagonal and Problem validation", "[operator]") {
     // Icosahedron (n = 0, 20 triangles, N = 30): the structure does not depend on the
-    // resolution.
+    // resolution (nor on the kernel options: cheap WP7 options).
     SphereCase c(lossless_n15(), 0, Kind::PMCHWT);
+    c.problem().kernel_options = wp7_options();
     const Index N = c.size();
     REQUIRE(N == 30);
     const auto t0 = std::chrono::steady_clock::now();
@@ -148,10 +162,14 @@ TEST_CASE("assembler: PMCHWT is complex-symmetric after negating the M rows", "[
     // docs/01 / docs/05 criterion: S = diag(I, -I) Z_PMCHWT symmetric to < 1e-6 relative. The
     // raw Z is block-antisymmetric in the K blocks (Z_JM^T = -Z_MJ). Off-diagonal far / near
     // blocks are symmetric only up to rounding of the quadrature sums (both orderings use the
-    // same rules), touching blocks exactly (element_blocks). Symmetry is a property of the
-    // discretisation, not of its resolution: icosphere n = 1 (2N = 240) keeps the sanitizer
-    // build fast.
+    // same rules); touching blocks are exactly symmetric when element_blocks averages them over
+    // both orderings (always with the WP7 options used here; on the WP7b default path above
+    // |k| h = 1, and identical L always) and otherwise symmetric to their raw asymmetry
+    // (< 1e-9 of the block norm, kernels::OperatorOptions). Symmetry is a property of the
+    // discretisation, not of its resolution: icosphere n = 1 (2N = 240) with the cheap WP7
+    // options keeps the sanitizer build fast; the ICTF / MCTF case below uses the defaults.
     SphereCase c(material::silver_500nm(), 1, Kind::PMCHWT);
+    c.problem().kernel_options = wp7_options();
     const MatrixXc Z = assemble(c.problem());
     const Real s = symmetry_defect(Z, 1.0, 1.0);
     // The raw matrix is not symmetric (the K blocks enter with opposite signs).
@@ -170,10 +188,16 @@ TEST_CASE("assembler: ICTF and MCTF are symmetric after diag(b1 eta1, -a1/eta1) 
     // reduce to sums of principal values; S = diag(b1 eta1 I, -(a1/eta1) I) Z is then symmetric
     // (assembler.cpp). With the PMCHWT scaling diag(I, -I) the ICTF matrix is not symmetric: its
     // off-diagonal blocks differ by the factor (a/eta)/(b eta) = 4 / (eta1 + eta2)^2.
-    // Icosahedron (n = 0): non-coplanar touching pairs, so K is non-trivial.
+    // Icosahedron (n = 0): non-coplanar touching pairs, so K is non-trivial. ICTF with the
+    // default kernel options (the WP7b graded path and degree selection; |k| h > 1 here, so
+    // shared-edge / shared-vertex blocks are averaged), MCTF with the cheap WP7 options (both
+    // on defaults would take ~6.5 s in the sanitizer build).
     const material::Material mat = material::silver_500nm();
     for (const Kind kind : {Kind::ICTF, Kind::MCTF}) {
         SphereCase c(mat, 0, kind);
+        if (kind == Kind::MCTF) {
+            c.problem().kernel_options = wp7_options();
+        }
         const MatrixXc Z = assemble(c.problem());
         const Complex eta1 = c.problem().exterior.wave_impedance(c.problem().omega);
         const Complex eta2 = c.problem().object.wave_impedance(c.problem().omega);
@@ -191,8 +215,10 @@ TEST_CASE("assembler: jump-term signs of each region against exact Mie currents"
     // Each region's T-EFIE / T-MFIE alone (assembler_test_support.hpp), n = 1.5 sphere,
     // icosphere n = 1 at lambda = 1 um. With the jump sign of a region flipped the residual is
     // O(1); with the assembler's signs (K_1 = K^PV - I/2, K_2 = K^PV + I/2) it is at the level
-    // of the projection error. The Ag case (n = 2 at 500 nm) is in the validation test.
+    // of the projection error. The Ag case (n = 2 at 500 nm) is in the validation test. Cheap
+    // WP7 kernel options (the sign test does not depend on the quadrature accuracy).
     SphereCase c(lossless_n15(), 1, Kind::PMCHWT, kLambdaFast);
+    c.problem().kernel_options = wp7_options();
     const JumpSignResiduals r = jump_sign_residuals(c);
     WARN("n = 1.5, n = 1, 1 um: region 1 E/H rows "
          << r.ok1.e << " / " << r.ok1.h << " (flipped " << r.flipped1.e << " / " << r.flipped1.h
@@ -214,6 +240,7 @@ TEST_CASE("assembler: right-hand side", "[operator]") {
     SphereCase c(lossless_n15(), 2, Kind::PMCHWT);
     op::Problem& p = c.problem();
     const Index N = c.size();
+    p.kernel_options.quad_degree_near = 8;  // the right-hand-side rule (default 19 since WP7b)
     const VectorXc b8 = op::assemble_rhs(p);
     p.kernel_options.quad_degree_near = 4;
     const VectorXc b4 = op::assemble_rhs(p);
@@ -222,9 +249,9 @@ TEST_CASE("assembler: right-hand side", "[operator]") {
     const Real d4 = (b4 - b12).norm() / b12.norm();
     const Real d8 = (b8 - b12).norm() / b12.norm();
     WARN("rhs: degree 4 vs 12: " << d4 << ", degree 8 vs 12: " << d8);
-    // Measured (WP9): 3.2e-5 (degree 4) and 4.9e-10 (degree 8, the default). The plane wave
-    // varies by k h ~ 2 rad over a triangle of this mesh, so degree 4 cannot reach 1e-6; the
-    // default degree 8 does.
+    // Measured (WP9): 3.2e-5 (degree 4) and 4.9e-10 (degree 8, the WP7 default). The plane wave
+    // varies by k h ~ 2 rad over a triangle of this mesh, so degree 4 cannot reach 1e-6; degree 8
+    // (and the WP7b default 19) does.
     CHECK(d4 < 1e-4);
     CHECK(d8 < 1e-6);
     CHECK(d8 < 1e-3 * d4);
@@ -269,18 +296,25 @@ TEST_CASE("assembler: right-hand side", "[operator]") {
 
 TEST_CASE("assembler: OpenMP thread count does not change Z or b (bitwise)", "[operator]") {
 #ifdef SPECKLEBEM_HAVE_OPENMP
-    // Icosahedron (n = 0, 20 triangles), ICTF with the default options, and icosphere n = 1
-    // with cheap quadrature and one region only (determinism depends on neither) to keep the
-    // single-thread sanitizer run short; the colouring splits each colour over the 3 threads.
+    // Icosahedron (n = 0, 20 triangles), ICTF with cheap WP7-scheme options (near and touching
+    // degree 4), and icosphere n = 1 with cheaper quadrature (degrees 1 / 2 / 2) and one region
+    // only (determinism depends on neither; with the default options this case took 64 s in the
+    // sanitizer build) to keep the single-thread sanitizer run short; the colouring splits each
+    // colour over the 3 threads. element_blocks itself is deterministic on every path
+    // (test_operators.cpp).
     const SingleRegion region1(1);
     for (const int n : {0, 1}) {
         SphereCase c(material::silver_500nm(), n, Kind::ICTF);
+        c.problem().kernel_options = wp7_options();
+        c.problem().kernel_options.quad_degree_near = 4;
+        c.problem().kernel_options.quad_degree_sing = 4;
         if (n == 1) {
             c.problem().formulation = &region1;
             c.problem().kernel_options.quad_degree_far = 1;
             c.problem().kernel_options.quad_degree_near = 2;
             c.problem().kernel_options.quad_degree_sing = 2;
         }
+        const auto t0 = std::chrono::steady_clock::now();
         const int saved = omp_get_max_threads();
         omp_set_num_threads(1);
         const MatrixXc Z1 = assemble(c.problem());
@@ -291,6 +325,7 @@ TEST_CASE("assembler: OpenMP thread count does not change Z or b (bitwise)", "[o
         const VectorXc b3 = op::assemble_rhs(c.problem());
         const VectorXc d3 = op::assemble_diagonal(c.problem());
         omp_set_num_threads(saved);
+        WARN("determinism, icosphere n = " << n << ": " << seconds_since(t0) << " s");
         CHECK((Z1.array() == Z3.array()).all());
         CHECK((b1.array() == b3.array()).all());
         CHECK((d1.array() == d3.array()).all());
@@ -307,7 +342,9 @@ TEST_CASE("assembler: dense PMCHWT solve of the n = 1.5 sphere against Mie (smok
     // lambda = 1 um (docs/05 metric eps_rr with E_ref = sqrt(sigma), 37 angles in the
     // xz-plane), plus the row-wise residual of the projected exact Mie currents. The first
     // solver results at 500 nm (n = 2, 3, PMCHWT / ICTF / Ag) are in the validation test.
+    // Cheap WP7 kernel options (the discretisation error of n = 1 dominates by far).
     SphereCase c(lossless_n15(), 1, Kind::PMCHWT, kLambdaFast);
+    c.problem().kernel_options = wp7_options();
     const SolveResult res = solve_and_compare(c);
     WARN("PMCHWT n = 1.5, icosphere 1, 1 um: eps_rr = "
          << res.eps_rr << ", LU residual " << res.residual << ", exact-current residual "

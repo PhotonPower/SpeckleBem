@@ -5,6 +5,11 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- kernels (WP7b): graded outer quadrature for touching triangle pairs (generalised Gauss-log rules on
+  Duffy sub-triangles, `OperatorOptions::outer_grading_levels`, default 4) and k-aware near/far degree
+  selection (`target_accuracy`, default 1e-5, within [`quad_degree_far`, `quad_degree_near`] = [3, 19]);
+  touching-pair error 2e-4 → 3e-9, class-boundary error 4e-3 → 4e-7; Mie benchmark re-measured on the
+  24-core Windows machine (`benchmarks/results/mie_sphere_dense.md`).
 - solver (WP13): `solver::gmres`, complex GMRES (Saad & Schultz; MGS Arnoldi with one
   re-orthogonalisation pass, Givens rotations, happy-breakdown and singular-Krylov handling),
   full or restarted (`GmresParams::restart`), left or right preconditioning

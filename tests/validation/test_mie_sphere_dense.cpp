@@ -24,7 +24,7 @@
 //    Phase 4 acceptance row (rough surfaces).
 // Unoptimised sanitizer build: the dense LU of 2N = 3840 takes ~25 min (Eigen without BLAS), so
 // only the n = 2 solves run there (as in test_assembler_mie.cpp); the n = 3 parts are
-// release-only (release: n = 3 assembly ~2 s, LU ~7 s on 4 cores).
+// release-only (release, default kernel options: n = 3 assembly 5 to 9 s, LU ~7 s on 4 cores).
 #include <catch2/catch_test_macros.hpp>
 
 #include "mie_dense_test_support.hpp"
