@@ -17,6 +17,9 @@ metadata:
   make cheap unit-test quadrature 2-10x slower under ASan: test helpers that lower the degrees
   must also set `outer_grading_levels = 0; target_accuracy = 0.0;` (as `wp7_options()`). With
   that, a 2N = 240 driver case (assembly + 56 GMRES it or LU) is ~1 s serial in win-debug.
+- For exact-comparison tests (sparse vs dense entries, refactoring checks) accuracy is
+  irrelevant: WP7 scheme with quad_degree_far = 1, near = 2, sing = 2 (lowest positive-interior)
+  is ~5x cheaper than wp7_options under ASan (icosphere n = 1 dense ~0.3 s; WP19a).
 - Timings under `ctest -j` or while other workers build fluctuate 5x; rerun serially before
   concluding a test is too slow.
 - `ctest -R` is case-sensitive: name test cases so the brief's `-R <module>` filter matches.
