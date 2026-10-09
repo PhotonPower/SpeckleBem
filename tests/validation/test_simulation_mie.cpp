@@ -35,10 +35,9 @@ DriverResult run_driver(int subdivisions, SolverKind solver_kind, formulation::K
     cfg.solver = solver_kind;
     cfg.gmres.tolerance = 1e-8;
     cfg.gmres.verbose = false;
-    Simulation sim(geometry::make_icosphere(kRadius, subdivisions),
-                   std::make_shared<excitation::PlaneWave>(kLambda, Vec3::UnitZ(),
-                                                           Vec3c(1.0, 0.0, 0.0)),
-                   cfg);
+    Simulation sim(
+        geometry::make_icosphere(kRadius, subdivisions),
+        std::make_shared<excitation::PlaneWave>(kLambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0)), cfg);
     DriverResult out;
     out.res = sim.solve();
     const MieSolution mie(MieParams{kRadius, kLambda, n15, material::vacuum(), 0});
@@ -70,9 +69,8 @@ TEST_CASE("Simulation driver: Mie dielectric sphere n = 1.5 (direct and GMRES)",
     WARN("icosphere n = " << n << ": eps_rr direct xz / yz = " << direct.eps_xz << " / "
                           << direct.eps_yz << ", GMRES (ICTF, tol 1e-8) " << gm.eps_xz << " / "
                           << gm.eps_yz << " after " << gm.res.iterations
-                          << " iterations (true residual " << gm.res.true_relative_residual
-                          << ", " << gm.res.wall_seconds << " s); LU " << direct.res.wall_seconds
-                          << " s");
+                          << " iterations (true residual " << gm.res.true_relative_residual << ", "
+                          << gm.res.wall_seconds << " s); LU " << direct.res.wall_seconds << " s");
     CHECK(gm.res.converged);
     CHECK(gm.res.true_relative_residual < 1e-7);
     CHECK(std::abs(gm.eps_xz - direct.eps_xz) < 1e-4);

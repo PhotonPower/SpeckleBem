@@ -5,6 +5,19 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver (WP14a): `Simulation` driver (`src/simulation.cpp`, pimpl) for the dense strategy. Owns
+  mesh, RWG space, formulation, excitation, `op::Problem` (ω = 2πc₀/λ), operator, right-hand side,
+  Jacobi diagonal and solution; automatic formulation / preconditioner via
+  `formulation::recommend` (`SimulationConfig::formulation` and `diagonal_preconditioner` are
+  `std::optional`); `SolverKind::Gmres` (left/right, Jacobi or none) or `SolverKind::Direct`
+  (dense LU, mapped onto `GmresResult`); `compression` defaults to `"dense"` (other strategies
+  throw until Phase 4/8); constructor checks (closed mesh, wavelength and background vs the
+  excitation, kernel options, GMRES parameters); idempotent `assemble()`; `report()` with mesh
+  size, choices, memory, timings, iterations and residuals; accessors `problem()`,
+  `formulation_kind()`, `diagonal_preconditioner()`, `num_unknowns()`, `system_operator()`,
+  `rhs()`. Unit tests `tests/unit/test_simulation.cpp`; validation
+  `tests/validation/test_simulation_mie.cpp` (WP11 dielectric sphere through the driver: direct
+  reproduces the WP11 ε_rr, GMRES/ICTF within 1e-4).
 - solver (WP13): `solver::gmres`, complex GMRES (Saad & Schultz; MGS Arnoldi with one
   re-orthogonalisation pass, Givens rotations, happy-breakdown and singular-Krylov handling),
   full or restarted (`GmresParams::restart`), left or right preconditioning

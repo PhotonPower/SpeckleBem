@@ -37,8 +37,7 @@ geometry::TriangleMesh sphere_mesh(int subdivisions = 1) {
 
 std::shared_ptr<excitation::Excitation> plane_wave(Real lambda = kLambdaFast,
                                                    material::Material bg = material::vacuum()) {
-    return std::make_shared<excitation::PlaneWave>(lambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0),
-                                                   bg);
+    return std::make_shared<excitation::PlaneWave>(lambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0), bg);
 }
 
 SimulationConfig base_config(const material::Material& object) {
@@ -190,6 +189,7 @@ TEST_CASE("simulation: assemble is idempotent, solve can be repeated", "[simulat
     CHECK(contains(rep, "iterations"));
     CHECK(contains(rep, "converged"));
     CHECK(contains(rep, "diagonal "));  // diagonal assembly time
+    CHECK(contains(rep, "GMRES (tol 1e-08, max_iter 2000, restart 0)"));
 }
 
 TEST_CASE("simulation: constructor input checks", "[simulation]") {

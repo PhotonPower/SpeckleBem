@@ -82,7 +82,8 @@ struct Simulation::Impl {
 };
 
 Simulation::Simulation(geometry::TriangleMesh mesh,
-                       std::shared_ptr<excitation::Excitation> excitation, SimulationConfig config) {
+                       std::shared_ptr<excitation::Excitation> excitation,
+                       SimulationConfig config) {
     if (!mesh.is_closed() || !mesh.is_consistently_oriented()) {
         throw std::invalid_argument(
             "Simulation: the mesh must be closed and consistently oriented (" +
@@ -96,8 +97,9 @@ Simulation::Simulation(geometry::TriangleMesh mesh,
         throw std::invalid_argument("Simulation: wavelength must be finite and > 0");
     }
     if (!(std::abs(excitation->wavelength() - lambda) <= kRelTol * lambda)) {
-        throw std::invalid_argument("Simulation: config.wavelength differs from the excitation's "
-                                    "wavelength");
+        throw std::invalid_argument(
+            "Simulation: config.wavelength differs from the excitation's "
+            "wavelength");
     }
     const material::Material& bg = excitation->background();
     if (!close(bg.eps_r, config.exterior.eps_r) || !close(bg.mu_r, config.exterior.mu_r)) {
@@ -187,13 +189,13 @@ solver::GmresResult Simulation::solve(const solver::IterationCallback& cb) {
     s.result = res;
     s.result.x = VectorXc();  // the currents are kept once, in s.solution
     s.solved = true;
-    SBEM_INFO("Simulation: {} {}{}, 2N = {}: {} it, converged {}, true residual {:.3e}, "
-              "assembly {:.3f} s, solve {:.3f} s",
-              s.form->name(),
-              s.config.solver == SolverKind::Direct ? "direct LU" : "GMRES",
-              s.config.solver == SolverKind::Gmres && s.jacobi ? " + Jacobi" : "",
-              num_unknowns(), res.iterations, res.converged, res.true_relative_residual,
-              s.assembly_s + s.rhs_s + s.diagonal_s, s.solve_s);
+    SBEM_INFO(
+        "Simulation: {} {}{}, 2N = {}: {} it, converged {}, true residual {:.3e}, "
+        "assembly {:.3f} s, solve {:.3f} s",
+        s.form->name(), s.config.solver == SolverKind::Direct ? "direct LU" : "GMRES",
+        s.config.solver == SolverKind::Gmres && s.jacobi ? " + Jacobi" : "", num_unknowns(),
+        res.iterations, res.converged, res.true_relative_residual,
+        s.assembly_s + s.rhs_s + s.diagonal_s, s.solve_s);
     return res;
 }
 
@@ -211,8 +213,9 @@ std::string Simulation::report() const {
     o << "SpeckleBem simulation\n";
     o << "  mesh:           " << s.mesh.num_triangles() << " triangles, N = " << s.space.size()
       << " RWG functions, 2N = " << num_unknowns() << " unknowns\n";
-    o << "  wavelength:     " << s.config.wavelength << " m, object eps_r = "
-      << s.config.object.eps_r << ", exterior eps_r = " << s.config.exterior.eps_r << "\n";
+    o << "  wavelength:     " << s.config.wavelength
+      << " m, object eps_r = " << s.config.object.eps_r
+      << ", exterior eps_r = " << s.config.exterior.eps_r << "\n";
     o << "  formulation:    " << s.form->name() << (s.kind_auto ? " (automatic)" : " (explicit)")
       << "\n";
     o << "  preconditioner: " << (s.jacobi ? "diagonal (Jacobi)" : "none")
@@ -222,11 +225,12 @@ std::string Simulation::report() const {
     else if (s.jacobi)
         o << ", " << side_name(s.config.gmres.side) << " side";
     o << "\n";
-    o << "  solver:         "
-      << (direct ? std::string("direct LU")
-                 : "GMRES (tol " + std::to_string(s.config.gmres.tolerance) + ", restart " +
-                       std::to_string(s.config.gmres.restart) + ")")
-      << "\n";
+    o << "  solver:         ";
+    if (direct)
+        o << "direct LU\n";
+    else
+        o << "GMRES (tol " << s.config.gmres.tolerance << ", max_iter " << s.config.gmres.max_iter
+          << ", restart " << s.config.gmres.restart << ")\n";
     o << "  compression:    " << s.config.compression << "\n";
     if (s.op == nullptr) {
         o << "  operator:       not assembled\n";

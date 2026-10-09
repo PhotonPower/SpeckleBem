@@ -9,6 +9,9 @@ Measured 2026-10-09 with `solver::gmres` (WP13, full GMRES, win-release):
 - Sphere r = 0.5 um, icosphere n = 2, 500 nm, tol 1e-8: Si ICTF unpreconditioned 93 it,
   |x - x_LU|/|x_LU| 1.1e-7; Ag PMCHWT + left Jacobi 193 it, true residual 1.7e-7.
 - Icosphere n = 1 at 1 um: Si ICTF 53 it (err 1.1e-6), Ag PMCHWT+Jacobi 46 it (err 1.1e-7).
+- Icosphere n = 3 (2N = 3840), 500 nm, lossless n = 1.5, ICTF unpreconditioned, tol 1e-8
+  (WP14a Simulation driver): 201 it, 2.2 s; eps_rr differs from the LU value by ~1e-8
+  (LU 2.7 s, dense assembly 0.6 s, win-release).
 - Si rough-surface box (L 1.6 um, h 50 nm, depth 0.5 um, uniform box, 2N = 19 968), ICTF
   unpreconditioned, tol 1e-6: 330 it in 87 s (~0.26 s/it, dense gemv memory-bound), true
   residual 9.7e-7, err vs LU 5.3e-6; LU 85 s, rcond 8.9e-8; assembly 10 s; peak RSS 12.8 GB.
