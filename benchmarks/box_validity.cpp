@@ -39,6 +39,7 @@
 //            [--tol 1e-6] [--max-iter 6000] [--max-gb 60] [--ff-degree 10] [--tag NAME]
 //            [--out DIR] [--summary FILE] [--reference DIR]... [--mesh-only]
 //        specklebem_box_validity --compare DIR_A DIR_B [DIR_C ...]
+#include "specklebem/basis/rwg.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/core/path.hpp"
 #include "specklebem/excitation/excitation.hpp"
@@ -521,6 +522,58 @@ void print_compare(const std::string& test, const std::string& ref, const Metric
 
 // ---------------------------------------------------------------------------------------------
 
+/// Power radiated into the reflection hemisphere by the currents of one part of the closed box,
+/// relative to the total (diagnostic; partial far fields interfere, so the shares need not add
+/// up to 1). Triangle classes: top face (n_z < -0.5), side walls (|n_z| <= 0.5), bottom plate
+/// (n_z > 0.5); an RWG function belongs to a class if both its triangles do, to "rim" (top-wall)
+/// or "foot" (wall-bottom) if it straddles two.
+std::string part_shares(const post::SurfaceSolution& s, const geometry::TriangleMesh& mesh,
+                        const post::FieldOptions& fo, Real p_total) {
+    const basis::RwgSpace& space = *s.problem->space;
+    const Index N = space.size();
+    std::vector<int> ca(static_cast<std::size_t>(N), -1), cb(static_cast<std::size_t>(N), -1);
+    for (Index t = 0; t < mesh.num_triangles(); ++t) {
+        const Real nz = mesh.normal(t).z();
+        const int c = nz < -0.5 ? 0 : (nz > 0.5 ? 2 : 1);
+        const basis::RwgSpace::Support sup = space.support(t);
+        for (int a = 0; a < sup.count; ++a) {
+            const auto n = static_cast<std::size_t>(sup.n[a]);
+            (ca[n] < 0 ? ca[n] : cb[n]) = c;
+        }
+    }
+    std::vector<int> part(static_cast<std::size_t>(N));
+    for (std::size_t n = 0; n < part.size(); ++n) {
+        const int lo = std::min(ca[n], cb[n]);
+        const int hi = std::max(ca[n], cb[n]);
+        part[n] = lo == hi ? lo : (lo == 0 && hi == 1 ? 3 : (lo == 1 && hi == 2 ? 4 : 5));
+    }
+    static const char* const names[] = {"top", "walls", "bottom", "rim", "foot", "other"};
+    std::string out;
+    const Vertices dirs = hemisphere_directions(-1.0);
+    for (int c = 0; c < 6; ++c) {
+        post::SurfaceSolution sp{s.problem, s.currents};
+        Index count = 0;
+        for (Index n = 0; n < N; ++n) {
+            if (part[static_cast<std::size_t>(n)] == c) {
+                ++count;
+                continue;
+            }
+            sp.currents(n) = 0.0;
+            sp.currents(N + n) = 0.0;
+        }
+        if (count == 0)
+            continue;
+        FieldMatrix F;
+        post::far_field(sp, dirs, F, fo);
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), " | %s %.3e (%lld)", names[c],
+                      hemi_power(intensity(F, kHemiTheta, kHemiPhi)) / p_total,
+                      static_cast<long long>(count));
+        out += buf;
+    }
+    return out;
+}
+
 /// Central crop of a height map to an L x L patch (same grid spacing).
 geometry::HeightMap crop(const geometry::HeightMap& big, Real L) {
     const Index nb = big.z.rows();
@@ -697,6 +750,10 @@ int run(const Options& o) {
     std::printf("%s\n", line);
     std::fflush(stdout);
     append_summary(o.summary, line);
+    const std::string parts = part_shares(sim.solution(), mesh, fo, p_refl);
+    std::printf("PARTS | %s | P_part / P_refl%s\n", tag.c_str(), parts.c_str());
+    std::fflush(stdout);
+    append_summary(o.summary, "PARTS | " + tag + " | P_part / P_refl" + parts);
 
     if (!o.out_dir.empty()) {
         auto w = io::open_npy_directory(o.out_dir);
