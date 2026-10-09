@@ -5,6 +5,19 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm (WP18): plane-wave machinery (`compression/mlfmm/plane_wave.hpp`, `interpolation.hpp`):
+  `truncation_order` (ADR 0008 §2, Re k bandwidth), `SphereSampling` (Gauss-Legendre x uniform
+  phi, contiguous SoA directions / theta_hat / phi_hat, weights summing to 4 pi),
+  `spherical_hankel2` (h_l^(2) of complex argument, Re z > 0, Im z <= 0, upward recurrence,
+  measured <= 1.4e-14 relative for l <= 120, |z| in [0.05, 80]), `legendre_p`, the diagonal
+  translator `translator` (exp(+jwt), prefactor -jk/4pi verified by the addition theorem),
+  `expansion_error` (worst-case corner-to-corner check over the nearest interaction-list
+  offsets, building block of the ADR 0008 §6 lossy-region policy; Ag-like k gives >> 1) and
+  `SphereInterpolator` (separable local Lagrange, polar reflection with even/odd parity for
+  scalar / theta-phi components, anterpolation = exact transpose). Measured: random points
+  meet 10^-d0 for box edges >= lambda/2 (d0 = 3, 5; Si-like k from lambda/4), lambda/4 boxes
+  lose up to one digit; the corner worst case stays above 10^-d0 at the ADR order (1e-3 ...
+  9e-2); 0.1 x 10^-d0 interpolation needs p ~ 12-14 (d0 = 3) / ~ 20-22 (d0 = 5), not p = 6.
 - python (WP14b3): calls on one `Simulation` from several Python threads are serialised by a
   per-object timed mutex taken with the GIL released (re-entrant calls from a `solve()` callback
   raise `RuntimeError`; from inside a callback another busy `Simulation` raises "Simulation

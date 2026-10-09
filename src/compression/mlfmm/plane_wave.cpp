@@ -139,23 +139,28 @@ VectorXc translator(Complex k, const Vec3& r, const SphereSampling& sampling) {
         c[l] *= mj * static_cast<Real>(2 * l + 1);
         mj *= -kJ;
     }
-    const Vec3 rhat = r / rn;
-    const SphereSampling::DirectionArray& dirs = sampling.directions();
+    // Legendre recurrence P_{l+1} = a_l x P_l - b_l P_{l-1}, tables precomputed.
+    std::vector<Real> a(c.size()), b(c.size());
+    for (std::size_t l = 0; l < c.size(); ++l) {
+        const auto lr = static_cast<Real>(l);
+        a[l] = (2.0 * lr + 1.0) / (lr + 1.0);
+        b[l] = lr / (lr + 1.0);
+    }
+    const VectorXr cos_gamma = sampling.directions() * (r / rn);
     const Index n = sampling.size();
     VectorXc t(n);
     for (Index q = 0; q < n; ++q) {
-        const Real x = std::clamp(dirs.row(q).dot(rhat.transpose()), -1.0, 1.0);
+        const Real x = std::clamp(cos_gamma.data()[q], -1.0, 1.0);
         Real p_prev = 1.0;
         Real p_cur = x;
         Complex sum = c[0];
         for (std::size_t l = 1; l < c.size(); ++l) {
             sum += c[l] * p_cur;
-            const auto lr = static_cast<Real>(l);
-            const Real p_next = ((2.0 * lr + 1.0) * x * p_cur - lr * p_prev) / (lr + 1.0);
+            const Real p_next = a[l] * x * p_cur - b[l] * p_prev;
             p_prev = p_cur;
             p_cur = p_next;
         }
-        t(q) = sum;
+        t.data()[q] = sum;
     }
     return t;
 }
@@ -194,13 +199,22 @@ ExpansionError expansion_error(Complex k, Real box_size, Real digits,
                                          Vec3(2, 2, 0), Vec3(2, 2, 1), Vec3(2, 2, 2)};
     const Complex pref = -kJ * k / (4.0 * constants::pi);
     VectorXc tmp(n);
+    const Real* w = s.weights().data();
     for (const Vec3& off : offsets) {
         const Vec3 x = off * box_size;
         const VectorXc t = translator(k, x, s);
         for (int cs = 0; cs < 8; ++cs) {
-            tmp = s.weights().cast<Complex>().cwiseProduct(t).cwiseProduct(in_wave.col(cs));
+            const Complex* in = in_wave.col(cs).data();
+            for (Index q = 0; q < n; ++q) {
+                tmp.data()[q] = w[q] * t.data()[q] * in[q];
+            }
             for (int co = 0; co < 8; ++co) {
-                const Complex approx = pref * out_wave.col(co).cwiseProduct(tmp).sum();
+                const Complex* out = out_wave.col(co).data();
+                Complex sum{0.0, 0.0};
+                for (Index q = 0; q < n; ++q) {
+                    sum += out[q] * tmp.data()[q];
+                }
+                const Complex approx = pref * sum;
                 const Real r = (x + corners[static_cast<std::size_t>(co)] -
                                 corners[static_cast<std::size_t>(cs)])
                                    .norm();

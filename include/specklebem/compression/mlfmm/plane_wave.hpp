@@ -24,8 +24,9 @@ namespace specklebem::mlfmm {
 /// (excess-bandwidth formula, ADR 0008 §2). Measured accuracy (tests/unit/test_plane_wave.cpp):
 /// for random points inside two boxes of edge a, D = sqrt(3) a, centres >= 2a apart, the
 /// expansion error is <= 10^-d0 for real k and ka >= ~3 (a >= lambda/2); at a = lambda/4 it is
-/// ~1e-3 (d0 = 3) / ~2e-4 (d0 = 5). Corner-to-corner points of the nearest interaction-list
-/// pair (d/X = 0.87) converge much more slowly (see expansion_error()).
+/// up to ~2e-3 (d0 = 3) / ~3e-4 (d0 = 5): the formula is too small at low kD. Corner-to-corner
+/// points of the nearest interaction-list pair (d/X = 0.87) converge much more slowly (see
+/// expansion_error()).
 /// @throws std::invalid_argument for non-finite input, Re k <= 0, Im k > 0, box_diagonal <= 0,
 ///         digits <= 0, or an order above 100000.
 [[nodiscard]] int truncation_order(Complex k, Real box_diagonal, Real digits);
@@ -105,9 +106,11 @@ struct ExpansionError {
 /// configurations (centre offsets (2,0,0), (2,1,0), (2,1,1), (2,2,0), (2,2,1), (2,2,2) box
 /// sizes) and observer/source points at all 8 x 8 corner pairs of cubes of diagonal
 /// box_diagonal around the two centres (|d| up to box_diagonal). Real k: measured
-/// 1e-3 ... 1e-1 at the ADR order for box sizes lambda/4 ... 4 lambda (d/X = 0.87 converges
-/// slowly and low-frequency breakdown limits small boxes to ~1e-2 for any order); complex k
-/// with large |Im k| D (Ag-like) gives errors >> 1 (exponentially ill-conditioned sampling).
+/// 9e-2 ... 1e-3 (d0 = 3) and 4e-2 ... 2e-4 (d0 = 5) at the ADR order for box sizes lambda/4 ...
+/// 4 lambda, i.e. above 10^-d0 everywhere (d/X = 0.87 converges slowly); raising the order
+/// helps only for ka >~ 10 (the minimum over L is ~1e-2 at lambda/4, ~1e-3 at lambda, ~2e-4 at
+/// 2 lambda: low-frequency breakdown). Complex k with large |Im k| D (Ag-like) gives errors
+/// >> 1 (exponentially ill-conditioned sampling).
 /// @throws std::invalid_argument for invalid k, box_size <= 0, digits <= 0, or
 ///         box_diagonal < 0; std::overflow_error from spherical_hankel2.
 [[nodiscard]] ExpansionError expansion_error(Complex k, Real box_size, Real digits,

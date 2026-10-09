@@ -23,12 +23,21 @@ namespace {
 constexpr Real kPi = constants::pi;
 constexpr Real kK0 = 2.0 * kPi;  // wavelength 1 m: box sizes below are in wavelengths
 const Complex kJ{0.0, 1.0};
+#ifdef NDEBUG
+constexpr Real kMaxBox = 4.0;  // largest box edge (wavelengths) of the addition-theorem sweeps
+#else
+constexpr Real kMaxBox = 1.0;  // unoptimised + sanitizers: the 2 and 4 lambda boxes take ~15 s
+#endif
+
+std::complex<long double> to_ld(Complex z) {
+    return {static_cast<long double>(z.real()), static_cast<long double>(z.imag())};
+}
 
 /// h_l^{(2)}(z) = j^{l+1} e^{-jz}/z sum_k (l+k)!/(k!(l-k)!) (-j/(2z))^k (Bessel polynomial) in
 /// long double; `cond` = sum |terms| / |sum| bounds the cancellation of the reference.
 std::complex<long double> hankel_reference(int l, Complex z, long double& cond) {
     using C = std::complex<long double>;
-    const C zl(z.real(), z.imag());
+    const C zl = to_ld(z);
     const C step = C(0.0L, -1.0L) / (2.0L * zl);
     C sum = 0.0L;
     C pw = 1.0L;
@@ -50,8 +59,14 @@ std::complex<long double> hankel_reference(int l, Complex z, long double& cond) 
     return jpow * std::exp(C(0.0L, -1.0L) * zl) / zl * sum;
 }
 
-Complex plane_wave(Complex k, const Eigen::Ref<const Vec3>& khat, const Vec3& d) {
-    return std::exp(-kJ * k * khat.dot(d));
+/// exp(-jk khat.d) at every direction of s.
+VectorXc plane_waves(Complex k, const SphereSampling& s, const Vec3& d) {
+    const VectorXr phase = s.directions() * d;
+    VectorXc w(s.size());
+    for (Index q = 0; q < s.size(); ++q) {
+        w.data()[q] = std::exp(-kJ * k * phase.data()[q]);
+    }
+    return w;
 }
 
 /// Worst relative error of the plane-wave addition theorem for `pairs` random source and
@@ -62,19 +77,15 @@ Real addition_error_random(Complex k, Real a, Real digits, int pairs, std::mt199
     const std::vector<Vec3> offsets = {Vec3(2, 0, 0), Vec3(2, 1, 0), Vec3(2, 1, 1),
                                        Vec3(2, 2, 0), Vec3(2, 2, 1), Vec3(2, 2, 2)};
     Real worst = 0.0;
-    VectorXc g(s.size());
     for (const Vec3& off : offsets) {
         const Vec3 x = off * a;
-        const VectorXc t = mlfmm::translator(k, x, s);
+        const VectorXc wt = s.weights().cast<Complex>().cwiseProduct(mlfmm::translator(k, x, s));
         for (int n = 0; n < pairs; ++n) {
             const Vec3 o = a * Vec3(u(rng), u(rng), u(rng));   // o - C_o
             const Vec3 sp = a * Vec3(u(rng), u(rng), u(rng));  // s - C_s
-            Complex sum{0.0, 0.0};
-            for (Index q = 0; q < s.size(); ++q) {
-                const auto kh = s.directions().row(q).transpose();
-                sum += s.weights()(q) * plane_wave(k, kh, o) * t(q) * plane_wave(k, kh, -sp);
-            }
-            const Complex approx = -kJ * k / (4.0 * kPi) * sum;
+            // exp(-jk khat.(o - C_o)) exp(-jk khat.(C_s - s)) = exp(-jk khat.(o - sp))
+            const Complex approx =
+                -kJ * k / (4.0 * kPi) * wt.cwiseProduct(plane_waves(k, s, o - sp)).sum();
             const Real r = (x + o - sp).norm();
             const Complex exact = std::exp(-kJ * k * r) / r;
             worst = std::max(worst, std::abs(approx - exact) / std::abs(exact));
@@ -174,7 +185,7 @@ TEST_CASE("mlfmm: spherical Hankel recurrence vs Bessel polynomial and Wronskian
         const std::vector<Complex> h = mlfmm::spherical_hankel2(lmax, z);
         // Rounding check: the same recurrence in long double.
         using CL = std::complex<long double>;
-        const CL zl(z.real(), z.imag());
+        const CL zl = to_ld(z);
         CL h_prev = CL(0.0L, 1.0L) * std::exp(CL(0.0L, -1.0L) * zl) / zl;
         CL h_cur = std::exp(CL(0.0L, -1.0L) * zl) * (CL(0.0L, 1.0L) / (zl * zl) - 1.0L / zl);
         Real worst_poly = 0.0, worst_ld = 0.0;
@@ -195,8 +206,7 @@ TEST_CASE("mlfmm: spherical Hankel recurrence vs Bessel polynomial and Wronskian
                 h_prev = h_cur;
                 h_cur = next;
             }
-            const Real err_ld =
-                static_cast<Real>(std::abs(CL(hl.real(), hl.imag()) - ld) / std::abs(ld));
+            const Real err_ld = static_cast<Real>(std::abs(to_ld(hl) - ld) / std::abs(ld));
             worst_ld = std::max(worst_ld, err_ld);
             CHECK(err_ld <= 1e-15 * (l + 1));
         }
@@ -251,6 +261,9 @@ TEST_CASE("mlfmm: addition theorem for real k", "[plane_wave]") {
     std::mt19937 rng(20261009);
     for (const Real digits : {3.0, 5.0}) {
         for (const Real a : {0.25, 0.5, 1.0, 2.0, 4.0}) {
+            if (a > kMaxBox) {
+                continue;
+            }
             const Real err = addition_error_random(kK0, a, digits, 4, rng);
             const mlfmm::ExpansionError wc = mlfmm::expansion_error(kK0, a, digits);
             INFO("d0 = " << digits << ", a = " << a << ", L = " << wc.order << ": random " << err
@@ -271,6 +284,9 @@ TEST_CASE("mlfmm: addition theorem for Si-like and Ag-like complex k", "[plane_w
     const Complex k_si = kK0 * Complex(4.3, -0.07);
     for (const Real digits : {3.0, 5.0}) {
         for (const Real a : {0.25, 0.5, 1.0}) {  // measured random <= 4.6e-6, worst case 1e-3..2e-2
+            if (a > 0.5 * kMaxBox) {
+                continue;
+            }
             const Real err = addition_error_random(k_si, a, digits, 3, rng);
             const mlfmm::ExpansionError wc = mlfmm::expansion_error(k_si, a, digits);
             INFO("Si d0 = " << digits << ", a = " << a << ": random " << err << ", worst case "
@@ -279,8 +295,9 @@ TEST_CASE("mlfmm: addition theorem for Si-like and Ag-like complex k", "[plane_w
             CHECK(err <= wc.max_relative_error);
         }
     }
-    CHECK(mlfmm::expansion_error(k_si, 0.5, 3.0, mlfmm::ExpansionErrorOptions{47, 0.0})
-              .max_relative_error <= 1e-3);
+    CHECK((kMaxBox <= 1.0 ||  // release only (heavy under sanitizers)
+           mlfmm::expansion_error(k_si, 0.5, 3.0, mlfmm::ExpansionErrorOptions{47, 0.0})
+                   .max_relative_error <= 1e-3));
     // Ag: eps_r = -9.794 - 0.313j, n = sqrt(eps_r) with Im n <= 0. Measured 9.5, 2.6e2, 5.3e6,
     // 5.4e28 at a = 0.05, 0.1, 0.25, 1 lambda: the expansion is unusable.
     Complex n_ag = std::sqrt(Complex(-9.794, -0.313));
@@ -304,21 +321,21 @@ Real interpolation_error(Real a, Real digits, int p, bool theta_component = fals
     const SphereSampling parent(mlfmm::truncation_order(kK0, 2.0 * dc, digits));
     const SphereInterpolator interp(child, parent, p);
     const Vec3 u(0.3, -0.5, 0.8);
-    const auto f = [&](const SphereSampling& s, Index q, const Vec3& d) {
-        const Complex w = plane_wave(kK0, s.directions().row(q).transpose(), d);
-        return theta_component ? s.theta_hat().row(q).dot(u.transpose()) * w : w;
+    const auto f = [&](const SphereSampling& s, const Vec3& d) {
+        VectorXc w = plane_waves(kK0, s, d);
+        if (theta_component) {
+            const VectorXr c = s.theta_hat() * u;
+            for (Index q = 0; q < s.size(); ++q) {
+                w.data()[q] *= c.data()[q];
+            }
+        }
+        return w;
     };
     Real worst = 0.0;
     for (Vec3 d : {Vec3(1, 1, 1), Vec3(0, 0, 1), Vec3(1, 0, 0), Vec3(0.3, -0.8, 0.5)}) {
         d *= 0.5 * dc / d.norm();
-        VectorXc fc(child.size());
-        for (Index q = 0; q < child.size(); ++q) {
-            fc(q) = f(child, q, d);
-        }
-        const VectorXc fi = interp.interpolate(fc, parity);
-        for (Index q = 0; q < parent.size(); ++q) {
-            worst = std::max(worst, std::abs(fi(q) - f(parent, q, d)));
-        }
+        const VectorXc fi = interp.interpolate(f(child, d), parity);
+        worst = std::max(worst, (fi - f(parent, d)).cwiseAbs().maxCoeff());
     }
     return worst;
 }
@@ -333,8 +350,9 @@ TEST_CASE("mlfmm: Lagrange interpolation of band-limited patterns", "[plane_wave
     for (const Real a : {0.5, 1.0, 2.0}) {
         INFO("a = " << a);
         CHECK(interpolation_error(a, 3.0, a < 1.0 ? 12 : 14) <= 1e-4);
-        CHECK(interpolation_error(a, 3.0, 6) <= 2e-2);
-        CHECK(interpolation_error(a, 3.0, 10) < 0.25 * interpolation_error(a, 3.0, 6));
+        const Real err6 = interpolation_error(a, 3.0, 6);
+        CHECK(err6 <= 2e-2);
+        CHECK(interpolation_error(a, 3.0, 10) < 0.25 * err6);
     }
     for (const Real a : {1.0, 2.0}) {
         INFO("a = " << a);
