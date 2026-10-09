@@ -8,6 +8,8 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
+#include <cctype>
+#include <cstddef>
 #include <string>
 #include <utility>
 
@@ -54,6 +56,58 @@ inline Triangles triangles_from_array(const py::object& obj) {
     return Eigen::Map<const Triangles>(t.data(), static_cast<Index>(t.shape(0)), 3);
 }
 
+/// ASCII lower case (keyword strings such as "auto", "PMCHWT", "left" are case-insensitive).
+inline std::string to_lower(std::string s) {
+    for (char& c : s) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return s;
+}
+
+/// str or os.PathLike -> UTF-8 std::string (ADR 0007). TypeError for other objects, ValueError
+/// for bytes paths, UnicodeEncodeError (a ValueError) for lone surrogates.
+inline std::string utf8_path(const py::object& path) {
+    const py::object p = py::module_::import("os").attr("fspath")(path);
+    if (!py::isinstance<py::str>(p)) {
+        throw py::value_error("path: expected a str or os.PathLike of str (bytes not supported)");
+    }
+    Py_ssize_t n = 0;
+    const char* s = PyUnicode_AsUTF8AndSize(p.ptr(), &n);
+    if (s == nullptr) {
+        throw py::error_already_set();
+    }
+    return {s, static_cast<std::size_t>(n)};
+}
+
+/// (n, 3) complex or real array (or one (3,) vector if `single` != nullptr) -> column-major
+/// complex matrix (copy), as taken by the post-processing functions; ValueError otherwise.
+inline Eigen::Matrix<Complex, Eigen::Dynamic, 3> fields_from_array(const py::object& obj,
+                                                                   const char* what,
+                                                                   bool* single = nullptr) {
+    const auto a = py::array::ensure(obj);
+    const char k = a ? a.dtype().kind() : '?';
+    if (k != 'c' && k != 'f' && k != 'i' && k != 'u') {
+        throw py::value_error(std::string(what) + ": expected a complex or real numeric array");
+    }
+    const auto c = py::array_t<Complex, py::array::c_style | py::array::forcecast>::ensure(a);
+    const bool one = single != nullptr && c.ndim() == 1 && c.shape(0) == 3;
+    if (single != nullptr) {
+        *single = one;
+    }
+    if (!one && (c.ndim() != 2 || c.shape(1) != 3)) {
+        throw py::value_error(std::string(what) + ": expected an (n, 3) array");
+    }
+    return Eigen::Map<const MatrixX3c>(c.data(), one ? 1 : static_cast<Index>(c.shape(0)), 3);
+}
+
+/// (n, 3) field -> C-contiguous complex128 array (n, 3), or (3,) if `single`.
+inline py::object fields_to_array(const Eigen::Matrix<Complex, Eigen::Dynamic, 3>& f, bool single) {
+    if (single) {
+        return py::cast(Vec3c(f.row(0).transpose()));
+    }
+    return py::cast(MatrixX3c(f));
+}
+
 /// ValueError unless every element of `a` is finite (checked while holding the GIL).
 template <class Derived>
 void require_all_finite(const Eigen::DenseBase<Derived>& a, const char* what) {
@@ -85,5 +139,7 @@ py::object evaluate_at_points(const py::object& points, F&& f) {
 
 void bind_geometry(py::module_& m);
 void bind_excitation(py::module_& m);
+void bind_simulation(py::module_& m);
+void bind_io(py::module_& m);
 
 }  // namespace specklebem::python

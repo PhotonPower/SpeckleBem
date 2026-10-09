@@ -1,7 +1,9 @@
 set(SPECKLEBEM_PYTHON_SOURCES
     src/bindings.cpp
     src/bind_excitation.cpp
-    src/bind_geometry.cpp)
+    src/bind_geometry.cpp
+    src/bind_io.cpp
+    src/bind_simulation.cpp)
 pybind11_add_module(_specklebem MODULE ${SPECKLEBEM_PYTHON_SOURCES})
 target_link_libraries(_specklebem PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
 # GCC's flow-sensitive warnings fire on pybind11 / Eigen / libstdc++ code inlined at -O2 (false

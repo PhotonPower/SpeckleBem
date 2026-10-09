@@ -66,7 +66,7 @@ sb.load_fields("run.h5")
 ## Bound so far (WP14b1) and differences from the target
 
 Geometry, materials, excitations and the Mie reference are bound; `Simulation`, operators,
-post-processing and I/O follow in WP14b2 (`read_mesh` after the UTF-8 path work WP-P1).
+post-processing and I/O followed in WP14b2 (next section).
 Actual signatures (all lengths in metres, angles in radians):
 
 ```python
@@ -127,6 +127,67 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
 - The GIL is released during mesh construction and generation, height-map generation and
   field / RCS evaluation loops; not in `quality()` / `quality_report()` (cheap, and they must
   not race with `flip_normals()`).
+
+## Bound in WP14b2: Simulation, operator, post-processing, I/O
+
+```python
+sim = sb.Simulation(mesh, excitation, *, object, exterior=None, wavelength=None,
+                    formulation="auto", preconditioner="auto", solver="gmres",
+                    compression="dense", gmres=None, kernels=None)
+sim.assemble()                          # idempotent; GIL released
+res = sim.solve(tol=None, max_iter=None, restart=None, side=None, callback=None)  # SolveResult
+res.iterations, res.converged, res.residual_history, res.true_relative_residual,
+res.wall_seconds, res.x                 # residual_history: float64 copy; x: read-only view
+sim.report()                            # str
+sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "diagonal" | "none"
+sim.solver, sim.wavelength, sim.num_unknowns
+sim.currents                            # [J; M] copy; RuntimeError before solve()
+Z = sim.operator()                      # sb.LinearOperator: .shape, .dtype, .matvec(x), Z @ x,
+Z.as_scipy()                            #   .describe(), .memory_bytes; scipy LinearOperator
+sim.rhs()                               # copy; operator()/rhs(): RuntimeError before assemble()
+E, H = sim.field(points, kind="scattered", quad_degree=6, min_distance_factor=1e-3)
+F = sim.far_field(directions, quad_degree=6)      # (n, 3) [V], E_s ~ F exp(-jkr) / r
+sigma = sim.bistatic_rcs(angles, plane="xz")       # "xz" | "yz" | (3,) plane normal; [m^2]
+sb.plane_grid(origin, u, v, nu, nv)                # (nu * nv, 3), row i * nv + j
+sb.cylinder_grid(radius, theta_min, theta_max, n_theta, y_min, y_max, n_y)
+sb.intensity(E); co, cross = sb.polarized_intensity(E, co_pol)
+sb.differential_reflection_coefficient(E_cyl, n_theta, n_y)
+mesh = sb.read_mesh(path); sb.write_mesh(mesh, path)  # .stl / .obj / .msh by extension
+sb.read_stl / read_obj / read_gmsh(path); sb.write_stl(mesh, path, ascii=False)
+sb.write_obj(mesh, path); sb.write_gmsh(mesh, path)
+with sb.open_npy_directory(path) as w:  # sb.ResultWriter
+    w.write_vector(name, v); w.write_matrix(name, m); w.write_mesh(group, mesh)
+    w.write_attribute(name, "text" or 1.0)
+```
+
+- Mapping onto `SimulationConfig`: `object` / `exterior` (None = vacuum) / `wavelength`
+  (None = `excitation.wavelength`); `formulation` "auto" leaves `formulation` empty (the
+  recommendation), "PMCHWT" / "ICTF" / "MCTF" (any case) or an `sb.Formulation` set it ("JMCFIE"
+  raises `ValueError`, not implemented); `preconditioner` "auto" / "none" / "diagonal" ->
+  `diagonal_preconditioner` empty / false / true; `solver` "gmres" / "direct" -> `SolverKind`;
+  `compression` is passed through (only "dense" exists). `gmres` keys: `tol` (`tolerance`),
+  `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`. `kernels`
+  keys are the `kernels::OperatorOptions` member names (`quad_degree_far`, `quad_degree_near`,
+  `quad_degree_sing`, `outer_grading_levels`, `near_distance_factor`,
+  `symmetrize_touching_above_kh`, `target_accuracy`). Unknown strings, keys or value types raise
+  `ValueError`. The mesh is copied, the excitation shared (`shared_ptr`).
+- `solve()` overrides apply to this call only (C++ `solve(GmresParams, cb)`; `restart=0` = full
+  GMRES). The GIL is released during `assemble()`, `solve()`, `matvec`, field / far-field / RCS
+  evaluation and file I/O. `callback(iteration, residual)` runs with the GIL re-acquired, once
+  per GMRES iteration (iteration 1, 2, ...; not called by the direct solver); an exception it
+  raises aborts the solve and reaches the caller unchanged (the previous solution is kept).
+- Lifetimes: `currents` and `rhs()` are copies (a view could change under a later `solve()`);
+  `SolveResult.x` is a read-only view owned by the result; `operator()` keeps the Simulation
+  alive. A Simulation is not thread-safe (no concurrent calls on one object).
+- `LinearOperator.matvec(x)` accepts finite real or complex `(n,)` or `(n, 1)` input and
+  returns `(n,)` complex128. `as_scipy()` imports SciPy lazily (`ImportError` without it).
+- Deviations from the target sketch above: `field` has no `region` argument (the region of every
+  point is found from the winding number; `kind="total"` adds the incident field in R1);
+  `bistatic_rcs(angles, plane=...)` takes the angles first; `plane_grid` / `cylinder_grid` follow
+  the C++ signatures (origin and full extent vectors, point counts); there is no `sim.drc` (use
+  `cylinder_grid` + `field` + `differential_reflection_coefficient`), no `mlfmm` / `backend`
+  keywords yet, and `sim.save` / HDF5 are not available (`open_npy_directory` instead).
+- Paths are `str` or `os.PathLike` (not bytes), passed to C++ as UTF-8 (ADR 0007).
 
 ## Rules
 
