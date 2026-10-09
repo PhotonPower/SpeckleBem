@@ -32,7 +32,7 @@ set(SPECKLEBEM_SOURCES
     # postprocessing/speckle_statistics.cpp
     reference/mie.cpp
     # io/result_writer.cpp
-    # simulation.cpp
+    simulation.cpp
 )
 
 add_library(specklebem ${SPECKLEBEM_SOURCES})
