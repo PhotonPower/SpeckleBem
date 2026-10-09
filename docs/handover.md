@@ -21,11 +21,11 @@ Read this first when taking over on a new machine, then `CLAUDE.md` and `docs/ba
 
 ## Open decisions for the project lead (recorded in docs/backlog.md)
 
-1. **WP-F, formulation weights.** With Table 1 as transcribed in `formulation.hpp`, the combination
-   coefficients a_i/η_i and b_i η_i are region-independent, so ICTF and MCTF are block-row scalings of
-   PMCHWT: identical currents with the direct solver, identical systems after the Jacobi
-   preconditioner. If the paper's ICTF/MCTF use region-dependent weights, correct Table 1 (and
-   `formulation::recommend`) before the Phase 3 formulation study.
+1. **WP-F, formulation weights: resolved (issue #15, 2026-10-09).** Table 1 is confirmed as
+   transcribed (Solís et al., JOSA B 32 (2015) 1780, Table 1; Karaosmanoğlu & Ergül, ACES J. 34 (2019)
+   811, Eq. 1). ICTF and MCTF are block-row scalings of PMCHWT by design: identical currents with the
+   direct solver, identical systems after the Jacobi (or any fixed-pattern) preconditioner; they differ
+   only unpreconditioned.
 2. **WP12 Fresnel flat-interface check** is deferred to Phase 4 (needs > 10⁵ unknowns; dense matrix
    > 100 GB). **Ag sphere at λ/20** needs a node with ≥ 200 GB (test exists, self-skipping).
 3. **WP7b default accuracy**: `OperatorOptions::target_accuracy` trades far-pair cost against
