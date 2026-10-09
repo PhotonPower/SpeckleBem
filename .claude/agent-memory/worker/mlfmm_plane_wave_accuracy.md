@@ -22,6 +22,21 @@ Measured in WP18 (2026-10-09, tests/unit/test_plane_wave.cpp, real k = 2pi, box 
   sum|t|/|sum| <= 1e6 (fails for |z| >~ 25 at large l); add a long double recurrence check.
 - theta/phi components flip sign across the pole reflection (odd parity) - interpolation must know.
 
+WP18 review round (2026-10-09), library statistical check (8 pairs/offset, seed 20261009,
+mt19937_64 raw bits) and search_truncation_order:
+- The lambda/4 random error depends strongly on the point set (1.6e-4 here vs 1.6e-3 with the
+  old helper at d0 = 3): never set tolerances from one seed near the target.
+- Order search: real k needs formula + 1 only at lambda/4, d0 = 5; error vs L at lambda/4 has
+  its minimum 4e-7 at L = 15, then grows ~10x per order (breakdown) -> d0 = 7 not achievable.
+- Ag-like k (n = 0.05 - 3.13j): the Re-k formula gives L = 2-3 (errors >> 1), but the search
+  reaches d0 = 3 for boxes <= 0.25 lambda_0 at L = 9..22; from 0.5 lambda_0 (|Im k| D ~ 17)
+  unusable at every L. WP21 should search (or use |k|) for metals, not trust the formula.
+- With L_leaf = max(L, p - 1), the lambda/4 leaf at d0 = 3 gets L = 13 = the parent order, so
+  leaf -> parent interpolation is the identity.
+- Complex-z Hankel reference that works at |z| = 80, l = 120: j_l by Miller downward (start
+  lmax + 60 + 2|z|) and y_l upward in long double; tolerance needs the (|j| + |y|) eps term
+  (cancellation e^{2|Im z|}) and O(l eps) relative for the double recurrence.
+
 Pitfalls: Eigen `a.dot(b)` conjugates `a` (use `cwiseProduct(b).sum()` for bilinear sums).
 GCC 16 -Wnull-dereference false positive also on `std::vector<Real> p(n); p[0] = 1.0;` and on a
 lambda returning `(M * u).cast<Complex>().cwiseProduct(w)`: build with push_back / in-place loops.
