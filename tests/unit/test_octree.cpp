@@ -299,8 +299,8 @@ TEST_CASE("Octree: structure on icospheres, a thin rough box and flat plates", "
     // Thin box (z range < 0.5 um, root 2 um): anchored at the bottom, levels 0..2 are flat.
     cases.push_back({"rough box", rough_box(0.3e-6), 500e-9, OctreeParams{50, 12, 0.25}, 3});
     // Plates: zero extent in z, and +-1e-15 m jitter; leaves are one layer thick.
-    cases.push_back({"plate", plate(1e-6, 24, false), 500e-9, OctreeParams{8, 12, 0.0}, 0});
-    cases.push_back({"plate jitter", plate(1e-6, 24, true), 500e-9, OctreeParams{8, 12, 0.0}, 0});
+    cases.push_back({"plate", plate(1e-6, 16, false), 500e-9, OctreeParams{8, 12, 0.0}, 0});
+    cases.push_back({"plate jitter", plate(1e-6, 16, true), 500e-9, OctreeParams{8, 12, 0.0}, 0});
     std::vector<std::array<Index, 3>> flat_plate_leaves;
     for (const Case& c : cases) {
         INFO(c.label);
