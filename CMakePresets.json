@@ -1,6 +1,6 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
   "configurePresets": [
     {
       "name": "base",
@@ -36,16 +36,61 @@
       "inherits": "release",
       "displayName": "Release with CUDA backend",
       "cacheVariables": { "SPECKLEBEM_ENABLE_CUDA": "ON" }
+    },
+    {
+      "name": "win-base",
+      "hidden": true,
+      "inherits": "base",
+      "description": "Native Windows build with MSYS2. MSYS2_ROOT defaults to C:/msys64; for another location add a preset to CMakeUserPresets.json that inherits a win-* preset and sets environment.MSYS2_ROOT.",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": {
+        "MSYS2_ROOT": "C:/msys64",
+        "MSYS2_PREFIX": "$env{MSYS2_ROOT}/$env{MSYS2_ENV}",
+        "PATH": "$env{MSYS2_PREFIX}/bin;$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{MSYS2_PREFIX}",
+        "BLA_VENDOR": "OpenBLAS",
+        "Python3_EXECUTABLE": "$env{MSYS2_PREFIX}/bin/python.exe"
+      }
+    },
+    {
+      "name": "win-release",
+      "inherits": "win-base",
+      "displayName": "Windows release (MSYS2 UCRT64 GCC, OpenMP, OpenBLAS)",
+      "environment": { "MSYS2_ENV": "ucrt64" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "$env{MSYS2_PREFIX}/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "$env{MSYS2_PREFIX}/bin/g++.exe"
+      }
+    },
+    {
+      "name": "win-debug",
+      "inherits": "win-base",
+      "displayName": "Windows debug with sanitizers (MSYS2 CLANG64 Clang, libc++, ASan + UBSan)",
+      "environment": { "MSYS2_ENV": "clang64" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SPECKLEBEM_WARNINGS_AS_ERRORS": "ON",
+        "CMAKE_C_COMPILER": "$env{MSYS2_PREFIX}/bin/clang.exe",
+        "CMAKE_CXX_COMPILER": "$env{MSYS2_PREFIX}/bin/clang++.exe",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer"
+      }
     }
   ],
   "buildPresets": [
     { "name": "release", "configurePreset": "release" },
     { "name": "debug", "configurePreset": "debug" },
     { "name": "release-mkl", "configurePreset": "release-mkl" },
-    { "name": "release-cuda", "configurePreset": "release-cuda" }
+    { "name": "release-cuda", "configurePreset": "release-cuda" },
+    { "name": "win-release", "configurePreset": "win-release" },
+    { "name": "win-debug", "configurePreset": "win-debug" }
   ],
   "testPresets": [
     { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
-    { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } }
+    { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
+    { "name": "win-release", "configurePreset": "win-release", "output": { "outputOnFailure": true } },
+    { "name": "win-debug", "configurePreset": "win-debug", "output": { "outputOnFailure": true } }
   ]
 }

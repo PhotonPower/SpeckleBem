@@ -46,6 +46,7 @@ add_executable(specklebem_validation_tests
     validation/test_post_mie_projection.cpp
     validation/test_assembler_mie.cpp
     validation/test_mie_sphere_dense.cpp
+    support/system_memory.cpp
     # validation/test_mie_sphere_mlfmm.cpp
     # validation/test_mlfmm_vs_dense.cpp
     # validation/test_flat_interface_fresnel.cpp
@@ -60,6 +61,7 @@ catch_discover_tests(specklebem_validation_tests PROPERTIES SKIP_RETURN_CODE 4 L
 # unoptimised builds and when the dense solve would exceed 60 % of the physical memory.
 add_executable(specklebem_validation_large_tests
     validation_large/test_mie_sphere_dense_large.cpp
+    support/system_memory.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_large_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)

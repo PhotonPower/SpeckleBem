@@ -52,12 +52,12 @@ RoughSurfaceParams make_params(Real L, Real mesh_size, Real sigma, Real lc, std:
 }
 
 /// Value of an integer line "label : value" in the quality report, or -1 if absent.
-long report_value(const std::string& report, const std::string& label) {
+Index report_value(const std::string& report, const std::string& label) {
     const std::regex re(label + R"(\s*:\s*(-?\d+))");
     std::smatch m;
     if (!std::regex_search(report, m, re))
         return -1;
-    return std::stol(m[1].str());
+    return static_cast<Index>(std::stoll(m[1].str()));
 }
 
 /// Unnormalised normal (v1 - v0) x (v2 - v0) of row t of the raw arrays.
@@ -573,7 +573,7 @@ TEST_CASE("rough surface: regenerate the seed-42 regression reference", "[.regen
     const std::string text = regression_reference_text();
     const char* out = std::getenv("SPECKLEBEM_REGEN_OUTPUT");
     if (out != nullptr && *out != '\0') {
-        std::ofstream file(out);
+        std::ofstream file(out, std::ios::binary);  // LF line endings on every platform
         REQUIRE(file.good());
         file << text;
         REQUIRE(file.good());

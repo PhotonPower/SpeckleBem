@@ -14,10 +14,15 @@ include(FetchContent)
 find_package(Eigen3 3.4 QUIET CONFIG NO_CMAKE_PACKAGE_REGISTRY)
 if(NOT Eigen3_FOUND)
     message(STATUS "Eigen3 not found on system - fetching 3.4.0")
+    # SYSTEM (CMake >= 3.25): the fetched headers are system headers for every consumer, so the
+    # project warning set (and -Werror in the debug presets) applies to our code, not to Eigen
+    # internals. Setting INTERFACE_SYSTEM_INCLUDE_DIRECTORIES on Eigen's target by hand instead
+    # breaks Eigen's install(EXPORT) with CMake 4 ("prefixed in the build directory").
     FetchContent_Declare(eigen
         GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
         GIT_TAG        3.4.0
-        GIT_SHALLOW    TRUE)
+        GIT_SHALLOW    TRUE
+        SYSTEM)
     set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
@@ -25,20 +30,10 @@ if(NOT Eigen3_FOUND)
     FetchContent_MakeAvailable(eigen)
     if(NOT TARGET Eigen3::Eigen)
         # Older Eigen trees do not export the imported target when added as a subdirectory.
+        # Include directories of imported targets are system include directories by default.
         add_library(Eigen3::Eigen INTERFACE IMPORTED)
         set_target_properties(Eigen3::Eigen PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${eigen_SOURCE_DIR}")
     endif()
-    # Treat the fetched headers as system headers: the project warning set (and -Werror in
-    # the debug preset) applies to our code, not to Eigen internals.
-    foreach(_eigen_target eigen Eigen3::Eigen)
-        if(TARGET ${_eigen_target})
-            get_target_property(_aliased ${_eigen_target} ALIASED_TARGET)
-            if(NOT _aliased)
-                set_target_properties(${_eigen_target} PROPERTIES
-                    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${eigen_SOURCE_DIR}")
-            endif()
-        endif()
-    endforeach()
 endif()
 
 # --- BLAS / LAPACK ---------------------------------------------------------

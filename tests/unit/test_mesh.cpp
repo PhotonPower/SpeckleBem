@@ -74,12 +74,12 @@ Real total_area(const TriangleMesh& mesh) {
 }
 
 /// Value of an integer line "label : value" in the quality report, or -1 if absent.
-long report_value(const std::string& report, const std::string& label) {
+Index report_value(const std::string& report, const std::string& label) {
     const std::regex re(label + R"(\s*:\s*(-?\d+))");
     std::smatch m;
     if (!std::regex_search(report, m, re))
         return -1;
-    return std::stol(m[1].str());
+    return static_cast<Index>(std::stoll(m[1].str()));
 }
 
 /// Real numbers on the report line "label : x / y / z ...", in order.
