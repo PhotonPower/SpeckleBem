@@ -20,6 +20,7 @@
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/geometry/rough_surface.hpp"
 #include "specklebem/geometry/sphere.hpp"
+#include "specklebem/kernels/fast_math.hpp"
 #include "specklebem/kernels/operators.hpp"
 #include "specklebem/kernels/singularity.hpp"
 #include "specklebem/material/material.hpp"
@@ -503,18 +504,21 @@ void run(const Options& o) {
             fixed.quad_degree_far = degree;
             fixed.quad_degree_near = std::max(degree, 2);
             for (std::size_t r = 0; r < 2; ++r) {
-                double best = 1e300;
-                for (int rep = 0; rep < 5; ++rep) {
-                    const double a = now_seconds();
-                    for (int i = 0; i < kReps; ++i)
-                        kernels::element_blocks(space, 0, s_far, region[r], fixed, L, K);
-                    best = std::min(best, (now_seconds() - a) / kReps);
+                for (const bool fast : {false, true}) {
+                    fixed.fast_plain_kernel = fast;
+                    double best = 1e300;
+                    for (int rep = 0; rep < 5; ++rep) {
+                        const double a = now_seconds();
+                        for (int i = 0; i < kReps; ++i)
+                            kernels::element_blocks(space, 0, s_far, region[r], fixed, L, K);
+                        best = std::min(best, (now_seconds() - a) / kReps);
+                    }
+                    std::printf(
+                        "MICRO | far pair degree %d (%d x %d points) | %s | %s | %.3f us per "
+                        "call | %.2f ns per kernel evaluation\n",
+                        degree, points, points, r == 0 ? "ext" : "int", fast ? "fastmath" : "libm",
+                        1e6 * best, 1e9 * best / (points * points));
                 }
-                std::printf(
-                    "MICRO | far pair degree %d (%d x %d points) | %s | %.3f us per call | "
-                    "%.2f ns per kernel evaluation\n",
-                    degree, points, points, r == 0 ? "ext" : "int", 1e6 * best,
-                    1e9 * best / (points * points));
             }
         }
         double sink = 0;
@@ -532,6 +536,40 @@ void run(const Options& o) {
         }
         std::printf("MICRO | exp + cos + sin + sqrt + div (libm) | %.2f ns | (%g)\n", 1e9 * best,
                     sink);
+        // Isolated elementary functions over an array (vectorisable loops).
+        std::vector<double> xs(kN);
+        std::vector<double> ys(kN);
+        std::vector<double> zs(kN);
+        for (int q = 0; q < kN; ++q) xs[static_cast<std::size_t>(q)] = -1e-3 * q - 0.1;
+        const auto time_loop = [&](const char* name, auto&& body) {
+            double t_best = 1e300;
+            for (int rep = 0; rep < 5; ++rep) {
+                const double a = now_seconds();
+                for (int i = 0; i < kReps; ++i) body();
+                t_best = std::min(t_best, (now_seconds() - a) / (kReps * double(kN)));
+            }
+            double s = 0;
+            for (int q = 0; q < kN; ++q)
+                s += ys[static_cast<std::size_t>(q)] + zs[static_cast<std::size_t>(q)];
+            std::printf("MICRO | %s | %.2f ns | (%g)\n", name, 1e9 * t_best, s);
+        };
+        time_loop("std::exp", [&] {
+            for (std::size_t q = 0; q < xs.size(); ++q) ys[q] = std::exp(xs[q]);
+        });
+        time_loop("fast_exp_nonpositive", [&] {
+            for (std::size_t q = 0; q < xs.size(); ++q)
+                ys[q] = kernels::fastmath::fast_exp_nonpositive(xs[q]);
+        });
+        time_loop("std::sin + std::cos", [&] {
+            for (std::size_t q = 0; q < xs.size(); ++q) {
+                ys[q] = std::sin(30.0 * xs[q]);
+                zs[q] = std::cos(30.0 * xs[q]);
+            }
+        });
+        time_loop("fast_sincos", [&] {
+            for (std::size_t q = 0; q < xs.size(); ++q)
+                kernels::fastmath::fast_sincos(30.0 * xs[q], ys[q], zs[q]);
+        });
         std::fflush(stdout);
     }
 
