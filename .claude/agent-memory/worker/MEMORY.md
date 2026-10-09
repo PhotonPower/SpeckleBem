@@ -8,3 +8,4 @@
 - [Python bindings pitfalls](python_bindings.md) — flags order, vectorize, views, exceptions, GIL callbacks, Simulation lock design, test sensitivity
 - [MLFMM octree findings](mlfmm_octree_findings.md) — anchored vertex-bbox root, lambda/4 floor tolerance, 4 um sphere leaf sizes, plate layers, test cost
 - [MLFMM single-level findings](mlfmm_single_level_findings.md) — WP19b far-field factors, block error vs a/lambda, search optimism, pattern quadrature
+- [MLFMM multilevel findings](mlfmm_multilevel_findings.md) — WP20a far-only/full errors vs leaf, d0=5 needs r_max/a <~ 0.3, symmetry check, debug cost
