@@ -4,8 +4,11 @@ Driver cases use the sphere of tests/unit/test_simulation.cpp: radius 0.5 um, ic
 (2N = 240), lambda = 1 um and its cheap quadrature options, so that each solve is fast.
 """
 
+import _thread
 import gc
 import inspect
+import os
+import re
 import threading
 import time
 import weakref
@@ -155,6 +158,272 @@ def test_gmres_solve_releases_gil():
     assert gap < 0.25 * elapsed, (gap, elapsed)
 
 
+REPORT_SOLVE = re.compile(r"tol ([^,]+),.*solve: +\S+ s, (\d+) iterations", re.DOTALL)
+
+
+def join_or_fail(threads, timeout):
+    """Joins daemon threads; fails (instead of hanging the session) if one is still alive."""
+    deadline = time.perf_counter() + timeout
+    for t in threads:
+        t.join(max(0.0, deadline - time.perf_counter()))
+    alive = [t.name for t in threads if t.is_alive()]
+    assert not alive, f"threads still running after {timeout} s (deadlock?): {alive}"
+
+
+def test_concurrent_calls_are_serialised():
+    """solve() in one thread alternates two tolerances (different solutions); field() /
+    bistatic_rcs() / currents / report() run in three other threads on the same Simulation
+    until the solves end. Every result must equal one of the two reference results exactly:
+    without the lock, a read overlapping the end of a solve sees a mixed solution."""
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    u = (np.arange(100) + 0.5) / 100  # 100 Fibonacci points on a sphere of radius 2 um
+    phi, ct = np.pi * (1 + 5**0.5) * np.arange(100), 1 - 2 * u
+    st = np.sqrt(1 - ct**2)
+    pts = 2e-6 * np.column_stack([st * np.cos(phi), st * np.sin(phi), ct])
+    th = np.linspace(0, np.pi, 91)
+    tols = (1e-3, 1e-10)
+    refs = []
+    for tol in tols:
+        it = sim.solve(tol=tol).iterations
+        E, s = sim.field(pts)[0], sim.bistatic_rcs(th)
+        refs.append(dict(tol=tol, it=it, x=sim.currents, E=E, s=s))
+    assert refs[0]["it"] < refs[1]["it"] and rel(refs[0]["x"], refs[1]["x"]) > 1e-6
+    np.testing.assert_array_equal(sim.solve(tol=tols[0]).x, refs[0]["x"])  # bit-reproducible
+    errors, its, loops = [], [], []
+    done = threading.Event()
+
+    def one_of(key, value):
+        assert any(np.array_equal(value, r[key]) for r in refs), key
+
+    def solver():
+        try:
+            for i in range(40):
+                its.append(sim.solve(tol=tols[i % 2]).iterations)
+        except Exception as e:  # pragma: no cover - reported below
+            errors.append(e)
+        finally:
+            done.set()
+
+    def post():
+        n = 0
+        try:
+            while not done.is_set():
+                one_of("E", sim.field(pts)[0])
+                one_of("s", sim.bistatic_rcs(th))
+                one_of("x", sim.currents)
+                m = REPORT_SOLVE.search(sim.report())
+                assert m, "report() without a solve section"
+                assert (float(m.group(1)), int(m.group(2))) in [(r["tol"], r["it"]) for r in refs]
+                n += 1
+        except Exception as e:  # pragma: no cover - reported below
+            errors.append(e)
+        loops.append(n)
+
+    workers = [threading.Thread(target=f, daemon=True) for f in (solver, post, post, post)]
+    for w in workers:
+        w.start()
+    join_or_fail(workers, 300)
+    assert not errors, errors
+    assert its == [refs[0]["it"], refs[1]["it"]] * 20
+    assert min(loops) >= 1, loops  # the reads overlapped the solves
+
+
+def test_concurrent_first_solve_assembles_once():
+    """Three threads make the first solve() of an unassembled Simulation at the same time (the
+    implicit assemble() is the race window): all get the single-threaded result."""
+    ref = make_sim(formulation="ICTF", preconditioner="none")
+    x_ref = ref.solve(tol=1e-8).x
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    start = threading.Barrier(3, timeout=60)
+    results, errors = [None] * 3, []
+
+    def work(i):
+        try:
+            start.wait()
+            results[i] = sim.solve(tol=1e-8)
+        except Exception as e:  # pragma: no cover - reported below
+            errors.append(e)
+
+    workers = [threading.Thread(target=work, args=(i,), daemon=True) for i in range(3)]
+    for w in workers:
+        w.start()
+    join_or_fail(workers, 300)
+    assert not errors, errors
+    for r in results:
+        assert r.converged
+        np.testing.assert_array_equal(r.x, x_ref)
+    np.testing.assert_array_equal(sim.rhs(), ref.rhs())
+
+
+def test_callbacks_into_each_others_simulation_raise_instead_of_deadlock():
+    """Thread 1 solves A and calls B.field() from its callback, thread 2 solves B and calls
+    A.field(): waiting would deadlock, so both calls raise RuntimeError (busy). A call into an
+    idle Simulation from a callback works."""
+    sims = {k: make_sim(formulation="ICTF", preconditioner="none") for k in "AB"}
+    idle = {k: make_sim(formulation="ICTF", preconditioner="none") for k in "AB"}
+    for s in (*sims.values(), *idle.values()):
+        s.solve()
+    pts = np.array([[0.0, 0.0, -2e-6]])
+    E_idle = idle["A"].field(pts)[0]
+    both = threading.Barrier(2, timeout=60)
+    outcome = {}
+
+    class Stop(Exception):
+        pass
+
+    def run(me, other):
+        def cb(it, r):
+            np.testing.assert_array_equal(idle[me].field(pts)[0], E_idle)  # idle: allowed
+            both.wait()  # both solves are inside their callbacks, holding their locks
+            try:
+                sims[other].field(pts)
+                outcome[me] = "no error"
+            except RuntimeError as e:
+                outcome[me] = str(e)
+            both.wait()  # neither solve releases its lock before both calls were made
+            raise Stop
+
+        try:
+            sims[me].solve(tol=1e-10, callback=cb)
+        except Stop:
+            pass
+        except Exception as e:  # pragma: no cover - reported below
+            outcome[me] = repr(e)
+
+    workers = [
+        threading.Thread(target=run, args=(m, o), name=m, daemon=True)
+        for m, o in (("A", "B"), ("B", "A"))
+    ]
+    for w in workers:
+        w.start()
+    join_or_fail(workers, 60)
+    for k in "AB":
+        assert "Simulation busy" in outcome.get(k, ""), outcome
+        assert sims[k].solve().converged  # locks released after the aborted solves
+
+
+def test_reentrant_call_from_callback_is_rejected():
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    sim.solve()
+    seen = []
+
+    def cb(it, r):
+        assert sim.num_unknowns == 240  # unlocked properties are fine
+        with pytest.raises(RuntimeError, match="re-entrant"):
+            sim.bistatic_rcs(0.0)
+        seen.append(it)
+
+    assert sim.solve(tol=1e-6, callback=cb).converged and seen
+    with pytest.raises(RuntimeError, match="re-entrant"):  # uncaught: aborts the solve
+        sim.solve(tol=1e-6, callback=lambda it, r: sim.report())
+    assert sim.solve().converged  # lock released after the aborted solve
+
+
+# A GMRES solve that never converges: about 45 s uninterrupted (~0.09 ms per iteration at
+# 2N = 240 on an idle machine), far beyond the time bounds of the interrupt tests.
+NEVER_CONVERGES = dict(tol=1e-300, max_iter=500_000, restart=10)
+
+
+def test_solve_interruptible_without_callback():
+    """KeyboardInterrupt (simulated Ctrl-C from a timer thread) aborts a GMRES solve on the main
+    thread without a user callback; the aborted solve stores no solution."""
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    sim.assemble()
+    timer = threading.Timer(0.3, _thread.interrupt_main)
+    t0 = time.perf_counter()
+    timer.start()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            sim.solve(**NEVER_CONVERGES)
+    finally:
+        timer.cancel()
+        timer.join()
+    elapsed = time.perf_counter() - t0
+    assert 0.3 <= elapsed < 10, elapsed  # raised inside solve(), long before it would end
+    # The RuntimeError proves that the solve was aborted: a KeyboardInterrupt arriving only
+    # after a completed solve would leave its solution stored.
+    with pytest.raises(RuntimeError):
+        sim.currents  # noqa: B018
+
+    def cb(it, r):  # the same exception path from a user callback
+        if it == 3:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        sim.solve(callback=cb)
+
+
+def test_main_thread_waiting_for_the_lock_is_interruptible():
+    """A worker thread runs a long GMRES solve; the main thread calls report() and waits for
+    the lock. A simulated Ctrl-C reaches it promptly, not only when the solve ends."""
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    sim.assemble()
+    running, stop = threading.Event(), threading.Event()
+    outcome = {}
+
+    class Stop(Exception):
+        pass
+
+    def cb(it, r):
+        running.set()
+        if stop.is_set():
+            raise Stop
+
+    def work():
+        try:
+            sim.solve(callback=cb, **NEVER_CONVERGES)
+            outcome["worker"] = "finished"
+        except Stop:
+            outcome["worker"] = "stopped"
+
+    worker = threading.Thread(target=work, daemon=True)
+    worker.start()
+    try:
+        assert running.wait(60)  # the worker holds the lock
+        timer = threading.Timer(0.3, _thread.interrupt_main)
+        t0 = time.perf_counter()
+        timer.start()
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                sim.report()
+            elapsed = time.perf_counter() - t0
+            solve_still_running = worker.is_alive()
+        finally:
+            timer.cancel()
+            timer.join()
+    finally:
+        stop.set()
+        join_or_fail([worker], 120)
+    assert solve_still_running and outcome == {"worker": "stopped"}
+    assert 0.3 <= elapsed < 5, elapsed
+    assert "solve:          not run" in sim.report()  # lock free again; nothing was stored
+
+
+def test_exterior_defaults_to_excitation_background():
+    bg = sb.Material(eps_r=1.69)  # lossless n = 1.3
+    pw = sb.PlaneWave(LAMBDA_FAST, [0, 0, 1], [1, 0, 0], background=bg)
+    mesh = sb.make_icosphere(RADIUS, 1)
+    kw = dict(object=N15, kernels=CHEAP, formulation="PMCHWT", solver="direct")
+    sims = [sb.Simulation(mesh, pw, **kw), sb.Simulation(mesh, pw, exterior=bg, **kw)]
+    for s in sims:
+        s.solve()
+    np.testing.assert_array_equal(sims[0].currents, sims[1].currents)
+    with pytest.raises(ValueError):
+        sb.Simulation(mesh, pw, exterior=sb.Material(eps_r=1.0), **kw)
+
+
+def test_solve_result_x_keep_alive():
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    res = sim.solve(tol=1e-8)
+    x = res.x
+    del res
+    gc.collect()
+    assert not x.flags.writeable and x.base is not None
+    assert x.sum() == sim.currents.sum()
+    with pytest.raises(ValueError):
+        x[0] = 0
+
+
 def test_errors_before_assemble_and_solve():
     sim = make_sim()
     for f in (sim.operator, sim.rhs, lambda: sim.currents, lambda: sim.bistatic_rcs(0.0)):
@@ -192,8 +461,12 @@ def test_operator_and_keep_alive():
 
 
 def test_operator_as_scipy():
-    """SciPy GMRES on as_scipy() (skipped without the optional dev dependency SciPy)."""
-    spla = pytest.importorskip("scipy.sparse.linalg")
+    """SciPy GMRES on as_scipy() (skipped without the optional dev dependency SciPy, unless
+    SPECKLEBEM_REQUIRE_SCIPY is set, as in CI: then a missing SciPy fails)."""
+    if os.environ.get("SPECKLEBEM_REQUIRE_SCIPY", "0") not in ("", "0"):
+        import scipy.sparse.linalg as spla
+    else:
+        spla = pytest.importorskip("scipy.sparse.linalg")
     sim = make_sim(formulation="ICTF", preconditioner="none")
     x, b = sim.solve(tol=1e-10).x, sim.rhs()
     A = sim.operator().as_scipy()

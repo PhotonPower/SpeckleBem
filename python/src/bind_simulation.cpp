@@ -5,9 +5,14 @@
 
 #include <pybind11/stl.h>
 
+#include <atomic>
+#include <chrono>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -22,6 +27,92 @@ using formulation::Kind;
 using solver::GmresParams;
 using solver::GmresResult;
 using solver::PreconditionerSide;
+
+/// Interval of the Ctrl-C check of a GMRES solve without a Python callback and of a main
+/// thread waiting for a Simulation's lock (each check re-acquires the GIL, which can wait up to
+/// sys.getswitchinterval() for a busy thread).
+constexpr auto kSignalCheckInterval = std::chrono::milliseconds(50);
+
+/// True on the Python main thread (the only one that handles signals). Needs the GIL.
+bool on_main_thread() {
+    const py::module_ threading = py::module_::import("threading");
+    return threading.attr("current_thread")().is(threading.attr("main_thread")());
+}
+
+/// The Simulation bound to Python: the C++ object plus a per-object mutex that serialises calls
+/// from several Python threads (the C++ class itself is not thread-safe).
+///
+/// Lock order: every wrapper releases the GIL first and only then waits for the mutex, so no
+/// thread ever waits for the mutex while holding the GIL; the mutex holder may re-acquire the
+/// GIL (progress callback, signal check). Waiting is bounded in three ways:
+///  - a call on the same Simulation from inside its solve() callback (same thread, mutex
+///    already held; owner_ records the holding thread) raises RuntimeError at once;
+///  - a thread that already holds some Simulation's mutex (held_ > 0: inside a solve()
+///    callback, or a finalizer run there) only try_lock()s another one and raises RuntimeError
+///    if it is busy, so two solves calling into each other's Simulation cannot deadlock (calls
+///    into an idle Simulation still work);
+///  - the main thread waits in slices of kSignalCheckInterval and, between them, re-acquires
+///    the GIL for PyErr_CheckSignals(), so Ctrl-C (KeyboardInterrupt) interrupts the wait.
+class PySimulation final : public Simulation {
+public:
+    using Simulation::Simulation;
+
+    /// Returns f() computed with the GIL released and the mutex held (f must return a value
+    /// or void, never a reference into the Simulation). Call with the GIL held.
+    template <class F>
+    auto locked(F&& f) {
+        const bool main_thread = on_main_thread();
+        const py::gil_scoped_release release;
+        if (owner_.load() == std::this_thread::get_id()) {
+            throw std::runtime_error(
+                "Simulation: re-entrant call from a solve() callback on the same Simulation");
+        }
+        std::unique_lock<std::timed_mutex> lock(mutex_, std::defer_lock);
+        if (held_ > 0) {
+            if (!lock.try_lock()) {
+                throw std::runtime_error(
+                    "Simulation busy: cannot wait for another Simulation's lock from inside a "
+                    "solve() callback");
+            }
+        } else {
+            while (!lock.try_lock_for(kSignalCheckInterval)) {
+                if (main_thread) {
+                    const py::gil_scoped_acquire gil;  // released again before the next wait
+                    if (PyErr_CheckSignals() != 0) {
+                        throw py::error_already_set();
+                    }
+                }
+            }
+        }
+        const OwnerGuard owner(owner_);
+        return f();
+    }
+
+private:
+    /// For its lifetime: records the calling thread as the mutex holder (owner_) and counts
+    /// the Simulation locks this thread holds (held_).
+    struct OwnerGuard {
+        explicit OwnerGuard(std::atomic<std::thread::id>& o) : owner(o) {
+            owner.store(std::this_thread::get_id());
+            ++held_;
+        }
+        ~OwnerGuard() {
+            --held_;
+            owner.store(std::thread::id{});
+        }
+        OwnerGuard(const OwnerGuard&) = delete;
+        OwnerGuard& operator=(const OwnerGuard&) = delete;
+        std::atomic<std::thread::id>& owner;
+    };
+
+    /// Number of Simulation locks (of any Simulation) held by the calling thread.
+    static thread_local int held_;
+
+    std::timed_mutex mutex_;
+    std::atomic<std::thread::id> owner_{};
+};
+
+thread_local int PySimulation::held_ = 0;
 
 template <class T>
 T dict_value(const py::handle& v, const std::string& key, const char* what) {
@@ -119,7 +210,7 @@ std::optional<Kind> parse_formulation(const py::object& f) {
     throw py::value_error("formulation: expected \"auto\", \"PMCHWT\", \"ICTF\" or \"MCTF\"");
 }
 
-std::unique_ptr<Simulation> make_simulation(
+std::unique_ptr<PySimulation> make_simulation(
     const geometry::TriangleMesh& mesh, std::shared_ptr<excitation::Excitation> exc,
     const material::Material& object, const std::optional<material::Material>& exterior,
     std::optional<Real> wavelength, const py::object& form, const std::string& preconditioner,
@@ -130,7 +221,7 @@ std::unique_ptr<Simulation> make_simulation(
     }
     SimulationConfig c;
     c.wavelength = wavelength.value_or(exc->wavelength());
-    c.exterior = exterior.value_or(material::vacuum());
+    c.exterior = exterior.value_or(exc->background());
     c.object = object;
     c.formulation = parse_formulation(form);
     const std::string pre = to_lower(preconditioner);
@@ -153,10 +244,10 @@ std::unique_ptr<Simulation> make_simulation(
     }
     geometry::TriangleMesh copy = mesh;
     py::gil_scoped_release release;
-    return std::make_unique<Simulation>(std::move(copy), std::move(exc), std::move(c));
+    return std::make_unique<PySimulation>(std::move(copy), std::move(exc), std::move(c));
 }
 
-GmresResult solve(Simulation& sim, std::optional<Real> tol, std::optional<int> max_iter,
+GmresResult solve(PySimulation& sim, std::optional<Real> tol, std::optional<int> max_iter,
                   std::optional<int> restart, const std::optional<std::string>& side,
                   const py::object& callback) {
     GmresParams p = sim.config().gmres;
@@ -166,29 +257,47 @@ GmresResult solve(Simulation& sim, std::optional<Real> tol, std::optional<int> m
     if (side) {
         p.side = parse_side(*side);
     }
-    solver::IterationCallback cb;
+    const py::object* fn = nullptr;
     if (!callback.is_none()) {
         if (!PyCallable_Check(callback.ptr())) {
             throw py::type_error("callback: expected a callable f(iteration, residual)");
         }
-        // Holds a pointer only: copies of the std::function never touch Python reference
-        // counts without the GIL. A Python exception leaves gmres as py::error_already_set and
-        // is restored by pybind11 once the GIL is re-acquired.
-        const py::object* fn = &callback;
-        cb = [fn](int iteration, Real residual) {
-            py::gil_scoped_acquire gil;
-            (*fn)(iteration, residual);
+        fn = &callback;
+    }
+    // Per-iteration hook with the GIL re-acquired: PyErr_CheckSignals() (Ctrl-C ->
+    // KeyboardInterrupt), then the user callback. Without a callback it only runs on the main
+    // thread (the only one that handles signals) and at most every kSignalCheckInterval.
+    // Holds a pointer only: copies of the std::function never touch Python reference counts
+    // without the GIL. A Python exception leaves gmres as py::error_already_set and is restored
+    // by pybind11 once the GIL is re-acquired.
+    solver::IterationCallback cb;
+    if (fn != nullptr || on_main_thread()) {
+        using Clock = std::chrono::steady_clock;
+        cb = [fn, last = Clock::now()](int iteration, Real residual) mutable {
+            if (fn == nullptr) {
+                const auto now = Clock::now();
+                if (now - last < kSignalCheckInterval) {
+                    return;
+                }
+                last = now;
+            }
+            const py::gil_scoped_acquire gil;
+            if (PyErr_CheckSignals() != 0) {
+                throw py::error_already_set();
+            }
+            if (fn != nullptr) {
+                (*fn)(iteration, residual);
+            }
         };
     }
-    py::gil_scoped_release release;
-    return sim.solve(p, cb);
+    return sim.locked([&] { return sim.solve(p, cb); });
 }
 
 py::object vector_or_scalar(const VectorXr& v, bool scalar) {
     return scalar ? py::object(py::float_(v(0))) : py::cast(v);
 }
 
-py::object bistatic_rcs(const Simulation& sim, const py::object& angles, const py::object& plane) {
+py::object bistatic_rcs(PySimulation& sim, const py::object& angles, const py::object& plane) {
     Vec3 normal;
     if (py::isinstance<py::str>(plane)) {
         const std::string s = to_lower(plane.cast<std::string>());
@@ -209,16 +318,12 @@ py::object bistatic_rcs(const Simulation& sim, const py::object& angles, const p
     }
     const VectorXr th = Eigen::Map<const VectorXr>(a.data(), static_cast<Index>(a.size()));
     require_all_finite(th, "angles");
-    const post::SurfaceSolution& s = sim.solution();
-    VectorXr sigma;
-    {
-        py::gil_scoped_release release;
-        sigma = post::bistatic_rcs(s, normal, th);
-    }
+    const VectorXr sigma =
+        sim.locked([&] { return post::bistatic_rcs(sim.solution(), normal, th); });
     return vector_or_scalar(sigma, a.ndim() == 0);
 }
 
-py::tuple field(const Simulation& sim, const py::object& points, const std::string& kind,
+py::tuple field(PySimulation& sim, const py::object& points, const std::string& kind,
                 int quad_degree, Real min_distance_factor) {
     bool single = false;
     const Vertices p = points_from_array(points, "points", &single);
@@ -227,30 +332,25 @@ py::tuple field(const Simulation& sim, const py::object& points, const std::stri
     if (k != "scattered" && k != "total") {
         throw py::value_error("kind: expected \"scattered\" or \"total\"");
     }
-    const post::SurfaceSolution& s = sim.solution();
     const post::FieldOptions opt{quad_degree, min_distance_factor};
     FieldMatrix E, H;
-    {
-        py::gil_scoped_release release;
+    sim.locked([&] {
         if (k == "total") {
-            post::total_field(s, p, E, H, opt);
+            post::total_field(sim.solution(), p, E, H, opt);
         } else {
-            post::scattered_field(s, p, E, H, opt);
+            post::scattered_field(sim.solution(), p, E, H, opt);
         }
-    }
+    });
     return py::make_tuple(fields_to_array(E, single), fields_to_array(H, single));
 }
 
-py::object far_field(const Simulation& sim, const py::object& directions, int quad_degree) {
+py::object far_field(PySimulation& sim, const py::object& directions, int quad_degree) {
     bool single = false;
     const Vertices d = points_from_array(directions, "directions", &single);
     require_all_finite(d, "directions");
-    const post::SurfaceSolution& s = sim.solution();
     FieldMatrix F;
-    {
-        py::gil_scoped_release release;
-        post::far_field(s, d, F, post::FieldOptions{quad_degree, 1e-3});
-    }
+    sim.locked(
+        [&] { post::far_field(sim.solution(), d, F, post::FieldOptions{quad_degree, 1e-3}); });
     return fields_to_array(F, single);
 }
 
@@ -352,7 +452,7 @@ ndarray of complex128, shape (n,)
         .def("__repr__",
              [](const op::LinearOperator& A) { return "<LinearOperator " + A.describe() + ">"; });
 
-    py::class_<Simulation>(m, "Simulation", R"doc(
+    py::class_<PySimulation>(m, "Simulation", R"doc(
 Dense SIE simulation of one object (C++ specklebem::Simulation): assemble, solve, post-process.
 
 Parameters
@@ -364,7 +464,7 @@ excitation : Excitation
 object : Material
     Material of R2 (keyword-only, as all following parameters).
 exterior : Material, optional
-    Material of R1; None = vacuum. Must equal ``excitation.background``.
+    Material of R1; None = ``excitation.background`` (the only allowed value).
 wavelength : float, optional
     Vacuum wavelength [m]; None = ``excitation.wavelength`` (must agree to 1e-12).
 formulation : str or Formulation
@@ -391,7 +491,14 @@ ValueError
 
 Notes
 -----
-Not thread-safe: do not call methods of one Simulation from several threads at once.
+Thread-safe, with limits: calls on one Simulation from several threads are serialised by a
+per-object lock (taken with the GIL released), so they run one after another, not in
+parallel (use one Simulation per thread for parallel work). The methods that take the lock
+are assemble, solve, report, currents, operator, rhs, field, far_field and bistatic_rcs.
+From inside a solve() callback they raise RuntimeError instead of waiting: always on the
+Simulation being solved, and on another Simulation while that one is busy (an idle one
+works). A main thread waiting for the lock stays interruptible with Ctrl-C
+(KeyboardInterrupt).
 )doc")
         .def(py::init(&make_simulation), py::arg("mesh"), py::arg("excitation"), py::kw_only(),
              py::arg("object"), py::arg("exterior") = py::none(),
@@ -399,8 +506,9 @@ Not thread-safe: do not call methods of one Simulation from several threads at o
              py::arg("preconditioner") = "auto", py::arg("solver") = "gmres",
              py::arg("compression") = "dense", py::arg("gmres") = py::none(),
              py::arg("kernels") = py::none())
-        .def("assemble", &Simulation::assemble, py::call_guard<py::gil_scoped_release>(),
-             "Assemble Z, the right-hand side and (Jacobi GMRES) the diagonal; idempotent.")
+        .def(
+            "assemble", [](PySimulation& s) { s.locked([&] { s.assemble(); }); },
+            "Assemble Z, the right-hand side and (Jacobi GMRES) the diagonal; idempotent.")
         .def("solve", &solve, py::arg("tol") = py::none(), py::arg("max_iter") = py::none(),
              py::arg("restart") = py::none(), py::arg("side") = py::none(),
              py::arg("callback") = py::none(), R"doc(
@@ -412,43 +520,59 @@ tol, max_iter, restart, side : optional
     Per-call GMRES overrides of the ``gmres`` dict (restart 0 = full GMRES); None keeps it.
 callback : callable, optional
     ``callback(iteration, residual)`` once per GMRES iteration (iteration = 1, 2, ...),
-    called with the GIL held; an exception it raises aborts the solve and propagates.
+    called with the GIL held; an exception it raises aborts the solve and propagates. Calls
+    from it into locking methods of this Simulation, or of another busy one, raise
+    RuntimeError (see the class notes).
+
+Notes
+-----
+A GMRES solve on the main thread is interruptible with Ctrl-C (KeyboardInterrupt; signals
+are checked every iteration with a callback, otherwise every 50 ms). Assembly and the direct
+solver are not interruptible. An aborted solve keeps the previous solution.
 
 Returns
 -------
 SolveResult
 )doc")
-        .def("report", &Simulation::report, "Multi-line text report (formulation, timings, ...).")
+        .def(
+            "report", [](PySimulation& s) { return s.locked([&] { return s.report(); }); },
+            "Multi-line text report (formulation, timings, ...).")
+        // Unlocked: fixed at construction.
         .def_property_readonly("formulation", &Simulation::formulation_kind,
                                "Formulation used (resolved).")
         .def_property_readonly(
             "preconditioner",
-            [](const Simulation& s) { return s.diagonal_preconditioner() ? "diagonal" : "none"; },
+            [](const PySimulation& s) { return s.diagonal_preconditioner() ? "diagonal" : "none"; },
             "Preconditioner of the GMRES solve (resolved): \"diagonal\" or \"none\".")
         .def_property_readonly(
             "solver",
-            [](const Simulation& s) {
+            [](const PySimulation& s) {
                 return s.config().solver == SolverKind::Direct ? "direct" : "gmres";
             },
             "\"gmres\" or \"direct\".")
         .def_property_readonly(
-            "wavelength", [](const Simulation& s) { return s.config().wavelength; },
+            "wavelength", [](const PySimulation& s) { return s.config().wavelength; },
             "Vacuum wavelength [m].")
         .def_property_readonly("num_unknowns", &Simulation::num_unknowns,
                                "Number of unknowns 2N (N interior edges).")
         .def_property_readonly(
-            "currents", [](const Simulation& s) { return VectorXc(s.solution().currents); },
+            "currents",
+            [](PySimulation& s) {
+                return s.locked([&] { return VectorXc(s.solution().currents); });
+            },
             "Solution [J; M] (copy; J in A/m, M in V/m). RuntimeError before solve().")
         .def(
             "operator",
-            [](const Simulation& s) {
-                return std::const_pointer_cast<op::LinearOperator>(s.system_operator());
+            [](PySimulation& s) {
+                return s.locked([&] {
+                    return std::const_pointer_cast<op::LinearOperator>(s.system_operator());
+                });
             },
             py::keep_alive<0, 1>(),
-            "System operator Z (LinearOperator); RuntimeError before "
-            "assemble().")
+            "System operator Z (LinearOperator; immutable, matvec is not serialised); "
+            "RuntimeError before assemble().")
         .def(
-            "rhs", [](const Simulation& s) { return VectorXc(s.rhs()); },
+            "rhs", [](PySimulation& s) { return s.locked([&] { return VectorXc(s.rhs()); }); },
             "Right-hand side b (copy); RuntimeError before assemble().")
         .def("field", &field, py::arg("points"), py::arg("kind") = "scattered",
              py::arg("quad_degree") = 6, py::arg("min_distance_factor") = 1e-3, R"doc(
