@@ -365,9 +365,12 @@ TEST_CASE("mlfmm: far operator accuracy sweep", "[.][mlfmm_far_sweep]") {
     SKIP("release-only sweep");
 #endif
     // Far-only and full-matvec errors vs leaf size, d0 and interior. Icospheres with 4 levels
-    // (leaf a = R / 4, subdivision 3: r_max / a = 0.13 lambda0 / a). Asserted where every active
-    // region's leaf meets the single-level threshold of ADR 0008 (0.75 lambda for d0 = 3,
-    // 1.5 lambda for d0 = 5, lambda in the medium); otherwise reported.
+    // (leaf a = R / 4, subdivision 3: r_max / a ~ 0.53). Asserted for d0 = 3 where the vacuum
+    // leaf meets the single-level threshold of ADR 0008 (0.75 lambda); otherwise reported.
+    // d0 = 5 (threshold 1.5 lambda) is reported only: with r_max / a ~ 0.5 the enlarged diagonal
+    // sqrt(3) a + 2 r_max is too large for 10^-5 at every order (the search reports "not
+    // achievable" up to a = 1.5 lambda0; WP19b met it with r_max / a = 0.29), and finer test
+    // meshes make the dense oracle too large (2N = 15360 for subdivision 4).
     struct Interior {
         std::string name;
         material::Material m;
@@ -384,7 +387,7 @@ TEST_CASE("mlfmm: far operator accuracy sweep", "[.][mlfmm_far_sweep]") {
                              d0);
                 const std::string name =
                     "icosphere " + in.name + ", a = " + std::to_string(a) + " lambda0";
-                const bool asserted = a >= (d0 <= 3.0 ? 0.74 : 1.49);
+                const bool asserted = d0 <= 3.0 && a >= 0.74;
                 try {
                     const FarResult r = measure(c);
                     report(name, c, r);
