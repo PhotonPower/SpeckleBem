@@ -40,3 +40,6 @@ benchmarks/results/*.json
 
 # Agent worktrees (created by subagents with isolation: worktree)
 .claude/worktrees/
+
+# Copyrighted literature (local only, never commit)
+docs/papers/
