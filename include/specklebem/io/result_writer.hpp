@@ -38,10 +38,11 @@ public:
 };
 
 /// HDF5 writer. Not implemented yet: always throws std::runtime_error (with a message
-/// saying whether the library was built with SPECKLEBEM_ENABLE_HDF5).
+/// saying whether the library was built with SPECKLEBEM_ENABLE_HDF5). path is UTF-8 (ADR 0007).
 std::unique_ptr<ResultWriter> open_hdf5(const std::string& path);
 
-/// Writer into a directory of NumPy .npy files (format version 1.0, little-endian, C order),
+/// Writer into the directory dir of NumPy .npy files (format version 1.0, little-endian, C order),
+/// dir being a UTF-8 path on every platform (ADR 0007; error messages name paths in UTF-8),
 /// created with all parents if needed (an existing directory is reused; files of the same
 /// name are overwritten). Every file is written to a temporary file "<file>~tmp" in the same
 /// directory and renamed over the target only when complete, so a target is always either
@@ -59,8 +60,8 @@ std::unique_ptr<ResultWriter> open_hdf5(const std::string& path);
 ///    at any time, in particular after the writer is destroyed. A new writer starts with no
 ///    attributes: its first write_attribute replaces an attributes.json left in the directory
 ///    by an earlier run.
-/// @throws std::invalid_argument for an empty path, std::runtime_error if the directory
-///         cannot be created.
+/// @throws std::invalid_argument for an empty path or one that is not valid UTF-8,
+///         std::runtime_error if the directory cannot be created.
 std::unique_ptr<ResultWriter> open_npy_directory(const std::string& dir);
 
 }  // namespace specklebem::io

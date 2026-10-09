@@ -41,6 +41,10 @@
 /// write every double in its shortest round-trip decimal form (at most 17 significant
 /// digits), so a round trip through them reproduces the coordinates bit for bit.
 ///
+/// Paths: every `path` argument is a UTF-8 string on every platform (ADR 0007, converted with
+/// core::path_from_utf8), and error messages and log lines name it in UTF-8. A path that is
+/// not valid UTF-8 (or contains a NUL byte) throws std::invalid_argument.
+///
 /// Errors (all readers):
 ///  * missing / unreadable file -> std::runtime_error naming the path;
 ///  * malformed content, no triangles, or a mesh rejected by the TriangleMesh

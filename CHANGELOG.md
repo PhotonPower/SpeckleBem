@@ -5,6 +5,15 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- core (WP-P1, ADR 0007): file paths are UTF-8 strings on every platform.
+  `core::path_from_utf8` (validating, via `std::u8string`; malformed UTF-8 or a NUL byte throws
+  `std::invalid_argument`), `core::path_to_utf8` (via `path::u8string()`) and
+  `core::find_invalid_utf8` in `core/path.hpp`. `geometry::io` mesh readers/writers and
+  `io::open_npy_directory` open files only through these helpers and name paths in UTF-8 in
+  error messages, so non-ASCII paths work on Windows (previously interpreted in the ANSI code
+  page). Tests: `tests/unit/test_path.cpp`, and mesh (STL/OBJ/Gmsh) and `.npy` directory round
+  trips under a directory named `sbem_Jürgen_µm_路径_🙂` in `test_mesh_io.cpp` /
+  `test_result_writer.cpp`.
 - solver (WP14a): `Simulation` driver (`src/simulation.cpp`, pimpl) for the dense strategy. Owns
   mesh, RWG space, formulation, excitation, `op::Problem` (ω of the excitation), operator,
   right-hand side, Jacobi diagonal (built lazily, only for a Jacobi-preconditioned GMRES solve)

@@ -1,3 +1,4 @@
+#include "specklebem/core/path.hpp"
 #include "specklebem/geometry/sphere.hpp"
 #include "specklebem/io/result_writer.hpp"
 
@@ -16,6 +17,9 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <vector>
+
+#include "utf8_test_support.hpp"
 
 using namespace specklebem;
 using Catch::Matchers::ContainsSubstring;
@@ -58,7 +62,7 @@ std::string read_file(const fs::path& p) {
 int count_temp_files(const fs::path& dir) {
     int n = 0;
     for (const auto& e : fs::recursive_directory_iterator(dir)) {
-        const std::string f = e.path().filename().string();
+        const std::string f = core::path_to_utf8(e.path().filename());
         n += f.size() >= 4 && f.ends_with("~tmp") ? 1 : 0;
     }
     return n;
@@ -113,7 +117,7 @@ std::uint64_t bits(Real x) {
 
 TEST_CASE("result_writer: vectors and matrices are bitwise exact, C order", "[io]") {
     TempDir tmp;
-    const auto w = io::open_npy_directory((tmp.path() / "a" / "b").string());
+    const auto w = io::open_npy_directory(core::path_to_utf8(tmp.path() / "a" / "b"));
     std::mt19937_64 rng(20261009);
     std::normal_distribution<Real> nd(0.0, 1e3);
     VectorXc v(7);
@@ -172,7 +176,7 @@ TEST_CASE("result_writer: vectors and matrices are bitwise exact, C order", "[io
 TEST_CASE("result_writer: mesh vertices and 0-based triangles", "[io]") {
     TempDir tmp;
     const geometry::TriangleMesh mesh = geometry::make_icosphere(0.5e-6, 1);
-    io::open_npy_directory(tmp.path().string())->write_mesh("geometry/sphere", mesh);
+    io::open_npy_directory(core::path_to_utf8(tmp.path()))->write_mesh("geometry/sphere", mesh);
     const fs::path dir = tmp.path() / "geometry" / "sphere";
     const Npy nv = read_npy(dir / "vertices.npy");
     CHECK(nv.dict == "{'descr': '<f8', 'fortran_order': False, 'shape': (42, 3), }");
@@ -198,7 +202,7 @@ TEST_CASE("result_writer: attributes.json escaping and Real round trip", "[io]")
     TempDir tmp;
     const fs::path json = tmp.path() / "attributes.json";
     {
-        const auto w = io::open_npy_directory(tmp.path().string());
+        const auto w = io::open_npy_directory(core::path_to_utf8(tmp.path()));
         w->write_attribute("title", "say \"hi\" \\ C:\\dir\nline\ttab\x01 \xc3\xa9 \xe2\x82\xac");
         w->write_attribute("wavelength", 500e-9);
         w->write_attribute("count", 3.0);
@@ -211,7 +215,7 @@ TEST_CASE("result_writer: attributes.json escaping and Real round trip", "[io]")
           "  \"neg_zero\": -0.0\n}\n");
 
     TempDir tmp2;
-    const auto w = io::open_npy_directory(tmp2.path().string());
+    const auto w = io::open_npy_directory(core::path_to_utf8(tmp2.path()));
     w->write_attribute(
         "s", "say \"hi\" \\ C:\\dir\nline\ttab\x01\x1f\r \xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80");
     CHECK(read_file(tmp2.path() / "attributes.json") ==
@@ -247,7 +251,7 @@ TEST_CASE("result_writer: attributes.json escaping and Real round trip", "[io]")
 
 TEST_CASE("result_writer: invalid names and paths throw", "[io]") {
     TempDir tmp;
-    const auto w = io::open_npy_directory(tmp.path().string());
+    const auto w = io::open_npy_directory(core::path_to_utf8(tmp.path()));
     const geometry::TriangleMesh mesh = geometry::make_icosphere(1.0, 0);
     for (const char* bad :
          {"",      "/abs", "a/",   "a//b",     ".",        "..",    "a/../b", "a.",
@@ -274,14 +278,15 @@ TEST_CASE("result_writer: invalid names and paths throw", "[io]") {
     CHECK_THROWS_AS(io::open_npy_directory(""), std::invalid_argument);
     // A regular file where the directory should be: runtime_error naming the path.
     std::ofstream(tmp.path() / "plain_file") << "x";
-    check_runtime_error([&] { (void)io::open_npy_directory((tmp.path() / "plain_file").string()); },
-                        "plain_file");
+    check_runtime_error(
+        [&] { (void)io::open_npy_directory(core::path_to_utf8(tmp.path() / "plain_file")); },
+        "plain_file");
 }
 
 TEST_CASE("result_writer: a target that is a directory throws and leaves no temporary file",
           "[io]") {
     TempDir tmp;
-    const auto w = io::open_npy_directory(tmp.path().string());
+    const auto w = io::open_npy_directory(core::path_to_utf8(tmp.path()));
     fs::create_directories(tmp.path() / "x.npy");
     fs::create_directories(tmp.path() / "g" / "m.npy");
     fs::create_directories(tmp.path() / "mesh" / "triangles.npy");
@@ -307,4 +312,46 @@ TEST_CASE("result_writer: open_hdf5 is unavailable", "[io]") {
         CHECK_THAT(e.what(), ContainsSubstring("SPECKLEBEM_ENABLE_HDF5"));
 #endif
     }
+}
+
+TEST_CASE("result_writer: .npy directory under a non-ASCII directory name (UTF-8 paths)", "[io]") {
+    TempDir tmp;
+    const std::string dir = core::path_to_utf8(tmp.path()) + "/" + test::non_ascii_dir_name() +
+                            "/" + test::utf8(u8"Ergebnis_\u00e4");
+    INFO("dir " << dir);
+    VectorXc v(3);
+    v << Complex(1.0, -2.0), Complex(0.5, 0.25), Complex(-3.0, 1e-9);
+    {
+        const auto w = io::open_npy_directory(dir);
+        w->write_vector("currents", v);
+        w->write_mesh("mesh", geometry::make_icosphere(1.0, 0));
+        w->write_attribute("material", test::utf8(u8"Silber \u00b5m"));
+        w->write_attribute("wavelength", 500e-9);
+    }
+    // The directory exists under the intended Unicode names (no code-page garbling).
+    const fs::path root = core::path_from_utf8(dir);
+    REQUIRE(fs::is_directory(root));
+    std::vector<std::string> entries;
+    for (const auto& e : fs::directory_iterator(tmp.path())) {
+        entries.push_back(core::path_to_utf8(e.path().filename()));
+    }
+    CHECK(entries == std::vector<std::string>{test::non_ascii_dir_name()});
+    const Npy nv = read_npy(root / "currents.npy");
+    CHECK(nv.dict == "{'descr': '<c16', 'fortran_order': False, 'shape': (3,), }");
+    REQUIRE(nv.data.size() == 48);
+    for (std::size_t k = 0; k < 3; ++k) {
+        CHECK(le64(nv.data, 2 * k) == bits(v(static_cast<Index>(k)).real()));
+        CHECK(le64(nv.data, 2 * k + 1) == bits(v(static_cast<Index>(k)).imag()));
+    }
+    CHECK(fs::exists(root / "mesh" / "vertices.npy"));
+    CHECK(fs::exists(root / "mesh" / "triangles.npy"));
+    CHECK(read_file(root / "attributes.json") == "{\n  \"material\": \"" +
+                                                     test::utf8(u8"Silber \u00b5m") +
+                                                     "\",\n  \"wavelength\": 5e-07\n}\n");
+
+    // Error messages name the exact UTF-8 path; invalid UTF-8 is rejected.
+    const std::string blocked = dir + "/" + test::utf8(u8"Datei_\u00f6");
+    std::ofstream(core::path_from_utf8(blocked)) << "x";
+    check_runtime_error([&] { (void)io::open_npy_directory(blocked); }, blocked);
+    CHECK_THROWS_AS(io::open_npy_directory("out_\xff"), std::invalid_argument);
 }
