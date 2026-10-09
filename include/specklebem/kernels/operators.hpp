@@ -167,6 +167,13 @@ struct OperatorOptions {
     /// pairs are unaffected (bitwise). Ag at 500 nm (alpha = 39 / um): pairs with R_lb > ~0.4 um
     /// are negligible at target 1e-5. false: the relative target applies to every block.
     bool decay_aware_target = true;
+    /// Near and far pairs: evaluate exp(-jkR) with the branch-free, vectorisable fastmath
+    /// functions (kernels/fast_math.hpp, WP-P2) instead of the C library's sin, cos and exp
+    /// (blocks agree to ~1e-15 relative; x3 to x4 faster near/far pairs). Used where the
+    /// arguments are in range for the whole pair (|Re k| R <= 1e6, Im k <= 0); otherwise, and
+    /// with false, the C library (the pre-WP-P2 arithmetic, bitwise). Touching pairs always
+    /// use the C library.
+    bool fast_plain_kernel = true;
 };
 
 /// Checks the options (ADR 0004): quad_degree_far in 1..20, quad_degree_near, quad_degree_rhs and

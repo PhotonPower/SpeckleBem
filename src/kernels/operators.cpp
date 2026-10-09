@@ -265,6 +265,7 @@
 /// of every call.
 #include "specklebem/kernels/operators.hpp"
 
+#include "specklebem/kernels/fast_math.hpp"
 #include "specklebem/kernels/quadrature.hpp"
 #include "specklebem/kernels/singularity.hpp"
 
@@ -824,32 +825,106 @@ struct Moments {
     C3 psi{};
 };
 
+/// Inner points of the plain kernel in structure-of-arrays layout (contiguous loads for the
+/// vectorised point loop); weights include the area.
+struct PointsSoA {
+    std::size_t count = 0;
+    std::array<Real, kMaxPoints> x, y, z, w;
+};
+
+void map_rule(const TriangleRule& rule, const TriangleGeometry& g, PointsSoA& out) {
+    out.count = rule.weights.size();
+    const P3 a = to_p3(g.v0);
+    const P3 b = to_p3(g.v1);
+    const P3 c = to_p3(g.v2);
+    for (std::size_t q = 0; q < out.count; ++q) {
+        const Real* l = rule.barycentric[q].data();
+        out.x[q] = l[0] * a.x + l[1] * b.x + l[2] * c.x;
+        out.y[q] = l[0] * a.y + l[1] * b.y + l[2] * c.y;
+        out.z[q] = l[0] * a.z + l[1] * b.z + l[2] * c.z;
+        out.w[q] = rule.weights[q] * g.area;
+    }
+}
+
+/// Per-point values of the plain kernel at one outer point (r' - r and the weighted kernel and
+/// gradient factors), computed by plain_kernel_values and summed by plain_moments.
+struct PlainValues {
+    std::array<Real, kMaxPoints> dx, dy, dz, gr, gi, ggr, ggi;
+};
+
+/// Point loop of the plain kernel (file comment "Plain kernel evaluation"). kFast: the
+/// branch-free fastmath functions (inlined, vectorisable), else the C library; kLossy: the
+/// factor e^{ki R}. The C-library variant is the pre-WP-P2 arithmetic (bitwise).
+template <bool kFast, bool kLossy>
+void plain_kernel_values(const P3& r, const PointsSoA& src, Real kr, Real ki, PlainValues& v) {
+    const std::size_t n = src.count;
+    for (std::size_t q = 0; q < n; ++q) {
+        const Real dx = src.x[q] - r.x;  // r' - r
+        const Real dy = src.y[q] - r.y;
+        const Real dz = src.z[q] - r.z;
+        const Real R = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const Real inv_r = 1.0 / R;
+        Real amp = src.w[q] * inv_r;
+        if constexpr (kLossy) {
+            amp *= kFast ? fastmath::fast_exp_nonpositive(ki * R) : std::exp(ki * R);
+        }
+        const Real phase = kr * R;
+        Real sn;
+        Real cs;
+        if constexpr (kFast) {
+            fastmath::fast_sincos(phase, sn, cs);
+        } else {
+            sn = std::sin(phase);
+            cs = std::cos(phase);
+        }
+        const Real gr = amp * cs;  // g = w e^{-jkR} / R
+        const Real gi = -amp * sn;
+        // grad' (e^{-jkR}/R) = (1 + jkR) e^{-jkR} / R^3 (r - r') = -(1 + jkR) e/R^3 (r' - r)
+        const Real c = 1.0 - ki * R;
+        const Real inv_r2 = inv_r * inv_r;
+        v.dx[q] = dx;
+        v.dy[q] = dy;
+        v.dz[q] = dz;
+        v.gr[q] = gr;
+        v.gi[q] = gi;
+        v.ggr[q] = -(gr * c - gi * phase) * inv_r2;
+        v.ggi[q] = -(gr * phase + gi * c) * inv_r2;
+    }
+}
+
 /// Plain kernel (non-touching pairs, R > 0), in real arithmetic (the hot loop of every near and
 /// far pair; complex products would go through the NaN-checking library multiplication). With
 /// k = kr + j ki: e^{-jkR} = e^{ki R} (cos(kr R) - j sin(kr R)), 1 + jkR = (1 - ki R) + j kr R.
-Moments plain_moments(const P3& r, const Points& src, Complex k) {
+/// `fast`: fastmath functions (the caller checks their argument ranges for the pair).
+Moments plain_moments(const P3& r, const PointsSoA& src, Complex k, bool fast) {
     const Real kr = k.real();
     const Real ki = k.imag();
     const bool lossy = ki != 0.0;
-    // Real and imaginary parts: phi0 (re, im), phi1 and psi (x re, x im, y re, ..., z im).
+    PlainValues v;
+    if (fast) {
+        if (lossy) {
+            plain_kernel_values<true, true>(r, src, kr, ki, v);
+        } else {
+            plain_kernel_values<true, false>(r, src, kr, ki, v);
+        }
+    } else if (lossy) {
+        plain_kernel_values<false, true>(r, src, kr, ki, v);
+    } else {
+        plain_kernel_values<false, false>(r, src, kr, ki, v);
+    }
+    // Real and imaginary parts: phi0 (re, im), phi1 and psi (x re, x im, y re, ..., z im),
+    // summed in point order.
     std::array<Real, 2> s0{};
     std::array<Real, 6> s1{};
     std::array<Real, 6> s2{};
     for (std::size_t q = 0; q < src.count; ++q) {
-        const Real dx = src.r[q].x - r.x;  // r' - r
-        const Real dy = src.r[q].y - r.y;
-        const Real dz = src.r[q].z - r.z;
-        const Real R = std::sqrt(dx * dx + dy * dy + dz * dz);
-        const Real inv_r = 1.0 / R;
-        const Real amp = src.w[q] * inv_r * (lossy ? std::exp(ki * R) : 1.0);
-        const Real phase = kr * R;
-        const Real gr = amp * std::cos(phase);  // g = w e^{-jkR} / R
-        const Real gi = -amp * std::sin(phase);
-        // grad' (e^{-jkR}/R) = (1 + jkR) e^{-jkR} / R^3 (r - r') = -(1 + jkR) e/R^3 (r' - r)
-        const Real c = 1.0 - ki * R;
-        const Real inv_r2 = inv_r * inv_r;
-        const Real ggr = -(gr * c - gi * phase) * inv_r2;
-        const Real ggi = -(gr * phase + gi * c) * inv_r2;
+        const Real gr = v.gr[q];
+        const Real gi = v.gi[q];
+        const Real ggr = v.ggr[q];
+        const Real ggi = v.ggi[q];
+        const Real dx = v.dx[q];
+        const Real dy = v.dy[q];
+        const Real dz = v.dz[q];
         s0[0] += gr;
         s0[1] += gi;
         s1[0] += gr * dx;
@@ -1009,15 +1084,26 @@ struct Side {
 };
 
 /// Plain kernel, same Dunavant rule on both triangles (near and far pairs).
-Accumulator integrate_plain(const Side& test, const Side& src, const TriangleRule& rule,
-                            Complex k) {
+/// `fast_math`: OperatorOptions::fast_plain_kernel; the fastmath functions are used only where
+/// their arguments are in range for every point pair of the pair (file comment).
+Accumulator integrate_plain(const Side& test, const Side& src, const TriangleRule& rule, Complex k,
+                            bool fast_math) {
     Points outer;
-    Points inner;
+    PointsSoA inner;
     map_rule(rule, *test.geom, outer);
     map_rule(rule, *src.geom, inner);
+    bool fast = false;
+    if (fast_math && k.imag() <= 0.0) {
+        const TriangleGeometry& gt = *test.geom;
+        const TriangleGeometry& gs = *src.geom;
+        const Vec3 ct = (gt.v0 + gt.v1 + gt.v2) / 3.0;
+        const Vec3 cs = (gs.v0 + gs.v1 + gs.v2) / 3.0;
+        const Real r_max = (ct - cs).norm() + centroid_radius(gt, ct) + centroid_radius(gs, cs);
+        fast = std::abs(k.real()) * r_max <= fastmath::kFastSincosMax;  // false for NaN
+    }
     Accumulator acc;
     for (std::size_t i = 0; i < outer.count; ++i) {
-        accumulate(outer.r[i], outer.w[i], plain_moments(outer.r[i], inner, k), *test.slots,
+        accumulate(outer.r[i], outer.w[i], plain_moments(outer.r[i], inner, k, fast), *test.slots,
                    *src.slots, true, acc);
     }
     return acc;
@@ -1530,7 +1616,7 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
     Accumulator acc;
     if (!touching) {
         const int degree = plain_degree(prox, g_test, g_src, region.k, opt);
-        acc = integrate_plain(test, src, triangle_rule(degree), region.k);
+        acc = integrate_plain(test, src, triangle_rule(degree), region.k, opt.fast_plain_kernel);
     } else if (opt.outer_grading_levels == 0) {
         const TriangleRule& rule = triangle_rule(opt.quad_degree_sing);
         acc = integrate_touching_dunavant(test, src, rule, region.k, need_k);
