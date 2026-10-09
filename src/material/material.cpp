@@ -1,6 +1,9 @@
 #include "specklebem/material/material.hpp"
 
+#include <cmath>
+#include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace specklebem::material {
 
@@ -25,6 +28,21 @@ Material silver_500nm() {
 }
 Material silicon_500nm() {
     return {Complex(18.478, -0.606), Complex(1, 0)};
+}
+
+Real field_decay_length(Complex eps_r, Real wavelength) {
+    if (!std::isfinite(eps_r.real()) || !std::isfinite(eps_r.imag())) {
+        throw std::invalid_argument("field_decay_length: eps_r must be finite");
+    }
+    if (!(wavelength > 0.0) || !std::isfinite(wavelength)) {
+        throw std::invalid_argument(
+            "field_decay_length: wavelength must be positive and finite, got " +
+            std::to_string(wavelength));
+    }
+    const Real kappa = std::abs(std::sqrt(eps_r).imag());
+    if (kappa == 0.0)
+        return std::numeric_limits<Real>::infinity();
+    return wavelength / (2.0 * constants::pi * kappa);
 }
 
 DispersiveMaterial::DispersiveMaterial(VectorXr wavelengths_m, VectorXc refractive_indices)
