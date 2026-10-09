@@ -23,6 +23,12 @@ metadata:
   installed, so Python files must be kept within 100 columns by hand (python/pyproject.toml).
 - Test helper executables built in `build/<preset>/tests/` can be located from Python via the
   build-tree package: `Path(specklebem.__file__).parents[2] / "tests"` (WP16 npy fixture).
+- `std::istreambuf_iterator` file reads trip GCC 13/14 `-O3 -Wnull-dereference` on Linux CI
+  (not GCC 16 here): read files with `fs::file_size` + `in.read` instead.
+- `std::filesystem::rename(tmp, target)` replaces an existing target on Windows with both
+  win-release (libstdc++) and win-debug (libc++): temp-file + rename overwrites work (WP16).
+- Python edit scripts written through a heredoc: put C++ snippets with backslash escapes in
+  raw strings (`r'''...'''`), otherwise `\x..`/`\0` become real bytes and matches fail.
 
 **Why:** cost several rebuild cycles in WP13 (2026-10-09).
 **How to apply:** check these before the first debug build of a new WP. See [[gmres-observations]].
