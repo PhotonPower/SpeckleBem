@@ -192,6 +192,23 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
     }
 }
 
+/// mlfmm=dict(...) onto mlfmm::MlfmmParams (docs/10): accuracy_digits, max_elements_per_leaf,
+/// min_box_size_lambda (the octree keys of mlfmm::OctreeParams).
+void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
+    for (const auto& [k, v] : d) {
+        const auto key = dict_key(k, "mlfmm");
+        if (key == "accuracy_digits") {
+            p.accuracy_digits = dict_value<Real>(v, key, "mlfmm");
+        } else if (key == "max_elements_per_leaf") {
+            p.octree.max_elements_per_leaf = dict_value<int>(v, key, "mlfmm");
+        } else if (key == "min_box_size_lambda") {
+            p.octree.min_box_size_lambda = dict_value<Real>(v, key, "mlfmm");
+        } else {
+            throw py::value_error("mlfmm: unknown key '" + key + "'");
+        }
+    }
+}
+
 std::optional<Kind> parse_formulation(const py::object& f) {
     if (py::isinstance<Kind>(f)) {
         return f.cast<Kind>();
@@ -219,7 +236,8 @@ std::unique_ptr<PySimulation> make_simulation(
     const material::Material& object, const std::optional<material::Material>& exterior,
     std::optional<Real> wavelength, const py::object& form, const std::string& preconditioner,
     const std::string& solver_name, const std::string& compression,
-    const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts) {
+    const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
+    const std::optional<py::dict>& mlfmm_opts) {
     if (!exc) {
         throw py::value_error("excitation: must not be None");
     }
@@ -245,6 +263,9 @@ std::unique_ptr<PySimulation> make_simulation(
     }
     if (kernel_opts) {
         apply_kernels(c.kernels, *kernel_opts);
+    }
+    if (mlfmm_opts) {
+        apply_mlfmm(c.mlfmm, *mlfmm_opts);
     }
     geometry::TriangleMesh copy = mesh;
     py::gil_scoped_release release;
@@ -478,7 +499,10 @@ preconditioner : str
 solver : str
     "gmres" or "direct" (dense LU).
 compression : str
-    "dense" (the only strategy so far; others raise ValueError).
+    "dense" or "mlfmm" (multilevel fast multipole, GMRES only); "aca" / "hmatrix" and unknown
+    names raise ValueError. With "mlfmm", ``assemble()`` raises RuntimeError when no expansion
+    order meets the accuracy (e.g. a silver interior: the lossy-region policy is not
+    implemented yet).
 gmres : dict, optional
     Keys ``tol`` (1e-3), ``max_iter`` (2000), ``restart`` (None = full GMRES), ``side``
     ("left" / "right") and ``verbose`` (True: progress via the C++ log).
@@ -489,6 +513,10 @@ kernels : dict, optional
     decay_aware_target (True: relaxed near/far target in lossy regions, ADR 0004),
     fast_plain_kernel (True: vectorised sin/cos/exp in near/far pairs; False reproduces the
     pre-WP-P2 C-library arithmetic bitwise).
+mlfmm : dict, optional
+    MLFMM parameters (used with compression="mlfmm"): ``accuracy_digits`` (3; d0 in (0, 5]),
+    ``max_elements_per_leaf`` (100) and ``min_box_size_lambda`` (0.25; leaf-edge floor in
+    exterior wavelengths).
 
 Raises
 ------
@@ -512,7 +540,7 @@ works). A main thread waiting for the lock stays interruptible with Ctrl-C
              py::arg("wavelength") = py::none(), py::arg("formulation") = "auto",
              py::arg("preconditioner") = "auto", py::arg("solver") = "gmres",
              py::arg("compression") = "dense", py::arg("gmres") = py::none(),
-             py::arg("kernels") = py::none())
+             py::arg("kernels") = py::none(), py::arg("mlfmm") = py::none())
         .def(
             "assemble", [](PySimulation& s) { s.locked([&] { s.assemble(); }); },
             "Assemble Z, the right-hand side and (Jacobi GMRES) the diagonal; idempotent.")

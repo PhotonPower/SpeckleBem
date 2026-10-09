@@ -145,3 +145,22 @@ visible). Decisions:
   2N ≥ 2·10⁴); until then d₀ = 5 is documented as unverified.
 - The volume-random search is pessimistic for r_max/a ≳ 0.5; a minimum leaf size relative to r_max
   (e.g. a ≥ 3.5 r_max for d₀ = 5) is to be decided with the WP20b data.
+
+## Amendment 2026-10-10 (WP20b: full MLFMM operator vs dense)
+
+`MlfmmOperator` (near + far) against the dense operator, relative matvec error over three random
+vectors (λ₀ = 500 nm, vacuum exterior; reproduced by the WP20b review):
+
+| case | 2N | interior | d₀ = 3, λ/4 leaves (r_max/a ≈ 0.57) | d₀ = 5, λ/2 leaves (r_max/a ≈ 0.29) |
+|---|---|---|---|---|
+| icosphere R = 1 µm | 15 360 | n = 1.5 / Si | 1.7e-4 / 2.1e-4 | 3.7e-6 / 6.5e-6 |
+| rough box 2 × 2 × 0.3 µm, 50 nm | 24 960 | n = 1.5 / Si | 7.2e-5 / 4.3e-5 | 6.7e-6 / 4.2e-6 |
+| rough plate 4 µm, 100 nm, λ leaves | 22 080 | n = 1.5 | 5.4e-6 | 5.5e-7 |
+| rough box 4 µm, 50 nm (exact rows) | 88 320 | Si | 2.9e-4 | — |
+
+Both docs/05 criteria (< 1e-3 at d₀ = 3, < 1e-5 at d₀ = 5) are met for dielectric and Si interiors.
+Decisions: **d₀ = 5 is verified** on multilevel trees for leaves ≥ λ/2 with r_max/a ≤ 0.3; λ/4 leaves
+remain limited to d₀ = 3. Leaf rule: a ≥ max(a_min(d₀), r_max / 0.3) with a_min = λ/4 (d₀ = 3),
+λ/2 (d₀ = 5); WP21 applies it automatically. The d₀ = 5 near field with λ/2 leaves is ~6.6× the λ/4 one
+(1.5 GB vs 0.23 GB at 2N = 2.5·10⁴) — relevant for WP22 sizing. Lossy interiors (Ag) are still rejected
+by the order search; WP21 implements §6. The per-level block check is reported from WP21 on.

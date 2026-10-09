@@ -30,6 +30,7 @@ add_executable(specklebem_unit_tests
     unit/test_fast_math.cpp
     unit/test_patterns.cpp
     unit/test_mlfmm.cpp
+    unit/test_mlfmm_operator.cpp
     # unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -47,9 +48,11 @@ add_test(NAME "assembler: rhs degree study (slow)" COMMAND specklebem_unit_tests
 add_test(NAME "mlfmm: plane-wave accuracy sweep (slow)" COMMAND specklebem_unit_tests "[mlfmm_sweep]")
 add_test(NAME "mlfmm: single-level FMM accuracy sweep (slow)" COMMAND specklebem_unit_tests "[patterns_sweep]")
 add_test(NAME "mlfmm: far operator accuracy sweep (slow)" COMMAND specklebem_unit_tests "[mlfmm_far_sweep]")
+add_test(NAME "mlfmm: far operator apply timing (slow)" COMMAND specklebem_unit_tests "[mlfmm_apply_timing]")
 set_tests_properties("kernels: fold sweep (slow)" "assembler: rhs degree study (slow)"
     "mlfmm: plane-wave accuracy sweep (slow)" "mlfmm: single-level FMM accuracy sweep (slow)"
-    "mlfmm: far operator accuracy sweep (slow)" PROPERTIES LABELS slow SKIP_RETURN_CODE 4)
+    "mlfmm: far operator accuracy sweep (slow)" "mlfmm: far operator apply timing (slow)"
+    PROPERTIES LABELS slow SKIP_RETURN_CODE 4)
 
 # Zero-allocation check of the element kernels. Separate executable because it replaces the
 # global operator new / delete (which would disable ASan's new/delete mismatch detection for
@@ -77,6 +80,7 @@ add_executable(specklebem_validation_tests
     validation/test_assembler_mie.cpp
     validation/test_mie_sphere_dense.cpp
     validation/test_simulation_mie.cpp
+    validation/test_mlfmm_simulation.cpp
     support/system_memory.cpp
     # validation/test_mie_sphere_mlfmm.cpp
     # validation/test_mlfmm_vs_dense.cpp
@@ -93,6 +97,7 @@ catch_discover_tests(specklebem_validation_tests PROPERTIES SKIP_RETURN_CODE 4 L
 add_executable(specklebem_validation_large_tests
     validation_large/test_mie_sphere_dense_large.cpp
     validation_large/test_gmres_vs_lu_large.cpp
+    validation_large/test_mlfmm_vs_dense_large.cpp
     support/system_memory.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
