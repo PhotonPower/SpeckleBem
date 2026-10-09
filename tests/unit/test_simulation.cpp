@@ -348,11 +348,12 @@ TEST_CASE("simulation: compression mlfmm", "[simulation]") {
 #ifdef NDEBUG
     cfg.kernels.target_accuracy = 1e-5;
     constexpr Real kTolerance = 1e-3;
+    cfg.gmres.tolerance = 1e-8;
 #else
     constexpr Real kTolerance = 1e-1;
+    cfg.gmres.tolerance = 1e-4;  // fewer iterations under the sanitizers
 #endif
     cfg.diagonal_preconditioner = true;
-    cfg.gmres.tolerance = 1e-8;
     Simulation dense(sphere_mesh(2), plane_wave(), cfg);
     cfg.compression = "mlfmm";
     cfg.mlfmm.octree.max_elements_per_leaf = 1;

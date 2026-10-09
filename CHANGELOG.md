@@ -25,8 +25,10 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   two `std::thread`s vs serial applies, reused workspaces on 4 levels, guard, describe/memory),
   Simulation and Python cases, `tests/validation/test_mlfmm_simulation.cpp` (GMRES MLFMM vs
   dense: currents and RCS), `tests/validation_large/test_mlfmm_vs_dense_large.cpp` (matvec vs
-  dense, 2N = 1.5e4 ... 2.5e4, d₀ = 3 and 5; 2N ~ 8.8e4 against exact rows); slow
-  `[mlfmm_apply_timing]`.
+  dense, 2N = 1.5e4 ... 2.5e4, icospheres and rough boxes, n = 1.5 and Si, PMCHWT and ICTF:
+  d₀ = 3 with λ/4 leaves 4.3e-5 ... 2.1e-4, d₀ = 5 with λ/2 leaves (r_max/a ≈ 0.29) 3.7e-6 ...
+  6.7e-6 and with λ leaves 5.5e-7; 2N = 8.8e4 against 128 exact rows 2.9e-4; Simulation GMRES
+  on a 2N = 7680 rough box); slow `[mlfmm_apply_timing]`.
 - mlfmm (WP20a): `mlfmm::MlfmmFarOperator` (`compression/mlfmm/far_operator.hpp`), the
   multilevel FMM far part Z_far of the full 2N × 2N system (both regions, all four blocks with the
   formulation weights a_i/η_i, b_i η_i, b_i/η_i; all leaf pairs that are neither the same leaf nor
