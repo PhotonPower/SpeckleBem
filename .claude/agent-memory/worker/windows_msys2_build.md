@@ -36,5 +36,12 @@ workers / Windows"; the non-obvious ones:
   test helpers like check_box over 50k triangles take ~5 s; keep big per-triangle checks
   release-only (`#ifdef NDEBUG`) and run a small analogue in debug.
 
+- Paths (ADR 0007, WP-P1): narrow `std::string` paths are UTF-8; on Windows
+  `fs::path(std::string)`, `path.string()` and `std::ifstream(std::string)` use the ANSI code
+  page. Go through `core::path_from_utf8` / `path_to_utf8`, also in tests (temp dirs can be
+  non-ASCII). Both libstdc++ (win-release) and libc++ (win-debug) open fstreams from
+  `fs::path` with non-BMP names fine. A program's `argv` is ANSI on Windows: convert via
+  `path_to_utf8(fs::path(argv[i]))`.
+
 **Why:** these cost several iterations in WP-W1 and WP2c.
 **How to apply:** any WP that builds or tests on this Windows machine.
