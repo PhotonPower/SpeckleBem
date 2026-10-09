@@ -180,6 +180,24 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
                     const RegionParams& region, const OperatorOptions& opt,
                     Eigen::Matrix<Complex, 3, 3>& L, Eigen::Matrix<Complex, 3, 3>& K);
 
+/// Outer rule of the analytic part of a touching pair on the graded path (diagnostics, WP7c).
+struct TouchingRuleInfo {
+    Index pieces = 0;  ///< Duffy pieces (WP7b table: 6 identical, 2 shared edge, 1 shared vertex)
+    Index points = 0;  ///< outer points of the analytic part for the ordering (t_test, t_src)
+    bool fold_adaptive = false;  ///< fold-adaptive pieces (false: the WP7b table)
+};
+
+/// The outer rule element_blocks uses for the analytic part of the touching pair (t_test, t_src)
+/// with options opt (one ordering; pairs averaged over both orderings evaluate both). Pure
+/// geometry: deterministic point counts for cost studies. Hard bound per ordering: 48 pieces of
+/// at most 16 x 16 points (12 288 points; WP7b table at level 4: 384 identical, 288 shared edge,
+/// 100 shared vertex).
+/// @throws std::invalid_argument for invalid options, outer_grading_levels = 0 (WP7 scheme, no
+///         graded rule) or a pair that is not identical, shared_edge or shared_vertex.
+/// @throws std::out_of_range for indices outside the mesh.
+[[nodiscard]] TouchingRuleInfo touching_rule_info(const geometry::TriangleMesh& mesh, Index t_test,
+                                                  Index t_src, const OperatorOptions& opt);
+
 /// Local Gram block of the K operator's jump term on triangle t:
 ///
 ///   I_mn = int_t f_m . (n x f_n) dS,   n = mesh normal of t (out of R2 into R1),

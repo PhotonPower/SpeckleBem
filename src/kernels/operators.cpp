@@ -970,6 +970,7 @@ enum class Grade { none, at_p1, at_p2 };
 struct DuffyPiece {
     Vec3 x, p1, p2;
     Grade grade;
+    int extra_levels;  ///< points of grading level outer_grading_levels + extra_levels
 };
 
 /// Singular feature through the apex of a piece: the apex itself (point) or a source-triangle
@@ -990,6 +991,12 @@ constexpr Real kFoldTol = 1e-6;
 /// lambda_C > kFoldMin and S is at least kNearVertex |AB| away from A and B.
 constexpr Real kFoldMin = 0.1;
 constexpr Real kNearVertex = 0.2;
+/// Extra point levels (adaptive_radial_points / adaptive_angular_points of level l + extra) of
+/// the shared-edge pieces with apex B when the angle at A is obtuse in both triangles, and of
+/// the pieces with apex A of folds below 90 degrees with S within kNearVertex |AB| of A (16 x 14
+/// and 16 x 16 instead of 14 x 10 points at level 4; file comment).
+constexpr int kExtraLevelsObtuse = 2;
+constexpr int kExtraLevelsNearVertex = 3;
 /// Smallest distance (in units of the side p1 p2) of the complex zero of a feature from the
 /// real interval v in [0, 1]; closer zeros are split off.
 constexpr Real kZeroMin = 0.5;
@@ -1003,6 +1010,7 @@ struct PieceList {
     std::size_t n_features = 0;
     Real min_area = 0.0;   ///< pieces below this area are dropped (degenerate slivers)
     bool changed = false;  ///< a piece was split or the partition differs from the WP7b one
+    int extra_levels = 0;  ///< extra point levels of the pieces of the current apex
 };
 
 /// Complex zero v_f + j q (q >= 0) of the squared distance |w|^2 - (w . d)^2 (ray) or |w|^2
@@ -1083,7 +1091,8 @@ void add_piece(PieceList& pl, const Vec3& x, const Vec3& p1, const Vec3& p2, int
         add_piece(pl, x, s, p2, depth + 1, reserve);
         return;
     }
-    pl.p[pl.count++] = {x, p1, p2, at0 ? Grade::at_p1 : (at1 ? Grade::at_p2 : Grade::none)};
+    pl.p[pl.count++] = {x, p1, p2, at0 ? Grade::at_p1 : (at1 ? Grade::at_p2 : Grade::none),
+                         pl.extra_levels};
 }
 
 /// Barycentric coordinates of p (in the plane of a, b, c) with respect to (a, b, c).
@@ -1146,6 +1155,20 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
     const Real lb = std::max(l[1], 0.0);
     const Vec3 S = (la * A + lb * B + l[2] * C) / (la + lb + l[2]);
     const Real ab = (B - A).norm();
+    // More points (file comment): pieces with apex B if the angle at A is obtuse in both
+    // triangles (and vice versa), and the pieces with apex A (B) of folds below 90 degrees whose
+    // clipped projection S lies within kNearVertex |AB| of A (B).
+    const bool obtuse_a = (B - A).dot(C - A) < 0.0 && (B - A).dot(far[0] - A) < 0.0;
+    const bool obtuse_b = (A - B).dot(C - B) < 0.0 && (A - B).dot(far[0] - B) < 0.0;
+    const Vec3 P = l[0] * A + l[1] * B + l[2] * C;
+    const Vec3& Q = folded ? S : P;
+    const bool near_a = (Q - A).norm() < kNearVertex * ab;
+    const bool near_b = (Q - B).norm() < kNearVertex * ab;
+    const auto extra_levels = [](bool other_obtuse, bool near) {
+        return near ? kExtraLevelsNearVertex : (other_obtuse ? kExtraLevelsObtuse : 0);
+    };
+    const int extra_a = extra_levels(obtuse_b, near_a);
+    const int extra_b = extra_levels(obtuse_a, near_b);
     if (l[2] <= kFoldMin || std::min((S - A).norm(), (S - B).norm()) < kNearVertex * ab) {
         // WP7b partition; folds >= 90 degrees: features apex and shared edge only.
         if (folded) {
@@ -1153,6 +1176,7 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
         } else {
             set_features(pl, A, {B});
         }
+        pl.extra_levels = extra_a;
         add_piece(pl, A, M, C, 0, 1);
         const std::size_t n_a = pl.count;
         if (folded) {
@@ -1160,20 +1184,38 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
         } else {
             set_features(pl, B, {A});
         }
+        pl.extra_levels = extra_b;
         add_piece(pl, B, M, C, 0, 0);
-        return folded || pl.changed || n_a != 1 || pl.count != 2 || pl.p[0].grade != Grade::at_p1 ||
+        return folded || pl.changed || (obtuse_a && extra_b != 0) || (obtuse_b && extra_a != 0) || n_a != 1 || pl.count != 2 || pl.p[0].grade != Grade::at_p1 ||
                pl.p[1].grade != Grade::at_p1;
     }
     // Fold below 90 degrees: the source edges A C' and B C' project onto the rays A S and B S
     // (S = P clipped into T along those rays), which become sides of the pieces.
     pl.changed = true;
     set_features(pl, A, {B, far[0]});
+    pl.extra_levels = extra_a;
     add_piece(pl, A, M, S, 0, 3);
     add_piece(pl, A, S, C, 0, 2);
     set_features(pl, B, {A, far[0]});
+    pl.extra_levels = extra_b;
     add_piece(pl, B, M, S, 0, 1);
     add_piece(pl, B, S, C, 0, 0);
     return true;
+}
+
+/// Fold-adaptive pieces of the touching pair (tt, ts) (test, source) of class `kind`: false if
+/// the WP7b table applies (fold_adaptive off, identical triangles or fold_pieces false).
+bool adaptive_pieces(const geometry::TriangleMesh& mesh, GradedKind kind, Index tt, Index ts,
+                     const OperatorOptions& opt, PieceList& pieces) {
+    if (!opt.fold_adaptive || kind == GradedKind::identical) {
+        return false;
+    }
+    const std::array<Vec3, 3> abc = shared_first(mesh, tt, ts);
+    const std::array<Vec3, 3> src_abc = shared_first(mesh, ts, tt);
+    const std::array<Vec3, 2> far = kind == GradedKind::shared_edge
+                                        ? std::array<Vec3, 2>{src_abc[2], src_abc[2]}
+                                        : std::array<Vec3, 2>{src_abc[1], src_abc[2]};
+    return fold_pieces(kind, abc, far, pieces);
 }
 
 /// Points of the fold-adaptive pieces at grading level `level`: radial (log-Gauss) and angular
@@ -1182,7 +1224,7 @@ int adaptive_radial_points(int level) {
     return std::min(6 + 2 * level, kMaxLinePoints);
 }
 int adaptive_angular_points(int level) {
-    return 2 + 2 * level;
+    return std::min(2 + 2 * level, kMaxLinePoints);
 }
 
 /// Graded touching scheme (file comment). `abc` are the test-triangle vertices reordered with
@@ -1195,18 +1237,17 @@ Accumulator integrate_touching_graded(const Side& test, const Side& src,
     Accumulator acc;
     // Analytic part on the graded rule.
     if (pieces != nullptr) {
-        const int n_ang = adaptive_angular_points(opt.outer_grading_levels);
-        const std::span<const LineNode> lgu =
-            log_gauss_rule(adaptive_radial_points(opt.outer_grading_levels));
-        const std::span<const LineNode> lg = log_gauss_rule(n_ang);
-        const std::span<const LineNode> gl = gauss01_rule(n_ang);
         for (std::size_t i = 0; i < pieces->count; ++i) {
             const DuffyPiece& pc = pieces->p[i];
+            const int level = opt.outer_grading_levels + pc.extra_levels;
+            const std::span<const LineNode> lgu = log_gauss_rule(adaptive_radial_points(level));
+            const int n_ang = adaptive_angular_points(level);
+            const std::span<const LineNode> rv =
+                pc.grade == Grade::none ? gauss01_rule(n_ang) : log_gauss_rule(n_ang);
             const P3 x = to_p3(pc.x);
             const P3 e1 = to_p3(pc.p1 - pc.x);
             const P3 e2 = to_p3(pc.p2 - pc.p1);
             const Real area2 = (pc.p1 - pc.x).cross(pc.p2 - pc.x).norm();
-            const std::span<const LineNode> rv = pc.grade == Grade::none ? gl : lg;
             for (const LineNode& nu : lgu) {
                 for (const LineNode& nv : rv) {
                     const Real v = pc.grade == Grade::at_p2 ? 1.0 - nv.x : nv.x;
@@ -1365,14 +1406,7 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
         const auto touching_pass = [&](const Side& te, const Side& sr, Index tt, Index ts) {
             const std::array<Vec3, 3> abc = shared_first(mesh, tt, ts);
             PieceList pieces;
-            bool adaptive = false;
-            if (opt.fold_adaptive && kind != GradedKind::identical) {
-                const std::array<Vec3, 3> src_abc = shared_first(mesh, ts, tt);
-                const std::array<Vec3, 2> far = kind == GradedKind::shared_edge
-                                                    ? std::array<Vec3, 2>{src_abc[2], src_abc[2]}
-                                                    : std::array<Vec3, 2>{src_abc[1], src_abc[2]};
-                adaptive = fold_pieces(kind, abc, far, pieces);
-            }
+            const bool adaptive = adaptive_pieces(mesh, kind, tt, ts, opt, pieces);
             return integrate_touching_graded(te, sr, abc, kind, adaptive ? &pieces : nullptr, opt,
                                              region.k, need_k);
         };
@@ -1403,6 +1437,42 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
             " (geometrically intersecting or coincident triangles that do not share vertex "
             "indices, or invalid region parameters)");
     }
+}
+
+TouchingRuleInfo touching_rule_info(const geometry::TriangleMesh& mesh, Index t_test,
+                                    Index t_src, const OperatorOptions& opt) {
+    validate(opt);
+    if (opt.outer_grading_levels == 0) {
+        throw std::invalid_argument(
+            "touching_rule_info: outer_grading_levels = 0 (WP7 scheme) has no graded rule");
+    }
+    if (t_test < 0 || t_test >= mesh.num_triangles() || t_src < 0 ||
+        t_src >= mesh.num_triangles()) {
+        throw std::out_of_range("touching_rule_info: triangle index out of range");
+    }
+    const Proximity prox = classify(mesh, t_test, t_src, opt.near_distance_factor);
+    if (prox != Proximity::identical && prox != Proximity::shared_edge &&
+        prox != Proximity::shared_vertex) {
+        throw std::invalid_argument("touching_rule_info: triangles " + std::to_string(t_test) +
+                                    " and " + std::to_string(t_src) + " do not touch");
+    }
+    const GradedKind kind = prox == Proximity::identical     ? GradedKind::identical
+                            : prox == Proximity::shared_edge ? GradedKind::shared_edge
+                                                             : GradedKind::shared_vertex;
+    TouchingRuleInfo info;
+    PieceList pieces;
+    info.fold_adaptive = adaptive_pieces(mesh, kind, t_test, t_src, opt, pieces);
+    if (!info.fold_adaptive) {
+        info.pieces = kind == GradedKind::identical ? 6 : (kind == GradedKind::shared_edge ? 2 : 1);
+        info.points = static_cast<Index>(graded_table(kind, opt.outer_grading_levels).size());
+        return info;
+    }
+    info.pieces = static_cast<Index>(pieces.count);
+    for (std::size_t i = 0; i < pieces.count; ++i) {
+        const int level = opt.outer_grading_levels + pieces.p[i].extra_levels;
+        info.points += adaptive_radial_points(level) * adaptive_angular_points(level);
+    }
+    return info;
 }
 
 void jump_block(const basis::RwgSpace& space, Index t, Eigen::Matrix<Complex, 3, 3>& I) {
