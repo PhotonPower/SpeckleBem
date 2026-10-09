@@ -170,8 +170,9 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`. `kernels`
   keys are the `kernels::OperatorOptions` member names (`quad_degree_far`, `quad_degree_near`,
   `quad_degree_sing`, `outer_grading_levels`, `near_distance_factor`,
-  `symmetrize_touching_above_kh`, `target_accuracy`). Unknown strings, keys or value types raise
-  `ValueError`. The mesh is copied, the excitation shared (`shared_ptr`).
+  `symmetrize_touching_above_kh`, `target_accuracy`, `quad_degree_rhs`, `fold_adaptive`).
+  Unknown strings, keys or value types raise `ValueError`. The mesh is copied, the excitation
+  shared (`shared_ptr`).
 - `solve()` overrides apply to this call only (C++ `solve(GmresParams, cb)`; `restart=0` = full
   GMRES). The GIL is released during `assemble()`, `solve()`, `matvec`, field / far-field / RCS
   evaluation and file I/O. `callback(iteration, residual)` runs with the GIL re-acquired, once
@@ -188,21 +189,36 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   `SolveResult.x` is a read-only view that keeps its result alive (tested after `del res`);
   `operator()` keeps the Simulation alive.
 - Threads (WP14b3): calls on one Simulation from several Python threads are serialised by a
-  per-object `std::mutex` held by the binding type (`PySimulation`, derived from the unchanged
-  C++ `Simulation`). Every locking wrapper (`assemble`, `solve`, `report`, `currents`,
-  `operator`, `rhs`, `field`, `far_field`, `bistatic_rcs`) releases the GIL first and then waits
-  for the mutex, so no thread waits for it while holding the GIL; the holder may re-acquire the
-  GIL (callback, signal check). A locking call from inside a `solve()` callback on the same
-  Simulation would wait for itself and raises `RuntimeError` instead (owner-thread check; a
-  recursive mutex was rejected because a nested `solve()` would modify the state the outer
-  GMRES is using). Properties fixed at construction (`formulation`, `preconditioner`, `solver`,
-  `wavelength`, `num_unknowns`) do not lock; `LinearOperator.matvec` does not lock (the
-  operator is immutable once assembled).
+  per-object `std::timed_mutex` held by the binding type (`PySimulation`, derived from the
+  unchanged C++ `Simulation`). Limits: the calls run one after another, not in parallel (use one
+  Simulation per thread for parallel work); from inside a `solve()` callback a busy Simulation
+  raises `RuntimeError` instead of waiting; a main thread waiting for the lock stays
+  interruptible with Ctrl-C. Design: every locking wrapper (`assemble`, `solve`, `report`,
+  `currents`, `operator`, `rhs`, `field`, `far_field`, `bistatic_rcs`) releases the GIL first
+  and then waits for the mutex, so no thread waits for it while holding the GIL; the holder may
+  re-acquire the GIL (callback, signal check). Waiting is bounded three ways:
+  - a locking call from inside a `solve()` callback on the same Simulation would wait for
+    itself and raises `RuntimeError` at once (owner-thread check; a recursive mutex was
+    rejected because a nested `solve()` would modify the state the outer GMRES is using);
+  - a thread that already holds some Simulation's lock (a thread-local counter > 0: inside a
+    `solve()` callback, or a finalizer run there) only `try_lock()`s another Simulation and
+    raises `RuntimeError` ("Simulation busy") if it is held, because two solves calling into
+    each other's Simulation from their callbacks would otherwise deadlock; a call into an idle
+    Simulation works;
+  - the main thread waits in 50 ms slices (`try_lock_for`) and between them re-acquires the
+    GIL for `PyErr_CheckSignals()` (then releases it again), so `KeyboardInterrupt` arrives
+    while another thread runs a long solve. Other threads do not handle signals and just wait.
+
+  Properties fixed at construction (`formulation`, `preconditioner`, `solver`, `wavelength`,
+  `num_unknowns`) do not lock; `LinearOperator.matvec` does not lock (the operator is immutable
+  once assembled, and `op::LinearOperator::apply` must be safe to call concurrently).
 - Python tests against the `win-debug` (ASan) module do not run yet: CLANG64 `python.exe` is
   not instrumented, the ASan runtime is loaded late with the extension, and its interceptors
-  then report frees of CRT memory allocated before it started (`_wputenv_s` during import) as
-  "attempting free on address which was not malloc()-ed" (a false positive, not a SpeckleBem
-  finding). It would need an instrumented or ASan-preloading Python.
+  then reject CRT memory allocated before it started (`_wputenv_s` during import): by default
+  with "attempting to call malloc_usable_size() for pointer which is not owned", with
+  `ASAN_OPTIONS=check_malloc_usable_size=0` with "attempting free on address which was not
+  malloc()-ed" (false positives, not SpeckleBem findings). It would need an instrumented or
+  ASan-preloading Python.
 - `LinearOperator.matvec(x)` accepts finite real or complex `(n,)` or `(n, 1)` input and
   returns `(n,)` complex128. `as_scipy()` imports SciPy lazily (`ImportError` without it).
 - Deviations from the target sketch above: `field` has no `region` argument (the region of every
