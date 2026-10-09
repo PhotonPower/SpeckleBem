@@ -11,8 +11,11 @@
 #include "specklebem/operator/linear_operator.hpp"
 
 #include <memory>
+#include <vector>
 
 namespace specklebem::op {
+
+class SparseOperator;
 
 struct Problem {
     const basis::RwgSpace* space = nullptr;
@@ -65,7 +68,34 @@ public:
     [[nodiscard]] std::string name() const override { return "dense"; }
 };
 
-/// Right-hand side  b = [ (a1/eta1) <f, E_inc>_tan ; b1 eta1 <f, H_inc>_tan ].
+/// Pattern of basis pairs (m, n), m, n in [0, N), shared by all four blocks of Z. Rows are
+/// grouped: the rows m with group_of_row[m] = g share the column list
+/// cols[col_ptr[g] .. col_ptr[g + 1]) (strictly ascending). Grouping keeps the pattern O(N)
+/// plus one list per group when many rows have the same columns (the rows of one octree leaf
+/// for the MLFMM near field, mlfmm::near_pattern); one group per row is plain CSR.
+struct BasisPattern {
+    std::vector<Index> group_of_row;  ///< size N, entries in [0, G)
+    std::vector<Index> col_ptr;       ///< size G + 1, col_ptr[0] = 0, non-decreasing
+    std::vector<Index> cols;          ///< size col_ptr[G], each group ascending in [0, N)
+};
+
+/// Exact Galerkin entries of Z (the DenseStrategy matrix, same formula, weights and jump terms)
+/// on a basis-pair pattern: entry (r, c) of the 2N x 2N system is stored iff
+/// (r mod N, c mod N) is in the pattern, i.e. each pattern pair gives its JJ, JM, MJ and MM
+/// entries. Row r holds the columns of row r mod N, then the same columns + N.
+///
+/// Every triangle pair (t, s) with t in supp(m), s in supp(n) for some pattern pair (m, n) is
+/// integrated once per active region (element_blocks); only the pattern entries of its 3 x 3
+/// blocks are scattered. Test triangles run colour by colour with the dense scheduling, source
+/// triangles in ascending order, so every stored entry receives the same contributions in the
+/// same order as in DenseStrategy::build and is bitwise equal to the dense entry. The result
+/// is bitwise identical for any thread count. Memory 4 nnz (16 + 8) bytes for nnz pattern
+/// pairs; time O(number of triangle pairs touched by the pattern).
+/// @throws std::invalid_argument for an invalid Problem (validate) or an inconsistent pattern
+///         (sizes, group indices, columns out of range or not strictly ascending).
+std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPattern& pattern);
+
+/// Right-hand side  b =[ (a1/eta1) <f, E_inc>_tan ; b1 eta1 <f, H_inc>_tan ].
 /// <f_m, E_inc> = sum over the two support triangles of int f_m . E_inc dS with the Dunavant
 /// rule of degree p.kernel_options.quad_degree_rhs (positive-interior; WP7c, before:
 /// quad_degree_near).

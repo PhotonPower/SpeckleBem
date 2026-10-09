@@ -25,6 +25,7 @@ add_executable(specklebem_unit_tests
     unit/test_simulation.cpp
     unit/test_path.cpp
     unit/test_octree.cpp
+    unit/test_near_field.cpp
     unit/test_plane_wave.cpp
     unit/test_fast_math.cpp
     # unit/test_speckle_statistics.cpp
