@@ -57,31 +57,37 @@ bool contains(const std::string& s, const std::string& what) {
     return s.find(what) != std::string::npos;
 }
 
-}  // namespace
-
-TEST_CASE("simulation: direct and GMRES agree with the low-level pipeline", "[simulation]") {
-    const material::Material mat = lossless_n15();
-
-    // Low-level reference: same Problem ingredients, DenseStrategy + assemble_rhs + solve_direct.
+/// Low-level reference currents of the n = 1.5 sphere with PMCHWT: the same Problem ingredients
+/// as the driver, DenseStrategy + assemble_rhs + solve_direct.
+VectorXc reference_currents() {
     const geometry::TriangleMesh mesh = sphere_mesh();
     const basis::RwgSpace space(mesh);
     const auto wave = plane_wave();
     const auto form = formulation::make_formulation(Kind::PMCHWT);
     op::Problem p;
     p.space = &space;
-    p.object = mat;
+    p.object = lossless_n15();
     p.formulation = form.get();
     p.excitation = wave.get();
     p.kernel_options = cheap_options();
     p.omega = wave->omega();
     const auto Z = std::dynamic_pointer_cast<op::DenseOperator>(op::DenseStrategy().build(p));
     REQUIRE(Z != nullptr);
-    const VectorXc x_ref = solver::solve_direct(*Z, op::assemble_rhs(p));
+    return solver::solve_direct(*Z, op::assemble_rhs(p));
+}
 
-    SimulationConfig cfg = base_config(mat);
+SimulationConfig pmchwt_config(SolverKind kind) {
+    SimulationConfig cfg = base_config(lossless_n15());
     cfg.formulation = Kind::PMCHWT;
-    cfg.solver = SolverKind::Direct;
-    Simulation direct(sphere_mesh(), wave, cfg);
+    cfg.solver = kind;
+    return cfg;
+}
+
+}  // namespace
+
+TEST_CASE("simulation: direct solve equals the low-level pipeline", "[simulation]") {
+    const VectorXc x_ref = reference_currents();
+    Simulation direct(sphere_mesh(), plane_wave(), pmchwt_config(SolverKind::Direct));
     const solver::GmresResult rd = direct.solve();
     CHECK(rd.iterations == 0);
     CHECK(rd.converged);
@@ -91,16 +97,25 @@ TEST_CASE("simulation: direct and GMRES agree with the low-level pipeline", "[si
     CHECK(rd.residual_history[1] == rd.true_relative_residual);
     CHECK(rel_diff(direct.solution().currents, x_ref) < 1e-12);
     CHECK(rel_diff(rd.x, x_ref) < 1e-12);
+    CHECK(contains(direct.report(), "unused by the direct solver"));
+}
 
+TEST_CASE("simulation: GMRES with and without Jacobi equals the direct solution", "[simulation]") {
+    // The direct driver solve equals x_ref to 1e-12 (previous case), so x_ref stands for it.
+    const VectorXc x_ref = reference_currents();
+    const auto wave = plane_wave();
+    // Unpreconditioned GMRES with ICTF (a block-row scaling of PMCHWT, so the same discrete
+    // solution): 55 iterations instead of 149 for PMCHWT, which keeps the sanitizer run short.
     struct Variant {
+        Kind kind;
         bool jacobi;
         solver::PreconditionerSide side;
     };
-    for (const Variant v : {Variant{false, solver::PreconditionerSide::Left},
-                            Variant{true, solver::PreconditionerSide::Left},
-                            Variant{true, solver::PreconditionerSide::Right}}) {
-        SimulationConfig g = cfg;
-        g.solver = SolverKind::Gmres;
+    for (const Variant v : {Variant{Kind::ICTF, false, solver::PreconditionerSide::Left},
+                            Variant{Kind::PMCHWT, true, solver::PreconditionerSide::Left},
+                            Variant{Kind::PMCHWT, true, solver::PreconditionerSide::Right}}) {
+        SimulationConfig g = pmchwt_config(SolverKind::Gmres);
+        g.formulation = v.kind;
         g.diagonal_preconditioner = v.jacobi;
         g.gmres.tolerance = 1e-10;
         g.gmres.side = v.side;
@@ -111,7 +126,7 @@ TEST_CASE("simulation: direct and GMRES agree with the low-level pipeline", "[si
         CHECK(r.converged);
         CHECK(calls == r.iterations);
         CHECK(sim.diagonal_preconditioner() == v.jacobi);
-        CHECK(rel_diff(sim.solution().currents, direct.solution().currents) < 1e-7);
+        CHECK(rel_diff(sim.solution().currents, x_ref) < 1e-7);
         CHECK(contains(sim.report(), v.jacobi ? "diagonal (Jacobi) (explicit)" : "none"));
     }
 }
