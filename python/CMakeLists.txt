@@ -7,6 +7,7 @@ target_link_libraries(_specklebem PRIVATE SpeckleBem::specklebem SpeckleBem::war
 # GCC's flow-sensitive warnings fire on pybind11 / Eigen / libstdc++ code inlined at -O2 (false
 # positives inside system headers, e.g. pybind11::array::ndim(), std::copy of Eigen storage).
 # Source-level options follow the project warning set on the command line.
+# Re-test removing this suppression after each pybind11 or GCC upgrade.
 set_property(SOURCE ${SPECKLEBEM_PYTHON_SOURCES} APPEND PROPERTY COMPILE_OPTIONS
     $<$<CXX_COMPILER_ID:GNU>:-Wno-null-dereference$<SEMICOLON>-Wno-maybe-uninitialized>)
 target_compile_definitions(_specklebem PRIVATE VERSION_INFO="${PROJECT_VERSION}")

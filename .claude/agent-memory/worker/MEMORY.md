@@ -2,4 +2,4 @@
 - [Windows build pitfalls](build_pitfalls_windows.md) — GCC null-deref false positive, debug -O0 timings, WP7b quadrature cost in tests, ctest -R case
 - [GMRES observations](gmres_observations.md) — measured iteration counts/residuals (sphere, 2e4 rough box) for test budgets
 - [Rough box grading facts](rough_box_grading.md) — anchor row, stitched relaxation band (edges <= 2 h_g), safety net, measured box % and aspects
-- [Python bindings pitfalls](python_bindings.md) — module warning flags order, py::vectorize const-ref error, read-only views, exception map
+- [Python bindings pitfalls](python_bindings.md) — module warning flags order, py::vectorize const-ref error, read-only views, exception map, docstring + finite-input rules

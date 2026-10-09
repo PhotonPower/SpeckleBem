@@ -45,10 +45,20 @@ Material silicon_500nm();
 ///         non-finite wavelength.
 [[nodiscard]] Real field_decay_length(const Material& m, Real wavelength);
 
-/// Tabulated n,k data (e.g. refractiveindex.info) with interpolation.
+/// Tabulated refractive index n(lambda_0) (mu_r = 1) with linear interpolation in n.
+/// The indices are in the exp(+jwt) form n - jk (Im(n) <= 0 for passive media); n + ik
+/// optics data (refractiveindex.info, exp(-iwt)) must be conjugated before (docs/06).
 class DispersiveMaterial {
 public:
+    /// @param wavelengths_m vacuum wavelengths [m]: finite, positive, strictly increasing.
+    /// @param refractive_indices n - jk at those wavelengths (same size, >= 2 samples).
+    /// @throws std::invalid_argument for mismatched sizes or fewer than 2 samples, non-finite,
+    ///         non-positive or not strictly increasing wavelengths, a non-finite index or an
+    ///         index with Im(n) > 0 (n + ik data that was not conjugated).
     DispersiveMaterial(VectorXr wavelengths_m, VectorXc refractive_indices);
+    /// Material with eps_r = n(lambda_m)^2, mu_r = 1. The table endpoints are inclusive.
+    /// @throws std::invalid_argument for a non-finite wavelength.
+    /// @throws std::out_of_range for a wavelength outside [lambda_min, lambda_max].
     [[nodiscard]] Material at_wavelength(Real lambda_m) const;
 
 private:

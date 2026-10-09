@@ -50,16 +50,68 @@ def test_icosphere_counts_and_quality():
         assert (nv, nt, ne) == (10 * 4**n + 2, 20 * 4**n, 30 * 4**n)
         assert nv - ne + nt == 2
         assert mesh.signed_volume() > 0
-        q = mesh.quality_report()
+        q = mesh.quality()
+        assert isinstance(q, sb.MeshQuality) and repr(q).startswith("<MeshQuality V=")
         assert q.euler_characteristic == 2 and q.closed and q.consistently_oriented
         assert q.num_triangles == nt and q.num_boundary_edges == 0
         assert 1.0 <= q.max_aspect_ratio < 1.5
         lo, hi = q.min_edge_length * (1 - 1e-12), q.max_edge_length * (1 + 1e-12)
         assert lo <= q.mean_edge_length <= hi
         assert "Euler characteristic    : 2" in str(q)
+        assert mesh.quality_report() == str(q)
     sphere = sb.make_sphere(radius=1e-6, target_edge_length=0.3e-6, center=[1e-6, 0, 0])
-    assert sphere.quality_report().mean_edge_length <= 0.3e-6
+    assert sphere.quality().mean_edge_length <= 0.3e-6
     np.testing.assert_allclose(sphere.vertices.mean(axis=0), [1e-6, 0, 0], atol=1e-12)
+
+
+def _layouts(v, t):
+    """The same mesh as int32, Fortran-order, strided and nested-list input."""
+    v_wide = np.zeros((v.shape[0], 6))
+    v_wide[:, ::2] = v
+    t_wide = np.zeros((t.shape[0] * 2, 3), dtype=np.int64)
+    t_wide[::2] = t
+    return {
+        "int32": (v, t.astype(np.int32)),
+        "uint32": (v, t.astype(np.uint32)),
+        "fortran": (np.asfortranarray(v), np.asfortranarray(t)),
+        "strided": (v_wide[:, ::2], t_wide[::2]),
+        "lists": (v.tolist(), t.tolist()),
+    }
+
+
+@pytest.mark.parametrize("layout", ["int32", "uint32", "fortran", "strided", "lists"])
+@pytest.mark.parametrize("name", ["tetra", "icosphere"])
+def test_mesh_input_layouts(name, layout):
+    if name == "tetra":
+        ref = sb.TriangleMesh(TETRA_V, TETRA_T)
+    else:
+        ref = sb.make_icosphere(1e-6, 1)
+    v, t = _layouts(np.array(ref.vertices), np.array(ref.triangles))[layout]
+    assert layout == "lists" or not (v.flags.c_contiguous and t.dtype == np.int64)
+    mesh = sb.TriangleMesh(v, t)
+    np.testing.assert_array_equal(mesh.vertices, ref.vertices)
+    np.testing.assert_array_equal(mesh.triangles, ref.triangles)
+    np.testing.assert_array_equal(mesh.edges, ref.edges)
+
+
+def test_empty_mesh():
+    mesh = sb.TriangleMesh(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64))
+    assert (mesh.num_vertices, mesh.num_triangles, mesh.num_edges) == (0, 0, 0)
+    assert not mesh.is_closed()
+    with pytest.raises(RuntimeError):
+        mesh.bounding_box()
+
+
+def test_docstrings_name_units_and_conventions():
+    assert "[m]" in sb.make_icosphere.__doc__ and "radius" in sb.make_icosphere.__doc__
+    assert "re-orients" in sb.TriangleMesh.__doc__
+    assert "flip_normals()" in sb.TriangleMesh.__doc__
+    assert "seed" in sb.generate_gaussian_height_map.__doc__
+    assert "only logged" in sb.RoughSurface.__doc__
+    assert "[m]" in sb.RoughSurface.dx.__doc__
+    objs = (sb.TriangleMesh.quality, sb.MeshQuality, sb.HeightMap, sb.make_rough_surface_mesh)
+    for obj in objs:
+        assert obj.__doc__ and "[m" in obj.__doc__
 
 
 def test_flip_normals():

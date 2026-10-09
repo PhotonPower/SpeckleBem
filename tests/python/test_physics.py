@@ -1,5 +1,8 @@
 """Python bindings of materials, excitations and the Mie reference (WP14b1)."""
 
+import gc
+import weakref
+
 import numpy as np
 import pytest
 
@@ -40,10 +43,37 @@ def test_dispersive_material():
     assert disp.at(450e-9).eps_r == pytest.approx(n_450**2, rel=1e-14)
     assert disp.at_wavelength(550e-9).eps_r == pytest.approx((0.5 * (n[1] + n[2])) ** 2)
     assert disp.at(450e-9).mu_r == 1
+    # Inclusive endpoints: the first and last wavelength give the tabulated n^2.
+    assert disp.at(400e-9).eps_r == pytest.approx(n[0] ** 2, rel=1e-14)
+    assert disp.at(600e-9).eps_r == pytest.approx(n[2] ** 2, rel=1e-14)
+    for bad in (700e-9, 399e-9, np.nan, np.inf):
+        with pytest.raises(ValueError):
+            disp.at(bad)
+
+
+@pytest.mark.parametrize(
+    "lam, n",
+    [
+        ([400e-9, 500e-9, 600e-9], [1.5, 2.0]),  # size mismatch
+        ([500e-9, 400e-9], [1.5, 2.0]),  # decreasing
+        ([400e-9, 400e-9], [1.5, 2.0]),  # repeated
+        ([0.0, 400e-9], [1.5, 2.0]),  # non-positive
+        ([np.nan, 400e-9], [1.5, 2.0]),  # non-finite
+        ([400e-9, 500e-9], [1.5, np.inf]),  # non-finite index
+    ],
+)
+def test_dispersive_material_invalid(lam, n):
     with pytest.raises(ValueError):
-        disp.at(700e-9)
-    with pytest.raises(ValueError):
-        sb.DispersiveMaterial(lam, n[:2])
+        sb.DispersiveMaterial(np.array(lam), np.array(n, dtype=complex))
+
+
+def test_dispersive_material_rejects_unconjugated_optics_data():
+    lam = np.array([400e-9, 500e-9])
+    n_optics = np.array([0.05 + 2.0j, 0.05 + 3.0j])  # n + ik (exp(-iwt)), e.g. Ag
+    with pytest.raises(ValueError, match=r"n - jk.*conjugated"):
+        sb.DispersiveMaterial(lam, n_optics)
+    assert sb.DispersiveMaterial(lam, n_optics.conj()).at(450e-9).eps_r.imag < 0
+    assert "n - jk" in sb.DispersiveMaterial.__doc__
 
 
 def plane_wave_reference(k_hat, e0, pts):
@@ -73,6 +103,9 @@ def test_plane_wave():
     assert pw.electric_field(np.zeros((0, 3))).shape == (0, 3)
     with pytest.raises(ValueError):
         pw.electric_field(np.zeros((4, 2)))
+    for bad in (np.nan, np.inf):
+        with pytest.raises(ValueError, match="finite"):
+            pw.magnetic_field([[0.0, 0.0, 0.0], [0.0, bad, 0.0]])
     with pytest.raises(ValueError):  # not transverse
         sb.PlaneWave(LAMBDA, [0, 0, 1], [0, 0, 1])
 
@@ -128,8 +161,40 @@ def test_mie_bohren_huffman():
     assert mie.internal_E(np.zeros((1, 3))).shape == (1, 3)
     with pytest.raises(ValueError):
         mie.scattered_E([0.0, 0.0, 0.0])  # inside the sphere
+    with pytest.raises(ValueError, match="finite"):
+        mie.scattered_E([np.inf, 0.0, 0.0])
+    with pytest.raises(ValueError, match="finite"):
+        mie.internal_E([np.nan, 0.0, 0.0])
+    with pytest.raises(ValueError, match="theta"):
+        mie.bistatic_rcs(np.array([0.1, np.nan]), 0.0)
+    with pytest.raises(ValueError, match="phi"):
+        mie.bistatic_rcs(0.1, np.inf)
     # Far field: 4 pi r^2 |E_s|^2 -> sigma (|E_inc| = 1 V/m), error O(1/(k r)).
     r, th, ph = 1e-2, 0.7, 0.3
     p = r * np.array([np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)])
     far = 4 * np.pi * r**2 * np.sum(np.abs(mie.scattered_E(p)) ** 2)
     assert far == pytest.approx(mie.bistatic_rcs(th, ph), rel=1e-3)
+
+
+def test_mie_coefficient_views_keep_solution_alive():
+    mie = sb.Mie(radius=0.5e-6, wavelength=LAMBDA, material=sb.silicon_500nm())
+    a_n, b_n = mie.a_n, mie.b_n
+    expected = a_n.copy(), b_n.copy()
+    ref = weakref.ref(mie)
+    del mie
+    gc.collect()
+    assert ref() is not None  # the views keep the solution alive
+    np.testing.assert_array_equal(a_n, expected[0])
+    np.testing.assert_array_equal(b_n, expected[1])
+    del a_n, b_n
+    gc.collect()
+    assert ref() is None
+
+
+def test_docstrings_name_units_and_conventions():
+    assert "[V/m]" in sb.PlaneWave.__doc__ and "exp(+jwt)" in sb.PlaneWave.__doc__
+    assert "[A/m]" in sb.Excitation.magnetic_field.__doc__
+    assert "[rad]" in sb.GaussianBeam.__doc__ and "[m]" in sb.GaussianBeam.__doc__
+    assert "[m^2]" in sb.Mie.bistatic_rcs.__doc__ and "[rad]" in sb.Mie.bistatic_rcs.__doc__
+    assert "Im(eps_r) <= 0" in sb.Material.__doc__
+    assert "[m]" in sb.field_decay_length.__doc__

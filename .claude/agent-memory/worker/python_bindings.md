@@ -22,6 +22,12 @@ metadata:
   translator is registered (bindings.cpp maps it to ValueError).
 - New pure-Python files must be listed in `SPECKLEBEM_PYTHON_FILES` (python/CMakeLists.txt) or
   the build-tree package misses them.
+- Docstrings (WP14b1f): every bound object has a NumPy-style docstring with units; keep that
+  for new bindings (tests assert units in `__doc__`). clang-format does not wrap `R"doc(...)"`
+  raw strings and ruff is not installed on the Windows machine: check <= 100 columns and
+  trailing spaces by hand (awk 'length > 100').
+- Non-finite inputs: `common.hpp::require_all_finite` before releasing the GIL; use it for new
+  point/angle evaluation bindings.
 
 **Why:** found while implementing WP14b1 (2026-10-09); each cost a rebuild cycle.
 **How to apply:** check before adding bindings in WP14b2 and later. See [[build-pitfalls-windows]].
