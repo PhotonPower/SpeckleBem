@@ -1,8 +1,14 @@
-pybind11_add_module(_specklebem MODULE
+set(SPECKLEBEM_PYTHON_SOURCES
     src/bindings.cpp
     src/bind_excitation.cpp
     src/bind_geometry.cpp)
-target_link_libraries(_specklebem PRIVATE SpeckleBem::specklebem)
+pybind11_add_module(_specklebem MODULE ${SPECKLEBEM_PYTHON_SOURCES})
+target_link_libraries(_specklebem PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
+# GCC's flow-sensitive warnings fire on pybind11 / Eigen / libstdc++ code inlined at -O2 (false
+# positives inside system headers, e.g. pybind11::array::ndim(), std::copy of Eigen storage).
+# Source-level options follow the project warning set on the command line.
+set_property(SOURCE ${SPECKLEBEM_PYTHON_SOURCES} APPEND PROPERTY COMPILE_OPTIONS
+    $<$<CXX_COMPILER_ID:GNU>:-Wno-null-dereference$<SEMICOLON>-Wno-maybe-uninitialized>)
 target_compile_definitions(_specklebem PRIVATE VERSION_INFO="${PROJECT_VERSION}")
 set_target_properties(_specklebem PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/specklebem)

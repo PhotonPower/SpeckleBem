@@ -64,7 +64,7 @@ py::object bistatic_rcs(const MieSolution& s, const py::object& theta, const py:
     if (t.ndim() == 0) {
         return py::float_(op[0]);
     }
-    return std::move(out);
+    return py::object(std::move(out));
 }
 
 }  // namespace
