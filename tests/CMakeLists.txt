@@ -30,6 +30,7 @@ add_executable(specklebem_unit_tests
     unit/test_fast_math.cpp
     unit/test_patterns.cpp
     unit/test_mlfmm.cpp
+    unit/test_mlfmm_operator.cpp
     # unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
