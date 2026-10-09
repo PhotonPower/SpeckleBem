@@ -160,7 +160,8 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
     w.write_attribute(name, "text" or 1.0)
 ```
 
-- Mapping onto `SimulationConfig`: `object` / `exterior` (None = vacuum) / `wavelength`
+- Mapping onto `SimulationConfig`: `object` / `exterior` (None = `excitation.background`, the
+  only value the C++ constructor accepts; WP14b3) / `wavelength`
   (None = `excitation.wavelength`); `formulation` "auto" leaves `formulation` empty (the
   recommendation), "PMCHWT" / "ICTF" / "MCTF" (any case) or an `sb.Formulation` set it ("JMCFIE"
   raises `ValueError`, not implemented); `preconditioner` "auto" / "none" / "diagonal" ->
@@ -176,9 +177,32 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   evaluation and file I/O. `callback(iteration, residual)` runs with the GIL re-acquired, once
   per GMRES iteration (iteration 1, 2, ...; not called by the direct solver); an exception it
   raises aborts the solve and reaches the caller unchanged (the previous solution is kept).
+- Ctrl-C (WP14b3): a GMRES solve calls `PyErr_CheckSignals()` with the GIL re-acquired, every
+  iteration when a callback is given (before it), otherwise only on the main thread (the only
+  one that handles signals) and at most every 50 ms, because re-acquiring the GIL can wait up to
+  `sys.getswitchinterval()` while another thread runs Python code. `KeyboardInterrupt` then
+  takes the callback-exception path. Assembly and the direct solver are not interruptible.
+  Tested with `_thread.interrupt_main()` from a timer thread (the aborted solve stores no
+  solution) and with a callback raising `KeyboardInterrupt`; a real console Ctrl-C was not.
 - Lifetimes: `currents` and `rhs()` are copies (a view could change under a later `solve()`);
-  `SolveResult.x` is a read-only view owned by the result; `operator()` keeps the Simulation
-  alive. A Simulation is not thread-safe (no concurrent calls on one object).
+  `SolveResult.x` is a read-only view that keeps its result alive (tested after `del res`);
+  `operator()` keeps the Simulation alive.
+- Threads (WP14b3): calls on one Simulation from several Python threads are serialised by a
+  per-object `std::mutex` held by the binding type (`PySimulation`, derived from the unchanged
+  C++ `Simulation`). Every locking wrapper (`assemble`, `solve`, `report`, `currents`,
+  `operator`, `rhs`, `field`, `far_field`, `bistatic_rcs`) releases the GIL first and then waits
+  for the mutex, so no thread waits for it while holding the GIL; the holder may re-acquire the
+  GIL (callback, signal check). A locking call from inside a `solve()` callback on the same
+  Simulation would wait for itself and raises `RuntimeError` instead (owner-thread check; a
+  recursive mutex was rejected because a nested `solve()` would modify the state the outer
+  GMRES is using). Properties fixed at construction (`formulation`, `preconditioner`, `solver`,
+  `wavelength`, `num_unknowns`) do not lock; `LinearOperator.matvec` does not lock (the
+  operator is immutable once assembled).
+- Python tests against the `win-debug` (ASan) module do not run yet: CLANG64 `python.exe` is
+  not instrumented, the ASan runtime is loaded late with the extension, and its interceptors
+  then report frees of CRT memory allocated before it started (`_wputenv_s` during import) as
+  "attempting free on address which was not malloc()-ed" (a false positive, not a SpeckleBem
+  finding). It would need an instrumented or ASan-preloading Python.
 - `LinearOperator.matvec(x)` accepts finite real or complex `(n,)` or `(n, 1)` input and
   returns `(n,)` complex128. `as_scipy()` imports SciPy lazily (`ImportError` without it).
 - Deviations from the target sketch above: `field` has no `region` argument (the region of every

@@ -5,6 +5,14 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- python (WP14b3): calls on one `Simulation` from several Python threads are serialised by a
+  per-object mutex taken with the GIL released (re-entrant calls from a `solve()` callback raise
+  `RuntimeError`); GMRES solves are interruptible with Ctrl-C (`PyErr_CheckSignals()` per
+  iteration with a callback, every 50 ms on the main thread without one); `exterior=None` now
+  means `excitation.background` (was vacuum). Tests for concurrent `solve()` / `field()` /
+  `bistatic_rcs()`, re-entrancy, interruption via `_thread.interrupt_main()`, a dielectric
+  background and the `SolveResult.x` keep-alive. CI sets `SPECKLEBEM_REQUIRE_SCIPY=1`, which
+  makes the SciPy test fail instead of skip without SciPy.
 - python (WP14b2): `Simulation` (keyword mapping onto `SimulationConfig`: formulation,
   preconditioner, solver, compression, `gmres=dict(...)`, `kernels=dict(...)`; unknown strings
   and keys raise `ValueError`), `assemble()` / `solve(tol, max_iter, restart, side, callback)`
