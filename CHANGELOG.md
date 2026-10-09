@@ -5,6 +5,16 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm (WP17): `mlfmm::Octree` over the RWG edge midpoints: padded root cube, uniform depth
+  (all leaves on the finest level; the first level on which every box holds
+  <= `max_elements_per_leaf`, bounded by `min_box_size_lambda`·λ and `max_levels` <= 21),
+  Morton-ordered boxes per level with integer coordinates `Box::ijk`, contiguous element ranges
+  (`permutation()` / `inverse_permutation()`), `find_box(level, ijk)`, near lists (same-level
+  neighbours, self excluded) and interaction lists (<= 189, levels >= 2), `summary()`. Tests
+  check the permutation, range nesting, Morton order, box geometry and leaf criteria on
+  icospheres and a rough box, list symmetry and completeness over all leaf pairs (each pair near
+  or translated on exactly one level), the λ/4 and `max_levels` bounds, input errors, and the
+  build time (122,880 basis functions in ~0.03 s, release).
 - python (WP14b3): calls on one `Simulation` from several Python threads are serialised by a
   per-object timed mutex taken with the GIL released (re-entrant calls from a `solve()` callback
   raise `RuntimeError`; from inside a callback another busy `Simulation` raises "Simulation

@@ -248,6 +248,7 @@ TEST_CASE("Octree: list completeness on deep trees", "[octree]") {
     const auto sphere = geometry::make_icosphere(1e-6, 3);
     const basis::RwgSpace space(sphere);
     // Small leaves without the lambda bound: 5 levels, 824 leaves (6.8e5 pairs).
+    const OctreeParams p{6, 12, 0.0};
     const Octree tree(space, 500e-9, p);
     CHECK(tree.levels() >= 5);
     check_structure(tree, space, 500e-9, p);
@@ -257,7 +258,6 @@ TEST_CASE("Octree: list completeness on deep trees", "[octree]") {
     std::size_t largest = 0;
     for (const Box& b : tree.boxes()) largest = std::max(largest, b.interaction_list.size());
     CHECK(largest > 26);
-    UNSCOPED_INFO("leaves " << leaves << ", levels " << tree.levels());
 }
 
 TEST_CASE("Octree: lambda bound and max_levels stop the subdivision", "[octree]") {
