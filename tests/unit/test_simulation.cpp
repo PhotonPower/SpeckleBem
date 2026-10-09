@@ -10,6 +10,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <initializer_list>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -105,20 +106,20 @@ TEST_CASE("simulation: direct solve equals the low-level pipeline", "[simulation
     CHECK(contains(direct.report(), "unused by the direct solver"));
 }
 
-TEST_CASE("simulation: GMRES with and without Jacobi equals the direct solution", "[simulation]") {
-    // The direct driver solve equals x_ref to 1e-12 (previous case), so x_ref stands for it.
+namespace {
+
+struct GmresVariant {
+    Kind kind;
+    bool jacobi;
+    solver::PreconditionerSide side;
+};
+
+/// GMRES through the driver against the low-level direct solution. The direct driver solve
+/// equals x_ref to 1e-12 (previous case), so x_ref stands for it.
+void check_gmres_variants(std::initializer_list<GmresVariant> variants) {
     const VectorXc x_ref = reference_currents();
     const auto wave = plane_wave();
-    // Unpreconditioned GMRES with ICTF (a block-row scaling of PMCHWT, so the same discrete
-    // solution): 55 iterations instead of 149 for PMCHWT, which keeps the sanitizer run short.
-    struct Variant {
-        Kind kind;
-        bool jacobi;
-        solver::PreconditionerSide side;
-    };
-    for (const Variant v : {Variant{Kind::ICTF, false, solver::PreconditionerSide::Left},
-                            Variant{Kind::PMCHWT, true, solver::PreconditionerSide::Left},
-                            Variant{Kind::PMCHWT, true, solver::PreconditionerSide::Right}}) {
+    for (const GmresVariant v : variants) {
         SimulationConfig g = pmchwt_config(SolverKind::Gmres);
         g.formulation = v.kind;
         g.diagonal_preconditioner = v.jacobi;
@@ -134,6 +135,23 @@ TEST_CASE("simulation: GMRES with and without Jacobi equals the direct solution"
         CHECK(rel_diff(sim.solution().currents, x_ref) < 1e-7);
         CHECK(contains(sim.report(), v.jacobi ? "diagonal (Jacobi) (explicit)" : "none"));
     }
+}
+
+}  // namespace
+
+// Split into three cases to keep each sanitizer run short (each GMRES solve takes ~1 s there).
+TEST_CASE("simulation: unpreconditioned GMRES equals the direct solution", "[simulation]") {
+    // ICTF (a block-row scaling of PMCHWT, so the same discrete solution): 55 iterations
+    // instead of 149 for PMCHWT.
+    check_gmres_variants({{Kind::ICTF, false, solver::PreconditionerSide::Left}});
+}
+
+TEST_CASE("simulation: GMRES with left Jacobi equals the direct solution", "[simulation]") {
+    check_gmres_variants({{Kind::PMCHWT, true, solver::PreconditionerSide::Left}});
+}
+
+TEST_CASE("simulation: GMRES with right Jacobi equals the direct solution", "[simulation]") {
+    check_gmres_variants({{Kind::PMCHWT, true, solver::PreconditionerSide::Right}});
 }
 
 TEST_CASE("simulation: automatic formulation and preconditioner choice", "[simulation]") {
