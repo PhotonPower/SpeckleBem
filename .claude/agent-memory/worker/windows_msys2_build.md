@@ -17,8 +17,9 @@ workers / Windows"; the non-obvious ones:
 - `ctest -j 12` oversubscribes OpenMP: dense validation tests 48 s in parallel vs 3-6 s serial.
 - MSYS2 Python defaults to cp1252: always `open(..., encoding='utf-8')` (or PYTHONUTF8=1).
   `open(p, 'w')` truncates before the encode error, so a failed write empties the file
-  (restore with `git checkout -- <file>`). An open for write can also fail with EINVAL
-  while a concurrent build reads the file; just retry.
+  (restore with `git checkout -- <file>`). Text-mode writes emit CRLF: pass
+  `newline='\n'`. An open for write can also fail with EINVAL while a concurrent build
+  reads the file; just retry.
 - GCC 16 (win-release) false positive: `vec.insert(end, n, x)` followed by
   `vec.insert(end, {a, b, c})` triggers -Warray-bounds in stl_uninitialized.h; push_back.
 - win-debug (-O0, ASan, Eigen asserts) runs per-triangle Eigen checks at ~200 us/triangle:
