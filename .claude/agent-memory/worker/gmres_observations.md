@@ -15,7 +15,9 @@ Measured 2026-10-09 with `solver::gmres` (WP13, full GMRES, win-release):
 - Left Jacobi is exactly row-scaling invariant (histories agree to rounding); unpreconditioned
   GMRES on a row-scaled (1e-3..1e3) system stalls (21 it vs 1e-2 after 63 it).
 - Arnoldi residual estimate equals the explicit true residual to ~1e-12 relative for
-  well-conditioned systems.
+  well-conditioned systems. The *absolute* gap is ~1e-17..1e-16 (right Jacobi GMRES(5) on the
+  1e-3..1e3 row-scaled n = 200 system), so a "monitored == true to 1e-10 relative" check only
+  holds for residuals >~ 1e-6; at tol 1e-12 the gap was 1e-5 relative.
 
 **Why:** gives realistic budgets/tolerances for later solver, MLFMM and formulation-study WPs.
 **How to apply:** use as baseline when setting max_iter or tolerances; re-measure if the
