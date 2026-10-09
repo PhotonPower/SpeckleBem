@@ -5,6 +5,16 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- python (WP14b1): bindings for `TriangleMesh` (read-only zero-copy `vertices`/`triangles`/`edges`
+  views kept alive by the mesh, `quality_report()` as `MeshQuality`), `make_icosphere`,
+  `make_sphere`, `HeightMap`, `generate_gaussian_height_map`, `make_rough_surface_mesh`,
+  `make_mesh_from_height_map` (keyword arguments incl. `box_depth`, `box_mesh_size`,
+  `box_fine_depth`), the Python class `RoughSurface`, `DispersiveMaterial`, `field_decay_length`,
+  `PlaneWave` / `GaussianBeam` (`shared_ptr` holders, vectorised `electric_field` /
+  `magnetic_field`) and `Mie` (broadcast `bistatic_rcs`, `scattered_E`, cross sections); GIL
+  released in mesh generation and field loops; invalid input raises `ValueError`. C++:
+  `geometry::MeshQuality`, `TriangleMesh::quality()` and `geometry::to_string(MeshQuality)`
+  (`quality_report()` unchanged). Tests `tests/python/test_geometry.py`, `test_physics.py`.
 - io (WP16): `io::open_npy_directory`, a dependency-free `ResultWriter` that stores vectors and
   matrices as NumPy `.npy` files (format 1.0, little-endian, C order, `<f8`/`<c16`), meshes as
   `<group>/vertices.npy` (`<f8`) and `<group>/triangles.npy` (`<i8`, 0-based) and attributes in
