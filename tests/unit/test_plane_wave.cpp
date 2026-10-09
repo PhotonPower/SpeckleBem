@@ -233,12 +233,15 @@ using CL = std::complex<long double>;
 /// j_l(z), l = 0..lmax, by Miller's downward recurrence (the minimal solution), normalised by
 /// j_0 = sin z / z, in long double. The start index lies far beyond max(lmax, |z|).
 std::vector<CL> bessel_j_miller(int lmax, CL z) {
-    const int start = lmax + 60 + 2 * static_cast<int>(std::abs(z));
-    std::vector<CL> j(static_cast<std::size_t>(start) + 2, CL(0.0L, 0.0L));
-    j[static_cast<std::size_t>(start)] = CL(1e-30L, 0.0L);
-    for (int l = start; l >= 1; --l) {
-        const auto u = static_cast<std::size_t>(l);
-        j[u - 1] = static_cast<long double>(2 * l + 1) / z * j[u] - j[u + 1];
+    // Index arithmetic in std::size_t from a clamped lmax: with a signed int start, GCC 13 -O3
+    // follows the path start = -2 (size 0, null data) into j[start] and reports a potential
+    // null dereference in std::vector's allocation under -Wnull-dereference.
+    const std::size_t start = static_cast<std::size_t>(std::max(lmax, 0)) + 60 +
+                              2 * static_cast<std::size_t>(std::abs(z));
+    std::vector<CL> j(start + 2, CL(0.0L, 0.0L));
+    j[start] = CL(1e-30L, 0.0L);
+    for (std::size_t u = start; u >= 1; --u) {
+        j[u - 1] = static_cast<long double>(2 * u + 1) / z * j[u] - j[u + 1];
     }
     const CL scale = std::sin(z) / z / j[0];
     j.resize(static_cast<std::size_t>(lmax) + 1);
