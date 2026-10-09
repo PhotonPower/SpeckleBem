@@ -27,6 +27,9 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   (`fold_adaptive = true`; all other pairs, including every touching pair of the Mie
   icospheres, keep the WP7b table bitwise), and the right-hand side has its own Dunavant degree
   `quad_degree_rhs = 8` (before: `quad_degree_near` = 19).
+- Since WP-P2: in lossy regions the near/far target is relative to the undamped magnitude bound
+  of the block instead of the block itself (`decay_aware_target`, see Consequences), and the
+  near/far kernel uses branch-free vectorisable sin/cos/exp (`fast_plain_kernel`).
 
 ## Consequences
 - Near-field accuracy (WP7b, measured against independent references in
@@ -190,5 +193,40 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   (the WP7b right-hand side) is not needed. Degree 6 would meet the 1e-8 criterion; 8 (the WP7
   rule) keeps 1e-9 even at h ~ lambda/3 (9.4e-10 against degree 19) for 16 instead of 73 field
   evaluations per triangle.
+- Decay-aware target for lossy regions (WP-P2, closes WP7c part 4;
+  `OperatorOptions::decay_aware_target`, default on). The WP15 rough boxes spent most of their
+  assembly in near/far blocks of the object region that the attenuation makes negligible (Ag at
+  500 nm decays over 25 nm) or that the relative per-block target drove to the degree cap. For
+  k = beta - j alpha, alpha > 0, every point pair of a near or far pair satisfies R >= R_lb =
+  D - rho_test - rho_src (rho the largest centroid-vertex distance), so |G| <= delta / (4 pi R)
+  and |grad G| <= delta (1 + |beta| R) / (4 pi R^2) with delta = (1 + alpha R_lb)
+  exp(-alpha R_lb) <= 1. With U the entrywise bound A_test A_src max |integrand| for these
+  undamped magnitudes, ||B|| <= delta ||U||. Definition (Frobenius norms, L and K separately):
+  every near/far block of a lossy region satisfies ||B_d - B|| <= target_accuracy ||U||. The
+  selection achieves it by asking the empirical envelope for E_d <= target / delta, and takes the
+  lowest degree of the ladder when (S_d^2 + 1) delta <= target (S_d = sum |w| of the rule, 1 for
+  positive rules, 2.125 for degree 3: then any rule meets the bound and the envelope, calibrated
+  only up to |k| h = 3, is not consulted). Meaning: a block may carry the absolute error that the
+  same pair is allowed in a lossless region (target ||B|| <= target ||U||), so the error summed
+  over a matrix row stays bounded as for a lossless medium of the same geometry; only blocks
+  that are small because of the attenuation lose their relative resolution. Lossless regions
+  and touching pairs are bitwise unchanged; the relative criterion remains available
+  (`decay_aware_target = false`). Considered and rejected: scaling the target by the full
+  magnitude ratio exp(-alpha d) h / d against the self term, which also relaxes lossless far
+  blocks by d / h and loosens the row-sum error by ~L / h. Measured on a 0.3 um rough box (h =
+  50 nm, graded walls) against degree-19 references: worst ||B_d - B_ref|| / (target ||U||) =
+  4.0e-3 over 3 960 relaxed Ag pairs (85 % of all near/far pairs relaxed) and 7.1e-3 over 350
+  relaxed Si pairs (tests/unit/test_operators.cpp). All Mie validation cases (including Ag)
+  pass unchanged.
+- Plain-kernel arithmetic (WP-P2; `OperatorOptions::fast_plain_kernel`, default on). The near/far
+  point loop called the C library's sincos and exp once per point pair (~30-40 ns per kernel
+  evaluation on UCRT64). It now uses branch-free sin/cos (Cody-Waite reduction, fdlibm
+  polynomials) and exp of a non-positive argument from `kernels/fast_math.hpp` (within 1 ulp of
+  the C library: absolute <= 2.2e-16 for sin/cos up to |x| = 1e6, relative <= 2.2e-16 for exp),
+  vectorised by the compiler (operators.cpp is built with `-fno-math-errno -fno-trapping-math`,
+  which change no value). Blocks agree with the C-library arithmetic to 2.7e-15 relative; outside
+  the argument range (|Re k| R > 1e6 or Im k > 0) and with `fast_plain_kernel = false` the
+  C-library loop is used (bitwise the previous arithmetic). Touching pairs are unchanged.
+  Timings: `benchmarks/results/dense_assembly_profile.md`.
 - Analytic formulas must be verified carefully (unit tests vs extrapolated nested quadrature) — a Phase 1 deliverable.
 - The same routines serve dense, MLFMM near-field and ACA pivot evaluation.
