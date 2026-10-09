@@ -29,6 +29,14 @@ metadata:
   build-tree package: `Path(specklebem.__file__).parents[2] / "tests"` (WP16 npy fixture).
 - `std::istreambuf_iterator` file reads trip GCC 13/14 `-O3 -Wnull-dereference` on Linux CI
   (not GCC 16 here): read files with `fs::file_size` + `in.read` instead.
+- GCC 13 `-O3 -Wnull-dereference` also fires on `std::vector<T> v(static_cast<size_t>(i) + 2, x);
+  v[i] = ...` with a signed `int i` (path i = -2 -> size 0 -> null data). Do the size/index
+  arithmetic in `std::size_t` from non-negative inputs (WP18 test_plane_wave, CI-only failure).
+- Reproducing Linux CI GCC 13 diagnostics locally: winlibs ships a standalone GCC 13.3.0 UCRT
+  zip (github.com/brechtsanders/winlibs_mingw, release `13.3.0posix-11.0.1-ucrt-r1`); unzip it
+  into the scratchpad and compile single TUs with the CI flags + `-Werror`, taking include
+  paths from `build/win-release/compile_commands.json` (`-isystem` for `_deps`). MSYS2's
+  repo only keeps GCC >= 14.2 packages. It reproduced the WP18 failure exactly.
 - `std::filesystem::rename(tmp, target)` replaces an existing target on Windows with both
   win-release (libstdc++) and win-debug (libc++): temp-file + rename overwrites work (WP16).
 - Python edit scripts written through a heredoc: put C++ snippets with backslash escapes in
