@@ -1,6 +1,6 @@
 ---
 name: windows-msys2-build
-description: Pitfalls of the native Windows/MSYS2 build (win-release/win-debug presets) and of running commands from a worktree-isolated agent on Windows
+description: Pitfalls of the native Windows/MSYS2 build (win-release/win-debug presets)
 metadata:
   type: project
 ---
@@ -15,10 +15,6 @@ workers / Windows"; the non-obvious ones:
 - Windows CMake's FindPython picks the registry CPython 3.11; pin Python3_EXECUTABLE and
   PYTHON_EXECUTABLE (pybind11 2.13 uses the old FindPythonLibsNew).
 - `ctest -j 12` oversubscribes OpenMP: dense validation tests 48 s in parallel vs 3-6 s serial.
-
-- Worktree-isolated agents: the Bash guard refuses compound commands that mix `$VAR`
-  expansions, heredocs and git/sed. Put edit scripts in the scratchpad via Write and run
-  them with a literal path (`/c/msys64/ucrt64/bin/python "C:\...\x.py"`); no `python3` on PATH.
 - MSYS2 Python defaults to cp1252: always `open(..., encoding='utf-8')` (or PYTHONUTF8=1).
   `open(p, 'w')` truncates before the encode error, so a failed write empties the file
   (restore with `git checkout -- <file>`). An open for write can also fail with EINVAL
