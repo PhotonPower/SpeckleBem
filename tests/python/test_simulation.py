@@ -135,7 +135,7 @@ def test_callback_and_overrides():
     # WP-P2 options.
     make_sim(kernels=dict(CHEAP, decay_aware_target=False, fast_plain_kernel=False))
     with pytest.raises(ValueError):
-        make_sim(kernels=dict(CHEAP, fast_plain_kernel=1.5))
+        make_sim(kernels=dict(CHEAP, fast_plain_kernel="no"))
 
 
 def test_wp_p2_kernel_options_change_lossy_operator_only():
@@ -144,7 +144,8 @@ def test_wp_p2_kernel_options_change_lossy_operator_only():
     def op(material, **kernels):
         sim = make_sim(material, formulation="PMCHWT", kernels=kernels)
         sim.assemble()
-        return np.array(sim.operator())
+        Z = sim.operator()
+        return np.column_stack([Z.matvec(e) for e in np.eye(Z.shape[1])])
 
     # Default quadrature options (degree selection active, target 1e-5).
     ag, ag_strict = op(sb.silver_500nm()), op(sb.silver_500nm(), decay_aware_target=False)

@@ -8,7 +8,10 @@ metadata:
 Measured 2026-10-09 (WP-P2, `benchmarks/dense_assembly_profile.cpp`):
 - Rough boxes: near/far pairs with a 400 nm box cell dominate; the degree selection uses
   kappa = sqrt((h/D)^2 + (0.15 |k| h)^2), so |k| h >~ 7 forces degrees 12-19 regardless of D
-  (Si interior |k| h ~ 30 -> cap 19: 59-63 % of CPU before WP-P2, 66 % after; Ag 46 % before). Touching pairs < 3 %.
+  (Si interior |k| h ~ 30 -> cap 19: 59-63 % of CPU before WP-P2, 66 % after; Ag 46 %
+  before). Touching pairs < 3 %.
+- Decay-aware degree choice is NOT monotone in Im k (larger alpha raises |k| in kappa, delta
+  relaxes only for R_lb > 0). Keep R_lb = D - (rho_t + rho_s) (sum first) for bitwise symmetry.
 - OpenMP static schedule over index-ordered rows was x2.5 (Si) / x4.5 (Ag) the ideal on boxes;
   box triangles come last in the mesh. Static schedules also suffer badly from other agents'
   load. Use dynamic, largest-first (bitwise identical: one writer per row per colour).
