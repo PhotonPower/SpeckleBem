@@ -98,6 +98,7 @@ struct Region {
     std::vector<Level> levels;          ///< levels 2 ... leaf
     std::vector<FarLevelInfo> info;
     std::unique_ptr<RadiationPatterns> patterns;
+    std::vector<std::size_t> antipode;  ///< leaf directions: index of -khat_q
     Real pattern_seconds = 0;
 };
 
@@ -112,13 +113,14 @@ struct MlfmmFarOperator::Impl {
     std::array<Region, 2> region;
     std::vector<Index> local;  ///< box -> position within its level
 
-    void build_region(Region& r, const basis::RwgSpace& space, const PatternOptions& popt,
-                      int index);
+    /// Truncation search and samplings of every level (throws before any expensive setup).
+    void plan_region(Region& r, const basis::RwgSpace& space, int index);
+    /// Translators, interpolators, phase shifts and leaf patterns.
+    void build_region(Region& r, const basis::RwgSpace& space, const PatternOptions& popt);
     void apply_region(const Region& r, const VectorXc& x, VectorXc& y) const;
 };
 
-void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& space,
-                                          const PatternOptions& popt, int index) {
+void MlfmmFarOperator::Impl::plan_region(Region& r, const basis::RwgSpace& space, int index) {
     const int leaf = tree.leaf_level();
     const Real rmax = max_support_radius(space);
     const Real lambda = 2.0 * constants::pi / r.k.real();
@@ -157,7 +159,19 @@ void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& spac
                    search.error,
                    0,
                    2 * kFields * sizeof(Complex) * boxes.size() * sz(lv.sampling.size()),
-                   0.0};
+                   seconds_since(t0)};
+        r.levels.push_back(std::move(lv));
+    }
+}
+
+void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& space,
+                                          const PatternOptions& popt) {
+    for (std::size_t li = 0; li < r.levels.size(); ++li) {
+        const auto t0 = std::chrono::steady_clock::now();
+        Level& lv = r.levels[li];
+        const int l = lv.info.level;
+        const Real a = lv.info.box_size;
+        const std::vector<Index>& boxes = tree.boxes_at_level(l);
         lv.slot.fill(-1);
         for (const Index ia : boxes) {
             const Box& A = tree.boxes()[sz(ia)];
@@ -174,14 +188,14 @@ void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& spac
                 const Vec3 d(static_cast<Real>(A.ijk[0] - B.ijk[0]),
                              static_cast<Real>(A.ijk[1] - B.ijk[1]),
                              static_cast<Real>(A.ijk[2] - B.ijk[2]));
-                VectorXc t = translator(r.k, a * d, lv.sampling, search.order);
+                VectorXc t = translator(r.k, a * d, lv.sampling, lv.info.truncation_order);
                 t.array() *= lv.sampling.weights().array().cast<Complex>();
                 lv.translators.push_back(std::move(t));
             }
         }
         lv.info.translators = static_cast<Index>(lv.translators.size());
-        if (l > 2) {
-            const SphereSampling& parent = r.levels.back().sampling;
+        if (li > 0) {
+            const SphereSampling& parent = r.levels[li - 1].sampling;
             if (parent.order() != lv.sampling.order()) {
                 lv.interp = std::make_unique<SphereInterpolator>(lv.sampling, parent, interp_order);
             }
@@ -196,13 +210,16 @@ void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& spac
                 lv.down[s] = (-jk * phase.cast<Complex>()).array().exp();
             }
         }
-        lv.info.setup_seconds = seconds_since(t0);
+        lv.info.setup_seconds += seconds_since(t0);
         r.info.push_back(lv.info);
-        r.levels.push_back(std::move(lv));
     }
     const auto t0 = std::chrono::steady_clock::now();
     r.patterns = std::make_unique<RadiationPatterns>(space, tree, r.k, r.levels.back().sampling, popt);
     r.pattern_seconds = seconds_since(t0);
+    r.antipode.resize(sz(r.patterns->num_directions()));
+    for (std::size_t q = 0; q < r.antipode.size(); ++q) {
+        r.antipode[q] = sz(r.patterns->antipode(static_cast<Index>(q)));
+    }
 }
 
 MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tree,
@@ -250,7 +267,11 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
         r.gamma = h[i] * ck;
         r.delta = mm[i] * cl;
         if (r.active)
-            m.build_region(r, space, popt, static_cast<int>(i));
+            m.plan_region(r, space, static_cast<int>(i));
+    }
+    for (Region& r : m.region) {
+        if (r.active)
+            m.build_region(r, space, popt);
     }
     SBEM_INFO("MlfmmFarOperator: 2N = {}, {} octree levels, d0 = {}, {:.1f} MB stored", rows(),
               tree.levels(), m.digits, static_cast<Real>(memory_bytes()) / 1048576.0);
@@ -454,7 +475,7 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x,
     {
         const std::vector<Index>& leaves = tree.boxes_at_level(leaf);
         const std::size_t nd = sz(r.levels.back().sampling.size());
-        const RadiationPatterns& pat = *r.patterns;
+        const Complex* V = r.patterns->data().data();
         const auto nb = static_cast<Index>(leaves.size());
 #ifdef SPECKLEBEM_HAVE_OPENMP
 #pragma omp parallel for schedule(dynamic)
@@ -463,21 +484,23 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x,
             const Box& box = boxes[sz(leaves[sz(ib)])];
             const Complex* G = field(in.back(), ib, 0, nd);
             Complex* u = thread_scratch();
+            // R_p(khat_q) = (V_theta, -V_phi)(p, q') with q' = antipode(q) (patterns.hpp), so
+            // sum_q R_p(q) . U(q) = sum_q' V_p(q') . U~(q'), U~(q') = (U_theta, -U_phi)(antipode(q')):
+            // u holds U~ in the order (J theta, J phi, M theta, M phi), interleaved per q'.
             for (std::size_t q = 0; q < nd; ++q) {
-                const Complex jt = G[q], jp = G[nd + q], mt = G[2 * nd + q], mp = G[3 * nd + q];
-                u[q] = r.alpha * jt + r.beta * mp;
-                u[nd + q] = r.alpha * jp - r.beta * mt;
-                u[2 * nd + q] = -r.gamma * jp + r.delta * mt;
-                u[3 * nd + q] = r.gamma * jt + r.delta * mp;
+                const std::size_t a = r.antipode[q];
+                const Complex jt = G[a], jp = G[nd + a], mt = G[2 * nd + a], mp = G[3 * nd + a];
+                u[4 * q] = r.alpha * jt + r.beta * mp;
+                u[4 * q + 1] = -(r.alpha * jp - r.beta * mt);
+                u[4 * q + 2] = -r.gamma * jp + r.delta * mt;
+                u[4 * q + 3] = -(r.gamma * jt + r.delta * mp);
             }
             for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p) {
                 Complex sj(0.0, 0.0), sm(0.0, 0.0);
+                const Complex* v = V + sz(p) * nd * 2;
                 for (std::size_t q = 0; q < nd; ++q) {
-                    const auto qi = static_cast<Index>(q);
-                    const Complex rt = pat.receiving(p, qi, 0);
-                    const Complex rp = pat.receiving(p, qi, 1);
-                    sj += rt * u[q] + rp * u[nd + q];
-                    sm += rt * u[2 * nd + q] + rp * u[3 * nd + q];
+                    sj += v[2 * q] * u[4 * q] + v[2 * q + 1] * u[4 * q + 1];
+                    sm += v[2 * q] * u[4 * q + 2] + v[2 * q + 1] * u[4 * q + 3];
                 }
                 const Index basis = perm[sz(p)];
                 y(basis) += sj;
