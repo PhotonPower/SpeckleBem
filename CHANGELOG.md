@@ -5,6 +5,13 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- io (WP16): `io::open_npy_directory`, a dependency-free `ResultWriter` that stores vectors and
+  matrices as NumPy `.npy` files (format 1.0, little-endian, C order, `<f8`/`<c16`), meshes as
+  `<group>/vertices.npy` (`<f8`) and `<group>/triangles.npy` (`<i8`, 0-based) and attributes in
+  one `attributes.json` (rewritten on every call, shortest round-trip Reals, strict UTF-8);
+  validated names (`[A-Za-z0-9_.-]`, `/` for groups); `open_hdf5` throws until HDF5 support
+  lands. Unit tests `tests/unit/test_result_writer.cpp` (independent NPY reader, bitwise data);
+  NumPy round trip `tests/python/test_result_writer.py` via the helper `specklebem_npy_fixture`.
 - solver (WP13): `solver::gmres`, complex GMRES (Saad & Schultz; MGS Arnoldi with one
   re-orthogonalisation pass, Givens rotations, happy-breakdown and singular-Krylov handling),
   full or restarted (`GmresParams::restart`), left or right preconditioning
