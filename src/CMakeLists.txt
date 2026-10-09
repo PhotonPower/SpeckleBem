@@ -31,6 +31,7 @@ set(SPECKLEBEM_SOURCES
     # operator/sparse_operator.cpp
     compression/mlfmm/octree.cpp
     compression/mlfmm/patterns.cpp
+    compression/mlfmm/far_operator.cpp
     # compression/mlfmm/mlfmm_operator.cpp
     solver/gmres.cpp
     solver/preconditioner.cpp
