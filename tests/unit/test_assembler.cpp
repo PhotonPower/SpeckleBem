@@ -21,6 +21,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <initializer_list>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -414,28 +415,30 @@ Real longest_mesh_edge(const geometry::TriangleMesh& m) {
     return h;
 }
 
-/// Rough-surface box (uniform box at the top-face spacing 50 nm, L = 0.6 um, depth 0.4 um).
-geometry::TriangleMesh rhs_rough_box() {
+/// Closed rough-surface box with the uniform box at the top-face spacing (no grading).
+geometry::TriangleMesh rhs_rough_box(Real L, Real spacing, Real sigma, Real depth) {
     geometry::RoughSurfaceParams p;
-    p.edge_length_L = 0.6e-6;
-    p.rms_roughness = 50e-9;
+    p.edge_length_L = L;
+    p.rms_roughness = sigma;
     p.correlation_length = 200e-9;
-    p.mesh_size = 50e-9;
+    p.mesh_size = spacing;
     p.seed = 20261009;
-    p.box_depth = 0.4e-6;
-    p.box_mesh_size = 50e-9;
+    p.box_depth = depth;
+    p.box_mesh_size = spacing;
     return geometry::make_rough_surface_mesh(p);
 }
 
-/// Degree study on one mesh: for lambda = 10 h and 27 h (h the longest edge), a plane wave
-/// (+z, E along x) and a paraxial Gaussian beam (w0 = lambda, focus at the origin, p
-/// polarisation), the relative RHS error of every positive-interior degree against degree 20.
-/// Returns the worst error of each degree (index = degree).
-std::array<Real, 21> rhs_degree_errors(const geometry::TriangleMesh& mesh, std::string& table) {
+/// Degree study on one mesh: for lambda = ratio h (h the longest edge), a plane wave (+z, E
+/// along x) and a paraxial Gaussian beam (w0 = lambda, focus at the origin, p polarisation), the
+/// relative RHS error of the given degrees against degree 20. Returns the worst error of each
+/// degree (index = degree) and appends a table row per excitation.
+std::array<Real, 21> rhs_degree_errors(const geometry::TriangleMesh& mesh,
+                                       std::initializer_list<Real> ratios,
+                                       std::initializer_list<int> degrees, std::string& table) {
     const basis::RwgSpace space(mesh);
     const Real h = longest_mesh_edge(mesh);
     std::array<Real, 21> worst{};
-    for (const Real ratio : {10.0, 27.0}) {
+    for (const Real ratio : ratios) {
         const Real lambda = ratio * h;
         excitation::GaussianBeam::Params gp;
         gp.wavelength = lambda;
@@ -448,10 +451,7 @@ std::array<Real, 21> rhs_degree_errors(const geometry::TriangleMesh& mesh, std::
             const VectorXc ref = rhs_moments(space, *exc, 20);
             table += "\n  lambda/" + std::to_string(static_cast<int>(ratio)) +
                      (exc == &pw ? " plane wave:" : " Gaussian beam:");
-            for (int d = 1; d <= 19; ++d) {
-                if (!kernels::triangle_rule_is_positive_interior(d)) {
-                    continue;
-                }
+            for (const int d : degrees) {
                 const Real e = rhs_rel(rhs_moments(space, *exc, d), ref);
                 auto& w = worst[static_cast<std::size_t>(d)];
                 w = std::max(w, e);
@@ -464,20 +464,49 @@ std::array<Real, 21> rhs_degree_errors(const geometry::TriangleMesh& mesh, std::
     return worst;
 }
 
-}  // namespace
-
-TEST_CASE("assembler: right-hand-side degree study (icosphere)", "[operator]") {
+/// Regular check at h = lambda / 10 (the coarser end of the meshing range): the error decreases
+/// with the degree and the default quad_degree_rhs is within 1e-8 of degree 20. The relative
+/// error depends on h / lambda, not on the number of triangles, so small meshes suffice.
+void check_rhs_default(const geometry::TriangleMesh& mesh, const char* name) {
+    const int d0 = kernels::OperatorOptions{}.quad_degree_rhs;
     std::string table;
-    const std::array<Real, 21> e = rhs_degree_errors(geometry::make_icosphere(0.5e-6, 3), table);
-    WARN("rhs degree study, icosphere n = 3 (relative error vs degree 20):" << table);
-    CHECK(e[static_cast<std::size_t>(kernels::OperatorOptions{}.quad_degree_rhs)] <= 1e-8);
+    const std::array<Real, 21> e = rhs_degree_errors(mesh, {10.0}, {4, 6, d0}, table);
+    WARN("rhs degree check, " << name << " (relative error vs degree 20):" << table);
+    CHECK(e[4] > e[6]);
+    CHECK(e[6] > e[static_cast<std::size_t>(d0)]);
+    CHECK(e[static_cast<std::size_t>(d0)] <= 1e-8);
 }
 
-TEST_CASE("assembler: right-hand-side degree study (rough box)", "[operator]") {
-    std::string table;
-    const std::array<Real, 21> e = rhs_degree_errors(rhs_rough_box(), table);
-    WARN("rhs degree study, rough box (relative error vs degree 20):" << table);
-    CHECK(e[static_cast<std::size_t>(kernels::OperatorOptions{}.quad_degree_rhs)] <= 1e-8);
+}  // namespace
+
+TEST_CASE("assembler: right-hand-side degree convergence (icosphere)", "[operator]") {
+    check_rhs_default(geometry::make_icosphere(0.5e-6, 0), "icosahedron");
+}
+
+TEST_CASE("assembler: right-hand-side degree convergence (rough box)", "[operator]") {
+    check_rhs_default(rhs_rough_box(0.3e-6, 75e-9, 20e-9, 0.15e-6), "rough box");
+}
+
+// Hidden slow case, registered with ctest as "assembler: rhs degree study (slow)" (label slow;
+// SKIPs in unoptimised builds): every positive-interior degree against degree 20 on the
+// icosphere n = 3 and a rough box (L = 0.6 um, 50 nm, depth 0.4 um) at h = lambda/10 and
+// lambda/27, plane wave and Gaussian beam (the study behind the default, ADR 0004).
+TEST_CASE("assembler: right-hand-side degree study", "[operator][.slow][rhsstudy]") {
+#ifndef NDEBUG
+    SKIP("rhs degree study: optimised builds only");
+#endif
+    const std::initializer_list<int> all = {1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 17, 19};
+    const auto d0 = static_cast<std::size_t>(kernels::OperatorOptions{}.quad_degree_rhs);
+    std::string t1;
+    const std::array<Real, 21> e1 =
+        rhs_degree_errors(geometry::make_icosphere(0.5e-6, 3), {10.0, 27.0}, all, t1);
+    WARN("rhs degree study, icosphere n = 3 (relative error vs degree 20):" << t1);
+    CHECK(e1[d0] <= 1e-8);
+    std::string t2;
+    const std::array<Real, 21> e2 =
+        rhs_degree_errors(rhs_rough_box(0.6e-6, 50e-9, 50e-9, 0.4e-6), {10.0, 27.0}, all, t2);
+    WARN("rhs degree study, rough box (relative error vs degree 20):" << t2);
+    CHECK(e2[d0] <= 1e-8);
 }
 
 TEST_CASE("assembler: quad_degree_rhs alone sets the right-hand-side rule", "[operator]") {
