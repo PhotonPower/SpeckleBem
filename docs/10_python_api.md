@@ -133,7 +133,7 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
 ```python
 sim = sb.Simulation(mesh, excitation, *, object, exterior=None, wavelength=None,
                     formulation="auto", preconditioner="auto", solver="gmres",
-                    compression="dense", gmres=None, kernels=None)
+                    compression="dense", gmres=None, kernels=None, mlfmm=None)
 sim.assemble()                          # idempotent; GIL released
 res = sim.solve(tol=None, max_iter=None, restart=None, side=None, callback=None)  # SolveResult
 res.iterations, res.converged, res.residual_history, res.true_relative_residual,
@@ -166,7 +166,11 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   recommendation), "PMCHWT" / "ICTF" / "MCTF" (any case) or an `sb.Formulation` set it ("JMCFIE"
   raises `ValueError`, not implemented); `preconditioner` "auto" / "none" / "diagonal" ->
   `diagonal_preconditioner` empty / false / true; `solver` "gmres" / "direct" -> `SolverKind`;
-  `compression` is passed through (only "dense" exists). `gmres` keys: `tol` (`tolerance`),
+  `compression` is passed through ("dense" or "mlfmm" (WP20b, GMRES only); "aca" / "hmatrix"
+  raise `ValueError`); `mlfmm` keys (WP20b): `accuracy_digits` (d0, default 3),
+  `max_elements_per_leaf` (100), `min_box_size_lambda` (0.25, leaf floor in exterior
+  wavelengths); with "mlfmm", `assemble()` raises `RuntimeError` when no expansion order meets
+  10^-d0 (silver interior until WP21). `gmres` keys: `tol` (`tolerance`),
   `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`. `kernels`
   keys are the `kernels::OperatorOptions` member names (`quad_degree_far`, `quad_degree_near`,
   `quad_degree_sing`, `outer_grading_levels`, `near_distance_factor`,
