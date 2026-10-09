@@ -51,6 +51,38 @@
 /// |k| and h and non-increasing in D. It depends only on symmetric quantities, so both
 /// orderings of a pair use the same rule (blocks symmetric up to rounding).
 ///
+/// Decay-aware target (WP-P2, WP7c part 4; OperatorOptions::decay_aware_target, default on).
+/// In a lossy region, k = beta - j alpha with alpha > 0, every point pair of a near or far pair
+/// has R >= R_lb = D - rho_test - rho_src (rho the largest centroid-vertex distance), and
+///   |G| = e^{-alpha R} / (4 pi R)                 <= delta / (4 pi R),
+///   |grad G| = |1 + jkR| e^{-alpha R} / (4 pi R^2) <= (1 + alpha R)(1 + |beta| R) e^{-alpha R}
+///            / (4 pi R^2)                          <= delta (1 + |beta| R) / (4 pi R^2),
+///   delta = (1 + alpha R_lb) e^{-alpha R_lb} <= 1   ((1 + x) e^{-x} decreases for x > 0).
+/// Let U be the entrywise bound A_test A_src max |integrand| of a block with the undamped
+/// magnitudes 1 / (4 pi R) and (1 + |beta| R) / (4 pi R^2); then ||B|| <= delta ||U|| (Frobenius
+/// norm, L and K separately). The selection asks for E_d <= target / delta, so
+///   ||B_d - B|| <= E_d ||B|| <= target ||U||.
+/// Moreover the double rule is bounded by S_d^2 A_test A_src max |integrand| (S_d = sum |w_i| of
+/// the area-normalised rule: 1 for positive rules, 2.125 for degree 3), so for (S_d^2 + 1)
+/// delta <= target any rule has ||B_d - B|| <= (S_d^2 + 1) delta ||U|| <= target ||U|| and the
+/// first degree of the ladder is taken without consulting the error model (whose calibration
+/// ends at |k| h = 3). Lossless regions select bitwise as before (delta = 1; the negligible test
+/// never passes there since S_d^2 + 1 >= 2 > target).
+/// Meaning: a block may have the absolute error that the same pair is allowed in a lossless
+/// region (target ||B|| <= target ||U||); the error summed over a matrix row is therefore bounded
+/// like that of a lossless medium of the same geometry, while blocks that the attenuation makes
+/// negligible are no longer resolved to a relative 1e-5 (Ag at 500 nm, alpha = 39 / um:
+/// R_lb > ~0.4 um is negligible at target 1e-5). Checked on a rough box with Si and Ag interiors
+/// (tests/unit/test_operators.cpp): worst ||B_d - B_ref|| / (target ||U||) = 4e-3 (Ag), 7e-3 (Si).
+///
+/// Plain kernel evaluation (WP-P2; OperatorOptions::fast_plain_kernel, default on). The point
+/// loop is split into a pass computing r' - r and the weighted kernel and gradient factors per
+/// inner point (branch-free, vectorised: kernels/fast_math.hpp sin / cos / exp and std::sqrt,
+/// with -fno-math-errno -fno-trapping-math for this file) and a summation pass in point order.
+/// The fast functions are used when Im k <= 0 and |Re k| R_max <= 1e6 for the pair (R_max = D +
+/// rho_test + rho_src); otherwise, and with fast_plain_kernel = false, the C library (bitwise the
+/// pre-WP-P2 arithmetic). Blocks agree with the C-library variant to ~3e-15 relative.
+///
 /// Touching pairs (identical, shared_edge, shared_vertex): inner integral by singularity
 /// subtraction (ADR 0004):
 ///   exp(-jkR)/R = rem(R) + 1/R - (k^2/2) R,  rem(R) = [exp(-jkR) - 1 + k^2 R^2 / 2] / R,
