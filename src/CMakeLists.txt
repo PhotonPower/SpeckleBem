@@ -31,7 +31,7 @@ set(SPECKLEBEM_SOURCES
     solver/preconditioner.cpp
     # postprocessing/speckle_statistics.cpp
     reference/mie.cpp
-    # io/result_writer.cpp
+    io/result_writer.cpp
     # simulation.cpp
 )
 

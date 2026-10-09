@@ -21,6 +21,7 @@ add_executable(specklebem_unit_tests
     unit/test_operators.cpp
     unit/test_assembler.cpp
     unit/test_gmres.cpp
+    unit/test_result_writer.cpp
     # unit/test_octree.cpp unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -37,6 +38,12 @@ catch_discover_tests(specklebem_unit_tests PROPERTIES SKIP_RETURN_CODE 4)
 add_executable(specklebem_alloc_tests unit/test_operators_alloc.cpp)
 target_link_libraries(specklebem_alloc_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
 catch_discover_tests(specklebem_alloc_tests PROPERTIES SKIP_RETURN_CODE 4)
+
+# Writes a fixed dataset with io::open_npy_directory into the directory given as argument; run
+# by tests/python/test_result_writer.py (NumPy round trip), which finds it as
+# <build>/tests/specklebem_npy_fixture next to <build>/python. Not a CTest test itself.
+add_executable(specklebem_npy_fixture support/npy_fixture_main.cpp)
+target_link_libraries(specklebem_npy_fixture PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
 
 # Validation tests compare against analytic references (Mie, flat-interface
 # Fresnel) and against the dense operator. They are slower and labelled so that

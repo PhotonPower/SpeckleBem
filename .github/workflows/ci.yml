@@ -51,9 +51,13 @@ jobs:
       - name: Validation tests
         run: ctest --test-dir build --output-on-failure -L '^validation$'
 
+      # SPECKLEBEM_NPY_FIXTURE makes the NumPy round trip of the .npy writer fail instead of
+      # skip if the helper is missing; -rs lists the reasons of any skipped test.
       - name: Python tests
+        env:
+          SPECKLEBEM_NPY_FIXTURE: build/tests/specklebem_npy_fixture
         run: |
-          PYTHONPATH=build/python:python python3 -m pytest tests/python -q
+          PYTHONPATH=build/python:python python3 -m pytest tests/python -q -rs
 
   # Native Windows build with MSYS2 UCRT64 (GCC, libstdc++, OpenBLAS), as the win-release
   # preset. MSYS2's eigen3 package is Eigen 5 and deliberately not installed: Eigen 3.4.0 is
@@ -100,8 +104,10 @@ jobs:
       # MSYS2's python.exe is a native Windows program: PYTHONPATH entries are separated by ';'.
       # The extension's DLLs (libstdc++, libgcc, libwinpthread) are found next to python.exe.
       - name: Python tests
+        env:
+          SPECKLEBEM_NPY_FIXTURE: build/tests/specklebem_npy_fixture.exe
         run: |
-          PYTHONPATH='build/python;python' python -m pytest tests/python -q
+          PYTHONPATH='build/python;python' python -m pytest tests/python -q -rs
 
   format-check:
     runs-on: ubuntu-24.04
