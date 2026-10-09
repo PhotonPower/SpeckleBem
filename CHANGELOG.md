@@ -5,6 +5,19 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- python (WP14b2): `Simulation` (keyword mapping onto `SimulationConfig`: formulation,
+  preconditioner, solver, compression, `gmres=dict(...)`, `kernels=dict(...)`; unknown strings
+  and keys raise `ValueError`), `assemble()` / `solve(tol, max_iter, restart, side, callback)`
+  with the GIL released and Python exceptions from the callback propagated, `SolveResult`,
+  `report()`, resolved `formulation` / `preconditioner`, `currents` and `rhs()` (copies),
+  `operator()` as `LinearOperator` (`matvec`, `@`, `as_scipy()`; keeps the Simulation alive),
+  `field`, `far_field`, `bistatic_rcs`; free functions `plane_grid`, `cylinder_grid`,
+  `intensity`, `polarized_intensity`, `differential_reflection_coefficient`; mesh file I/O
+  (`read_mesh` / `write_mesh` and the STL / OBJ / Gmsh variants) and `open_npy_directory` /
+  `ResultWriter` with `str` / `os.PathLike` UTF-8 paths. Tests `tests/python/test_simulation.py`
+  (GMRES vs direct, Mie n = 1.5 at icosphere n = 2 with eps_rr < 2 %, callbacks, keep-alive,
+  SciPy GMRES on `as_scipy()`, GIL release) and `test_io.py` (round trips under a non-ASCII
+  directory). CI installs SciPy (apt `python3-scipy`, MSYS2 `python-scipy`).
 - python (WP14b1f): `TriangleMesh.quality()` returns `MeshQuality` (with `__repr__`) and
   `quality_report()` the C++ text report, as in C++; NumPy-style docstrings with units and
   conventions on every bound class, function and method; `ValueError` for non-finite points in

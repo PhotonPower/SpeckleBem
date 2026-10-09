@@ -26,7 +26,8 @@ jobs:
           # cmake/Dependencies.cmake then fetches spdlog 1.15.3 with its bundled fmt (as in the
           # presets used for development). libomp-dev provides OpenMP for clang.
           sudo apt-get install -y ninja-build libeigen3-dev libopenblas-dev liblapack-dev \
-              libomp-dev catch2 pybind11-dev python3-dev python3-numpy python3-pytest
+              libomp-dev catch2 pybind11-dev python3-dev python3-numpy python3-pytest \
+              python3-scipy
 
       - name: Configure
         env:
@@ -78,7 +79,7 @@ jobs:
           update: true
           install: git
           pacboy: >-
-            gcc:p cmake:p ninja:p openblas:p python:p python-numpy:p python-pytest:p
+            gcc:p cmake:p ninja:p openblas:p python:p python-numpy:p python-pytest:p python-scipy:p
 
       # The Python executables are pinned to MSYS2's python: CMake's FindPython also searches the
       # Windows registry and would otherwise pick the runner's preinstalled CPython.
