@@ -30,7 +30,7 @@ Clang + libc++ with `-Werror` + ASan/UBSan. Packages: `mingw-w64-ucrt-x86_64-{gc
 cmake --preset win-release && cmake --build --preset win-release && ctest --preset win-release -LE validation-large -j 12
 cmake --preset win-debug   && cmake --build --preset win-debug   && ctest --preset win-debug   -LE validation-large -j 12
 ctest --preset win-release -L '^validation$'
-PYTHONPATH='build/win-release/python;python' /c/msys64/ucrt64/bin/python -m pytest tests/python -q
+/c/msys64/ucrt64/bin/python -m pytest -o "pythonpath=build/win-release/python python" tests/python -q -rs
 ```
 
 Always build through the presets: they put the MSYS2 `bin` directory first on `PATH`; from
