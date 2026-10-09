@@ -2,10 +2,12 @@
 /// Test helper `specklebem_npy_fixture <dir>`: writes a fixed dataset with
 /// io::open_npy_directory into <dir>. tests/python/test_result_writer.py runs it and reads the
 /// files back with numpy.load and json.load (NumPy round trip of the .npy writer).
+#include "specklebem/core/path.hpp"
 #include "specklebem/geometry/sphere.hpp"
 #include "specklebem/io/result_writer.hpp"
 
 #include <exception>
+#include <filesystem>
 #include <iostream>
 
 int main(int argc, char** argv) {
@@ -15,7 +17,9 @@ int main(int argc, char** argv) {
         return 2;
     }
     try {
-        const auto w = io::open_npy_directory(argv[1]);
+        // argv is in the native narrow encoding (the ANSI code page on Windows), the library
+        // takes UTF-8 paths (ADR 0007): convert through std::filesystem::path.
+        const auto w = io::open_npy_directory(core::path_to_utf8(std::filesystem::path(argv[1])));
         VectorXc v(5);
         for (Index k = 0; k < 5; ++k) {
             v(k) = Complex(static_cast<Real>(k) + 0.5, -static_cast<Real>(k) / 3.0);

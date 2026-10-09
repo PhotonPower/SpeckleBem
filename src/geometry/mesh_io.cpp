@@ -8,6 +8,7 @@
 #include "specklebem/geometry/mesh_io.hpp"
 
 #include "specklebem/core/logging.hpp"
+#include "specklebem/core/path.hpp"
 
 #include <algorithm>
 #include <array>
@@ -83,24 +84,27 @@ bool iequals(std::string_view a, std::string_view b) {
     return true;
 }
 
+/// Lower-case extension of a UTF-8 path. @throws std::invalid_argument for invalid UTF-8.
 std::string lower_extension(const std::string& path) {
-    std::string ext = std::filesystem::path(path).extension().string();
+    std::string ext = core::path_to_utf8(core::path_from_utf8(path).extension());
     std::transform(ext.begin(), ext.end(), ext.begin(), to_lower);
     return ext;
 }
 
-/// Whole file as a byte string. @throws std::runtime_error naming the path.
+/// Whole file as a byte string. @throws std::runtime_error naming the path,
+/// std::invalid_argument if the path is not valid UTF-8.
 std::string read_file(std::string_view fn, const std::string& path) {
+    const std::filesystem::path p = core::path_from_utf8(path);
     std::error_code ec;
-    if (!std::filesystem::is_regular_file(path, ec)) {
+    if (!std::filesystem::is_regular_file(p, ec)) {
         fail(fn, path, 0,
              ec ? "cannot open file (" + ec.message() + ")"
                 : std::string("cannot open file (it does not exist or is not a regular file)"));
     }
-    const std::uintmax_t size = std::filesystem::file_size(path, ec);
+    const std::uintmax_t size = std::filesystem::file_size(p, ec);
     if (ec)
         fail(fn, path, 0, "cannot determine file size (" + ec.message() + ")");
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(p, std::ios::binary);
     if (!in)
         fail(fn, path, 0, "cannot open file for reading");
     std::string data(static_cast<std::size_t>(size), '\0');
@@ -334,14 +338,18 @@ float load_f32(const std::string& data, std::size_t off) {
 
 /// Writes to `path + ".tmp"` and renames it to `path` in close(), so that a failed write
 /// never leaves a truncated file at the target. The temporary file is removed if close()
-/// is not reached or fails.
+/// is not reached or fails. `path` is UTF-8 (std::invalid_argument otherwise); messages name
+/// the UTF-8 strings.
 class OutputFile {
 public:
     OutputFile(std::string_view fn, const std::string& path)
-        : fn_(fn), path_(path), tmp_path_(path + ".tmp") {
-        out_.open(tmp_path_, std::ios::binary | std::ios::trunc);
+        : fn_(fn),
+          path_(path),
+          target_(core::path_from_utf8(path)),
+          tmp_(core::path_from_utf8(path + ".tmp")) {
+        out_.open(tmp_, std::ios::binary | std::ios::trunc);
         if (!out_)
-            fail(fn_, path_, 0, "cannot open '" + tmp_path_ + "' for writing");
+            fail(fn_, path_, 0, "cannot open '" + path_ + ".tmp' for writing");
         buf_.reserve(kFlushSize + 256);
     }
     OutputFile(const OutputFile&) = delete;
@@ -395,9 +403,9 @@ public:
         if (!out_)
             fail(fn_, path_, 0, "write error");
         std::error_code ec;
-        std::filesystem::rename(tmp_path_, path_, ec);
+        std::filesystem::rename(tmp_, target_, ec);
         if (ec)
-            fail(fn_, path_, 0, "cannot rename '" + tmp_path_ + "' (" + ec.message() + ")");
+            fail(fn_, path_, 0, "cannot rename '" + path_ + ".tmp' (" + ec.message() + ")");
         committed_ = true;
     }
 
@@ -419,12 +427,13 @@ private:
         if (out_.is_open())
             out_.close();
         std::error_code ec;
-        std::filesystem::remove(tmp_path_, ec);
+        std::filesystem::remove(tmp_, ec);
     }
 
     std::string_view fn_;
-    const std::string& path_;
-    std::string tmp_path_;
+    const std::string& path_;  ///< UTF-8, for messages
+    std::filesystem::path target_;
+    std::filesystem::path tmp_;
     std::ofstream out_;
     std::string buf_;
     bool committed_ = false;
