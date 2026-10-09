@@ -46,9 +46,30 @@ TEST_CASE("field decay length", "[material]") {
                WithinRel(d_si, 1e-14));
     CHECK_THAT(material::field_decay_length(Complex(18.478, -0.606), 2.0 * lambda),
                WithinRel(2.0 * d_si, 1e-14));
-    // Lossless media: no decay.
+    // Lossless dielectric: no decay. Lossless metal (eps_r = -4): evanescent, n = -2j,
+    // delta = lambda / (4 pi).
     CHECK(material::field_decay_length(Complex(2.25, 0.0), lambda) ==
           std::numeric_limits<Real>::infinity());
+    CHECK_THAT(material::field_decay_length(Complex(-4.0, 0.0), lambda),
+               WithinRel(lambda / (4.0 * constants::pi), 1e-14));
+    // Material overload: n = sqrt(eps_r mu_r); equal to the eps_r form for mu_r = 1.
+    CHECK_THAT(material::field_decay_length(material::silicon_500nm(), lambda),
+               WithinRel(d_si, 1e-14));
+    CHECK_THAT(material::field_decay_length(material::silver_500nm(), lambda),
+               WithinRel(d_ag, 1e-14));
+    // eps_r = 2.25 - 0.1j, mu_r = 4: n = 2 sqrt(eps_r), so delta halves.
+    const material::Material magnetic{Complex(2.25, -0.1), Complex(4.0, 0.0)};
+    CHECK_THAT(material::field_decay_length(magnetic, lambda),
+               WithinRel(0.5 * material::field_decay_length(Complex(2.25, -0.1), lambda), 1e-12));
+    CHECK(material::field_decay_length(material::vacuum(), lambda) ==
+          std::numeric_limits<Real>::infinity());
+    CHECK_THROWS_AS(material::field_decay_length(
+                        material::Material{Complex(1.0, 0.0),
+                                           Complex(std::numeric_limits<Real>::quiet_NaN(), 0.0)},
+                        lambda),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(material::field_decay_length(material::silicon_500nm(), -lambda),
+                    std::invalid_argument);
     // Invalid input.
     const Real nan = std::numeric_limits<Real>::quiet_NaN();
     const Real inf = std::numeric_limits<Real>::infinity();

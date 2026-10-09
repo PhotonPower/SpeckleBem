@@ -30,19 +30,38 @@ Material silicon_500nm() {
     return {Complex(18.478, -0.606), Complex(1, 0)};
 }
 
-Real field_decay_length(Complex eps_r, Real wavelength) {
-    if (!std::isfinite(eps_r.real()) || !std::isfinite(eps_r.imag())) {
-        throw std::invalid_argument("field_decay_length: eps_r must be finite");
+namespace {
+
+void require_finite(Complex v, const char* name) {
+    if (!std::isfinite(v.real()) || !std::isfinite(v.imag())) {
+        throw std::invalid_argument(std::string("field_decay_length: ") + name + " must be finite");
     }
+}
+
+/// delta = lambda_0 / (2 pi |Im n|) after validating the wavelength.
+Real decay_length_of_index(Complex n, Real wavelength) {
     if (!(wavelength > 0.0) || !std::isfinite(wavelength)) {
         throw std::invalid_argument(
             "field_decay_length: wavelength must be positive and finite, got " +
             std::to_string(wavelength));
     }
-    const Real kappa = std::abs(std::sqrt(eps_r).imag());
+    const Real kappa = std::abs(n.imag());
     if (kappa == 0.0)
         return std::numeric_limits<Real>::infinity();
     return wavelength / (2.0 * constants::pi * kappa);
+}
+
+}  // namespace
+
+Real field_decay_length(Complex eps_r, Real wavelength) {
+    require_finite(eps_r, "eps_r");
+    return decay_length_of_index(std::sqrt(eps_r), wavelength);
+}
+
+Real field_decay_length(const Material& m, Real wavelength) {
+    require_finite(m.eps_r, "eps_r");
+    require_finite(m.mu_r, "mu_r");
+    return decay_length_of_index(m.refractive_index(), wavelength);
 }
 
 DispersiveMaterial::DispersiveMaterial(VectorXr wavelengths_m, VectorXc refractive_indices)

@@ -31,13 +31,15 @@
 ///    layout: top grid (n_x n_y), bottom grid (n_x n_y), then the interior wall vertices
 ///    (n_rim (n_z - 1)), where n_rim = 2 (n_x - 1) + 2 (n_y - 1). Triangle count:
 ///    4 (n_x - 1)(n_y - 1) + 2 n_rim n_z.
-///  * Graded box (M >= 1, WP2b). Vertex layout: top grid (n_x n_y), bottom grid
-///    ((n_cx + 1)(n_cy + 1), the level-M nodes), then the interior wall rows k = 1 .. K-1,
-///    each a ring of R_m vertices, R_m = 2 n_x,m + 2 n_y,m for the level m of the row
-///    (n_x,m cells of level m along x). Triangles: top face (2 (n_x - 1)(n_y - 1)), walls
+///  * Graded box (M >= 1, WP2b/WP2c). Vertex layout: top grid (n_x n_y), bottom grid
+///    ((n_cx + 1)(n_cy + 1), the level-M nodes), the interior relaxation nodes (column by
+///    column along ring 0, n_p - 1 each), then the interior wall rows k = 1 .. K-1 (row 1 =
+///    anchor row), each a ring of R_m vertices, R_m = 2 n_x,m + 2 n_y,m for the level m of
+///    the row (n_x,m cells of level m along x). Triangles: top face (2 (n_x - 1)(n_y - 1)),
+///    the relaxation band (sum_p (n_p + n_(p+1)), stitched column pairs), the other walls
 ///    strip by strip (2 R_m between two rows of level m, R_m + R_(m+1) for a transition
 ///    strip from level m to m + 1), bottom plate (2 n_cx n_cy). Row heights (WP2c): rim,
-///    R relaxation rows, the anchor row, the fine band, transitions and coarse rows; see
+///    relaxation band, the anchor row, the fine band, transitions and coarse rows; see
 ///    BoxPlan and make_mesh_from_height_map().
 #include "specklebem/geometry/rough_surface.hpp"
 
@@ -537,10 +539,10 @@ struct BoxPlan {
     /// M = 0: height fraction of wall row k (0 rim, 1 bottom). M >= 1: tau_k for the rows
     /// k >= 1 (see above; row 0 is the rim).
     std::vector<Real> row_fraction;
-    Real wall_aspect = 0.0;     ///< largest wall aspect ratio of the graded rows (M >= 1)
-    Real uniform_aspect = 0.0;  ///< same for the uniform WP2 box (reference; M_unreduced >= 1)
-    Index relax_rows = 0;       ///< R = max_p (n_p - 1) (M >= 1)
-    Index relax_vertices = 0;   ///< sum_p (n_p - 1): interior relaxation nodes (M >= 1)
+    Real wall_aspect = 0.0;          ///< largest wall aspect ratio of the graded rows (M >= 1)
+    Real uniform_aspect = 0.0;       ///< same for the uniform WP2 box (reference; M_unreduced >= 1)
+    Index relax_rows = 0;            ///< R = max_p (n_p - 1) (M >= 1)
+    Index relax_vertices = 0;        ///< sum_p (n_p - 1): interior relaxation nodes (M >= 1)
     std::vector<Index> relax_n;      ///< n_p, relaxation segments of column p
     std::vector<Index> relax_first;  ///< sum_(q < p) (n_q - 1): first interior node of p
     Index fine_rows = 0;             ///< level-0 rows of the fine band below row 1
@@ -575,8 +577,7 @@ struct BoxPlan {
             return rim_z[ps];
         if (i == n)
             return anchor_z[ps];
-        return rim_z[ps] +
-               (anchor_z[ps] - rim_z[ps]) * static_cast<Real>(i) / static_cast<Real>(n);
+        return rim_z[ps] + (anchor_z[ps] - rim_z[ps]) * static_cast<Real>(i) / static_cast<Real>(n);
     }
 };
 
@@ -703,9 +704,10 @@ void set_anchor(BoxPlan& plan) {
     plan.relax_vertices = 0;
     const Real edge = kMaxRelaxationEdge * plan.hg;
     for (Index p = 0; p < q0; ++p) {
-        const Real gap = plan.anchor_z[static_cast<std::size_t>(p)] - plan.rim_z[static_cast<std::size_t>(p)];
-        const Index n = std::max<Index>(
-            1, static_cast<Index>(std::ceil(gap / edge * (1.0 - kRoundingSlack))));
+        const Real gap =
+            plan.anchor_z[static_cast<std::size_t>(p)] - plan.rim_z[static_cast<std::size_t>(p)];
+        const Index n =
+            std::max<Index>(1, static_cast<Index>(std::ceil(gap / edge * (1.0 - kRoundingSlack))));
         plan.relax_n.push_back(n);
         plan.relax_first.push_back(plan.relax_vertices);
         plan.relax_vertices += n - 1;
@@ -735,7 +737,7 @@ bool set_levels(BoxPlan& plan, const HeightMap& h, Index m) {
     }
     set_rings(plan, h);
     set_anchor(plan);
-    plan.row_level.assign(2, 0);         // rim, anchor row (level 0)
+    plan.row_level.assign(2, 0);       // rim, anchor row (level 0)
     plan.row_fraction.assign(2, 0.0);  // rim (unused), anchor row: tau = 0
 
     // Column heights below the anchor row: mean (nominal row heights), min and max.
@@ -863,8 +865,7 @@ Real wall_rows_aspect(const BoxPlan& plan, const HeightMap& h) {
                        [&](bool right, Index i, Index j) {
                            const Real third = right ? d : 0.0;
                            const Real z3 = right ? zr(j + 1) : zl(i + 1);
-                           aspect =
-                               std::max(aspect, wall_aspect(0.0, zl(i), d, zr(j), third, z3));
+                           aspect = std::max(aspect, wall_aspect(0.0, zl(i), d, zr(j), third, z3));
                        });
     }
     for (Index k = 1; k < plan.rows(); ++k) {
@@ -1231,7 +1232,8 @@ TriangleMesh box_mesh(const HeightMap& h, Real depth, std::optional<Real> box_me
     const Index n_wall = triangles.rows() - n_top - n_bottom;
     SBEM_INFO(
         "rough box mesh: {} x {} grid, {} top + {} wall + {} bottom triangles (closing box / "
-        "top = {:.3f}), depth {} m, {} coarsening levels, {} relaxation nodes (<= {} per column), {} fine-band rows, "
+        "top = {:.3f}), depth {} m, {} coarsening levels, {} relaxation nodes (<= {} per column), "
+        "{} fine-band rows, "
         "bottom {} x {} cells (target spacing {} m)",
         h.z.rows(), h.z.cols(), n_top, n_wall, n_bottom,
         static_cast<Real>(n_wall + n_bottom) / static_cast<Real>(n_top), depth, plan.levels,

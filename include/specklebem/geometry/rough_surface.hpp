@@ -50,28 +50,35 @@ struct RoughSurfaceParams {
     /// valid only where the field transmitted into the object has decayed, i.e. below a
     /// depth of a few field decay lengths
     ///   delta = lambda_0 / (2 pi |Im n_2|)
-    /// under the rough interface. Without a fine band the first coarsened wall row lies
-    /// (R + 2) h_g + e below the rim (h_g = sqrt(dx dy); R = 0 relaxation rows and e = 0 for
-    /// a smooth rim, i.e. 100 nm at 50 nm spacing; e <= the local rim deviation from its
-    /// level-M interpolation) and the full coarse spacing is reached 2^M h_g below it.
+    /// under the rough interface. Between the rim and the anchor row (h_g + e below the rim,
+    /// h_g = sqrt(dx dy), e >= 0 the local dip of the rim below its level-M interpolation,
+    /// e = 0 for a smooth rim) every vertical wall edge is at most 2 h_g long and the
+    /// horizontal edges have the top-face spacing, with or without a fine band. Without a
+    /// fine band the first coarsened wall row lies about one h_g below the anchor row, i.e.
+    /// 2 h_g + e below the rim (100 nm at 50 nm spacing for a smooth rim), and the full
+    /// coarse spacing is reached 2^M h_g below it.
     ///  * The automatic rule without fine band is meant for strongly absorbing objects: Ag
     ///    at 500 nm has delta = 25 nm, so the first coarse row (100 nm) is ~4 delta deep.
-    ///  * Weakly absorbing objects need a fine band down to ~3 delta (box_fine_depth): Si at
-    ///    500 nm has delta = 1.13 um (material::field_decay_length()). The uniform box
-    ///    (box_mesh_size = mesh_size) remains valid but costs more.
+    ///  * Weakly absorbing objects need a fine band down to ~3 delta below the rim
+    ///    (box_fine_depth): Si at 500 nm has delta = 1.13 um (material::field_decay_length()).
+    ///    The uniform box (box_mesh_size = mesh_size) remains valid but costs more.
     ///  * box_mesh_size must be >= the top-face spacing: the walls are never finer than the
     ///    top face, and the wavelength inside the object, lambda_0 / |n_2|, is resolved by
     ///    the top-face mesh size, not by the box. A value below h / sqrt(2) (h = min(dx, dy))
     ///    is accepted with an SBEM_WARN and gives the uniform box.
     /// The generator knows no material: Simulation (later phase) is responsible for passing
-    /// the fine band (box_fine_depth = 3 delta) for weakly absorbing objects (ADR 0006).
+    /// the fine band (box_fine_depth = 3 delta + 3 sigma) for weakly absorbing objects
+    /// (ADR 0006).
     std::optional<Real> box_mesh_size;
     /// Fine band of the graded box [m]: the side walls keep the top-face spacing from the
-    /// rim down to z = box_fine_depth (measured from the mean plane z = 0 in +z) and grade
-    /// only below. Unset: no fine band (the grading starts right below the rim). Must be
-    /// positive, finite and below the box depth. Size it from the object material:
-    /// box_fine_depth = 3 delta with delta = material::field_decay_length(eps_r, lambda_0)
-    /// (Si at 500 nm: delta = 1.13 um). See make_mesh_from_height_map().
+    /// rim down to z = box_fine_depth and grade only below. Unset: no fine band (the grading
+    /// starts right below the anchor row). Must be positive, finite and below the box depth.
+    /// box_fine_depth is measured from the mean plane z = 0 (in +z), not from the local rim:
+    /// below a rim point at height xi the band only reaches z_f - xi deep, so add a margin of
+    /// about 3 sigma. Size it from the object material: box_fine_depth = 3 delta + 3 sigma
+    /// with delta = material::field_decay_length(eps_r, lambda_0) (Si at 500 nm:
+    /// delta = 1.13 um); Simulation (WP14) passes 3 delta + 3 sigma. See
+    /// make_mesh_from_height_map().
     std::optional<Real> box_fine_depth;
     bool use_fft = true;  ///< FFT convolution (fast) vs direct (reference)
 };
@@ -123,7 +130,8 @@ TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p);
 /// Grading (box_mesh_size, the target coarse spacing h_c of the lower walls and the bottom):
 ///  * Physics: valid only below a few field decay lengths of the object material; see the
 ///    contract at RoughSurfaceParams::box_mesh_size (automatic rule for strongly absorbing
-///    objects such as Ag; with box_fine_depth = 3 delta for weakly absorbing ones such as Si).
+///    objects such as Ag; with box_fine_depth = 3 delta + 3 sigma for weakly absorbing ones
+///    such as Si).
 ///  * Automatic rule (unset): h_c = min(depth / 2, L / 8, 10 h), with h = min(dx, dy) the
 ///    top-face spacing and L = min((n_x - 1) dx, (n_y - 1) dy) the shorter patch side.
 ///    A requested h_c < h / sqrt(2) logs SBEM_WARN (the walls are never finer than the top
@@ -149,25 +157,31 @@ TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p);
 ///    floor or ceil of (n - 1) / n_c cells (the coarse spacing is recomputed accordingly).
 ///    The intermediate levels halve each coarse cell recursively (larger half first), so
 ///    every level-(m+1) cell consists of one or two level-m cells.
-///  * Walls, from the rim down (WP2c; sketch for M = 3, R = 1, no fine band):
+///  * Walls, from the rim down (WP2c; sketch for M = 3, no fine band):
 ///
 ///        rim     z_rim (rough, level 0)          ___ top face
-///        R rows  level 0, z_rim -> z_S           | | | | | | | | |  quads, vertical edges
-///        anchor  z_S (level 0)                   |-+-+-+-+-+-+-+-|
+///        relaxation band, z_rim -> z_S           |:|.|:|:|.| | |  n_p segments <= 2 h_g
+///        anchor  z_S (level 0)                   |-+-+-+-+-+-+-|  per column, stitched
 ///        [fine band: level-0 rows <= h_g tall down to z >= z_f]
 ///        M transition rows, h_g .. 2^(M-1) h_g   |/\|/\|/\|/\|    2:1 cells (3 triangles)
 ///        coarse rows <= 2^M h_g                  |   |   |   |   |
 ///        bottom plate z = depth (level M)        +---+---+---+---+
 ///
 ///    The anchor row z_S is piecewise linear along the rim between the level-M nodes:
-///    z_S = z~ + D + (R + 1) h_g, with z~ the linear interpolation of the rim heights between
-///    the level-M nodes, and D the linear interpolation of node offsets D(a) = the largest
-///    rim excess z_rim - z~ (>= 0) over the two level-M cells at node a. Hence z_S lies at
-///    least (R + 1) h_g below the rim in every column. The R level-0 relaxation rows
-///    interpolate each column linearly between z_rim and z_S; their strips are quads with
-///    vertical edges, which cannot invert (every column is monotone). R = 0 when the excess
-///    e = z_S - z_rim - (R + 1) h_g stays <= 2 h_g (strip heights <= 3 h_g), otherwise
-///    R = 1 (cap; one level-0 row costs 2 % of the top-face triangles at L = 10 um, 50 nm).
+///    z_S = z~ + D + h_g, with z~ the linear interpolation of the rim heights between the
+///    level-M nodes, and D the linear interpolation of node offsets D(a) = the largest rim
+///    excess z_rim - z~ (>= 0) over the two level-M cells at node a. Hence z_S lies at least
+///    h_g below the rim in every column, h_g + e with e = z~ + D - z_rim >= 0.
+///    Relaxation band (strip-height bound): wall column p (every rim node) is split evenly
+///    between z_rim and z_S into n_p = max(1, ceil((z_S - z_rim) / (2 h_g))) segments, so
+///    every vertical wall edge between the rim and the anchor row is at most 2 h_g long
+///    (Si interior wavelength at 500 nm: 116 nm; Ag field decay length 25 nm), with or
+///    without a fine band. Adjacent columns are stitched (n_p + n_(p+1) triangles, each with
+///    one edge on a vertical column, so none can invert; the column whose next node is
+///    higher advances first). Columns with z_S - z_rim <= 2 h_g keep a single segment, so the
+///    extra nodes (BoxGrading::relaxation_vertices, 2 triangles each) are confined to the
+///    parts of the ring that dip below the level-M interpolation; R is the largest
+///    number of interior nodes in one column.
 ///    All rows below follow z = z_S + (depth - z_S) tau_k, tau_k increasing from 0 to 1: the
 ///    fine band (if any), M transition rows of nominal heights h_g, 2 h_g, ...,
 ///    2^(M-1) h_g (in which every level-(m+1) cell made of two level-m cells is a 2:1 strip
@@ -175,35 +189,42 @@ TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p);
 ///    gives two triangles), then uniform coarse rows of nominal height <= 2^M h_g. Nominal
 ///    heights refer to the mean column depth - z_S; each column scales them by its own
 ///    depth - z_S. A smooth rim (z_rim = z~, e.g. a flat or piecewise-linear rim) gives
-///    R = 0 and the WP2b rows (rim, one row at h_g, transitions, coarse rows).
-///  * Fine band (box_fine_depth = z_f): level-0 rows of height <= h_g in every column from
-///    the anchor row down to a row lying at z >= z_f in every column; the transition rows
-///    start there, so all wall triangles above z_f have the top-face spacing (horizontal
-///    edges h, rows <= h_g; rows above the anchor as described above). A z_f above the
-///    anchor row adds no rows. The bottom plate is unaffected unless the fine band reaches
-///    it: if the transitions and half a coarse row do not fit below z_f, M is reduced, down
-///    to the uniform box. z_f >= depth throws (the uniform box is box_mesh_size = mesh_size).
-///  * Rough rims (WP2c): every row below the rim is linear within each level-M cell, so a
-///    2:1 cell is a shear of the flat cell and cannot invert, for any roughness. Rim
-///    roughness costs at most one relaxation row and deeper anchor rows. Measured on
-///    generated maps (L = 10 um, h = 50 nm, depth 2 um, automatic M = 3, seeds 1-5;
-///    closing box / top-face triangles): sigma = 50 nm, Lc = 500 nm: M = 3, R = 0 (7.2 %);
-///    sigma = 50 nm, Lc = 100 nm or 200 nm, and sigma = 250 nm, Lc = 100 nm or 500 nm: M = 3,
-///    R = 1 (8.9-9.2 %). Under WP2b (rows following the rim) these maps fell back to M = 0-2
-///    (up to 180 %). The wall aspect ratios of very rough rims are set by the rim itself
-///    (rim steps sheared over one h-wide column, as in the uniform WP2 box); the anchor row
-///    of a steep rim also shears the 2:1 cells (graded walls up to 1.7 x the worst uniform
-///    wall triangle for sigma = 250 nm, Lc = 500 nm; below it for Lc = 100 nm).
+///    no relaxation nodes and the WP2b rows (rim, one row at h_g, transitions, coarse rows).
+///  * Fine band (box_fine_depth = z_f, measured from z = 0, see
+///    RoughSurfaceParams::box_fine_depth): level-0 rows of height <= h_g in every column
+///    from the anchor row down to a row lying at z >= z_f in every column; the transition
+///    rows start there, so all wall triangles above z_f have the top-face spacing
+///    (horizontal edges h; vertical edges <= h_g in the fine band and <= 2 h_g in the
+///    relaxation band above the anchor row). A z_f above the anchor row adds no rows. The
+///    bottom plate is unaffected unless the fine band reaches it: if the transitions and
+///    half a coarse row do not fit below z_f, M is reduced, down to the uniform box (logged
+///    once per mesh with SBEM_INFO, as requested by the caller). z_f >= depth throws (the
+///    uniform box is box_mesh_size = mesh_size).
+///  * Rough rims (WP2c): every row below the anchor row is linear within each level-M cell,
+///    so a 2:1 cell is a shear of the flat cell and cannot invert, for any roughness. Rim
+///    roughness costs relaxation nodes where the rim dips and deeper anchor rows. Measured
+///    on generated maps (L = 10 um, h = 50 nm, depth 2 um, automatic M = 3, seeds 1-5;
+///    closing box / top-face triangles): sigma = 50 nm, Lc = 500 nm: R = 0 (7.19 %);
+///    sigma = 250 nm, Lc = 500 nm: R = 2 (7.9-8.1 %); sigma = 50 nm, Lc = 100 nm: R = 2-3
+///    (8.4-8.5 %); sigma = 250 nm, Lc = 100 nm: R = 11-13, about 2700 relaxation nodes
+///    (13.7-14.0 %, above the 10 % target of the backlog; rms slope 3.5). Under WP2b (rows
+///    following the rim) these maps fell back to M = 0-2 (up to 180 %). The wall aspect
+///    ratios of very rough rims are set by the rim itself (rim steps sheared over one h-wide
+///    column, as in the uniform WP2 box; the stitched band stays at 0.3-0.5 x the uniform
+///    walls for sigma = 250 nm, Lc = 100 nm); the anchor row of a steep rim also shears the
+///    2:1 cells (sigma = 250 nm, Lc = 500 nm: up to 1.9 x the worst uniform wall triangle in
+///    a 20-seed sweep at L = 4 um).
 ///    Safety net, per M: every column strictly monotone; the middle upper node of every 2:1
 ///    cell at least half its band height above the edge below it; the transitions and half
 ///    a coarse row fit below the anchor row (or the fine band) in the mean column; every
 ///    column keeps at least a quarter of the mean column height depth - z_S; and the
 ///    largest wall aspect ratio R / (2 r) is at most max(4, 2 x that of the uniform WP2 box
 ///    walls on the same map). Otherwise M is reduced by one until the rows fit, ultimately
-///    down to the uniform box (one SBEM_WARN per mesh). With the construction above only an
-///    anchor row close to the bottom plate (deep rim pits in a shallow box: L = 2 um,
-///    sigma = 250 nm, Lc = 100 nm, depth 1 um gives the uniform box) or a too deep fine band
-///    triggers it.
+///    down to the uniform box (one SBEM_WARN per mesh). Expected triggers: an anchor row
+///    close to the bottom plate (deep rim pits in a shallow box), and an unlucky seed of a
+///    very rough, steep rim whose anchor row shears the 2:1 cells beyond the aspect bound
+///    (sigma = 250 nm, Lc = 500 nm, L = 4 um, depth 2 um: 1 of 20 seeds falls back from M = 3
+///    to M = 2 with the warning; the hidden [.stats] test prints the sweep).
 ///  * The bottom plate is the structured grid of the level-M nodes, welded to the lowest
 ///    wall row.
 /// @throws std::invalid_argument for a grid smaller than 2 x 2, non-positive spacing,
