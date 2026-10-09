@@ -14,7 +14,9 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `magnetic_field`) and `Mie` (broadcast `bistatic_rcs`, `scattered_E`, cross sections); GIL
   released in mesh generation and field loops; invalid input raises `ValueError`. C++:
   `geometry::MeshQuality`, `TriangleMesh::quality()` and `geometry::to_string(MeshQuality)`
-  (`quality_report()` unchanged). Tests `tests/python/test_geometry.py`, `test_physics.py`.
+  (`quality_report()` unchanged). The module now builds with the project warning set (GCC's
+  `-Wnull-dereference`/`-Wmaybe-uninitialized` false positives in pybind11/Eigen headers are
+  disabled per source). Tests `tests/python/test_geometry.py`, `test_physics.py`.
 - io (WP16): `io::open_npy_directory`, a dependency-free `ResultWriter` that stores vectors and
   matrices as NumPy `.npy` files (format 1.0, little-endian, C order, `<f8`/`<c16`), meshes as
   `<group>/vertices.npy` (`<f8`) and `<group>/triangles.npy` (`<i8`, 0-based) and attributes in
