@@ -4,8 +4,10 @@ Driver cases use the sphere of tests/unit/test_simulation.cpp: radius 0.5 um, ic
 (2N = 240), lambda = 1 um and its cheap quadrature options, so that each solve is fast.
 """
 
+import _thread
 import gc
 import inspect
+import os
 import threading
 import time
 import weakref
@@ -153,6 +155,109 @@ def test_gmres_solve_releases_gil():
     assert gap < 0.25 * elapsed, (gap, elapsed)
 
 
+def test_concurrent_calls_are_serialised():
+    """solve() in one thread, field() / bistatic_rcs() / currents in another (one Simulation)."""
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    sim.solve(tol=1e-8)
+    pts = np.array([[0.0, 0.0, -2e-6], [1.5e-6, 0.5e-6, 0.2e-6]])
+    th = np.linspace(0, np.pi, 7)
+    x0, E0, s0 = sim.currents, sim.field(pts)[0], sim.bistatic_rcs(th)
+    errors, its = [], []
+
+    def solver():
+        try:
+            for _ in range(20):
+                its.append(sim.solve(tol=1e-8).iterations)
+        except Exception as e:  # pragma: no cover - reported below
+            errors.append(e)
+
+    def post():
+        try:
+            for _ in range(40):
+                np.testing.assert_allclose(sim.field(pts)[0], E0, rtol=1e-12)
+                np.testing.assert_allclose(sim.bistatic_rcs(th), s0, rtol=1e-12)
+                np.testing.assert_allclose(sim.currents, x0, rtol=1e-12)
+                assert "converged" in sim.report()
+        except Exception as e:  # pragma: no cover - reported below
+            errors.append(e)
+
+    workers = [threading.Thread(target=f) for f in (solver, post, post)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert not errors, errors
+    assert len(its) == 20 and len(set(its)) == 1
+
+
+def test_reentrant_call_from_callback_is_rejected():
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    sim.solve()
+    seen = []
+
+    def cb(it, r):
+        assert sim.num_unknowns == 240  # unlocked properties are fine
+        with pytest.raises(RuntimeError, match="re-entrant"):
+            sim.bistatic_rcs(0.0)
+        seen.append(it)
+
+    assert sim.solve(tol=1e-6, callback=cb).converged and seen
+    with pytest.raises(RuntimeError, match="re-entrant"):  # uncaught: aborts the solve
+        sim.solve(tol=1e-6, callback=lambda it, r: sim.report())
+    assert sim.solve().converged  # lock released after the aborted solve
+
+
+def test_solve_interruptible_without_callback():
+    """KeyboardInterrupt (simulated Ctrl-C from a timer thread) aborts a GMRES solve on the main
+    thread without a user callback; the aborted solve stores no solution."""
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    sim.assemble()
+    timer = threading.Timer(0.3, _thread.interrupt_main)
+    t0 = time.perf_counter()
+    timer.start()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            sim.solve(tol=1e-300, max_iter=20000, restart=10)  # >= 10 s uninterrupted
+    finally:
+        timer.cancel()
+        timer.join()
+    assert time.perf_counter() - t0 >= 0.3  # raised inside solve(), not before it
+    with pytest.raises(RuntimeError):
+        sim.currents  # noqa: B018 - interrupted before any solution was stored
+
+    def cb(it, r):  # the same exception path from a user callback
+        if it == 3:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        sim.solve(callback=cb)
+
+
+def test_exterior_defaults_to_excitation_background():
+    bg = sb.Material(eps_r=1.69)  # lossless n = 1.3
+    pw = sb.PlaneWave(LAMBDA_FAST, [0, 0, 1], [1, 0, 0], background=bg)
+    mesh = sb.make_icosphere(RADIUS, 1)
+    kw = dict(object=N15, kernels=CHEAP, formulation="PMCHWT", solver="direct")
+    sims = [sb.Simulation(mesh, pw, **kw), sb.Simulation(mesh, pw, exterior=bg, **kw)]
+    for s in sims:
+        s.solve()
+    np.testing.assert_array_equal(sims[0].currents, sims[1].currents)
+    with pytest.raises(ValueError):
+        sb.Simulation(mesh, pw, exterior=sb.Material(eps_r=1.0), **kw)
+
+
+def test_solve_result_x_keep_alive():
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    res = sim.solve(tol=1e-8)
+    x = res.x
+    del res
+    gc.collect()
+    assert not x.flags.writeable and x.base is not None
+    assert x.sum() == sim.currents.sum()
+    with pytest.raises(ValueError):
+        x[0] = 0
+
+
 def test_errors_before_assemble_and_solve():
     sim = make_sim()
     for f in (sim.operator, sim.rhs, lambda: sim.currents, lambda: sim.bistatic_rcs(0.0)):
@@ -190,8 +295,12 @@ def test_operator_and_keep_alive():
 
 
 def test_operator_as_scipy():
-    """SciPy GMRES on as_scipy() (skipped without the optional dev dependency SciPy)."""
-    spla = pytest.importorskip("scipy.sparse.linalg")
+    """SciPy GMRES on as_scipy() (skipped without the optional dev dependency SciPy, unless
+    SPECKLEBEM_REQUIRE_SCIPY is set, as in CI: then a missing SciPy fails)."""
+    if os.environ.get("SPECKLEBEM_REQUIRE_SCIPY", "0") not in ("", "0"):
+        import scipy.sparse.linalg as spla
+    else:
+        spla = pytest.importorskip("scipy.sparse.linalg")
     sim = make_sim(formulation="ICTF", preconditioner="none")
     x, b = sim.solve(tol=1e-10).x, sim.rhs()
     A = sim.operator().as_scipy()
