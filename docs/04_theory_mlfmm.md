@@ -16,19 +16,28 @@ T_L(k, r, k̂) = Σ_{l=0}^{L} (−j)^l (2l+1) h_l^{(2)}(kr) P_l(k̂ · r̂)
 
 ## Data structures
 
-- **Octree** over RWG edge midpoints, root = bounding box of the mesh, Morton ordering so that the elements of a box are contiguous. Leaf criterion: ≤ `max_elements_per_leaf` (≈100) **and** box size ≥ `min_box_size_lambda · λ` (λ/4) to avoid low-frequency breakdown. Paper: 120 elements per smallest box, 5 levels for the 4 µm sphere.
-- **Near list**: the 3×3×3 neighbourhood at the leaf level. **Interaction list**: children of the parent's neighbours that are not neighbours themselves (≤ 189 boxes).
+- **Octree** (`mlfmm::Octree`) over RWG edge midpoints. Root = the mesh **vertex** bounding box (`TriangleMesh::bounding_box()`) turned into a cube of edge `e (1 + 2·10⁻⁶)` (`e` = largest extent), **anchored at the lower corner** `lo − 10⁻⁶ e` rather than centred, so flat or thin geometry stays in one layer of boxes instead of being cut at its mid-plane; points on the upper root faces are clamped into the last box. Morton ordering, so that the elements of a box are contiguous.
+- **Uniform depth**: all leaves lie on the finest level `D`, so the passes need only level-wise lists (no adaptive U/V/W/X lists). `D` is the first level on which every box holds ≤ `max_elements_per_leaf` (≈100) elements, unless a further split would make the box edge smaller than the floor or exceed `max_levels`; then the leaves may hold more. Floor: a level is admitted if its box edge is ≥ `(1 − kMinBoxSizeTolerance) · min_box_size_lambda · λ` with `kMinBoxSizeTolerance = 10⁻²` (default λ/4). The floor only guards against the gradual low-frequency breakdown — the truncation uses the actual enlarged box diagonal and the accuracy is checked per level (ADR 0008) — so it need not be exact; the tolerance keeps a root of 7.99 λ from losing its λ/4 level. Example: the 4 µm sphere at λ = 500 nm has an 8 λ root and 6 levels down to λ/4 leaves (icosphere n = 6: ≤ 58 elements per leaf). Paper: 120 elements per smallest box, 5 levels for the 4 µm sphere.
+- **Near list** (every level): the same-level boxes of the 3×3×3 neighbourhood, **excluding the box itself**; the self-interaction is near as well (leaf-self and leaf-near-list blocks are assembled exactly). **Interaction list** (levels ≥ 2): children of the parent's near boxes that are not near themselves (≤ 189 boxes; the parent's own children are always near). Every leaf pair is either near (self or near list) or translated at exactly one level.
 - **Sampling** on the unit sphere per level: `L_m` Gauss–Legendre points in θ × `2L_m` uniform in φ → `2L_m²` directions (paper: `L_m = 21` for the 10×10 µm² surfaces).
 - **Truncation** `L = kD + 1.8 d0^{2/3} (kD)^{1/3}` with `D` the box diagonal and `d0` the requested digits (`MlfmmParams::accuracy_digits`).
 
 ## Radiation and receiving patterns
 
-For each leaf box and each RWG `f_n` inside it, precompute for every direction `k̂`:
+With the addition theorem above (source s near box centre C_s, observer o near C_o; prefactor
+−jk/4π; translator without that prefactor, `mlfmm::translator`), the source side carries
+e^{−jk k̂·(C_s − s)} = e^{+jk k̂·(s − C_s)} and the observer side e^{−jk k̂·(o − C_o)}. For each leaf box
+and each RWG `f_n` inside it, precompute for every direction `k̂`:
 ```
-V_n(k̂) = ∫_{supp f_n} (I − k̂k̂) f_n(r') e^{−jk·(r' − r_box)} dS'      (for L)
-W_n(k̂) = k̂ × V_n(k̂)                                                 (for K)
+radiation (source side):  V_n(k̂) = ∫_{supp f_n} (I − k̂k̂) f_n(r') e^{+jk k̂·(r' − r_box)} dS'   (for L)
+                          W_n(k̂) = k̂ × V_n(k̂)                                              (for K)
+receiving (observer side): R_m(k̂) = ∫_{supp f_m} (I − k̂k̂) f_m(r)  e^{−jk k̂·(r − r_box)} dS
+                                   = V_m(−k̂)            (also for complex k: no conjugation)
 ```
-Both components (θ̂, φ̂) are stored. The same quantities with `k_2` serve region R2. Receiving patterns are the conjugate-direction counterparts; for Galerkin testing they coincide with the radiation patterns up to sign.
+Both components (θ̂, φ̂) are stored. The same quantities with `k_2` serve region R2. The receiving
+pattern is the radiation pattern evaluated at the opposite direction (the projector I − k̂k̂ is even
+in k̂); with the (I − k̂k̂) projection the far-field form of the gradient terms of L is included
+(transverse part only). Conjugation is never used: for complex k it would be wrong.
 
 ## Passes per matvec
 

@@ -5,6 +5,61 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm (WP17): `mlfmm::Octree` over the RWG edge midpoints: root cube from the padded mesh
+  vertex bounding box, anchored at its lower corner (flat or thin geometry stays one box layer
+  thick), uniform depth (all leaves on the finest level; the first level on which every box
+  holds <= `max_elements_per_leaf`, bounded by `max_levels` <= 21 and the floor
+  `(1 - kMinBoxSizeTolerance)`·`min_box_size_lambda`·λ with `kMinBoxSizeTolerance = 1e-2`, so
+  the 4 µm sphere at 500 nm, root 8 λ, reaches λ/4 leaves on 6 levels), Morton-ordered boxes
+  per level with integer coordinates `Box::ijk`, contiguous element ranges (`permutation()` /
+  `inverse_permutation()`), `find_box(level, ijk)`, near lists (same-level neighbours, self
+  excluded) and interaction lists (<= 189, levels >= 2), `summary()`. Tests check the
+  permutation, range nesting, Morton order, root box, box geometry and leaf criteria on
+  icospheres, a thin rough box and flat plates (exactly flat and with ±1e-15 m jitter: one box
+  layer, identical leaves), the near and interaction lists against an independent pairwise
+  classification from `ijk`, list symmetry and completeness over all leaf pairs (each pair near
+  or translated on exactly one level), the λ/4 floor (4 µm sphere regression) and `max_levels`
+  bounds, input errors, and the build time (122,880 basis functions in ~0.03 s, release).
+- solver / tooling (WP15, Phase 3 DoD): rough-box helpers `default_box_depth(object, λ)` =
+  max(10 intensity absorption lengths δ/2, 2 µm) (`kMinBoxDepth`; Si 5.65 µm, Ag 2 µm) and
+  `default_box_fine_depth(object, λ, σ)` = 3δ + 3σ in `simulation.hpp` (ADR 0006; a lossless
+  dielectric object throws `std::invalid_argument`), with `[simulation]` unit tests. Study
+  executable `benchmarks/formulation_convergence.cpp` (`SPECKLEBEM_BUILD_BENCHMARKS`): PMCHWT,
+  ICTF and MCTF without and with left Jacobi on Si and Ag Gaussian rough surfaces (σ = 50 nm,
+  Lc = 500 nm, h = 50 nm, L = 3.2 µm, 2N ≈ 3·10⁴, dense, full GMRES, tol 1e-3); record
+  `benchmarks/results/formulation_convergence.md` and histories
+  `benchmarks/results/formulation_convergence_histories.csv`. Si: ICTF 219, MCTF 254, PMCHWT 315,
+  Jacobi 272 iterations; Ag: ICTF 622, MCTF 651, PMCHWT 886, Jacobi 1069; the three
+  Jacobi-preconditioned formulations iterate identically (≤ 5e-13, issue #15). Fu et al.'s
+  "PMCHWT does not converge" and "Jacobi best for Ag" are not reproduced at this size.
+- mlfmm (WP18): plane-wave machinery (`compression/mlfmm/plane_wave.hpp`, `interpolation.hpp`):
+  `truncation_order` (ADR 0008 §2, Re k bandwidth), `SphereSampling` (Gauss-Legendre x uniform
+  phi, contiguous SoA directions / theta_hat / phi_hat, weights summing to 4 pi),
+  `spherical_hankel2` (h_l^(2) of complex argument, Re z > 0, Im z <= 0, upward recurrence,
+  measured <= 1.4e-14 relative for l <= 120, |z| in [0.05, 80]), `legendre_p`, the diagonal
+  translator `translator` (exp(+jwt), prefactor -jk/4pi verified by the addition theorem),
+  `expansion_error` (worst-case corner-to-corner check over the nearest interaction-list
+  offsets, building block of the ADR 0008 §6 lossy-region policy; Ag-like k gives >> 1) and
+  `SphereInterpolator` (separable local Lagrange, polar reflection with even/odd parity for
+  scalar / theta-phi components, anterpolation = exact transpose). Measured: random points
+  meet 10^-d0 for box edges >= lambda/2 (d0 = 3, 5; Si-like k from lambda/4), lambda/4 boxes
+  lose up to one digit; the corner worst case stays above 10^-d0 at the ADR order (1e-3 ...
+  9e-2); 0.1 x 10^-d0 interpolation needs p ~ 12-14 (d0 = 3) / ~ 20-22 (d0 = 5), not p = 6.
+- mlfmm (WP18 review, ADR 0008 amendments): `interpolation_order(d0)` (measured table: 14 for
+  d0 <= 3, 22 for d0 <= 5, throws above 5) and `leaf_sampling_order(L, p)` = max(L, p - 1);
+  `SphereInterpolator` has no default order any more and accepts any p <= 2 n_theta_src
+  (stencils over the pole-reflected nodes); the weight convention of the disaggregation (apply
+  the parent weights before anterpolating) is documented. `expansion_error` gains the seeded
+  statistical mode (`ExpansionCheck::random`, `pairs`, `seed`; platform-independent points) and
+  `search_truncation_order` implements the per-level order search (smallest L >= formula
+  meeting 10^-d0, breakdown detection). Measured: real k needs formula + 1 only at lambda/4 for
+  d0 = 5; lambda/4 at d0 = 7 is not achievable (minimum 4e-7); Ag-like k reaches d0 = 3 for
+  boxes <= 0.25 lambda_0 at L = 9 ... 22 and breaks down from 0.5 lambda_0. `spherical_hankel2`
+  raises `std::underflow_error` when e^{-jz} underflows (instead of returning zeros), the
+  translator raises `std::overflow_error` for non-finite coefficients or values. New tests:
+  complex-z Hankel check up to |z| = 80 against Miller j_l / upward y_l with their Wronskian,
+  lambda/4 interpolation with the oversampled leaf, order search, and a `slow` sweep
+  (`mlfmm: plane-wave accuracy sweep (slow)`) printing the measured tables.
 - kernels / operator (WP-P2): dense assembly performance on rough boxes. Profile benchmark
   `benchmarks/dense_assembly_profile.cpp` (per-class element_blocks timings, near/far degree and
   touching-rule statistics, schedule makespan, same-process before/after comparison) and record

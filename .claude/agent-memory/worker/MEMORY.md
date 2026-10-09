@@ -1,7 +1,9 @@
 - [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython registry, ctest -j oversubscription, shared-machine timing, CRLF worktrees, Catch2 hidden cases, cp1252 I/O, GCC16 false positive, UTF-8 paths/argv
-- [Windows build pitfalls](build_pitfalls_windows.md) — GCC null-deref false positive, debug -O0 timings, WP7b quadrature cost in tests, ctest -R case
+- [Windows build pitfalls](build_pitfalls_windows.md) — GCC null-deref false positives (GCC 13 CI repro via winlibs), debug -O0 timings, WP7b quadrature cost, ctest -R case
 - [GMRES observations](gmres_observations.md) — measured iteration counts/residuals (sphere, 2e4 rough box) for test budgets
 - [Touching-pair quadrature findings](touching_quadrature_findings.md) — Duffy error sources (rays, obtuse apex, radial), reference n at sharp folds
 - [Rough box grading facts](rough_box_grading.md) — anchor row, stitched relaxation band (edges <= 2 h_g), safety net, measured box % and aspects
+- [MLFMM plane-wave accuracy](mlfmm_plane_wave_accuracy.md) — ADR truncation vs box size, corner worst case, Lagrange p, Hankel refs, Eigen dot
 - [Assembly performance](assembly_performance.md) — box cost drivers, schedule, GCC vectorisation flags, fast-math accuracy, timing method
 - [Python bindings pitfalls](python_bindings.md) — flags order, vectorize, views, exceptions, GIL callbacks, Simulation lock design, test sensitivity
+- [MLFMM octree findings](mlfmm_octree_findings.md) — anchored vertex-bbox root, lambda/4 floor tolerance, 4 um sphere leaf sizes, plate layers, test cost
