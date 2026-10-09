@@ -21,6 +21,12 @@ public:
     [[nodiscard]] virtual Index cols() const = 0;
 
     /// y = A x
+    ///
+    /// Thread safety: apply() must be safe to call concurrently from several threads on the
+    /// same const operator (distinct x, y). Implementations with scratch buffers (e.g. MLFMM
+    /// aggregation/disaggregation storage) keep them per call or per thread, never as shared
+    /// mutable members. The Python binding (LinearOperator.matvec) calls apply() without any
+    /// lock and relies on this.
     virtual void apply(const VectorXc& x, VectorXc& y) const = 0;
 
     /// Human-readable description (type, levels, memory, ...).
