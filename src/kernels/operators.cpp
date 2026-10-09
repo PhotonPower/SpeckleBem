@@ -142,11 +142,23 @@
 /// halved); otherwise the piece is split until every zero is at least 0.5 side lengths from
 /// [0, 1] (at its real part if inside, else at distance / 0.5 from the nearer end; at most 8
 /// levels, 48 pieces). The radial direction uses the log-Gauss rule with 6 + 2 l points (14 at
-/// level 4, at most 16), the angular direction 2 + 2 l points (log-Gauss on graded pieces,
-/// Gauss-Legendre otherwise; 10 at level 4). Measured with 12 radial points the obtuse and
+/// level 4), the angular direction 2 + 2 l points (log-Gauss on graded pieces, Gauss-Legendre
+/// otherwise; 10 at level 4), both at most 16. Measured with 12 radial points the obtuse and
 /// 30-degree shared-vertex cases stayed at 1e-7 to 2e-6: the remaining error is radial, from
 /// source vertices not at the apex (vertex A seen from the pieces of apex B behind an obtuse
 /// angle, the far source vertex of sharp folds) that come close to the far side of a piece.
+/// Two shared-edge cases get the points of a higher level on some pieces (kExtraLevels*):
+///  * angle at A obtuse in both triangles (doubly obtuse; likewise at B): the pieces of apex B,
+///    level l + 2 (16 x 14 at level 4). Both directions are needed (16 x 10: 5.3e-7, 14 x 14:
+///    2.4e-7 at 60 degrees); the pieces of apex A need no more points;
+///  * the projection S (folds below 90 degrees, else P) of the far source vertex within
+///    kNearVertex |AB| of A (or B): the pieces of that apex, level l + 3 (16 x 16; 16 x 14 left
+///    8e-8 at 60 degrees). For folds >= 90 degrees this only applies when the pair uses the
+///    adaptive pieces anyway (an obtuse test triangle: 4.4e-7 -> 1e-8 at 90 degrees for an obtuse
+///    triangle with the far vertex 0.25 |AB| from B); otherwise the WP7b table stays (bitwise).
+/// Hard bound per ordering: 48 pieces x 16 x 16 points = 12 288 outer points of the analytic
+/// part (WP7b table at level 4: 288 shared edge, 100 shared vertex); measured at most 2 624
+/// for both orderings together (doubly obtuse 75-degree hinge; touching_rule_info).
 /// Partition:
 ///  * shared edge A B (test vertex C, source vertex C', P the projection of C' onto the test
 ///    plane with barycentric coordinates lambda): for lambda_C > 0.1 (fold clearly below 90
@@ -156,23 +168,37 @@
 ///    [B, B A, B C'] have the near-singular rays as sides (otherwise a ray from B would cross
 ///    the pieces of apex A, where it is not a feature). If S is closer than 0.2 |AB| to A or B,
 ///    or lambda_C <= 0.1, the WP7b partition (A, M, C), (B, M, C) is used, with all features
-///    for folds below 90 degrees (lambda_C > 1e-6) and only the apex and the shared edge for
-///    folds >= 90 degrees;
+///    for folds below 90 degrees (lambda_C > kFoldTol = 1e-6, i.e. folds up to ~89.9999
+///    degrees: the fold features switch off discontinuously there) and only the apex and the
+///    shared edge for folds >= 90 degrees (the near-vertex case gets extra points, see above);
 ///  * shared vertex A: the single piece (A, B, C), features A and, if a source vertex projects
 ///    into the wedge of T at A (fold below 90 degrees), the two source edges from A.
-/// If no piece is split and the partition and gradings are those of WP7b (always for folds >=
-/// 90 degrees with non-obtuse angles at the shared vertices, e.g. every touching pair of an
-/// icosphere), the WP7b table is used unchanged (bitwise identical blocks). Accuracy (default
-/// level 4, |k| h <= 0.78, both orderings, vacuum / Si / Ag; tests/unit/test_operators.cpp
-/// "fold sweep", relative-coordinate reference converged to 1e-9): <= 7.6e-8 for dihedral angles
-/// 30 to 179 degrees, regular, skewed (projected source edge at a small angle to the shared
-/// edge) and obtuse (106 degrees at the shared vertex) shared-edge and shared-vertex pairs,
-/// where the WP7b table gave up to 4.5e-5 (skewed 30 degrees) and 8.7e-5 (obtuse shared vertex,
-/// 30 degrees). Both triangles obtuse at the same shared vertex (106 and 120 degrees) reach
-/// 3.8e-8 to 5.3e-7 at level 4 and <= 7.9e-8 at level 6. Cost (release, Si, mean time per call
-/// against the WP7b table): folds below 90 degrees x1.7 (shared edges, at most x2.4) and x1.45
-/// (shared vertices, at most x2.3); folds >= 90 degrees unchanged except obtuse shapes (aspect
-/// splits, x1.1 to x1.7). The pieces are built per call on the stack (no allocation).
+/// If no piece is split, no piece has extra points and the partition and gradings are those of
+/// WP7b, the WP7b table is used unchanged (bitwise identical blocks). For folds >= 90 degrees
+/// (only the apex point and the shared edge are features) this holds unless the apex point
+/// splits a piece: shared edge A B with test vertex C, pieces (A, M, C) and (B, M, C): when
+/// the zero of |w|^2, at the foot of A (B) on the line M C with q = |AB| h_C / (2 |MC|^2)
+/// (h_C the height of C over AB), lies closer than 0.5 to [0, 1], roughly when the median M C
+/// is longer than A B (isosceles: angle at C below 53 degrees) or the angle at A or B is obtuse;
+/// shared vertex A: the foot of A on B C with q = 2 area / |BC|^2, roughly an obtuse angle at
+/// A; or unless both triangles are obtuse at the same shared vertex. Every touching pair of an
+/// icosphere keeps the WP7b table. Accuracy (default level 4, |k| h <= 0.78, both orderings,
+/// vacuum / Si / Ag; tests/unit/test_operators.cpp "fold sweep", relative-coordinate reference
+/// converged to 1e-9): <= 8.3e-8 for dihedral angles 30 to 179 degrees, regular, skewed
+/// (projected source edge at a small angle to the shared edge), obtuse (106 degrees at the shared
+/// vertex), doubly obtuse (106 and 120 degrees) and near-B (far vertex 0.27 |AB| from B)
+/// shared-edge pairs and regular, skewed and obtuse shared-vertex pairs, where the WP7b table
+/// gave up to 4.5e-5 (skewed 30 degrees), 4.2e-5 (near B, 45 degrees) and 8.7e-5 (obtuse shared
+/// vertex, 30 degrees); without the extra points the doubly obtuse pairs reached 6.3e-7 (60
+/// degrees) and the near-B pairs 6.2e-7 (60 degrees). Not covered: the near-B pair at 90
+/// degrees keeps the WP7b table, 1.4e-7 (1.3e-7 at 91, 8.5e-8 at 95 degrees; similar shapes up
+/// to 1.5e-7). Cost (release, Si, time per call against the WP7b table, both orderings, timing
+/// noise ~15 %): folds below 90 degrees mean x1.9 (shared edges, at most x3.3: doubly obtuse
+/// 75 degrees) and x1.6 (shared vertices, at most x3.2: obtuse 30 degrees); folds >= 90 degrees
+/// x1.3 (shared edges, at most x2.5: doubly obtuse) and x1.2 (shared vertices, at most x1.7:
+/// obtuse); unchanged for pairs on the WP7b table. Outer points of the analytic part against
+/// the WP7b table (touching_rule_info): mean x2.5 / x2.6 (shared edge / vertex, folds below 90
+/// degrees), at most x4.6 / x6.3. The pieces are built per call on the stack (no allocation).
 ///
 /// The remainder of the graded path uses a Dunavant outer rule (it is far smoother: rem has
 /// R^2 and R^3 terms, the analytic part carries all of 1/R and R): degree quad_degree_sing for
@@ -1092,7 +1118,7 @@ void add_piece(PieceList& pl, const Vec3& x, const Vec3& p1, const Vec3& p2, int
         return;
     }
     pl.p[pl.count++] = {x, p1, p2, at0 ? Grade::at_p1 : (at1 ? Grade::at_p2 : Grade::none),
-                         pl.extra_levels};
+                        pl.extra_levels};
 }
 
 /// Barycentric coordinates of p (in the plane of a, b, c) with respect to (a, b, c).
@@ -1186,7 +1212,8 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
         }
         pl.extra_levels = extra_b;
         add_piece(pl, B, M, C, 0, 0);
-        return folded || pl.changed || (obtuse_a && extra_b != 0) || (obtuse_b && extra_a != 0) || n_a != 1 || pl.count != 2 || pl.p[0].grade != Grade::at_p1 ||
+        return folded || pl.changed || (obtuse_a && extra_b != 0) || (obtuse_b && extra_a != 0) ||
+               n_a != 1 || pl.count != 2 || pl.p[0].grade != Grade::at_p1 ||
                pl.p[1].grade != Grade::at_p1;
     }
     // Fold below 90 degrees: the source edges A C' and B C' project onto the rays A S and B S
@@ -1439,8 +1466,8 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
     }
 }
 
-TouchingRuleInfo touching_rule_info(const geometry::TriangleMesh& mesh, Index t_test,
-                                    Index t_src, const OperatorOptions& opt) {
+TouchingRuleInfo touching_rule_info(const geometry::TriangleMesh& mesh, Index t_test, Index t_src,
+                                    const OperatorOptions& opt) {
     validate(opt);
     if (opt.outer_grading_levels == 0) {
         throw std::invalid_argument(

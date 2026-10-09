@@ -8,13 +8,21 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - kernels (WP7c): fold-adaptive outer rule for shared-edge and shared-vertex pairs
   (`OperatorOptions::fold_adaptive`, default on): the test triangle is cut into Duffy pieces at
   the singular directions through the shared vertex (projected source edges of folds below
-  90 degrees, obtuse apex angles); touching-pair error <= 7.6e-8 for dihedral angles 30 to 179
-  degrees with regular, skewed and obtuse triangles (WP7b: up to 4.5e-5 skewed / 8.7e-5 obtuse
-  at 30 degrees) at x1.7 (shared edges) / x1.45 (shared vertices) mean cost for folds below
-  90 degrees; folds >= 90 degrees with non-obtuse angles (all Mie icosphere pairs) bitwise
-  unchanged. Slow dihedral sweep and right-hand-side degree study registered as the ctest
-  entries `kernels: fold sweep (slow)` and `assembler: rhs degree study (slow)`
-  (label `slow`). The log-Gauss tables are checked against all 2n moments.
+  90 degrees, obtuse apex angles), with the points of level l + 2 / l + 3 on the pieces of
+  doubly obtuse shared edges (both triangles obtuse at the same vertex) and of far vertices
+  projecting within 0.2 |AB| of a shared vertex; touching-pair error <= 8.3e-8 for dihedral
+  angles 30 to 179 degrees with regular, skewed, obtuse, doubly obtuse and near-vertex
+  triangles (WP7b: up to 4.5e-5 skewed / 4.2e-5 near-vertex / 8.7e-5 obtuse at 30 to 45
+  degrees; not covered: near-vertex shapes at folds of 90 to ~95 degrees keep the WP7b table,
+  <= 1.5e-7). Cost against the WP7b rule (time per call, folds below 90 degrees): mean x1.9
+  (shared edges, at most x3.3 for doubly obtuse pairs) and x1.6 (shared vertices, at most
+  x3.2); hard bound 48 pieces x 16 x 16 outer points per ordering. Folds >= 90 degrees whose
+  pieces need no split (all Mie icosphere pairs) bitwise unchanged.
+  `kernels::touching_rule_info` reports the deterministic outer point counts. Slow dihedral
+  sweep and right-hand-side degree study registered as the ctest entries
+  `kernels: fold sweep (slow)` and `assembler: rhs degree study (slow)` (label `slow`,
+  excluded from CI and the standard runs). The log-Gauss tables are checked against all 2n
+  moments.
 - operator (WP7c): `OperatorOptions::quad_degree_rhs` (default 8, positive-interior), the
   Dunavant degree of `op::assemble_rhs` (before: `quad_degree_near` = 19); relative error
   <= 7.5e-14 against degree 20 for plane waves and Gaussian beams on lambda/10 meshes.

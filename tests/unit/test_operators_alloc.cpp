@@ -191,9 +191,9 @@ TEST_CASE("element_blocks and jump_block are allocation-free after the first cal
     // (split pieces), a doubly obtuse hinge (106 and 120 degrees at the shared vertex: extra
     // points on the pieces of the other apex) and a 60-degree hinge with the far vertex next to
     // the shared vertex B (near-vertex partition with extra points).
-    const std::array<geometry::TriangleMesh, 3> hinges = {
-        hinge(1e-7, 30.0, 0.3, 0.9, 0.8, 0.55), hinge(1e-7, 60.0, -0.2, 0.7, -0.35, 0.6),
-        hinge(1e-7, 60.0, 0.4, 0.8, 0.9, 0.25)};
+    const std::array<geometry::TriangleMesh, 3> hinges = {hinge(1e-7, 30.0, 0.3, 0.9, 0.8, 0.55),
+                                                          hinge(1e-7, 60.0, -0.2, 0.7, -0.35, 0.6),
+                                                          hinge(1e-7, 60.0, 0.4, 0.8, 0.9, 0.25)};
     const std::array<basis::RwgSpace, 3> hinge_spaces = {
         basis::RwgSpace(hinges[0]), basis::RwgSpace(hinges[1]), basis::RwgSpace(hinges[2])};
     for (const geometry::TriangleMesh& h : hinges) {

@@ -46,12 +46,15 @@ struct RegionParams {
 ///    |k| h <= 0.78: within 3e-9 (L, identical triangles), 1.2e-9 (L, shared edges; the R^3
 ///    term of the smooth remainder, growing like (|k| h)^4), 6e-10 (K) and 4e-10 (shared
 ///    vertices) of a relative-coordinate (Sauter-Schwab type) reference; raw swap asymmetry
-///    below 5e-10. Sharp folds and obtuse angles (fold_adaptive, WP7c): <= 7.6e-8 for dihedral
-///    angles 30 to 179 degrees between the triangles of regular, skewed and obtuse (106 degrees
-///    at the shared vertex) shared-edge and shared-vertex pairs (slow test "fold sweep"; the
-///    WP7b rule alone: up to 4.5e-5 for a skewed 30-degree hinge, 8.7e-5 for an obtuse
-///    30-degree shared vertex). Both triangles obtuse at the same vertex (106 and 120 degrees):
-///    up to 5.3e-7 at level 4, <= 7.9e-8 at level 6.
+///    below 5e-10. Sharp folds and obtuse angles (fold_adaptive, WP7c): <= 8.3e-8 for dihedral
+///    angles 30 to 179 degrees between the triangles of regular, skewed, obtuse (106 degrees at
+///    the shared vertex) and doubly obtuse (106 and 120 degrees at the same shared vertex)
+///    shared-edge pairs, shared-edge pairs whose far vertex projects within 0.2 |AB| of a shared
+///    vertex (folds below 90 degrees) and regular, skewed and obtuse shared-vertex pairs (slow
+///    test "fold sweep"; the WP7b rule alone: up to 4.5e-5 for a skewed 30-degree hinge, 4.2e-5
+///    for a 45-degree hinge with the far vertex next to B, 8.7e-5 for an obtuse 30-degree shared
+///    vertex). Not covered: folds of 90 to ~95 degrees with the far vertex projecting next to a
+///    shared vertex keep the WP7b table, up to 1.5e-7 (90 degrees, far vertex 0.27 |AB| from B).
 ///  * near and far pairs: the degree is chosen per pair for target_accuracy = 1e-5 (default; see
 ///    target_accuracy); measured errors are 0.05 to 0.5 of the target for D/h = 1.1 .. 15 and
 ///    |k| h = 0.1 .. 3 (vacuum, Si, Ag); at the near/far class boundary of the n = 4 Mie mesh
@@ -92,19 +95,26 @@ struct OperatorOptions {
     /// orderings). Level 4 reaches ~1e-8 of the block norm for shared edges with dihedral
     /// angles >= ~90 degrees and non-obtuse angles at the shared vertices; sharper folds and
     /// obtuse angles use the fold-adaptive pieces (fold_adaptive), whose point numbers also
-    /// follow this level (6 + 2 l radial, at most 16, and 2 + 2 l angular points per piece).
+    /// follow this level (6 + 2 l radial and 2 + 2 l angular points per piece, each at most 16;
+    /// level l + 2 or l + 3 on the pieces of doubly obtuse and near-vertex folds).
     int outer_grading_levels = 4;
     /// Fold-adaptive outer rule of shared-edge and shared-vertex pairs (WP7c, ADR 0004; graded
     /// path only). The test triangle is cut into Duffy pieces with apex at a shared vertex such
     /// that every singular direction of the analytic part through the apex (the apex itself,
     /// the shared edge, the source edges from it, which project onto the test triangle for
     /// folds below 90 degrees) lies on a graded side of a piece or at least half a side length
-    /// away from it (algorithm in src/kernels/operators.cpp). Pairs that need no cut (folds >= 90
-    /// degrees with non-obtuse angles at the shared vertices, e.g. all touching pairs of the Mie
-    /// icospheres) keep the WP7b table bitwise. Accuracy: see the struct comment; cost against
-    /// the WP7b rule (release, mean time per call): folds below 90 degrees x1.7 (shared edges, at
-    /// most x2.4) and x1.45 (shared vertices, at most x2.3), obtuse angles at >= 90 degrees x1.1
-    /// to x1.7. false restores the WP7b rule for every pair.
+    /// away from it (algorithm in src/kernels/operators.cpp). Pairs that need no cut keep the
+    /// WP7b table bitwise: folds >= 90 degrees whose pieces are not split by the apex point
+    /// feature (shared edge: |AB| h_C >= |MC|^2 with h_C the height of C over AB and M the
+    /// midpoint of AB, roughly the median MC not longer than AB; shared vertex: 4 area >=
+    /// |BC|^2, roughly a non-obtuse angle at A) and without obtuse angles at the same shared
+    /// vertex in both triangles, e.g. all touching pairs of the Mie icospheres. Accuracy: see the
+    /// struct comment. Cost against the WP7b rule (release, Si, time per call, both orderings;
+    /// fold sweep, timing noise ~15 %): folds below 90 degrees mean x1.9 (shared edges, at most
+    /// x3.3 for doubly obtuse pairs) and x1.6 (shared vertices, at most x3.2), folds >= 90
+    /// degrees x1.3 (shared edges, at most x2.5) and x1.2 (shared vertices, at most x1.7).
+    /// Deterministic outer points of the analytic part: see touching_rule_info; hard bound 48
+    /// pieces of at most 16 x 16 points per ordering. false restores the WP7b rule for every pair.
     bool fold_adaptive = true;
     /// Graded path: touching blocks of pairs with |k| h > symmetrize_touching_above_kh (h the
     /// larger longest edge) are averaged over both orderings, (B(t1, t2) + B(t2, t1)^T) / 2

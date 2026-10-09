@@ -21,8 +21,9 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   (`target_accuracy = 0` uses fixed degrees, `quad_degree_near = 8` then gives the WP7
   near degree). Shared-edge / shared-vertex blocks are
   averaged over both orderings above `symmetrize_touching_above_kh = 1`.
-- Since WP7c: shared-edge and shared-vertex pairs with a fold below 90 degrees or an obtuse
-  angle at a shared vertex use a fold-adaptive outer rule for the analytic part
+- Since WP7c: shared-edge and shared-vertex pairs with a fold below 90 degrees, an obtuse
+  angle at a shared vertex or an elongated test triangle use a fold-adaptive outer rule for the
+  analytic part
   (`fold_adaptive = true`; all other pairs, including every touching pair of the Mie
   icospheres, keep the WP7b table bitwise), and the right-hand side has its own Dunavant degree
   `quad_degree_rhs = 8` (before: `quad_degree_near` = 19).
@@ -104,20 +105,44 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   below 90 degrees (lambda_C of the projected far vertex > 0.1) the pieces are first cut along
   the projections of both source edges (rays A S, B S), unless S is within 0.2 |AB| of a shared
   vertex (then a ray from one apex would end next to the other singular vertex, error 1e-5).
-  Points per piece: 6 + 2 l radial (log-Gauss, at most 16) x 2 + 2 l angular (10 at level 4;
-  12 radial points left the obtuse and 30-degree shared-vertex cases at 1e-7 to 2e-6). Pairs
-  that need no split (folds >= 90 degrees, non-obtuse shared-vertex angles: every touching pair
-  of an icosphere) keep the WP7b table, so their blocks and the Mie results are bitwise
-  unchanged (tested; the brief's "folds >= 90 degrees bit for bit" is relaxed for obtuse shapes,
-  where the WP7b table gave up to 7.8e-7 at 179 degrees). Measured at level 4: <= 7.6e-8 over
-  the sweep (WP7b table: up to 4.5e-5 skewed edge, 3.1e-5 obtuse edge, 8.7e-5 obtuse vertex, all
-  at 30 degrees); raw asymmetry <= 2e-7; both triangles obtuse at the same vertex (106 and 120
-  degrees) 3.8e-8 to 5.3e-7 at level 4, <= 7.9e-8 at level 6. Cost (release, Si, mean time per
-  `element_blocks` call against the WP7b table): folds below 90 degrees x1.7 for shared edges
-  (at most x2.4) and x1.45 for shared vertices (at most x2.3); folds >= 90 degrees x1.0, obtuse
-  shapes x1.1 to x1.7. Not covered: source features neither through the apex nor the far vertex
-  (e.g. the opposite source edge of a shared-vertex pair passing close over the test triangle at
-  folds below 30 degrees) only enter through the radial point number.
+  Points per piece: 6 + 2 l radial (log-Gauss) x 2 + 2 l angular, each at most 16 (14 x 10 at
+  level 4; 12 radial points left the obtuse and 30-degree shared-vertex cases at 1e-7 to 2e-6).
+  Source (3) needs more points on two kinds of shared-edge pieces (review of WP7c): with the
+  angle at A obtuse in both triangles (doubly obtuse, 106 and 120 degrees: 4.3e-8 to 6.3e-7 at
+  level 4 with 14 x 10, a regression against the WP7b table at 45 degrees, 3.9e-8 -> 1.3e-7)
+  the pieces of apex B use the points of level l + 2 (16 x 14; 16 x 10 and 14 x 14 left 5.3e-7
+  and 2.4e-7), and with the projected far vertex within 0.2 |AB| of a shared vertex (the
+  near-vertex partition and the WP7b partition of folds just below 90 degrees: 6.2e-7 at 60
+  degrees, 5.4e-7 at 75 degrees for the far vertex 0.27 |AB| from B) the pieces of that apex use
+  level l + 3 (16 x 16; 16 x 14 left 8e-8). Hard bound per ordering: 48 pieces x 16 x 16 =
+  12 288 outer points (WP7b table at level 4: 288 / 100); measured at most 2 624 for both
+  orderings (doubly obtuse 75-degree hinge; `kernels::touching_rule_info` reports the counts).
+  Pairs that need no split and no extra points keep the WP7b table, so their blocks and the Mie
+  results are bitwise unchanged (tested): folds >= 90 degrees unless the apex point feature
+  splits a piece (shared edge: |AB| h_C < |MC|^2 with the foot inside the side, roughly the
+  median from C longer than AB or an obtuse angle at A or B; shared vertex: 4 area < |BC|^2,
+  roughly an obtuse angle at A) or both triangles are obtuse at the same shared vertex; every
+  touching pair of an icosphere qualifies. The backlog criterion (WP7c (1): touching-pair error
+  <= 1e-7 down to 30 degrees) is met for all swept shapes below 90 degrees; folds >= 90 degrees
+  are bitwise WP7b only for the pairs above, the obtuse shapes there change (WP7b table up to
+  7.8e-7 at 179 degrees). Measured at level 4: <= 8.3e-8 over the sweep (regular, skewed,
+  obtuse, doubly obtuse and near-B shared edges, regular, skewed and obtuse shared vertices;
+  WP7b table: up to 4.5e-5 skewed edge, 4.2e-5 near-B edge (45 degrees), 3.1e-5 obtuse edge,
+  8.7e-5 obtuse vertex); raw asymmetry <= 2e-7. Cost (release, Si, time per `element_blocks`
+  call against the WP7b table, both orderings, timing noise ~15 %): folds below 90 degrees mean
+  x1.9 for shared edges (at most x3.3, doubly obtuse 75 degrees; x2.8 without the extra points)
+  and x1.6 for shared vertices (at most x3.2, obtuse 30 degrees); folds >= 90 degrees x1.3
+  (shared edges, at most x2.5 doubly obtuse) and x1.2 (shared vertices, at most x1.7 obtuse);
+  outer points of the analytic part mean x2.5 / x2.6, at most x4.6 / x6.3 (shared edge /
+  vertex below 90 degrees). The mean meets the backlog's x2; the maxima (rare doubly obtuse and
+  obtuse shared-vertex pairs) exceed it and are accepted. Not covered: (a) the near-B shape at
+  folds of 90 to ~95 degrees keeps the WP7b table, 1.4e-7 at 90 degrees (similar shapes up to
+  1.5e-7; < 1e-7 from ~95 degrees); extending the near-vertex points to these pairs would leave
+  the WP7b table also for regular shapes at the 0.2 |AB| boundary; (b) the fold features switch
+  off discontinuously at lambda_C = 1e-6 (89.9999 degrees); (c) source features neither through
+  the apex nor the far vertex (e.g. the opposite source edge of a shared-vertex pair passing
+  close over the test triangle at folds below 30 degrees) only enter through the radial point
+  number.
 - Right-hand side (WP7c): own Dunavant degree `quad_degree_rhs`, default 8. Relative error of
   <f_m, E_inc> / <f_m, H_inc> against degree 20 for a plane wave and a paraxial Gaussian beam
   (w0 = lambda) on an icosphere and a rough-surface box at h = lambda/10 (lambda/27): degree 4

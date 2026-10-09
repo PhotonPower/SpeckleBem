@@ -2783,18 +2783,19 @@ TEST_CASE("element_blocks (full): fold sweep", "[kernels][.slow][fold]") {
             }
         }
     }
-    WARN("fold sweep (default options; worst L / K error, WP7b error, time per call, outer "
-         "points of the analytic part, both orderings):"
-         << table.str());
+    WARN(
+        "fold sweep (default options; worst L / K error, WP7b error, time per call, outer "
+        "points of the analytic part, both orderings):"
+        << table.str());
     const std::array<const char*, 4> names = {"shared edge < 90", "shared edge >= 90",
                                               "shared vertex < 90", "shared vertex >= 90"};
     std::ostringstream cost;
     cost << std::setprecision(3);
     for (std::size_t c = 0; c < 4; ++c) {
         const auto n = static_cast<Real>(cost_n[c]);
-        cost << "\n  " << names[c] << ": time mean x" << cost_sum[c] / n << ", max x"
-             << cost_max[c] << "; points mean x" << pts_sum[c] / n << ", max x" << pts_max[c]
-             << " (at most " << pts_abs_max[c] << " per pair)";
+        cost << "\n  " << names[c] << ": time mean x" << cost_sum[c] / n << ", max x" << cost_max[c]
+             << "; points mean x" << pts_sum[c] / n << ", max x" << pts_max[c] << " (at most "
+             << pts_abs_max[c] << " per pair)";
     }
     WARN("fold-adaptive cost factor against the WP7b rule (Si):" << cost.str());
 }
