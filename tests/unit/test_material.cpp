@@ -42,7 +42,8 @@ TEST_CASE("field decay length", "[material]") {
     const Real d_ag = material::field_decay_length(material::silver_500nm().eps_r, lambda);
     CHECK_THAT(d_ag, WithinRel(2.5424631222083637e-08, 1e-12));
     // Only |Im| enters; delta scales with the wavelength.
-    CHECK_THAT(material::field_decay_length(Complex(18.478, 0.606), lambda), WithinRel(d_si, 1e-14));
+    CHECK_THAT(material::field_decay_length(Complex(18.478, 0.606), lambda),
+               WithinRel(d_si, 1e-14));
     CHECK_THAT(material::field_decay_length(Complex(18.478, -0.606), 2.0 * lambda),
                WithinRel(2.0 * d_si, 1e-14));
     // Lossless media: no decay.

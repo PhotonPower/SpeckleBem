@@ -50,21 +50,29 @@ struct RoughSurfaceParams {
     /// valid only where the field transmitted into the object has decayed, i.e. below a
     /// depth of a few field decay lengths
     ///   delta = lambda_0 / (2 pi |Im n_2|)
-    /// under the rough interface. The first coarsened wall row lies 2 h_g below the rim and
-    /// the full coarse spacing is reached 2^M h_g below it (h_g = sqrt(dx dy); 400 nm for the
-    /// automatic rule at L = 10 um, 50 nm, depth 2 um).
-    ///  * The automatic rule is meant for strongly absorbing objects: Ag at 500 nm has
-    ///    delta ~ 27 nm, so the first coarse row (100 nm) is ~4 delta deep.
-    ///  * Weakly absorbing objects need the uniform box (box_mesh_size = mesh_size) or a fine
-    ///    band down to ~3 delta: Si at 500 nm has delta ~ 1.1 um, far below the start of the
-    ///    coarsening. The fine band is a planned follow-up (box_fine_depth, WP2c).
+    /// under the rough interface. Without a fine band the first coarsened wall row lies
+    /// (R + 2) h_g + e below the rim (h_g = sqrt(dx dy); R = 0 relaxation rows and e = 0 for
+    /// a smooth rim, i.e. 100 nm at 50 nm spacing; e <= the local rim deviation from its
+    /// level-M interpolation) and the full coarse spacing is reached 2^M h_g below it.
+    ///  * The automatic rule without fine band is meant for strongly absorbing objects: Ag
+    ///    at 500 nm has delta = 25 nm, so the first coarse row (100 nm) is ~4 delta deep.
+    ///  * Weakly absorbing objects need a fine band down to ~3 delta (box_fine_depth): Si at
+    ///    500 nm has delta = 1.13 um (material::field_decay_length()). The uniform box
+    ///    (box_mesh_size = mesh_size) remains valid but costs more.
     ///  * box_mesh_size must be >= the top-face spacing: the walls are never finer than the
     ///    top face, and the wavelength inside the object, lambda_0 / |n_2|, is resolved by
     ///    the top-face mesh size, not by the box. A value below h / sqrt(2) (h = min(dx, dy))
     ///    is accepted with an SBEM_WARN and gives the uniform box.
-    /// The generator knows no material: Simulation (later phase) is responsible for choosing
-    /// the uniform box (or the WP2c fine band) for weakly absorbing objects (ADR 0006).
+    /// The generator knows no material: Simulation (later phase) is responsible for passing
+    /// the fine band (box_fine_depth = 3 delta) for weakly absorbing objects (ADR 0006).
     std::optional<Real> box_mesh_size;
+    /// Fine band of the graded box [m]: the side walls keep the top-face spacing from the
+    /// rim down to z = box_fine_depth (measured from the mean plane z = 0 in +z) and grade
+    /// only below. Unset: no fine band (the grading starts right below the rim). Must be
+    /// positive, finite and below the box depth. Size it from the object material:
+    /// box_fine_depth = 3 delta with delta = material::field_decay_length(eps_r, lambda_0)
+    /// (Si at 500 nm: delta = 1.13 um). See make_mesh_from_height_map().
+    std::optional<Real> box_fine_depth;
     bool use_fft = true;  ///< FFT convolution (fast) vs direct (reference)
 };
 
@@ -98,7 +106,8 @@ struct HeightMap {
 HeightMap generate_gaussian_height_map(const RoughSurfaceParams& p);
 
 /// Closed mesh: rough top, flat side walls and bottom plate; equivalent to
-/// make_mesh_from_height_map(generate_gaussian_height_map(p), p.box_depth, p.box_mesh_size).
+/// make_mesh_from_height_map(generate_gaussian_height_map(p), p.box_depth, p.box_mesh_size,
+/// p.box_fine_depth).
 TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p);
 
 /// Mesh from an externally supplied height map (e.g. measured AFM / WLI data).
@@ -114,7 +123,7 @@ TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p);
 /// Grading (box_mesh_size, the target coarse spacing h_c of the lower walls and the bottom):
 ///  * Physics: valid only below a few field decay lengths of the object material; see the
 ///    contract at RoughSurfaceParams::box_mesh_size (automatic rule for strongly absorbing
-///    objects such as Ag; uniform box for weakly absorbing ones such as Si until WP2c).
+///    objects such as Ag; with box_fine_depth = 3 delta for weakly absorbing ones such as Si).
 ///  * Automatic rule (unset): h_c = min(depth / 2, L / 8, 10 h), with h = min(dx, dy) the
 ///    top-face spacing and L = min((n_x - 1) dx, (n_y - 1) dy) the shorter patch side.
 ///    A requested h_c < h / sqrt(2) logs SBEM_WARN (the walls are never finer than the top
@@ -128,8 +137,10 @@ TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p);
 ///    three spacings coincide.
 ///  * Coarsening levels: M = round(log2(h_c / h_b)) (nearest power-of-two ratio; 0 for
 ///    h_c < sqrt(2) h_b), limited by 2^M <= min(n_x - 1, n_y - 1) and by the depth: the
-///    graded part needs a wall height H = depth - mean(rim heights) >= 1.5 * 2^M h_g,
-///    otherwise M is reduced. M = 0 (in particular h_c = h, or depth < 3 h_g) gives the
+///    graded part needs a wall height H = depth - mean(rim heights) >= 1.5 * 2^M h_g and,
+///    with a fine band, depth - z_f >= (1.5 * 2^M - 1) h_g (transition rows and half a
+///    coarse row below z_f), otherwise M is reduced. M = 0 (in particular h_c = h,
+///    depth < 3 h_g, or a fine band reaching to within 2 h_g of the bottom plate) gives the
 ///    uniform box: n_z = max(1, ceil(depth / h)) wall rows, walls and bottom at the
 ///    top-face spacing, bit-identical to the WP2 mesh.
 ///  * Coarse grid per axis: n_c = ceil((n - 1) / 2^M) coarse cells for n - 1 top-face
@@ -138,31 +149,65 @@ TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p);
 ///    floor or ceil of (n - 1) / n_c cells (the coarse spacing is recomputed accordingly).
 ///    The intermediate levels halve each coarse cell recursively (larger half first), so
 ///    every level-(m+1) cell consists of one or two level-m cells.
-///  * Walls, from the rim down: one row at the top-face spacing (height h_g), then M
-///    transition rows of heights h_g, 2 h_g, ..., 2^(M-1) h_g in which every level-(m+1)
-///    cell made of two level-m cells is a 2:1 strip of three triangles (a single cell,
-///    which only occurs when 2^M does not divide n - 1, gives two triangles), then uniform
-///    coarse rows of height <= 2^M h_g down to the bottom. Row positions are fractions of
-///    the column height: z = z_rim + (depth - z_rim) t_k, as in the uniform box.
-///  * Rough rims: a strongly curved rim could push the middle upper node of a 2:1 cell
-///    below the coarse edge beneath it. Every 2:1 cell is checked (the middle node must lie
-///    at least half its band height above that edge); if one fails, M is reduced by one
-///    until all cells pass, ultimately down to the uniform box (one SBEM_WARN per mesh).
-///    M is global (one value for the whole box, and the rows follow the rim), so a few
-///    steep rim cells reduce the grading everywhere. Measured on generated maps (L = 10 um,
-///    h = 50 nm, depth 2 um, automatic M = 3, seeds 1-10; closing box / top-face
-///    triangles in brackets): sigma = h with Lc = 2 h always gives M = 0, the uniform box
-///    (180 %); Lc = 3 h gives M = 0 or 1 (mean 127 %); Lc = 4 h gives M = 1-3 (17 %);
-///    Lc >= 5 h keeps M = 3 (7.3 %). At Lc = 10 h (500 nm), sigma = 4 h mostly gives M = 2
-///    (14 %) and sigma = 5 h (250 nm) mostly M = 1 (34 %). The planned fix is WP2c (wall
-///    rows decoupled from the rim below the fine band).
+///  * Walls, from the rim down (WP2c; sketch for M = 3, R = 1, no fine band):
+///
+///        rim     z_rim (rough, level 0)          ___ top face
+///        R rows  level 0, z_rim -> z_S           | | | | | | | | |  quads, vertical edges
+///        anchor  z_S (level 0)                   |-+-+-+-+-+-+-+-|
+///        [fine band: level-0 rows <= h_g tall down to z >= z_f]
+///        M transition rows, h_g .. 2^(M-1) h_g   |/\|/\|/\|/\|    2:1 cells (3 triangles)
+///        coarse rows <= 2^M h_g                  |   |   |   |   |
+///        bottom plate z = depth (level M)        +---+---+---+---+
+///
+///    The anchor row z_S is piecewise linear along the rim between the level-M nodes:
+///    z_S = z~ + D + (R + 1) h_g, with z~ the linear interpolation of the rim heights between
+///    the level-M nodes, and D the linear interpolation of node offsets D(a) = the largest
+///    rim excess z_rim - z~ (>= 0) over the two level-M cells at node a. Hence z_S lies at
+///    least (R + 1) h_g below the rim in every column. The R level-0 relaxation rows
+///    interpolate each column linearly between z_rim and z_S; their strips are quads with
+///    vertical edges, which cannot invert (every column is monotone). R = 0 when the excess
+///    e = z_S - z_rim - (R + 1) h_g stays <= 2 h_g (strip heights <= 3 h_g), otherwise
+///    R = 1 (cap; one level-0 row costs 2 % of the top-face triangles at L = 10 um, 50 nm).
+///    All rows below follow z = z_S + (depth - z_S) tau_k, tau_k increasing from 0 to 1: the
+///    fine band (if any), M transition rows of nominal heights h_g, 2 h_g, ...,
+///    2^(M-1) h_g (in which every level-(m+1) cell made of two level-m cells is a 2:1 strip
+///    of three triangles; a single cell, which only occurs when 2^M does not divide n - 1,
+///    gives two triangles), then uniform coarse rows of nominal height <= 2^M h_g. Nominal
+///    heights refer to the mean column depth - z_S; each column scales them by its own
+///    depth - z_S. A smooth rim (z_rim = z~, e.g. a flat or piecewise-linear rim) gives
+///    R = 0 and the WP2b rows (rim, one row at h_g, transitions, coarse rows).
+///  * Fine band (box_fine_depth = z_f): level-0 rows of height <= h_g in every column from
+///    the anchor row down to a row lying at z >= z_f in every column; the transition rows
+///    start there, so all wall triangles above z_f have the top-face spacing (horizontal
+///    edges h, rows <= h_g; rows above the anchor as described above). A z_f above the
+///    anchor row adds no rows. The bottom plate is unaffected unless the fine band reaches
+///    it: if the transitions and half a coarse row do not fit below z_f, M is reduced, down
+///    to the uniform box. z_f >= depth throws (the uniform box is box_mesh_size = mesh_size).
+///  * Rough rims (WP2c): every row below the rim is linear within each level-M cell, so a
+///    2:1 cell is a shear of the flat cell and cannot invert, for any roughness. Rim
+///    roughness costs at most one relaxation row and deeper anchor rows. Measured on
+///    generated maps (L = 10 um, h = 50 nm, depth 2 um, automatic M = 3, seeds 1-5;
+///    closing box / top-face triangles): sigma = 50 nm, Lc = 500 nm: M = 3, R = 0 (7.2 %);
+///    sigma = 50 nm, Lc = 100 nm or 200 nm, and sigma = 250 nm, Lc = 100 nm or 500 nm: M = 3,
+///    R = 1 (8.9-9.2 %). Under WP2b (rows following the rim) these maps fell back to M = 0-2
+///    (up to 180 %). The wall aspect ratios of very rough rims are set by the rim itself
+///    (rim steps sheared over one h-wide column) and stay at or below those of the uniform
+///    WP2 box. Safety net: every column must be strictly monotone and the middle upper node
+///    of every 2:1 cell must lie at least half its band height above the edge below it, and
+///    the transitions and half a coarse row must fit below the anchor row (or the fine band)
+///    in the mean column with z_S < depth everywhere; otherwise M is reduced by one until
+///    the rows fit, ultimately down to the uniform box (one SBEM_WARN per mesh). With the
+///    construction above only an anchor row reaching the bottom plate (a rim pit within a
+///    few h_g of it) or a too deep fine band triggers it.
 ///  * The bottom plate is the structured grid of the level-M nodes, welded to the lowest
 ///    wall row.
 /// @throws std::invalid_argument for a grid smaller than 2 x 2, non-positive spacing,
-///         non-finite heights, depth <= max(xi) + max(dx, dy), or a non-positive or
-///         non-finite box_mesh_size.
+///         non-finite heights, depth <= max(xi) + max(dx, dy), a non-positive or
+///         non-finite box_mesh_size, or a box_fine_depth that is non-positive, non-finite or
+///         >= depth.
 TriangleMesh make_mesh_from_height_map(const HeightMap& h, std::optional<Real> box_depth = {},
-                                       std::optional<Real> box_mesh_size = {});
+                                       std::optional<Real> box_mesh_size = {},
+                                       std::optional<Real> box_fine_depth = {});
 
 namespace detail {
 
@@ -174,6 +219,8 @@ struct BoxGrading {
     Index coarse_cells_x = 0;    ///< bottom-plate cells along x (n_x - 1 for M = 0)
     Index coarse_cells_y = 0;    ///< bottom-plate cells along y (n_y - 1 for M = 0)
     Real target_spacing = 0.0;   ///< requested or automatic h_c [m]
+    Index relaxation_rows = 0;   ///< R, level-0 relaxation rows between rim and anchor row
+    Index fine_rows = 0;         ///< level-0 fine-band rows below the anchor row
     /// Number of wall vertices in every wall row, from the rim (row 0, shared with the top
     /// face) to the lowest row (shared with the bottom plate); size = wall rows + 1.
     std::vector<Index> row_ring_sizes;
@@ -183,14 +230,16 @@ struct BoxGrading {
 /// validation and exceptions as make_mesh_from_height_map(). The detail:: functions log
 /// nothing; the grading warnings are emitted once per mesh by make_mesh_from_height_map()
 /// and make_rough_surface_mesh().
-BoxGrading box_grading(const HeightMap& h, Real depth, std::optional<Real> box_mesh_size = {});
+BoxGrading box_grading(const HeightMap& h, Real depth, std::optional<Real> box_mesh_size = {},
+                       std::optional<Real> box_fine_depth = {});
 
 /// Raw vertex / triangle arrays of the closed box mesh built by make_mesh_from_height_map()
 /// with the given depth and coarse spacing (no TriangleMesh construction, so the
 /// orientation emitted by the generator can be checked before any repair). Same
 /// validation and exceptions as make_mesh_from_height_map().
 std::pair<Vertices, Triangles> rough_box_arrays(const HeightMap& h, Real depth,
-                                                std::optional<Real> box_mesh_size = {});
+                                                std::optional<Real> box_mesh_size = {},
+                                                std::optional<Real> box_fine_depth = {});
 
 }  // namespace detail
 
