@@ -497,9 +497,7 @@ SolveResult
                                "Formulation used (resolved).")
         .def_property_readonly(
             "preconditioner",
-            [](const PySimulation& s) {
-                return s.diagonal_preconditioner() ? "diagonal" : "none";
-            },
+            [](const PySimulation& s) { return s.diagonal_preconditioner() ? "diagonal" : "none"; },
             "Preconditioner of the GMRES solve (resolved): \"diagonal\" or \"none\".")
         .def_property_readonly(
             "solver",
@@ -514,7 +512,9 @@ SolveResult
                                "Number of unknowns 2N (N interior edges).")
         .def_property_readonly(
             "currents",
-            [](PySimulation& s) { return s.locked([&] { return VectorXc(s.solution().currents); }); },
+            [](PySimulation& s) {
+                return s.locked([&] { return VectorXc(s.solution().currents); });
+            },
             "Solution [J; M] (copy; J in A/m, M in V/m). RuntimeError before solve().")
         .def(
             "operator",
