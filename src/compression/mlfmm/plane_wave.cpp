@@ -138,12 +138,18 @@ std::vector<Real> legendre_p(int max_order, Real x) {
 }
 
 VectorXc translator(Complex k, const Vec3& r, const SphereSampling& sampling) {
+    return translator(k, r, sampling, sampling.order());
+}
+
+VectorXc translator(Complex k, const Vec3& r, const SphereSampling& sampling, int order) {
     check_wavenumber(k, "translator");
     const Real rn = r.norm();
     if (!(rn > 0.0) || !std::isfinite(rn)) {
         throw std::invalid_argument("translator: need a finite, nonzero offset r");
     }
-    const int order = sampling.order();
+    if (order < 0 || order > sampling.order()) {
+        throw std::invalid_argument("translator: order must be in 0..sampling.order()");
+    }
     // Coefficients c_l = (-j)^l (2l + 1) h_l^{(2)}(k|r|).
     std::vector<Complex> c = spherical_hankel2(order, k * rn);
     Complex mj{1.0, 0.0};

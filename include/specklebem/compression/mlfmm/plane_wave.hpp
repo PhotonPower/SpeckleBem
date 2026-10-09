@@ -100,6 +100,16 @@ private:
 ///         value is not finite (|h_L| close to DBL_MAX, low-frequency breakdown).
 [[nodiscard]] VectorXc translator(Complex k, const Vec3& r, const SphereSampling& sampling);
 
+/// T_L with an explicit truncation order L <= sampling.order(), evaluated at the directions of
+/// a finer `sampling` (oversampled leaf level, ADR 0008 review amendment: the leaf patterns are
+/// sampled at L_leaf = max(L, p - 1), but the series must stop at the truncation order L, since
+/// higher terms grow without bound at low k|r|). translator(k, r, s) = translator(k, r, s,
+/// s.order()).
+/// @throws as translator(k, r, sampling), and std::invalid_argument for order outside
+///         0..sampling.order().
+[[nodiscard]] VectorXc translator(Complex k, const Vec3& r, const SphereSampling& sampling,
+                                  int order);
+
 /// Point sets of the a-priori expansion check (expansion_error).
 enum class ExpansionCheck {
     /// All 8 x 8 corner pairs of the two cubes: deterministic worst case, very conservative
