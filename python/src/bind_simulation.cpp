@@ -28,50 +28,91 @@ using solver::GmresParams;
 using solver::GmresResult;
 using solver::PreconditionerSide;
 
+/// Interval of the Ctrl-C check of a GMRES solve without a Python callback and of a main
+/// thread waiting for a Simulation's lock (each check re-acquires the GIL, which can wait up to
+/// sys.getswitchinterval() for a busy thread).
+constexpr auto kSignalCheckInterval = std::chrono::milliseconds(50);
+
+/// True on the Python main thread (the only one that handles signals). Needs the GIL.
+bool on_main_thread() {
+    const py::module_ threading = py::module_::import("threading");
+    return threading.attr("current_thread")().is(threading.attr("main_thread")());
+}
+
 /// The Simulation bound to Python: the C++ object plus a per-object mutex that serialises calls
 /// from several Python threads (the C++ class itself is not thread-safe).
 ///
 /// Lock order: every wrapper releases the GIL first and only then waits for the mutex, so no
 /// thread ever waits for the mutex while holding the GIL; the mutex holder may re-acquire the
-/// GIL (progress callback, signal check). A call from inside that callback on the same
-/// Simulation (same thread, mutex already held) is rejected with RuntimeError instead of
-/// deadlocking; owner_ records the holding thread for that check.
+/// GIL (progress callback, signal check). Waiting is bounded in three ways:
+///  - a call on the same Simulation from inside its solve() callback (same thread, mutex
+///    already held; owner_ records the holding thread) raises RuntimeError at once;
+///  - a thread that already holds some Simulation's mutex (held_ > 0: inside a solve()
+///    callback, or a finalizer run there) only try_lock()s another one and raises RuntimeError
+///    if it is busy, so two solves calling into each other's Simulation cannot deadlock (calls
+///    into an idle Simulation still work);
+///  - the main thread waits in slices of kSignalCheckInterval and, between them, re-acquires
+///    the GIL for PyErr_CheckSignals(), so Ctrl-C (KeyboardInterrupt) interrupts the wait.
 class PySimulation final : public Simulation {
 public:
     using Simulation::Simulation;
 
     /// Returns f() computed with the GIL released and the mutex held (f must return a value
-    /// or void, never a reference into the Simulation).
+    /// or void, never a reference into the Simulation). Call with the GIL held.
     template <class F>
     auto locked(F&& f) {
-        py::gil_scoped_release release;
+        const bool main_thread = on_main_thread();
+        const py::gil_scoped_release release;
         if (owner_.load() == std::this_thread::get_id()) {
             throw std::runtime_error(
                 "Simulation: re-entrant call from a solve() callback on the same Simulation");
         }
-        const std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::timed_mutex> lock(mutex_, std::defer_lock);
+        if (held_ > 0) {
+            if (!lock.try_lock()) {
+                throw std::runtime_error(
+                    "Simulation busy: cannot wait for another Simulation's lock from inside a "
+                    "solve() callback");
+            }
+        } else {
+            while (!lock.try_lock_for(kSignalCheckInterval)) {
+                if (main_thread) {
+                    const py::gil_scoped_acquire gil;  // released again before the next wait
+                    if (PyErr_CheckSignals() != 0) {
+                        throw py::error_already_set();
+                    }
+                }
+            }
+        }
         const OwnerGuard owner(owner_);
         return f();
     }
 
 private:
+    /// For its lifetime: records the calling thread as the mutex holder (owner_) and counts
+    /// the Simulation locks this thread holds (held_).
     struct OwnerGuard {
         explicit OwnerGuard(std::atomic<std::thread::id>& o) : owner(o) {
             owner.store(std::this_thread::get_id());
+            ++held_;
         }
-        ~OwnerGuard() { owner.store(std::thread::id{}); }
+        ~OwnerGuard() {
+            --held_;
+            owner.store(std::thread::id{});
+        }
         OwnerGuard(const OwnerGuard&) = delete;
         OwnerGuard& operator=(const OwnerGuard&) = delete;
         std::atomic<std::thread::id>& owner;
     };
 
-    std::mutex mutex_;
+    /// Number of Simulation locks (of any Simulation) held by the calling thread.
+    static thread_local int held_;
+
+    std::timed_mutex mutex_;
     std::atomic<std::thread::id> owner_{};
 };
 
-/// Interval of the Ctrl-C check of a GMRES solve without a Python callback (each check
-/// re-acquires the GIL, which can wait up to sys.getswitchinterval() for a busy thread).
-constexpr auto kSignalCheckInterval = std::chrono::milliseconds(50);
+thread_local int PySimulation::held_ = 0;
 
 template <class T>
 T dict_value(const py::handle& v, const std::string& key, const char* what) {
@@ -204,11 +245,6 @@ std::unique_ptr<PySimulation> make_simulation(
     geometry::TriangleMesh copy = mesh;
     py::gil_scoped_release release;
     return std::make_unique<PySimulation>(std::move(copy), std::move(exc), std::move(c));
-}
-
-bool on_main_thread() {
-    const py::module_ threading = py::module_::import("threading");
-    return threading.attr("current_thread")().is(threading.attr("main_thread")());
 }
 
 GmresResult solve(PySimulation& sim, std::optional<Real> tol, std::optional<int> max_iter,
@@ -455,10 +491,14 @@ ValueError
 
 Notes
 -----
-Thread-safe: calls on one Simulation from several threads are serialised by a per-object
-lock (taken with the GIL released). A solve() callback must not call methods of the same
-Simulation that take the lock (assemble, solve, report, currents, operator, rhs, field,
-far_field, bistatic_rcs): they raise RuntimeError instead of deadlocking.
+Thread-safe, with limits: calls on one Simulation from several threads are serialised by a
+per-object lock (taken with the GIL released), so they run one after another, not in
+parallel (use one Simulation per thread for parallel work). The methods that take the lock
+are assemble, solve, report, currents, operator, rhs, field, far_field and bistatic_rcs.
+From inside a solve() callback they raise RuntimeError instead of waiting: always on the
+Simulation being solved, and on another Simulation while that one is busy (an idle one
+works). A main thread waiting for the lock stays interruptible with Ctrl-C
+(KeyboardInterrupt).
 )doc")
         .def(py::init(&make_simulation), py::arg("mesh"), py::arg("excitation"), py::kw_only(),
              py::arg("object"), py::arg("exterior") = py::none(),
@@ -480,8 +520,9 @@ tol, max_iter, restart, side : optional
     Per-call GMRES overrides of the ``gmres`` dict (restart 0 = full GMRES); None keeps it.
 callback : callable, optional
     ``callback(iteration, residual)`` once per GMRES iteration (iteration = 1, 2, ...),
-    called with the GIL held; an exception it raises aborts the solve and propagates. It
-    must not call methods of this Simulation that wait for its lock (RuntimeError).
+    called with the GIL held; an exception it raises aborts the solve and propagates. Calls
+    from it into locking methods of this Simulation, or of another busy one, raise
+    RuntimeError (see the class notes).
 
 Notes
 -----
