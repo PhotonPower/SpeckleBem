@@ -18,6 +18,21 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   meet 10^-d0 for box edges >= lambda/2 (d0 = 3, 5; Si-like k from lambda/4), lambda/4 boxes
   lose up to one digit; the corner worst case stays above 10^-d0 at the ADR order (1e-3 ...
   9e-2); 0.1 x 10^-d0 interpolation needs p ~ 12-14 (d0 = 3) / ~ 20-22 (d0 = 5), not p = 6.
+- mlfmm (WP18 review, ADR 0008 amendments): `interpolation_order(d0)` (measured table: 14 for
+  d0 <= 3, 22 for d0 <= 5, throws above 5) and `leaf_sampling_order(L, p)` = max(L, p - 1);
+  `SphereInterpolator` has no default order any more and accepts any p <= 2 n_theta_src
+  (stencils over the pole-reflected nodes); the weight convention of the disaggregation (apply
+  the parent weights before anterpolating) is documented. `expansion_error` gains the seeded
+  statistical mode (`ExpansionCheck::random`, `pairs`, `seed`; platform-independent points) and
+  `search_truncation_order` implements the per-level order search (smallest L >= formula
+  meeting 10^-d0, breakdown detection). Measured: real k needs formula + 1 only at lambda/4 for
+  d0 = 5; lambda/4 at d0 = 7 is not achievable (minimum 4e-7); Ag-like k reaches d0 = 3 for
+  boxes <= 0.25 lambda_0 at L = 9 ... 22 and breaks down from 0.5 lambda_0. `spherical_hankel2`
+  raises `std::underflow_error` when e^{-jz} underflows (instead of returning zeros), the
+  translator raises `std::overflow_error` for non-finite coefficients or values. New tests:
+  complex-z Hankel check up to |z| = 80 against Miller j_l / upward y_l with their Wronskian,
+  lambda/4 interpolation with the oversampled leaf, order search, and a `slow` sweep
+  (`mlfmm: plane-wave accuracy sweep (slow)`) printing the measured tables.
 - python (WP14b3): calls on one `Simulation` from several Python threads are serialised by a
   per-object timed mutex taken with the GIL released (re-entrant calls from a `solve()` callback
   raise `RuntimeError`; from inside a callback another busy `Simulation` raises "Simulation

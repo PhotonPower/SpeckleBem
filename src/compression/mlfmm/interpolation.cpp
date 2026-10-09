@@ -24,6 +24,22 @@ void lagrange_weights(const std::vector<Real>& x, Real t, Real* w) {
 
 }  // namespace
 
+int interpolation_order(Real digits) {
+    if (!std::isfinite(digits) || digits <= 0.0 || digits > 5.0) {
+        throw std::invalid_argument(
+            "interpolation_order: digits must be in (0, 5] (measured range, ADR 0008)");
+    }
+    return digits <= 3.0 ? 14 : 22;
+}
+
+int leaf_sampling_order(int truncation_order, int interpolation_order) {
+    if (truncation_order < 0 || interpolation_order < 2) {
+        throw std::invalid_argument(
+            "leaf_sampling_order: need truncation_order >= 0 and interpolation_order >= 2");
+    }
+    return std::max(truncation_order, interpolation_order - 1);
+}
+
 SphereInterpolator::SphereInterpolator(const SphereSampling& source, const SphereSampling& target,
                                        int order)
     : order_(order),
@@ -31,9 +47,12 @@ SphereInterpolator::SphereInterpolator(const SphereSampling& source, const Spher
       np_src_(source.num_phi()),
       nt_tgt_(target.num_theta()),
       np_tgt_(target.num_phi()) {
-    if (order < 2 || order > nt_src_ || order > np_src_) {
+    // Theta stencil: e = m - order/2 + a, a < order, with m in [0, n]; it stays in the extended
+    // range [-n, 2n) iff order/2 <= n and order - order/2 <= n, i.e. order <= 2n. The phi
+    // stencil needs order <= n_phi = 2n distinct periodic nodes: the same bound.
+    if (order < 2 || order > 2 * nt_src_ || order > np_src_) {
         throw std::invalid_argument(
-            "SphereInterpolator: order must be >= 2 and <= the number of source theta nodes");
+            "SphereInterpolator: order must be >= 2 and <= 2 x the number of source theta nodes");
     }
     const auto p = static_cast<std::size_t>(order);
     std::vector<Real> x(p);
@@ -55,7 +74,7 @@ SphereInterpolator::SphereInterpolator(const SphereSampling& source, const Spher
     }
 
     // theta: extended nodes e in [-n, 2n): e < 0 -> -theta_{-1-e}, e >= n -> 2pi - theta_{2n-1-e}
-    // (both with phi + pi); requires order <= n so that the stencil stays in that range.
+    // (both with phi + pi); order <= 2n keeps the stencil in that range (checked above).
     const VectorXr& ts = source.theta();
     const int n = nt_src_;
     theta_index_.resize(static_cast<std::size_t>(nt_tgt_) * p);
