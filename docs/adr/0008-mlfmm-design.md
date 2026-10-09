@@ -127,3 +127,20 @@ offsets, which the volume-random check rarely samples. Decisions:
   exact near field) is met with finer leaves; WP20 measures both and the result is recorded here before
   WP21 fixes the policy. Expected default: λ/2–0.75 λ leaves for d₀ = 3.
 - Pattern quadrature target 0.01 × 10^{−d₀} (`PatternOptions::target_accuracy`).
+
+## Amendment 2026-10-09 (WP20a multilevel measurements: leaf policy for d₀ = 3)
+
+Multilevel far operator vs dense (4-level icospheres, r_max/a ≈ 0.53, vacuum exterior, n = 1.5 or Si
+interior, PMCHWT, d₀ = 3): far-only error 1.7e-3 / 4.6e-4 / 1.6e-4 for λ/4 / λ/2 / 0.75 λ leaves;
+**full-matvec error (docs/05 metric) 2.2e-4 / 1.7e-4 / 7.8e-5** — below 1e-3 at every leaf size; the
+multilevel errors equal the single-level block errors at the same a/λ (interpolation adds nothing
+visible). Decisions:
+- **d₀ = 3:** the acceptance criterion is the docs/05 full-matvec error; λ/4 leaves are allowed (they
+  keep the near field at ~15 GB for the 393 k-unknown WP22 case instead of 60–135 GB at 0.75 λ). The
+  block-based check of the WP19b amendment is reported per level in `describe()` but does not by itself
+  coarsen the leaves for d₀ = 3.
+- **d₀ = 5:** not yet established on a multilevel tree — on the test meshes (r_max/a ≈ 0.5) the order
+  search finds no order meeting 1e-5. WP20b measures it on finely meshed problems (r_max/a ≤ 0.3,
+  2N ≥ 2·10⁴); until then d₀ = 5 is documented as unverified.
+- The volume-random search is pessimistic for r_max/a ≳ 0.5; a minimum leaf size relative to r_max
+  (e.g. a ≥ 3.5 r_max for d₀ = 5) is to be decided with the WP20b data.
