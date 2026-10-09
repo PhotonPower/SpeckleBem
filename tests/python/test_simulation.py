@@ -8,6 +8,7 @@ import gc
 import inspect
 import threading
 import time
+import weakref
 
 import numpy as np
 import pytest
@@ -138,8 +139,10 @@ def test_operator_and_keep_alive():
     assert Z.dtype == np.complex128 and Z.memory_bytes > 0 and "dense" in Z.describe()
     res = sim.solve(tol=1e-10)
     x = sim.currents
+    alive = weakref.ref(sim)
     del sim
     gc.collect()
+    assert alive() is not None  # kept alive by the operator
     n = Z.shape[1]
     Zd = np.column_stack([Z.matvec(e) for e in np.eye(n)])
     v = np.random.default_rng(3).standard_normal(n) + 1j
@@ -149,9 +152,18 @@ def test_operator_and_keep_alive():
     for bad in (np.ones(n - 1), np.ones((n, 2)), np.array(["a"] * n), np.full(n, np.nan)):
         with pytest.raises(ValueError):
             Z.matvec(bad)
+    del Z
+    gc.collect()
+    assert alive() is None
 
+
+def test_operator_as_scipy():
+    """SciPy GMRES on as_scipy() (skipped without the optional dev dependency SciPy)."""
     spla = pytest.importorskip("scipy.sparse.linalg")
-    A = Z.as_scipy()
+    sim = make_sim(formulation="ICTF", preconditioner="none")
+    x, b = sim.solve(tol=1e-10).x, sim.rhs()
+    A = sim.operator().as_scipy()
+    n = sim.num_unknowns
     assert A.shape == (n, n)
     rtol = "rtol" if "rtol" in inspect.signature(spla.gmres).parameters else "tol"
     y, info = spla.gmres(A, b, restart=n, maxiter=n, atol=0.0, **{rtol: 1e-10})
