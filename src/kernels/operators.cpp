@@ -1019,8 +1019,8 @@ constexpr Real kFoldMin = 0.1;
 constexpr Real kNearVertex = 0.2;
 /// Extra point levels (adaptive_radial_points / adaptive_angular_points of level l + extra) of
 /// the shared-edge pieces with apex B when the angle at A is obtuse in both triangles, and of
-/// the pieces with apex A of folds below 90 degrees with S within kNearVertex |AB| of A (16 x 14
-/// and 16 x 16 instead of 14 x 10 points at level 4; file comment).
+/// the pieces with apex A when S (folds below 90 degrees, else P) lies within kNearVertex |AB|
+/// of A (16 x 14 and 16 x 16 instead of 14 x 10 points at level 4; file comment).
 constexpr int kExtraLevelsObtuse = 2;
 constexpr int kExtraLevelsNearVertex = 3;
 /// Smallest distance (in units of the side p1 p2) of the complex zero of a feature from the
@@ -1182,8 +1182,10 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
     const Vec3 S = (la * A + lb * B + l[2] * C) / (la + lb + l[2]);
     const Real ab = (B - A).norm();
     // More points (file comment): pieces with apex B if the angle at A is obtuse in both
-    // triangles (and vice versa), and the pieces with apex A (B) of folds below 90 degrees whose
-    // clipped projection S lies within kNearVertex |AB| of A (B).
+    // triangles (and vice versa; such pairs always use the adaptive pieces), and the pieces with
+    // apex A (B) if the clipped projection S (folds below 90 degrees, else the projection P)
+    // lies within kNearVertex |AB| of A (B) (for folds >= 90 degrees only when the pair uses the
+    // adaptive pieces anyway).
     const bool obtuse_a = (B - A).dot(C - A) < 0.0 && (B - A).dot(far[0] - A) < 0.0;
     const bool obtuse_b = (A - B).dot(C - B) < 0.0 && (A - B).dot(far[0] - B) < 0.0;
     const Vec3 P = l[0] * A + l[1] * B + l[2] * C;
@@ -1212,9 +1214,8 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
         }
         pl.extra_levels = extra_b;
         add_piece(pl, B, M, C, 0, 0);
-        return folded || pl.changed || (obtuse_a && extra_b != 0) || (obtuse_b && extra_a != 0) ||
-               n_a != 1 || pl.count != 2 || pl.p[0].grade != Grade::at_p1 ||
-               pl.p[1].grade != Grade::at_p1;
+        return folded || pl.changed || obtuse_a || obtuse_b || n_a != 1 || pl.count != 2 ||
+               pl.p[0].grade != Grade::at_p1 || pl.p[1].grade != Grade::at_p1;
     }
     // Fold below 90 degrees: the source edges A C' and B C' project onto the rays A S and B S
     // (S = P clipped into T along those rays), which become sides of the pieces.
