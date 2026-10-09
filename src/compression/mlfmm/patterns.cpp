@@ -49,8 +49,6 @@ namespace specklebem::mlfmm {
 
 namespace {
 
-constexpr Complex kJ{0.0, 1.0};
-
 void check_k(Complex k, const char* where) {
     if (!std::isfinite(k.real()) || !std::isfinite(k.imag()) || k.real() <= 0.0 || k.imag() > 0.0) {
         throw std::invalid_argument(std::string(where) +
@@ -213,7 +211,8 @@ RadiationPatterns::RadiationPatterns(const basis::RwgSpace& space, const Octree&
 #endif
     for (Index ib = 0; ib < nleaves; ++ib) {
         try {
-            const Box& box = tree.boxes()[static_cast<std::size_t>(leaves[static_cast<std::size_t>(ib)])];
+            const Box& box =
+                tree.boxes()[static_cast<std::size_t>(leaves[static_cast<std::size_t>(ib)])];
             const Vec3 c = box.center;
             // Support triangles of the box's bases (unique, ascending).
             std::vector<Index> tris;
@@ -226,8 +225,7 @@ RadiationPatterns::RadiationPatterns(const basis::RwgSpace& space, const Octree&
             tris.erase(std::unique(tris.begin(), tris.end()), tris.end());
             // Quadrature points relative to c and weights (area included), per triangle.
             std::vector<std::size_t> offset(tris.size() + 1, 0);
-            std::vector<Vec3> rho;
-            std::vector<Real> wts;
+            std::vector<std::array<Real, 4>> pts;  // (r - c, weight x area), plain arrays
             for (std::size_t j = 0; j < tris.size(); ++j) {
                 const Index t = tris[j];
                 const kernels::TriangleRule& rule =
@@ -239,10 +237,10 @@ RadiationPatterns::RadiationPatterns(const basis::RwgSpace& space, const Octree&
                 const Real area = mesh.area(t);
                 for (std::size_t q = 0; q < rule.weights.size(); ++q) {
                     const Vec3& l = rule.barycentric[q];
-                    rho.push_back(l(0) * v0 + l(1) * v1 + l(2) * v2 - c);
-                    wts.push_back(rule.weights[q] * area);
+                    const Vec3 r = l(0) * v0 + l(1) * v1 + l(2) * v2 - c;
+                    pts.push_back({r(0), r(1), r(2), rule.weights[q] * area});
                 }
-                offset[j + 1] = rho.size();
+                offset[j + 1] = pts.size();
             }
             // Per basis: local triangle slots, div / 2 and c - p_free on both triangles.
             struct Side {
@@ -260,27 +258,41 @@ RadiationPatterns::RadiationPatterns(const basis::RwgSpace& space, const Octree&
                         side == 0 ? space.plus_free_vertex(n) : space.minus_free_vertex(n);
                     const auto it = std::lower_bound(tris.begin(), tris.end(), t);
                     s[static_cast<std::size_t>(side)] = {
-                        static_cast<std::size_t>(it - tris.begin()),
-                        0.5 * space.divergence(n, t), c - vert.row(fv).transpose()};
+                        static_cast<std::size_t>(it - tris.begin()), 0.5 * space.divergence(n, t),
+                        c - vert.row(fv).transpose()};
                 }
                 sides.push_back(s);
                 leaf_box_[static_cast<std::size_t>(p)] = leaves[static_cast<std::size_t>(ib)];
             }
             // Moments S0 = int e dS, S1 = int (r - c) e dS per triangle and direction.
+            // e^{+jk s} = e^{-Im(k) s} (cos(Re(k) s) + j sin(Re(k) s)), s = khat . (r - c);
+            // scalar loops (also fast in the unoptimised build).
             std::vector<std::array<Complex, 4>> mom(tris.size());
-            const Complex jk = kJ * k;
+            const Real kr = k.real();
+            const Real ki = k.imag();
             for (Index q = 0; q < nd; ++q) {
-                const Vec3 kq(khat(q, 0), khat(q, 1), khat(q, 2));
+                const Real kx = khat(q, 0);
+                const Real ky = khat(q, 1);
+                const Real kz = khat(q, 2);
                 for (std::size_t j = 0; j < tris.size(); ++j) {
-                    std::array<Complex, 4> m{};
+                    std::array<Real, 8> m{};
                     for (std::size_t i = offset[j]; i < offset[j + 1]; ++i) {
-                        const Complex e = wts[i] * std::exp(jk * kq.dot(rho[i]));
-                        m[0] += e;
-                        m[1] += e * rho[i](0);
-                        m[2] += e * rho[i](1);
-                        m[3] += e * rho[i](2);
+                        const std::array<Real, 4>& x = pts[i];
+                        const Real sp = kx * x[0] + ky * x[1] + kz * x[2];
+                        const Real amp = ki == 0.0 ? x[3] : x[3] * std::exp(-ki * sp);
+                        const Real er = amp * std::cos(kr * sp);
+                        const Real ei = amp * std::sin(kr * sp);
+                        m[0] += er;
+                        m[1] += ei;
+                        m[2] += er * x[0];
+                        m[3] += ei * x[0];
+                        m[4] += er * x[1];
+                        m[5] += ei * x[1];
+                        m[6] += er * x[2];
+                        m[7] += ei * x[2];
                     }
-                    mom[j] = m;
+                    mom[j] = {Complex(m[0], m[1]), Complex(m[2], m[3]), Complex(m[4], m[5]),
+                              Complex(m[6], m[7])};
                 }
                 for (std::size_t b = 0; b < sides.size(); ++b) {
                     std::array<Complex, 3> v{};
@@ -292,9 +304,8 @@ RadiationPatterns::RadiationPatterns(const basis::RwgSpace& space, const Octree&
                         }
                     }
                     const auto p = static_cast<std::size_t>(box.first_element) + b;
-                    const std::size_t at = (p * static_cast<std::size_t>(nd) +
-                                            static_cast<std::size_t>(q)) *
-                                           2;
+                    const std::size_t at =
+                        (p * static_cast<std::size_t>(nd) + static_cast<std::size_t>(q)) * 2;
                     data_[at] = th(q, 0) * v[0] + th(q, 1) * v[1] + th(q, 2) * v[2];
                     data_[at + 1] = ph(q, 0) * v[0] + ph(q, 1) * v[1] + ph(q, 2) * v[2];
                 }
@@ -353,7 +364,7 @@ FarBlock far_block(const RadiationPatterns& patterns, Index box_a, Index box_b,
             const Complex vp = patterns.radiation(p, q, 1);
             vm(j, q) = vt;
             vm(j, nd + q) = vp;
-            wm(j, q) = -vp;  // W_theta = -V_phi
+            wm(j, q) = -vp;      // W_theta = -V_phi
             wm(j, nd + q) = vt;  // W_phi = V_theta
         }
     }

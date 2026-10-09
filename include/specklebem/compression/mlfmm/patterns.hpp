@@ -6,8 +6,8 @@
 ///
 /// Patterns (one region, wavenumber k, Im k <= 0; c = centre of the leaf box of f_n):
 ///   radiation  V_n(khat) = int (I - khat khat) f_n(r') e^{+jk khat.(r' - c)} dS'
-///   K pattern  W_n(khat) = khat x V_n(khat)          (not stored: W_theta = -V_phi, W_phi = V_theta)
-///   receiving  R_m(khat) = V_m(-khat)                (no conjugation, also for complex k)
+///   K pattern  W_n(khat) = khat x V_n(khat)          (not stored: W_theta = -V_phi, W_phi =
+///   V_theta) receiving  R_m(khat) = V_m(-khat)                (no conjugation, also for complex k)
 /// stored as the (theta_hat, phi_hat) components of V_n at every direction of a SphereSampling.
 ///
 /// Far-field form of the Galerkin entries (derivation in src/compression/mlfmm/patterns.cpp).
@@ -54,9 +54,9 @@ struct PatternOptions {
 
 /// Truncation and sampling order of the leaf level of `tree` for one region.
 struct LeafSampling {
-    Real enlarged_diagonal = 0;  ///< sqrt(3) a_leaf + 2 max_support_radius [m]
-    TruncationSearch search;     ///< search_truncation_order result (statistical check)
-    int truncation_order = 0;    ///< = search.order (meets 10^-d0 iff search.achievable)
+    Real enlarged_diagonal = 0;   ///< sqrt(3) a_leaf + 2 max_support_radius [m]
+    TruncationSearch search;      ///< search_truncation_order result (statistical check)
+    int truncation_order = 0;     ///< = search.order (meets 10^-d0 iff search.achievable)
     int interpolation_order = 0;  ///< interpolation_order(digits)
     int sampling_order = 0;       ///< leaf_sampling_order(truncation_order, interpolation_order)
 };
