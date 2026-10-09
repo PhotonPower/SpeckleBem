@@ -21,11 +21,15 @@ public:
 };
 
 /// Diagonal (Jacobi) preconditioner: the one that gave the fastest convergence
-/// for Ag surfaces in the paper.
+/// for Ag surfaces in the paper. Typically built from op::assemble_diagonal(problem).
 class DiagonalPreconditioner final : public Preconditioner {
 public:
+    /// Stores 1 / diag; apply() is z = r .* (1 / diag), O(n).
+    /// @throws std::invalid_argument if diag is empty or has zero or non-finite entries.
     explicit DiagonalPreconditioner(VectorXc diag);
+    /// z = M^{-1} r. @throws std::invalid_argument if r.size() != size().
     void apply(const VectorXc& r, VectorXc& z) const override;
+    [[nodiscard]] Index size() const { return inv_diag_.size(); }
     [[nodiscard]] std::string name() const override { return "diagonal"; }
 
 private:

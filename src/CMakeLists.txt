@@ -27,7 +27,8 @@ set(SPECKLEBEM_SOURCES
     # --- to be added in the respective phase (see docs/01_project_plan.md) ---
     # operator/sparse_operator.cpp
     # compression/mlfmm/octree.cpp compression/mlfmm/mlfmm_operator.cpp
-    # solver/gmres.cpp solver/preconditioner.cpp
+    solver/gmres.cpp
+    solver/preconditioner.cpp
     # postprocessing/speckle_statistics.cpp
     reference/mie.cpp
     # io/result_writer.cpp
