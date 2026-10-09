@@ -39,6 +39,15 @@ metadata:
   `mesh.vertices[mesh.triangles]`, not `vertices`/`triangles`, in STL round trips.
 - SciPy: Ubuntu 24.04 apt ships 1.11 (`gmres(..., tol=)`), MSYS2 1.17 (`rtol=`); pick the
   keyword via `inspect.signature`. Default `restart=20` in scipy gmres: pass restart=n.
+- WP14b3: `Simulation` is bound as `PySimulation` (derived, adds a mutex). Lambdas on that
+  class must take `PySimulation&`, not `Simulation&` (the base is not a registered pybind11
+  type); base member pointers (`&Simulation::num_unknowns`) are fine. Lock only after
+  releasing the GIL. Ctrl-C test: `threading.Timer(0.3, _thread.interrupt_main)` and assert the
+  aborted solve stored no solution (a pending signal fires after a completed solve too).
+- The win-debug (ASan) module cannot be imported by CLANG64 `python.exe` (numpy/pytest/scipy
+  installed there in WP14b3): the late-loaded ASan runtime reports CRT frees from
+  `_wputenv_s` ("free on address which was not malloc()-ed"); `check_malloc_usable_size=0`
+  does not help. Not a SpeckleBem bug; needs an instrumented host.
 
-**Why:** found while implementing WP14b1/WP14b2 (2026-10-09); each cost a rebuild cycle.
+**Why:** found while implementing WP14b1/WP14b2/WP14b3 (2026-10-09); each cost a rebuild cycle.
 **How to apply:** check before adding bindings in WP14b2 and later. See [[build-pitfalls-windows]].
