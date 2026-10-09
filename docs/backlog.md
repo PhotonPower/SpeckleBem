@@ -109,6 +109,12 @@ Design decisions: ADR 0008 (near/far split by leaf adjacency of RWG midpoints, s
   false positives that GCC 16 does not (e.g. `-Wnull-dereference` from `std::istreambuf_iterator`, WP16). The
   coordinator pushes every WP branch and merges only with all four CI jobs green. Prefer sized `read()` over
   `istreambuf_iterator` for whole-file reads.
+- Reproducing GCC 13 CI warnings locally: the standalone winlibs GCC 13.3 (UCRT) build
+  (github.com/brechtsanders/winlibs_mingw, release `13.3.0posix-11.0.1-ucrt-r1`) extracted into a scratch directory,
+  used with `-std=c++20 -O3 -DNDEBUG -fopenmp`, the flags of `cmake/CompilerWarnings.cmake`, `-Werror` and the fetched
+  dependencies as `-isystem` (from `compile_commands.json`), reproduces the ubuntu Release job's `-Wnull-dereference`
+  false positives (WP16, WP18). Do not install it into MSYS2. Typical trigger: container sizes computed from a signed
+  value (`static_cast<std::size_t>(int_expr) + c`); compute sizes in `std::size_t` from clamped values.
 - Paths in the public API are UTF-8 on every platform (ADR 0007); convert only via `core::path_from_utf8` /
   `core::path_to_utf8` (WP-P1), never `std::filesystem::path(std::string)` or `path::string()` on user paths.
 - Coordinator tooling: `SendMessage` is not available in the Windows sessions, so a finished worker cannot be resumed. Trivial review fixes (docs/comments, < 20 lines) are applied by the coordinator on the WP branch; substantive fixes go to a new worker whose brief contains the original brief, the review findings and the branch head.
