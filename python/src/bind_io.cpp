@@ -64,9 +64,8 @@ void bind_io(py::module_& m) {
         [](const TriangleMesh& mesh, const py::object& path, bool ascii) {
             const std::string p = utf8_path(path);
             py::gil_scoped_release release;
-            geometry::io::write_stl(mesh, p,
-                                    ascii ? geometry::io::StlFormat::ascii
-                                          : geometry::io::StlFormat::binary);
+            geometry::io::write_stl(
+                mesh, p, ascii ? geometry::io::StlFormat::ascii : geometry::io::StlFormat::binary);
         },
         py::arg("mesh"), py::arg("path"), py::arg("ascii") = false,
         "Write STL: binary (float32 coordinates) or ASCII (shortest round-trip doubles).");

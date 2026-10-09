@@ -305,10 +305,8 @@ System operator Z of a Simulation (square, complex; never formed explicitly in g
 Obtained from Simulation.operator(); keeps its Simulation alive. ``matvec(x)`` and ``A @ x``
 compute Z x with the GIL released; ``as_scipy()`` wraps it for scipy.sparse.linalg.
 )doc")
-        .def_property_readonly("shape",
-                               [](const op::LinearOperator& A) {
-                                   return py::make_tuple(A.rows(), A.cols());
-                               })
+        .def_property_readonly(
+            "shape", [](const op::LinearOperator& A) { return py::make_tuple(A.rows(), A.cols()); })
         .def_property_readonly(
             "dtype", [](const op::LinearOperator&) { return py::dtype::of<Complex>(); },
             "numpy.complex128.")
@@ -329,8 +327,8 @@ ndarray of complex128, shape (n,)
             "as_scipy",
             [](const py::object& self) {
                 const py::module_ spla = py::module_::import("scipy.sparse.linalg");
-                return spla.attr("LinearOperator")(self.attr("shape"), py::arg("matvec") =
-                                                                           self.attr("matvec"),
+                return spla.attr("LinearOperator")(self.attr("shape"),
+                                                   py::arg("matvec") = self.attr("matvec"),
                                                    py::arg("dtype") = self.attr("dtype"));
             },
             "scipy.sparse.linalg.LinearOperator calling matvec (imports SciPy lazily; "
@@ -338,8 +336,8 @@ ndarray of complex128, shape (n,)
         .def("describe", &op::LinearOperator::describe, "Human-readable description.")
         .def_property_readonly("memory_bytes", &op::LinearOperator::memory_bytes,
                                "Approximate memory footprint [bytes].")
-        .def("__repr__", [](const op::LinearOperator& A) { return "<LinearOperator " +
-                                                                  A.describe() + ">"; });
+        .def("__repr__",
+             [](const op::LinearOperator& A) { return "<LinearOperator " + A.describe() + ">"; });
 
     py::class_<Simulation>(m, "Simulation", R"doc(
 Dense SIE simulation of one object (C++ specklebem::Simulation): assemble, solve, post-process.
@@ -426,16 +424,16 @@ SolveResult
         .def_property_readonly("num_unknowns", &Simulation::num_unknowns,
                                "Number of unknowns 2N (N interior edges).")
         .def_property_readonly(
-            "currents",
-            [](const Simulation& s) { return VectorXc(s.solution().currents); },
+            "currents", [](const Simulation& s) { return VectorXc(s.solution().currents); },
             "Solution [J; M] (copy; J in A/m, M in V/m). RuntimeError before solve().")
         .def(
             "operator",
             [](const Simulation& s) {
                 return std::const_pointer_cast<op::LinearOperator>(s.system_operator());
             },
-            py::keep_alive<0, 1>(), "System operator Z (LinearOperator); RuntimeError before "
-                                    "assemble().")
+            py::keep_alive<0, 1>(),
+            "System operator Z (LinearOperator); RuntimeError before "
+            "assemble().")
         .def(
             "rhs", [](const Simulation& s) { return VectorXc(s.rhs()); },
             "Right-hand side b (copy); RuntimeError before assemble().")

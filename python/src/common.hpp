@@ -101,8 +101,7 @@ inline Eigen::Matrix<Complex, Eigen::Dynamic, 3> fields_from_array(const py::obj
 }
 
 /// (n, 3) field -> C-contiguous complex128 array (n, 3), or (3,) if `single`.
-inline py::object fields_to_array(const Eigen::Matrix<Complex, Eigen::Dynamic, 3>& f,
-                                  bool single) {
+inline py::object fields_to_array(const Eigen::Matrix<Complex, Eigen::Dynamic, 3>& f, bool single) {
     if (single) {
         return py::cast(Vec3c(f.row(0).transpose()));
     }
