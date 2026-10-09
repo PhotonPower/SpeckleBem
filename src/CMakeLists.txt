@@ -3,6 +3,7 @@
 set(SPECKLEBEM_SOURCES
     core/config.cpp
     core/logging.cpp
+    core/path.cpp
     core/timer.cpp
     material/material.cpp
     formulation/formulation.cpp
