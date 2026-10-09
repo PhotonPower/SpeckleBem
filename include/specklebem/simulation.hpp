@@ -18,6 +18,41 @@
 
 namespace specklebem {
 
+/// Minimum depth [m] of the closing box of a rough patch (ADR 0006): 2 um.
+inline constexpr Real kMinBoxDepth = 2e-6;
+
+/// Default depth [m] of the closing box below the mean plane z = 0 of a truncated rough
+/// surface (ADR 0006, coordinator decision 2026-10-09), to be passed as
+/// geometry::RoughSurfaceParams::box_depth:
+///
+///   depth = max(10 / alpha, kMinBoxDepth),   1 / alpha = delta / 2,
+///
+/// with 1 / alpha the intensity absorption length and delta = material::field_decay_length(
+/// object, wavelength) the field (amplitude) decay length lambda_0 / (2 pi |Im n_2|). At
+/// 500 nm: Si delta = 1.129 um -> 5.65 um; Ag delta = 25.4 nm -> 127 nm -> 2 um (the minimum).
+/// A lossless metal (eps_r real and < 0) has a finite, evanescent delta and is accepted.
+/// @throws std::invalid_argument for an object whose field does not decay (lossless
+///         dielectric, delta = +infinity: not covered by ADR 0006), and for what
+///         material::field_decay_length rejects (non-finite eps_r or mu_r, wavelength not
+///         finite and > 0).
+[[nodiscard]] Real default_box_depth(const material::Material& object, Real wavelength);
+
+/// Default fine band [m] of the graded closing box (ADR 0006), to be passed as
+/// geometry::RoughSurfaceParams::box_fine_depth:
+///
+///   box_fine_depth = 3 delta + 3 sigma,
+///
+/// delta = material::field_decay_length(object, wavelength), sigma the rms roughness [m]
+/// (the band is measured from the mean plane z = 0, so 3 sigma covers rim points below it).
+/// Si at 500 nm with sigma = 50 nm: 3.54 um. The fine band matters for weakly absorbing
+/// objects (Si); for strongly absorbing ones (Ag: 0.23 um) the graded box without a fine band
+/// already starts coarsening at about 4 delta. The generator requires the result to lie below
+/// the box depth (check against default_box_depth() or the depth actually used).
+/// @throws std::invalid_argument for sigma not finite or < 0, a lossless dielectric object
+///         (delta = +infinity) and what material::field_decay_length rejects.
+[[nodiscard]] Real default_box_fine_depth(const material::Material& object, Real wavelength,
+                                          Real sigma);
+
 /// Linear solver of Simulation::solve().
 enum class SolverKind {
     Gmres,  ///< solver::gmres with config.gmres or the per-call parameters (incl. the side)
