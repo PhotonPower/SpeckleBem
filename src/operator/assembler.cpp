@@ -83,9 +83,6 @@ namespace {
 
 using Block = Eigen::Matrix<Complex, 3, 3>;
 
-/// Largest dense system: 2N = 1e5 unknowns are 160 GB of matrix storage (16 (2N)^2 bytes);
-/// beyond that a dense matrix makes no sense (compressed operators are the tool, docs/01).
-constexpr Index kMaxDenseUnknowns = 100000;
 constexpr Real kRelTol = 1e-12;
 
 bool close(Complex a, Complex b) {

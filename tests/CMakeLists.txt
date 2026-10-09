@@ -22,6 +22,7 @@ add_executable(specklebem_unit_tests
     unit/test_assembler.cpp
     unit/test_gmres.cpp
     unit/test_result_writer.cpp
+    unit/test_simulation.cpp
     # unit/test_octree.cpp unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -54,6 +55,7 @@ add_executable(specklebem_validation_tests
     validation/test_post_mie_projection.cpp
     validation/test_assembler_mie.cpp
     validation/test_mie_sphere_dense.cpp
+    validation/test_simulation_mie.cpp
     support/system_memory.cpp
     # validation/test_mie_sphere_mlfmm.cpp
     # validation/test_mlfmm_vs_dense.cpp

@@ -36,7 +36,7 @@ public:
     [[nodiscard]] int levels() const { return levels_; }
     [[nodiscard]] const std::vector<Box>& boxes() const { return boxes_; }
     [[nodiscard]] const std::vector<Index>& boxes_at_level(int level) const {
-        return level_boxes_[level];
+        return level_boxes_[static_cast<std::size_t>(level)];
     }
     [[nodiscard]] Real box_size(int level) const;
     /// Element permutation (Morton order) and its inverse.
