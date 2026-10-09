@@ -46,7 +46,9 @@ material::Material medium(Real n) {
 struct Case {
     Case(geometry::TriangleMesh m, int levels, const material::Material& object, Kind kind,
          Real digits)
-        : mesh(std::move(m)), space(mesh), tree(space, kLambda, mlfmm::OctreeParams{1, levels, 0.0}),
+        : mesh(std::move(m)),
+          space(mesh),
+          tree(space, kLambda, mlfmm::OctreeParams{1, levels, 0.0}),
           form(formulation::make_formulation(kind)) {
         problem.space = &space;
         problem.exterior = material::vacuum();
@@ -117,9 +119,13 @@ struct FarResult {
 
 /// Dense oracle: y_far = Z x - Z_near x, Z_near = the entries of near basis pairs (same leaf or
 /// adjacent leaves, 3 x 3 x 3 neighbourhood) of all four blocks.
+/// The far operator is built first (it throws if an order is not achievable).
 FarResult measure(const Case& c) {
     FarResult r;
     auto t0 = std::chrono::steady_clock::now();
+    r.op = std::make_unique<MlfmmFarOperator>(c.problem, c.tree, c.params);
+    r.t_setup = seconds_since(t0);
+    t0 = std::chrono::steady_clock::now();
     const auto dense = op::DenseStrategy().build(c.problem);
     const MatrixXc& Z = dynamic_cast<const op::DenseOperator&>(*dense).matrix();
     r.t_dense = seconds_since(t0);
@@ -142,9 +148,6 @@ FarResult measure(const Case& c) {
     }
     const VectorXc y_ref = y_full - y_near;
     t0 = std::chrono::steady_clock::now();
-    r.op = std::make_unique<MlfmmFarOperator>(c.problem, c.tree, c.params);
-    r.t_setup = seconds_since(t0);
-    t0 = std::chrono::steady_clock::now();
     const VectorXc y = *r.op * x;
     r.t_apply = seconds_since(t0);
     r.far_err = (y - y_ref).norm() / y_ref.norm();
@@ -156,8 +159,8 @@ FarResult measure(const Case& c) {
 void report(const std::string& name, const Case& c, const FarResult& r) {
     WARN(name << ": 2N = " << 2 * c.space.size() << ", levels " << c.tree.levels()
               << ", leaf a = " << c.tree.box_size(c.tree.leaf_level()) / kLambda
-              << " lambda0, d0 = " << c.params.accuracy_digits << ": far-only error "
-              << r.far_err << ", full-matvec error " << r.full_err << " (dense " << r.t_dense
+              << " lambda0, d0 = " << c.params.accuracy_digits << ": far-only error " << r.far_err
+              << ", full-matvec error " << r.full_err << " (dense " << r.t_dense
               << " s, MLFMM setup " << r.t_setup << " s, apply " << r.t_apply << " s)\n"
               << r.describe);
 }
@@ -320,9 +323,9 @@ TEST_CASE("mlfmm: far operator error cases", "[mlfmm]") {
     {
         const Case ag(geometry::make_icosphere(radius, 2), 3, material::silver_500nm(),
                       Kind::PMCHWT, 3.0);
-        CHECK_THROWS_MATCHES(MlfmmFarOperator(ag.problem, ag.tree, ag.params), std::runtime_error,
-                             Catch::Matchers::MessageMatches(
-                                 Catch::Matchers::ContainsSubstring("region R2")));
+        CHECK_THROWS_MATCHES(
+            MlfmmFarOperator(ag.problem, ag.tree, ag.params), std::runtime_error,
+            Catch::Matchers::MessageMatches(Catch::Matchers::ContainsSubstring("region R2")));
     }
     const Case c(geometry::make_icosphere(radius, 2), 2, medium(1.5), Kind::PMCHWT, 3.0);
     for (int bad = 0; bad < 5; ++bad) {
@@ -379,21 +382,30 @@ TEST_CASE("mlfmm: far operator accuracy sweep", "[.][mlfmm_far_sweep]") {
             for (const Real d0 : {3.0, 5.0}) {
                 const Case c(geometry::make_icosphere(4.0 * a * kLambda, 3), 4, in.m, Kind::PMCHWT,
                              d0);
-                const FarResult r = measure(c);
-                report("icosphere " + in.name + ", a = " + std::to_string(a) + " lambda0", c, r);
-                if (a >= (d0 <= 3.0 ? 0.74 : 1.49)) {
-                    CHECK(r.far_err <= std::pow(10.0, -d0));
+                const std::string name =
+                    "icosphere " + in.name + ", a = " + std::to_string(a) + " lambda0";
+                const bool asserted = a >= (d0 <= 3.0 ? 0.74 : 1.49);
+                try {
+                    const FarResult r = measure(c);
+                    report(name, c, r);
+                    if (asserted)
+                        CHECK(r.far_err <= std::pow(10.0, -d0));
+                } catch (const std::runtime_error& e) {
+                    WARN(name << ", d0 = " << d0 << ": " << e.what());
+                    CHECK(!asserted);
                 }
             }
         }
     }
-    // Full-matvec error with lambda0 / 2 and lambda0 / 4 leaves (input for the ADR 0008 leaf
-    // policy): R = 1 um, 4 and 5 levels.
-    for (const int levels : {4, 5}) {
-        for (const Real d0 : {3.0, 5.0}) {
-            const Case c(geometry::make_icosphere(2.0 * kLambda, 3), levels, medium(1.5),
-                         Kind::PMCHWT, d0);
-            report("icosphere R = 1 um, n = 1.5", c, measure(c));
+    // Full-matvec error with lambda0 / 4 leaves (lambda0 / 2: the a = 0.5 rows above), input for
+    // the ADR 0008 leaf policy: R = 0.5 um, subdivision 3, 4 levels (r_max / a ~ 0.5). The order
+    // search may report the target as not achievable there (reported, not asserted).
+    for (const Real d0 : {3.0, 5.0}) {
+        const Case c(geometry::make_icosphere(kLambda, 3), 4, medium(1.5), Kind::PMCHWT, d0);
+        try {
+            report("icosphere R = 0.5 um, n = 1.5", c, measure(c));
+        } catch (const std::runtime_error& e) {
+            WARN("icosphere R = 0.5 um, lambda0 / 4 leaves, d0 = " << d0 << ": " << e.what());
         }
     }
 }

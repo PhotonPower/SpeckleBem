@@ -202,9 +202,9 @@ void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& spac
             const auto& khat = parent.directions();
             const Complex jk = Complex(0.0, 1.0) * r.k;
             for (std::size_t s = 0; s < 8; ++s) {
-                const Vec3 d = 0.5 * a *
-                               Vec3((s & 1U) ? 1.0 : -1.0, (s & 2U) ? 1.0 : -1.0,
-                                    (s & 4U) ? 1.0 : -1.0);
+                const Vec3 d =
+                    0.5 * a *
+                    Vec3((s & 1U) ? 1.0 : -1.0, (s & 2U) ? 1.0 : -1.0, (s & 4U) ? 1.0 : -1.0);
                 const VectorXr phase = khat * d;
                 lv.up[s] = (jk * phase.cast<Complex>()).array().exp();
                 lv.down[s] = (-jk * phase.cast<Complex>()).array().exp();
@@ -214,7 +214,8 @@ void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& spac
         r.info.push_back(lv.info);
     }
     const auto t0 = std::chrono::steady_clock::now();
-    r.patterns = std::make_unique<RadiationPatterns>(space, tree, r.k, r.levels.back().sampling, popt);
+    r.patterns =
+        std::make_unique<RadiationPatterns>(space, tree, r.k, r.levels.back().sampling, popt);
     r.pattern_seconds = seconds_since(t0);
     r.antipode.resize(sz(r.patterns->num_directions()));
     for (std::size_t q = 0; q < r.antipode.size(); ++q) {
@@ -318,8 +319,7 @@ void MlfmmFarOperator::apply(const VectorXc& x, VectorXc& y) const {
     y = std::move(out);
 }
 
-void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x,
-                                          VectorXc& y) const {
+void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x, VectorXc& y) const {
     const int leaf = tree.leaf_level();
     const std::size_t nl = r.levels.size();
     std::vector<std::vector<Complex>> out(nl), in(nl);
@@ -424,8 +424,7 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x,
             Complex* G = field(in[li], ia, 0, nd);
             for (const Index b : A.interaction_list) {
                 const Box& B = boxes[sz(b)];
-                const Complex* T =
-                    lv.translators[sz(lv.slot[offset_slot(A.ijk, B.ijk)])].data();
+                const Complex* T = lv.translators[sz(lv.slot[offset_slot(A.ijk, B.ijk)])].data();
                 const Complex* F = field(out[li], local[sz(b)], 0, nd);
                 for (std::size_t f = 0; f < kFields; ++f) {
                     for (std::size_t q = 0; q < nd; ++q) G[f * nd + q] += T[q] * F[f * nd + q];
@@ -450,7 +449,8 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x,
                 Complex* tmp2 = tmp + max_nd;
                 const std::span<Complex> ws(tmp + 2 * max_nd, max_ws);
                 const Box& C = boxes[sz(children[sz(ic)])];
-                const std::size_t s = sz((C.ijk[0] & 1) | (C.ijk[1] & 1) << 1 | (C.ijk[2] & 1) << 2);
+                const std::size_t s =
+                    sz((C.ijk[0] & 1) | (C.ijk[1] & 1) << 1 | (C.ijk[2] & 1) << 2);
                 const Complex* shift = child.down[s].data();
                 for (std::size_t f = 0; f < kFields; ++f) {
                     const Complex* gp = field(in[li], local[sz(C.parent)], f, ndp);
@@ -485,8 +485,9 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x,
             const Complex* G = field(in.back(), ib, 0, nd);
             Complex* u = thread_scratch();
             // R_p(khat_q) = (V_theta, -V_phi)(p, q') with q' = antipode(q) (patterns.hpp), so
-            // sum_q R_p(q) . U(q) = sum_q' V_p(q') . U~(q'), U~(q') = (U_theta, -U_phi)(antipode(q')):
-            // u holds U~ in the order (J theta, J phi, M theta, M phi), interleaved per q'.
+            // sum_q R_p(q) . U(q) = sum_q' V_p(q') . U~(q'), U~(q') = (U_theta,
+            // -U_phi)(antipode(q')): u holds U~ in the order (J theta, J phi, M theta, M phi),
+            // interleaved per q'.
             for (std::size_t q = 0; q < nd; ++q) {
                 const std::size_t a = r.antipode[q];
                 const Complex jt = G[a], jp = G[nd + a], mt = G[2 * nd + a], mp = G[3 * nd + a];
@@ -531,16 +532,16 @@ std::string MlfmmFarOperator::describe() const {
            << r.pattern_seconds << " s)";
         for (const FarLevelInfo& f : r.info) {
             apply_bytes += f.pattern_bytes;
-            os << "\n    level " << f.level << ": " << f.boxes << " boxes, a = "
-               << f.box_size / lambda << " lambda, L = " << f.truncation_order
+            os << "\n    level " << f.level << ": " << f.boxes
+               << " boxes, a = " << f.box_size / lambda << " lambda, L = " << f.truncation_order
                << ", sampling L = " << f.sampling_order << " (" << f.directions
                << " directions), search error " << f.search_error << ", " << f.translators
                << " translators, fields " << static_cast<Real>(f.pattern_bytes) / 1048576.0
                << " MB per apply, setup " << f.setup_seconds << " s";
         }
     }
-    os << "\n  stored " << static_cast<Real>(memory_bytes()) / 1048576.0
-       << " MB, per-apply fields " << static_cast<Real>(apply_bytes) / 1048576.0 << " MB";
+    os << "\n  stored " << static_cast<Real>(memory_bytes()) / 1048576.0 << " MB, per-apply fields "
+       << static_cast<Real>(apply_bytes) / 1048576.0 << " MB";
     return os.str();
 }
 

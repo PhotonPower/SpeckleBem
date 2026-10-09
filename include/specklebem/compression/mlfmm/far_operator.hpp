@@ -57,14 +57,14 @@ namespace specklebem::mlfmm {
 struct FarLevelInfo {
     int level = 0;
     Index boxes = 0;
-    Real box_size = 0;          ///< box edge [m]
-    int truncation_order = 0;   ///< L of the translators
-    int sampling_order = 0;     ///< L of the sampling (leaf: max(L, p - 1))
-    Index directions = 0;       ///< 2 (sampling_order + 1)^2
-    Real search_error = 0;      ///< statistical check of search_truncation_order at L
-    Index translators = 0;      ///< distinct interaction offsets
+    Real box_size = 0;              ///< box edge [m]
+    int truncation_order = 0;       ///< L of the translators
+    int sampling_order = 0;         ///< L of the sampling (leaf: max(L, p - 1))
+    Index directions = 0;           ///< 2 (sampling_order + 1)^2
+    Real search_error = 0;          ///< statistical check of search_truncation_order at L
+    Index translators = 0;          ///< distinct interaction offsets
     std::size_t pattern_bytes = 0;  ///< per-apply outgoing + incoming fields of the level
-    Real setup_seconds = 0;     ///< order search, translators, interpolator, shifts
+    Real setup_seconds = 0;         ///< order search, translators, interpolator, shifts
 };
 
 class MlfmmFarOperator final : public op::LinearOperator {
