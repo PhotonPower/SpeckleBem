@@ -28,7 +28,8 @@ files; Bash is for building, testing and inspecting (`git diff main...<branch>`,
    brief): are the tests meaningful (not tautological), seeds fixed, tolerances taken from the
    acceptance table and not loosened, validation tests labelled? Run them.
 7. **Build and test yourself**: `cmake --preset debug && cmake --build --preset debug &&
-   ctest --preset debug`, and the same for `release`. Report the exact outcome.
+   ctest --preset debug`, and the same for `release` (on Windows/MSYS2: `win-debug` and
+   `win-release`, see `CLAUDE.md`). Report the exact outcome.
 8. **Secrets**: no tokens, credentials or machine-specific paths in the diff.
 
 ## Output

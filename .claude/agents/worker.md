@@ -27,6 +27,8 @@ documented assumption and list it in your final report rather than stopping.
    `ctest` for both:
    `cmake --preset debug && cmake --build --preset debug && ctest --preset debug`
    `cmake --preset release && cmake --build --preset release && ctest --preset release`
+   On Windows (MSYS2, see `CLAUDE.md`) use `win-debug` and `win-release` instead of `debug` and
+   `release`, always through the presets.
    Both must be green before you report. Warnings are errors.
 4. Write Catch2 v3 unit tests (`tests/unit/test_<module>.cpp`, tag `[module]`) with fixed
    seeds for anything random. When the WP produces a physical result, add a validation test

@@ -15,11 +15,28 @@ open decisions, how to continue).
 ```bash
 cmake --preset release && cmake --build --preset release && ctest --preset release
 cmake --preset debug   && cmake --build --preset debug   && ctest --preset debug   # -Werror + ASan/UBSan
-ctest --preset release -L validation      # validation tests only (-LE validation = unit only)
+ctest --preset release -L '^validation$'  # validation tests only (-L is a regex; -LE validation = unit only)
 scripts/format.sh                         # clang-format (+ ruff if installed) before committing
 pip install -e python/[dev]               # Python package, editable (scikit-build-core)
 PYTHONPATH=build/release/python:python python3 -m pytest tests/python -q   # CI-style, no install
 ```
+
+**Windows (the current development machine): use the `win-*` presets.** Native build with
+MSYS2 in `C:/msys64` (no WSL): `win-release` = UCRT64 GCC + OpenBLAS, `win-debug` = CLANG64
+Clang + libc++ with `-Werror` + ASan/UBSan. Packages: `mingw-w64-ucrt-x86_64-{gcc,openblas,python,python-numpy,python-pytest}`,
+`mingw-w64-clang-x86_64-{clang,lld,compiler-rt,llvm-openmp,openblas,python}`.
+
+```bash
+cmake --preset win-release && cmake --build --preset win-release && ctest --preset win-release -LE validation-large -j 12
+cmake --preset win-debug   && cmake --build --preset win-debug   && ctest --preset win-debug   -LE validation-large -j 12
+ctest --preset win-release -L '^validation$'
+PYTHONPATH='build/win-release/python;python' /c/msys64/ucrt64/bin/python -m pytest tests/python -q
+```
+
+Always build through the presets: they put the MSYS2 `bin` directory first on `PATH`; from
+plain Git Bash, Git's older `libstdc++-6.dll` wins and test discovery fails with `0xc0000139`.
+`ctest -j` oversubscribes OpenMP for the dense validation tests (run them serially for timings).
+More Windows pitfalls (CRLF, LLP64, `<windows.h>` macros): "Notes for workers" in `docs/backlog.md`.
 
 Eigen, spdlog, Catch2 and pybind11 come from system packages when present, otherwise
 `cmake/Dependencies.cmake` fetches them (FetchContent). BLAS/LAPACK are optional; without
