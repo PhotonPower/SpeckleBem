@@ -127,6 +127,8 @@ def test_callback_and_overrides():
             make_sim(gmres=bad_gmres)
     with pytest.raises(ValueError):
         make_sim(kernels={3: 1})
+    # WP7c options are accepted (same results for these settings on a sphere).
+    make_sim(kernels=dict(CHEAP, quad_degree_rhs=8, fold_adaptive=False))
 
 
 def test_gmres_solve_releases_gil():

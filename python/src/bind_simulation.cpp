@@ -87,6 +87,10 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
             o.symmetrize_touching_above_kh = dict_value<Real>(v, key, "kernels");
         } else if (key == "target_accuracy") {
             o.target_accuracy = dict_value<Real>(v, key, "kernels");
+        } else if (key == "quad_degree_rhs") {
+            o.quad_degree_rhs = dict_value<int>(v, key, "kernels");
+        } else if (key == "fold_adaptive") {
+            o.fold_adaptive = dict_value<bool>(v, key, "kernels");
         } else {
             throw py::value_error("kernels: unknown key '" + key + "'");
         }
@@ -377,7 +381,7 @@ gmres : dict, optional
 kernels : dict, optional
     Quadrature options (kernels::OperatorOptions member names): quad_degree_far,
     quad_degree_near, quad_degree_sing, outer_grading_levels, near_distance_factor,
-    symmetrize_touching_above_kh, target_accuracy.
+    symmetrize_touching_above_kh, target_accuracy, quad_degree_rhs, fold_adaptive.
 
 Raises
 ------
