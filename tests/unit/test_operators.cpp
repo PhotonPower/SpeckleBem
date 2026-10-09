@@ -2309,55 +2309,6 @@ TEST_CASE("element_blocks (full): touching pairs vs the relative-coordinate refe
     WARN("worst touching error by outer_grading_levels:" << table.str());
 }
 
-TEST_CASE("element_blocks (full): sharp folds (60 and 30 degrees)", "[kernels][.slow]") {
-    // Shared edges with a small dihedral angle are near-singular: the far vertex of one triangle
-    // comes close to the other triangle, so the outer integrand varies sharply away from the
-    // shared edge, where the edge grading does not refine. The 1e-8 of folds >= 90 degrees is
-    // then not reached at the default level 4 and the error depends on the triangle shapes
-    // (operators.hpp, ADR 0004). Both orderings, three materials, raw asymmetry with the same
-    // tolerance; references n = 28 (checked against n = 36 to 1e-10). Measured worst L / K
-    // errors (all materials) in the WARN lines; tolerances about 3x to 7x above them:
-    //  * asymmetric 60 degree hinge (apexes (0.4, 0.8) / (0.7, 0.6)), level 4: 1e-7;
-    //  * skewed 60 degree hinge ((0.3, 0.9) / (0.8, 0.55)), level 4: 1e-6, level 6: 1e-8;
-    //  * 30 degree fold (folded_hinge), level 4: 2e-7, level 5: 2e-8;
-    //  * skewed 30 degree hinge, level 4: 1e-4, level 6: 1e-5 (documents the limitation: folds
-    //    this sharp with skewed triangles are not resolved better than ~1e-5 by the edge grading).
-    const GradedGeometry geo;
-    const std::vector<NamedRegion> regs = all_regions();
-    const Real a = 0.6 * geo.base.radius;
-    const TriangleMesh asym60 = asymmetric_hinge(a, 60.0, 0.4, 0.8, 0.7, 0.6);
-    const TriangleMesh skew60 = asymmetric_hinge(a, 60.0, 0.3, 0.9, 0.8, 0.55);
-    const TriangleMesh fold30 = folded_hinge(a, 30.0);
-    const TriangleMesh skew30 = asymmetric_hinge(a, 30.0, 0.3, 0.9, 0.8, 0.55);
-    for (const TriangleMesh* m : {&asym60, &skew60, &fold30, &skew30}) {
-        const RwgSpace space(*m);
-        const std::vector<Blocks> r28 = relative_reference(space, 0, 1, regs, 28);
-        const std::vector<Blocks> r36 = relative_reference(space, 0, 1, regs, 36);
-        for (std::size_t g = 0; g < regs.size(); ++g) {
-            CHECK(rel_diff(r28[g].L, r36[g].L) < 1e-10);
-            CHECK(rel_diff(r28[g].K, r36[g].K) < 1e-10);
-        }
-    }
-    struct FoldCase {
-        const TriangleMesh* mesh;
-        const char* name;
-        int level;
-        Real tol;
-    };
-    for (const FoldCase& f :
-         {FoldCase{&asym60, "asymmetric hinge 60", 4, 1e-7},
-          FoldCase{&skew60, "skewed hinge 60", 4, 1e-6},
-          FoldCase{&skew60, "skewed hinge 60", 6, 1e-8}, FoldCase{&fold30, "fold 30", 4, 2e-7},
-          FoldCase{&fold30, "fold 30", 5, 2e-8}, FoldCase{&skew30, "skewed hinge 30", 4, 1e-4},
-          FoldCase{&skew30, "skewed hinge 30", 6, 1e-5}}) {
-        OperatorOptions opt;
-        opt.outer_grading_levels = f.level;
-        const GradedResult r = check_graded({{f.mesh, 0, 1, f.name}}, regs, opt, 28, f.tol, f.tol);
-        WARN(f.name << " degrees, level " << f.level << ": worst error " << r.err
-                    << ", raw asymmetry " << r.asym << " (tolerance " << f.tol << ")");
-    }
-}
-
 TEST_CASE("element_blocks (full): degree selection sweep", "[kernels][.slow]") {
     // D/h from 1.1 to 15 and |k| h from 0.1 to 3, all materials, targets 1e-4, 1e-5 (default),
     // 1e-6, 1e-8.
@@ -2458,7 +2409,7 @@ TEST_CASE("element_blocks (full): cost of the WP7b defaults", "[kernels][.slow]"
 }
 
 // ---------------------------------------------------------------------------------------------
-// WP7c: dihedral sweep of shared-edge and shared-vertex folds.
+// WP7c: fold-adaptive outer rule (dihedral sweep of shared-edge and shared-vertex folds).
 // ---------------------------------------------------------------------------------------------
 
 namespace {
@@ -2481,22 +2432,26 @@ TriangleMesh vertex_fold(Real a, Real degrees, Real x2, Real y2, Real xd, Real r
 }
 
 /// Shapes of the sweep: apex of T at (x2, y2) a; far vertex of T' at x3 a along the hinge and
-/// r3 a from it (shared vertex: D at (xd, rd) a). Shared edge: regular (folded_hinge), skewed (the
-/// far vertex of T' close to B, small angle at A when folded) and obtuse (obtuse angles at the
-/// shared vertex A in both triangles, 106 and 120 degrees). Shared vertex (vertex_fold): regular,
-/// skewed (the edge A E at 19 degrees from the hinge, so that its projection onto T runs close to
-/// A B) and obtuse (106 and 104 degrees at A).
+/// r3 a from it (shared vertex: D at (xd, rd) a). Shared edge (asymmetric_hinge): regular
+/// (folded_hinge), skewed (the far vertex of T' close to B: the projected edge A C' runs at a
+/// small angle to A B) and obtuse (106 degrees at the shared vertex A of T). Shared vertex
+/// (vertex_fold): regular, skewed (the edge A E at 31 degrees from the hinge) and obtuse (106 and
+/// 104 degrees at A). Both orderings of every pair are checked, so each triangle is once the test
+/// and once the source triangle.
 struct FoldShape {
     const char* name;
     Real x2, y2, x3, r3, xd, rd;
 };
-constexpr std::array<FoldShape, 5> kEdgeShapes = {{{"regular", 0.4, 0.8, 0.55, 0.85, 0.0, 0.0}, {"obtS", 0.4, 0.8, -0.35, 0.6, 0.0, 0.0}, {"obtB", -0.2, 0.7, -0.35, 0.6, 0.0, 0.0},
+constexpr std::array<FoldShape, 3> kEdgeShapes = {{{"regular", 0.4, 0.8, 0.55, 0.85, 0.0, 0.0},
                                                     {"skewed", 0.3, 0.9, 0.8, 0.55, 0.0, 0.0},
                                                     {"obtuse", -0.2, 0.7, 0.55, 0.85, 0.0, 0.0}}};
 constexpr std::array<FoldShape, 3> kVertexShapes = {
     {{"regular", 0.4, 0.8, 0.3, 0.8, -0.3, 0.6},
      {"skewed", 0.3, 0.9, 0.75, 0.45, -0.1, 0.7},
      {"obtuse", -0.2, 0.7, 0.2, 0.8, -0.6, 0.0}}};
+/// Shared edge with obtuse angles at A in both triangles (106 and 120 degrees): informational.
+constexpr FoldShape kDoublyObtuse = {"doubly obtuse", -0.2, 0.7, -0.35, 0.6, 0.0, 0.0};
+constexpr std::array<Real, 8> kFoldAngles = {30.0, 45.0, 60.0, 75.0, 89.0, 90.0, 120.0, 179.0};
 
 struct FoldPair {
     std::string name;
@@ -2505,7 +2460,7 @@ struct FoldPair {
 };
 
 /// The fold pair of class `edge` (shared edge / shared vertex), shape and dihedral angle, sized
-/// like the other touching geometries (a = 0.6 radius of the Si-sized sphere).
+/// like the other touching geometries (a = 0.6 radius of the Si-sized sphere: |k| h <= 0.78).
 FoldPair fold_pair(bool edge, const FoldShape& s, Real degrees) {
     const Real a = 0.6 * scaled(kVacuumRadius, all_regions()[1].p);
     std::ostringstream name;
@@ -2514,6 +2469,12 @@ FoldPair fold_pair(bool edge, const FoldShape& s, Real degrees) {
         return {name.str(), asymmetric_hinge(a, degrees, s.x2, s.y2, s.x3, s.r3), 0, 1};
     }
     return {name.str(), vertex_fold(a, degrees, s.x2, s.y2, s.xd, s.rd, s.x3, s.r3), 0, 2};
+}
+
+/// Points per direction of the relative-coordinate reference of the sweep: converged to <= 1e-9
+/// against n + 8 (slow test; sharp shared-edge folds converge slowest).
+int fold_reference_n(bool edge, Real degrees) {
+    return edge ? (degrees <= 45.0 ? 44 : 36) : 28;
 }
 
 /// Worst relative L / K error over both orderings and all regions against the reference
@@ -2534,141 +2495,225 @@ GradedResult fold_errors(const FoldPair& p, const std::vector<NamedRegion>& regs
     return res;
 }
 
-}  // namespace
-
-TEST_CASE("static probe (experiment)", "[kernels][.slow][fold]") {
-    if (std::getenv("SBEM_PROBE") == nullptr) {
-        return;
-    }
-    // obtS at 90 degrees: source T = (A, B, C), test T' = (B, A, C').
-    const Real deg = std::atof(std::getenv("SBEM_PROBE"));
-    const FoldPair p = fold_pair(true, FoldShape{"obtS", 0.4, 0.8, -0.35, 0.6, 0.0, 0.0}, deg);
-    const auto src = corners(p.mesh, 0);
-    const auto tst = corners(p.mesh, 1);
-    const QuadSet fine = dunavant_points(p.mesh, 0, 20, 64);
-    std::ostringstream os;
-    os << std::scientific << std::setprecision(2);
-    std::mt19937_64 rng(7);
-    std::uniform_real_distribution<Real> U(0.0, 1.0);
-    Real worst = 0.0;
-    for (int i = 0; i < 400; ++i) {
-        Real s = U(rng);
-        Real t = U(rng);
-        if (s + t > 1.0) {
-            s = 1.0 - s;
-            t = 1.0 - t;
-        }
-        const Vec3 r = tst[0] + s * (tst[1] - tst[0]) + t * (tst[2] - tst[0]);
-        const kernels::StaticIntegrals si = kernels::static_integrals(r, src[0], src[1], src[2]);
-        Vec3 g = Vec3::Zero();
-        Real i1 = 0.0;
-        Real dmin = 1e300;
-        for (std::size_t q = 0; q < fine.r.size(); ++q) {
-            const Vec3 d = r - fine.r[q];  // grad'(1/R) = (r - r')/R^3
-            const Real R = d.norm();
-            g += fine.w[q] * d / (R * R * R);
-            i1 += fine.w[q] / R;
-            dmin = std::min(dmin, R);
-        }
-        const Real eg = (si.I_grad - g).norm() / g.norm();
-        const Real e1 = std::abs(si.I_1R - i1) / std::abs(i1);
-        const Real h = (src[1] - src[0]).norm();
-        if (dmin > 0.05 * h && std::max(eg, e1) > 1e-10) {
-            os << "\n s " << s << " t " << t << " dmin/h " << dmin / h << " I_grad " << eg
-               << " I_1R " << e1;
-        }
-        if (dmin > 0.05 * h) {
-            worst = std::max({worst, eg, e1});
-        }
-    }
-    WARN("static probe worst " << worst << os.str());
+/// The WP7b outer rule (fold_adaptive = false).
+OperatorOptions wp7b_options() {
+    OperatorOptions opt;
+    opt.fold_adaptive = false;
+    return opt;
 }
 
-TEST_CASE("element_blocks (full): fold sweep (experiment)", "[kernels][.slow][fold]") {
+/// Fast check of one fold pair: default options within 1e-7 of the reference (n points), raw
+/// asymmetry below 2e-7, and the WP7b rule above 1e-7 (the case needs the fold-adaptive rule).
+void check_fold_fast(bool edge, const FoldShape& s, Real degrees, int n) {
     const std::vector<NamedRegion> regs = all_regions();
-    std::ostringstream table;
-    table << std::scientific << std::setprecision(1);
+    const FoldPair p = fold_pair(edge, s, degrees);
+    const RwgSpace space(p.mesh);
+    const std::vector<Blocks> ref = relative_reference(space, p.t1, p.t2, regs, n);
+    const GradedResult r = fold_errors(p, regs, ref, OperatorOptions{});
+    const GradedResult old = fold_errors(p, regs, ref, wp7b_options());
+    WARN(p.name << " degrees: worst error " << r.err << ", raw asymmetry " << r.asym
+                << " (WP7b rule: " << old.err << ")");
+    CHECK(r.err <= 1e-7);
+    CHECK(r.asym <= 2e-7);
+    CHECK(old.err > 1e-7);
+}
+
+/// Weighted sums sum_ab (1 + 3 a + b) B_ab of the L and K blocks (golden checksums).
+std::array<Complex, 2> checksum(const Blocks& b) {
+    std::array<Complex, 2> s{};
+    for (Eigen::Index i = 0; i < 3; ++i) {
+        for (Eigen::Index j = 0; j < 3; ++j) {
+            const auto w = static_cast<Real>(1 + 3 * i + j);
+            s[0] += w * b.L(i, j);
+            s[1] += w * b.K(i, j);
+        }
+    }
+    return s;
+}
+
+}  // namespace
+
+TEST_CASE("fold-adaptive rule: 30-degree skewed shared edge agrees with the reference",
+          "[kernels]") {
+    check_fold_fast(true, kEdgeShapes[1], 30.0, 28);
+}
+
+TEST_CASE("fold-adaptive rule: 60-degree skewed shared edge agrees with the reference",
+          "[kernels]") {
+    check_fold_fast(true, kEdgeShapes[1], 60.0, 28);
+}
+
+TEST_CASE("fold-adaptive rule: 30-degree skewed shared vertex agrees with the reference",
+          "[kernels]") {
+    check_fold_fast(false, kVertexShapes[1], 30.0, 20);
+}
+
+// clang-format off
+/// checksum() of the Si blocks (t1, t2) with the WP7b rule for the regular and skewed shapes at
+/// 90, 120 and 179 degrees (edge, then vertex), computed with fold_adaptive = false (the WP7b
+/// code path, unchanged since main 0cf574d) and printed with 17 significant digits.
+const std::array<std::array<std::array<Real, 2>, 2>, 12> kFoldGolden = {{
+    {{{1.1830232631995972e-15, 3.8716700712195979e-15}, {1.141155050774235e-18, -4.2592795342563129e-22}}}, // edge regular 90
+    {{{1.2140311607147517e-15, 3.5670111997457085e-15}, {7.1038052732126037e-19, -3.1728459549994241e-22}}}, // edge regular 120
+    {{{1.2412901506514349e-15, 3.3624911604523752e-15}, {1.1265535398232498e-20, -5.7231282577854697e-24}}}, // edge regular 179
+    {{{1.1799697503672763e-15, 4.1735339639575107e-15}, {4.0688542770455372e-18, -1.1775558319052203e-21}}}, // edge skewed 90
+    {{{1.2053439804154586e-15, 3.8689003153524025e-15}, {2.5570047242835458e-18, -8.8600987006375158e-22}}}, // edge skewed 120
+    {{{1.2273939420813126e-15, 3.6567135249431053e-15}, {4.079106713710335e-20, -1.6065403472319244e-23}}}, // edge skewed 179
+    {{{-6.4664395352271899e-16, -1.1700263415954977e-15}, {-5.2411461968219241e-18, 2.7622107035103208e-19}}}, // vertex regular 90
+    {{{-6.4736854240055932e-16, -1.03988575561236e-15}, {-3.3842561014020551e-18, 2.3452802338638164e-19}}}, // vertex regular 120
+    {{{-6.4711673322827831e-16, -9.4140359297310554e-16}, {-5.4839092287683795e-20, 4.6453845888689877e-21}}}, // vertex regular 179
+    {{{-8.172651187322706e-16, -1.9150643590436844e-15}, {-3.7950470829002974e-18, 1.044254640718009e-19}}}, // vertex skewed 90
+    {{{-7.5359585005373978e-16, -1.5499838644894122e-15}, {-2.2619111861582355e-18, 8.8068298465188737e-20}}}, // vertex skewed 120
+    {{{-6.9010085869196267e-16, -1.2850208925143131e-15}, {-3.4995623803474373e-20, 1.7369858887196821e-21}}}, // vertex skewed 179
+}};
+// clang-format on
+
+TEST_CASE("fold-adaptive rule: folds of 90 degrees and more and icosphere pairs keep the WP7b rule",
+          "[kernels]") {
+    // Bitwise: the default options give the blocks of fold_adaptive = false for (a) the regular
+    // and skewed shapes at 90, 120 and 179 degrees, both orderings, and (b) every shared-edge and
+    // shared-vertex pair of the icosphere n = 1 (the Mie meshes); the WP7b blocks of (a) match the
+    // golden checksums of the WP7b code to 1e-10 (rounding differences between platforms are
+    // ~1e-13 of the nearly coplanar 179-degree K blocks; any change of the rule is >= 1e-9).
+    const RegionParams si = all_regions()[1].p;
+    std::size_t g = 0;
     for (const bool edge : {true, false}) {
-        for (const FoldShape& s : edge ? std::vector<FoldShape>(kEdgeShapes.begin(), kEdgeShapes.end()) : std::vector<FoldShape>(kVertexShapes.begin(), kVertexShapes.end())) {
-            for (const Real deg : {30.0, 45.0, 60.0, 75.0, 89.0, 90.0, 120.0, 179.0}) {
-                const FoldPair p = fold_pair(edge, s, deg);
-                const char* filt = std::getenv("SBEM_SWEEP");
-                if (filt != nullptr && p.name.find(filt) == std::string::npos) {
-                    continue;
-                }
+        for (std::size_t s = 0; s < 2; ++s) {
+            for (const Real deg : {90.0, 120.0, 179.0}) {
+                const FoldPair p = fold_pair(edge, edge ? kEdgeShapes[s] : kVertexShapes[s], deg);
                 const RwgSpace space(p.mesh);
-                const std::vector<Blocks> ref = relative_reference(space, p.t1, p.t2, regs, 28);
-                table << "\n" << p.name << ":";
-                if (std::getenv("SBEM_REF") != nullptr) {
-                    const std::vector<Blocks> r36 = relative_reference(space, p.t1, p.t2, regs, 36);
-                    Real e = 0.0;
-                    for (std::size_t g = 0; g < regs.size(); ++g) {
-                        e = std::max({e, rel_diff(ref[g].L, r36[g].L), rel_diff(ref[g].K, r36[g].K)});
-                    }
-                    table << " ref28-36 " << e;
-                    const std::vector<Blocks> rs = relative_reference(space, p.t2, p.t1, regs, 36);
-                    Real es = 0.0;
-                    for (std::size_t g = 0; g < regs.size(); ++g) {
-                        es = std::max({es, rel_diff(rs[g].L.transpose(), r36[g].L),
-                                       rel_diff(rs[g].K.transpose(), r36[g].K)});
-                    }
-                    table << " refswap " << es;
+                for (const auto& [t1, t2] :
+                     {std::pair<Index, Index>{p.t1, p.t2}, std::pair<Index, Index>{p.t2, p.t1}}) {
+                    const Blocks b = blocks(space, t1, t2, si, OperatorOptions{});
+                    const Blocks o = blocks(space, t1, t2, si, wp7b_options());
+                    INFO(p.name << " degrees (" << t1 << "," << t2 << ")");
+                    CHECK((b.L.array() == o.L.array()).all());
+                    CHECK((b.K.array() == o.K.array()).all());
                 }
-                {
-                    OperatorOptions old;
-                    old.fold_adaptive = false;
-                    table << " old " << fold_errors(p, regs, ref, old).err;
+                const std::array<Complex, 2> c =
+                    checksum(blocks(space, p.t1, p.t2, si, wp7b_options()));
+                for (std::size_t part = 0; part < 2; ++part) {
+                    const Complex ref(kFoldGolden[g][part][0], kFoldGolden[g][part][1]);
+                    INFO(std::setprecision(17) << p.name << " degrees, " << (part == 0 ? "L" : "K")
+                                               << ": " << c[part] << " vs golden " << ref);
+                    CHECK(std::abs(c[part] - ref) <= 1e-10 * std::abs(ref));
                 }
-                if (std::getenv("SBEM_TIME") != nullptr) {
-                    OperatorOptions old;
-                    old.fold_adaptive = false;
-                    Block L;
-                    Block K;
-                    Real us[2] = {0.0, 0.0};
-                    for (int w = 0; w < 2; ++w) {
-                        const OperatorOptions o = w == 0 ? old : OperatorOptions{};
-                        const auto t0 = std::chrono::steady_clock::now();
-                        for (int it = 0; it < 200; ++it) {
-                            element_blocks(space, p.t1, p.t2, regs[1].p, o, L, K);
-                            element_blocks(space, p.t2, p.t1, regs[1].p, o, L, K);
-                        }
-                        us[w] = std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0)
-                                    .count() *
-                                1e6 / 400.0;
-                    }
-                    table << " t_old " << us[0] << " t_new " << us[1] << " x" << us[1] / us[0];
-                }
-                if (std::getenv("SBEM_DETAIL") != nullptr) {
-                    OperatorOptions dopt;
-                    dopt.outer_grading_levels = std::atoi(std::getenv("SBEM_DETAIL"));
-                    if (std::getenv("SBEM_DSING") != nullptr) dopt.quad_degree_sing = std::atoi(std::getenv("SBEM_DSING"));
-                    if (std::getenv("SBEM_DOLD") != nullptr) dopt.fold_adaptive = false;
-                    for (std::size_t g = 0; g < regs.size(); ++g) {
-                        const Blocks b12 = blocks(space, p.t1, p.t2, regs[g].p, dopt);
-                        const Blocks b21 = blocks(space, p.t2, p.t1, regs[g].p, dopt);
-                        table << " [" << regs[g].name << " L " << rel_diff(b12.L, ref[g].L) << "/"
-                              << rel_diff(b21.L.transpose(), ref[g].L) << " K "
-                              << rel_diff(b12.K, ref[g].K) << "/"
-                              << rel_diff(b21.K.transpose(), ref[g].K) << "]";
-                    }
-                }
-                for (const int level : {4, 6}) {
-                    OperatorOptions opt;
-                    opt.outer_grading_levels = level;
-                    const GradedResult r = fold_errors(p, regs, ref, opt);
-                    table << "  l" << level << " " << r.err << " (asym " << r.asym << ")";
-                }
-                {
-                    OperatorOptions opt;
-                    opt.outer_grading_levels = 6;
-                    opt.quad_degree_sing = 19;
-                    const GradedResult r = fold_errors(p, regs, ref, opt);
-                    table << "  l6s19 " << r.err;
-                    opt.fold_adaptive = false;
-                    table << "  old-l6s19 " << fold_errors(p, regs, ref, opt).err;
-                }
+                ++g;
             }
         }
     }
-    WARN("fold sweep" << table.str());
+    CHECK(g == kFoldGolden.size());
+    const TouchingGeometry geo;
+    const RwgSpace sphere(geo.sphere);
+    std::size_t n_pairs = 0;
+    for (const Proximity cls : {Proximity::shared_edge, Proximity::shared_vertex}) {
+        for (const auto& [t1, t2] : pairs_of_class(geo.sphere, cls)) {
+            const Blocks b = blocks(sphere, t1, t2, si, OperatorOptions{});
+            const Blocks o = blocks(sphere, t1, t2, si, wp7b_options());
+            INFO(class_name(cls) << " pair " << t1 << "," << t2);
+            CHECK((b.L.array() == o.L.array()).all());
+            CHECK((b.K.array() == o.K.array()).all());
+            ++n_pairs;
+        }
+    }
+    CHECK(n_pairs > 500);
+}
+
+// Hidden slow case, registered with ctest as "kernels: fold sweep (slow)" (label slow; run with
+// `ctest --preset release -L slow`, about 1 min in release; SKIPs in unoptimised builds).
+TEST_CASE("element_blocks (full): fold sweep", "[kernels][.slow][fold]") {
+#ifndef NDEBUG
+    SKIP("fold sweep: optimised builds only (reference integrals of ~10^7 kernel evaluations)");
+#endif
+    // Dihedral angles 30 .. 179 degrees x (regular, skewed, obtuse) x (shared edge, shared
+    // vertex), both orderings, three materials, default options against the relative-coordinate
+    // reference: worst L / K error <= 1e-7 and raw asymmetry <= 2e-7. Reported per pair: the
+    // errors of the default options and of the WP7b rule (fold_adaptive = false), and the cost
+    // ratio (mean time per element_blocks call, Si, both orderings) by class.
+    const std::vector<NamedRegion> regs = all_regions();
+    std::ostringstream table;
+    table << std::scientific << std::setprecision(1);
+    std::array<Real, 4> cost_sum{};  // edge < 90, edge >= 90, vertex < 90, vertex >= 90
+    std::array<Real, 4> cost_max{};
+    std::array<int, 4> cost_n{};
+    for (const bool edge : {true, false}) {
+        for (const FoldShape& s : edge ? kEdgeShapes : kVertexShapes) {
+            // Reference convergence at the sharpest fold: n against n + 8.
+            {
+                const FoldPair p = fold_pair(edge, s, kFoldAngles[0]);
+                const RwgSpace space(p.mesh);
+                const int n = fold_reference_n(edge, kFoldAngles[0]);
+                const std::vector<Blocks> r1 = relative_reference(space, p.t1, p.t2, regs, n);
+                const std::vector<Blocks> r2 = relative_reference(space, p.t1, p.t2, regs, n + 8);
+                Real e = 0.0;
+                for (std::size_t g = 0; g < regs.size(); ++g) {
+                    e = std::max({e, rel_diff(r1[g].L, r2[g].L), rel_diff(r1[g].K, r2[g].K)});
+                }
+                INFO(p.name << " degrees: reference n = " << n << " vs n + 8: " << e);
+                CHECK(e < 1e-9);
+            }
+            for (const Real deg : kFoldAngles) {
+                const FoldPair p = fold_pair(edge, s, deg);
+                const RwgSpace space(p.mesh);
+                const std::vector<Blocks> ref =
+                    relative_reference(space, p.t1, p.t2, regs, fold_reference_n(edge, deg));
+                const GradedResult r = fold_errors(p, regs, ref, OperatorOptions{});
+                const GradedResult old = fold_errors(p, regs, ref, wp7b_options());
+                INFO(p.name << " degrees: error " << r.err << ", asymmetry " << r.asym);
+                CHECK(r.err <= 1e-7);
+                CHECK(r.asym <= 2e-7);
+                // Cost: mean time per call, Si, both orderings.
+                Block L;
+                Block K;
+                std::array<Real, 2> us{};
+                for (int w = 0; w < 2; ++w) {
+                    const OperatorOptions o = w == 0 ? wp7b_options() : OperatorOptions{};
+                    const auto t0 = std::chrono::steady_clock::now();
+                    for (int it = 0; it < 100; ++it) {
+                        element_blocks(space, p.t1, p.t2, regs[1].p, o, L, K);
+                        element_blocks(space, p.t2, p.t1, regs[1].p, o, L, K);
+                    }
+                    us[static_cast<std::size_t>(w)] =
+                        std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0)
+                            .count() *
+                        1e6 / 200.0;
+                }
+                const std::size_t cls = (edge ? 0U : 2U) + (deg >= 90.0 ? 1U : 0U);
+                cost_sum[cls] += us[1] / us[0];
+                cost_max[cls] = std::max(cost_max[cls], us[1] / us[0]);
+                ++cost_n[cls];
+                table << "\n  " << p.name << ": " << r.err << " (WP7b " << old.err << "), "
+                      << std::defaultfloat << std::setprecision(3) << us[0] << " -> " << us[1]
+                      << " us" << std::scientific << std::setprecision(1);
+            }
+        }
+    }
+    WARN("fold sweep (default options; worst L / K error, WP7b error, time per call):"
+         << table.str());
+    const std::array<const char*, 4> names = {"shared edge < 90", "shared edge >= 90",
+                                              "shared vertex < 90", "shared vertex >= 90"};
+    std::ostringstream cost;
+    cost << std::setprecision(3);
+    for (std::size_t c = 0; c < 4; ++c) {
+        cost << "\n  " << names[c] << ": mean x" << cost_sum[c] / cost_n[c] << ", max x"
+             << cost_max[c];
+    }
+    WARN("fold-adaptive cost factor against the WP7b rule (Si):" << cost.str());
+    // Informational: both triangles obtuse at the shared vertex (106 and 120 degrees).
+    std::ostringstream extra;
+    extra << std::scientific << std::setprecision(1);
+    for (const Real deg : kFoldAngles) {
+        const FoldPair p = fold_pair(true, kDoublyObtuse, deg);
+        const RwgSpace space(p.mesh);
+        const std::vector<Blocks> ref =
+            relative_reference(space, p.t1, p.t2, regs, fold_reference_n(true, deg));
+        extra << "\n  " << deg << " degrees:";
+        for (const int level : {4, 6}) {
+            OperatorOptions opt;
+            opt.outer_grading_levels = level;
+            extra << " level " << level << " " << fold_errors(p, regs, ref, opt).err;
+        }
+        extra << " (WP7b level 4 " << fold_errors(p, regs, ref, wp7b_options()).err << ")";
+    }
+    WARN("doubly obtuse shared edge (informational):" << extra.str());
 }

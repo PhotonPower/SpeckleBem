@@ -180,8 +180,6 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <cstdlib>
-#include <cstdio>
 #include <initializer_list>
 #include <span>
 #include <stdexcept>
@@ -938,15 +936,17 @@ struct Feature {
 /// Capacity of a piece list and the split depth per initial piece.
 constexpr std::size_t kMaxPieces = 48;
 constexpr int kMaxSplitDepth = 8;
-/// Edge class: the projection P of the source's far vertex onto the test plane has the
-/// barycentric coordinate lambda_C (C the test's far vertex) > kFoldMin: fold clearly below 90
-/// degrees, the pieces are cut along the projected source edges (file comment).
-inline Real dbg_env(const char* n, Real d) { const char* s = std::getenv(n); return s ? std::atof(s) : d; }
-const Real kFoldMin = dbg_env("SBEM_LMIN", 0.1);
+/// Folds below 90 degrees: a source vertex projects onto the test plane with barycentric
+/// coordinates (with respect to the test triangle, shared vertices first) lambda_C > kFoldTol
+/// (shared edge) or lambda_B, lambda_C > kFoldTol (shared vertex: inside the wedge at A).
+constexpr Real kFoldTol = 1e-6;
+/// Shared edge: the pieces are cut along the projected source edges (rays A S, B S) if
+/// lambda_C > kFoldMin and S is at least kNearVertex |AB| away from A and B.
+constexpr Real kFoldMin = 0.1;
+constexpr Real kNearVertex = 0.2;
 /// Smallest distance (in units of the side p1 p2) of the complex zero of a feature from the
 /// real interval v in [0, 1]; closer zeros are split off.
-const Real kZeroMin = dbg_env("SBEM_ZMIN", 0.5);
-const Real kNearVertex = dbg_env("SBEM_NEARV", 0.2);
+constexpr Real kZeroMin = 0.5;
 /// A zero within kEndTol of an end point (real and imaginary part) lies on that side: graded.
 constexpr Real kEndTol = 1e-3;
 
@@ -1073,28 +1073,50 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
     const Vec3& A = abc[0];
     const Vec3& B = abc[1];
     const Vec3& C = abc[2];
+    const Vec3 n = (B - A).cross(C - A).normalized();
+    const auto projected = [&](const Vec3& v) {
+        return barycentric_of(A, B, C, v - (v - A).dot(n) * n);
+    };
     pl.min_area = 1e-9 * 0.5 * (B - A).cross(C - A).norm();
     if (kind == GradedKind::shared_vertex) {
-        set_features(pl, A, {far[0], far[1]});
+        // Folded (a source vertex projects into the wedge at A): the source edges from A are
+        // features; otherwise only the apex (obtuse angles).
+        const std::array<Real, 3> l0 = projected(far[0]);
+        const std::array<Real, 3> l1 = projected(far[1]);
+        const bool folded = (l0[1] > kFoldTol && l0[2] > kFoldTol) ||
+                            (l1[1] > kFoldTol && l1[2] > kFoldTol);
+        if (folded) {
+            set_features(pl, A, {far[0], far[1]});
+        } else {
+            set_features(pl, A, {});
+        }
         add_piece(pl, A, B, C, 0, 0);
-        return pl.changed || pl.p[0].grade != Grade::none;
+        return folded || pl.changed || pl.p[0].grade != Grade::none;
     }
     const Vec3 M = 0.5 * (A + B);
-    const Vec3 n = (B - A).cross(C - A).normalized();
-    const Vec3 P = far[0] - (far[0] - A).dot(n) * n;
-    const std::array<Real, 3> l = barycentric_of(A, B, C, P);
+    const std::array<Real, 3> l = projected(far[0]);
+    const bool folded = l[2] > kFoldTol;
     const Real la = std::max(l[0], 0.0);
     const Real lb = std::max(l[1], 0.0);
     const Vec3 S = (la * A + lb * B + l[2] * C) / (la + lb + l[2]);
     const Real ab = (B - A).norm();
     if (l[2] <= kFoldMin || std::min((S - A).norm(), (S - B).norm()) < kNearVertex * ab) {
-        set_features(pl, A, {B, far[0]});
+        // WP7b partition; folds >= 90 degrees: features apex and shared edge only.
+        if (folded) {
+            set_features(pl, A, {B, far[0]});
+        } else {
+            set_features(pl, A, {B});
+        }
         add_piece(pl, A, M, C, 0, 1);
         const std::size_t n_a = pl.count;
-        set_features(pl, B, {A, far[0]});
+        if (folded) {
+            set_features(pl, B, {A, far[0]});
+        } else {
+            set_features(pl, B, {A});
+        }
         add_piece(pl, B, M, C, 0, 0);
-        return pl.changed || n_a != 1 || pl.count != 2 || pl.p[0].grade != Grade::at_p1 ||
-               pl.p[1].grade != Grade::at_p1;
+        return folded || pl.changed || n_a != 1 || pl.count != 2 ||
+               pl.p[0].grade != Grade::at_p1 || pl.p[1].grade != Grade::at_p1;
     }
     // Fold below 90 degrees: the source edges A C' and B C' project onto the rays A S and B S
     // (S = P clipped into T along those rays), which become sides of the pieces.
@@ -1108,9 +1130,13 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
     return true;
 }
 
-/// Points per direction of the fold-adaptive pieces at grading level `level`.
-int adaptive_points_per_direction(int level) {
-    return static_cast<int>(dbg_env("SBEM_NAD", 4 + 2 * level));
+/// Points of the fold-adaptive pieces at grading level `level`: radial (log-Gauss) and angular
+/// (log-Gauss on graded pieces, else Gauss-Legendre) directions (file comment).
+int adaptive_radial_points(int level) {
+    return std::min(6 + 2 * level, kMaxLinePoints);
+}
+int adaptive_angular_points(int level) {
+    return 2 + 2 * level;
 }
 
 /// Graded touching scheme (file comment). `abc` are the test-triangle vertices reordered with
@@ -1123,23 +1149,11 @@ Accumulator integrate_touching_graded(const Side& test, const Side& src,
     Accumulator acc;
     // Analytic part on the graded rule.
     if (pieces != nullptr) {
-        const int n = adaptive_points_per_direction(opt.outer_grading_levels);
-        const std::span<const LineNode> lg = log_gauss_rule(static_cast<int>(dbg_env("SBEM_NV", n)));
-        std::array<LineNode, 40> unodes{};
-        std::size_t nun = 0;
-        {
-            const Real us = dbg_env("SBEM_USPLIT", 1.0);
-            for (const LineNode& q : log_gauss_rule(static_cast<int>(dbg_env("SBEM_NU", n)))) {
-                unodes[nun++] = {us * q.x, us * q.w};
-            }
-            if (us < 1.0) {
-                for (const LineNode& q : gauss01_rule(static_cast<int>(dbg_env("SBEM_NU2", n)))) {
-                    unodes[nun++] = {us + (1.0 - us) * q.x, (1.0 - us) * q.w};
-                }
-            }
-        }
-        const std::span<const LineNode> lgu(unodes.data(), nun);
-        const std::span<const LineNode> gl = gauss01_rule(static_cast<int>(dbg_env("SBEM_NV", n)));
+        const int n_ang = adaptive_angular_points(opt.outer_grading_levels);
+        const std::span<const LineNode> lgu =
+            log_gauss_rule(adaptive_radial_points(opt.outer_grading_levels));
+        const std::span<const LineNode> lg = log_gauss_rule(n_ang);
+        const std::span<const LineNode> gl = gauss01_rule(n_ang);
         for (std::size_t i = 0; i < pieces->count; ++i) {
             const DuffyPiece& pc = pieces->p[i];
             const P3 x = to_p3(pc.x);
@@ -1311,21 +1325,6 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
                     kind == GradedKind::shared_edge ? std::array<Vec3, 2>{src_abc[2], src_abc[2]}
                                                     : std::array<Vec3, 2>{src_abc[1], src_abc[2]};
                 adaptive = fold_pieces(kind, abc, far, pieces);
-                if (std::getenv("SBEM_PIECES") != nullptr) {
-                    const Real hh = (abc[1] - abc[0]).norm();
-                    std::fprintf(stderr, "pair %lld %lld adaptive %d pieces %zu\n",
-                                 static_cast<long long>(tt), static_cast<long long>(ts),
-                                 adaptive ? 1 : 0, pieces.count);
-                    for (std::size_t i = 0; i < pieces.count; ++i) {
-                        const DuffyPiece& pc = pieces.p[i];
-                        std::fprintf(stderr,
-                                     "  x (%.3f %.3f %.3f) p1 (%.3f %.3f %.3f) p2 (%.3f %.3f "
-                                     "%.3f) grade %d\n",
-                                     pc.x(0) / hh, pc.x(1) / hh, pc.x(2) / hh, pc.p1(0) / hh,
-                                     pc.p1(1) / hh, pc.p1(2) / hh, pc.p2(0) / hh, pc.p2(1) / hh,
-                                     pc.p2(2) / hh, static_cast<int>(pc.grade));
-                    }
-                }
             }
             return integrate_touching_graded(te, sr, abc, kind, adaptive ? &pieces : nullptr, opt,
                                              region.k, need_k);
