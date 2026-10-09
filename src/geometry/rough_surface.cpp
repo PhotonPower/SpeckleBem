@@ -70,6 +70,12 @@ constexpr Real kMaxGridPoints = 1048576.0;  ///< 2^20 grid points per axis
 constexpr Index kMaxRelaxationRows = 1;     ///< cap of R, the graded-box relaxation rows
 /// Smallest column height below the anchor row, relative to the mean column (graded box).
 constexpr Real kMinColumnScale = 0.25;
+/// Aspect ratio R / (2 r) that the graded wall rows may always reach (graded box).
+constexpr Real kMaxGradedAspect = 4.0;
+/// Graded wall rows may be at most this factor worse than the walls of the uniform WP2 box
+/// on the same map (measured up to 1.7 for sigma = 250 nm, Lc = 500 nm: the anchor row of a
+/// steep rim shears the 2:1 cells; squeezed rows next to the bottom plate reach > 3).
+constexpr Real kAspectSlack = 2.0;
 const Real kInvE = std::exp(-1.0);
 
 void require_positive_finite(Real v, const char* name) {
@@ -527,8 +533,10 @@ struct BoxPlan {
     /// M = 0: height fraction of wall row k (0 rim, 1 bottom). M >= 1: b_k for the
     /// relaxation rows k = 1 .. R, tau_k for the rows k >= R + 1 (see above).
     std::vector<Real> row_fraction;
-    Index relax_rows = 0;                      ///< R (M >= 1)
-    Index fine_rows = 0;                       ///< level-0 rows of the fine band below row S
+    Real wall_aspect = 0.0;     ///< largest wall aspect ratio of the graded rows (M >= 1)
+    Real uniform_aspect = 0.0;  ///< same for the uniform WP2 box (reference; M_unreduced >= 1)
+    Index relax_rows = 0;       ///< R (M >= 1)
+    Index fine_rows = 0;        ///< level-0 rows of the fine band below row S
     std::vector<std::vector<GridNode>> rings;  ///< level rings 0 .. M (M >= 1)
     std::vector<std::vector<Index>> ring_pos;  ///< level-0 ring position of each ring node
     std::vector<Real> rim_z;                   ///< rim height at level-0 ring position p
@@ -733,43 +741,98 @@ bool set_levels(BoxPlan& plan, const HeightMap& h, Index m) {
     return room;
 }
 
-/// Safety net for the graded rows (M >= 1), which hold by construction: every column is
-/// strictly monotone in z, and the middle upper node r1 of every 2:1 cell lies at least
-/// half its band height z_(k+1)(r1) - z_k(r1) above the lower edge s0-s1 (linear
-/// interpolation at r1), so no wall triangle is inverted or a sliver.
-bool wall_rows_ok(const BoxPlan& plan) {
-    const auto q0 = static_cast<Index>(plan.rim_z.size());
-    for (Index k = 0; k < plan.rows() - 1; ++k) {  // the last strip ends at z = depth
+/// Aspect ratio R / (2 r) = a b c s / (8 A^2) of a triangle in the wall plane (along, z);
+/// +infinity for a degenerate triangle.
+Real wall_aspect(Real ax, Real az, Real bx, Real bz, Real cx, Real cz) {
+    const Real a = std::hypot(bx - ax, bz - az);
+    const Real b = std::hypot(cx - bx, cz - bz);
+    const Real c = std::hypot(ax - cx, az - cz);
+    const Real area = 0.5 * std::abs((bx - ax) * (cz - az) - (cx - ax) * (bz - az));
+    if (!(area > 0.0))
+        return std::numeric_limits<Real>::infinity();
+    return a * b * c * 0.5 * (a + b + c) / (8.0 * area * area);
+}
+
+/// Largest aspect ratio of the side walls of the uniform WP2 box (uniform_box_arrays()) on
+/// the same map: the reference of the shape check in wall_rows_aspect().
+Real uniform_wall_aspect(const HeightMap& h, Real depth) {
+    const Index nx = h.z.rows();
+    const Index ny = h.z.cols();
+    const Index nz = wall_rows(depth, std::min(h.dx, h.dy));
+    const std::vector<GridNode> ring =
+        level_ring(axis_levels(nx - 1, 0).front(), axis_levels(ny - 1, 0).front());
+    const auto n = static_cast<Index>(ring.size());
+    Real aspect = 0.0;
+    for (Index r = 0; r < n; ++r) {
+        const GridNode& a = ring[static_cast<std::size_t>(r)];
+        const GridNode& b = ring[static_cast<std::size_t>((r + 1) % n)];
+        const Real d = a.second == b.second ? h.dx : h.dy;
+        const Real za = h.z(a.first, a.second);
+        const Real zb = h.z(b.first, b.second);
+        for (Index k = 0; k < nz; ++k) {
+            const Real t0 = static_cast<Real>(k) / static_cast<Real>(nz);
+            const Real t1 = static_cast<Real>(k + 1) / static_cast<Real>(nz);
+            const Real a0 = za + (depth - za) * t0;
+            const Real a1 = za + (depth - za) * t1;
+            const Real b0 = zb + (depth - zb) * t0;
+            const Real b1 = zb + (depth - zb) * t1;
+            aspect = std::max(
+                {aspect, wall_aspect(0.0, a0, d, b0, d, b1), wall_aspect(0.0, a0, d, b1, 0.0, a1)});
+        }
+    }
+    return aspect;
+}
+
+/// Safety net for the graded rows (M >= 1); returns the largest wall aspect ratio, or
+/// +infinity if a check fails. By construction every column is strictly monotone in z and
+/// the middle upper node r1 of every 2:1 cell lies at least half its band height
+/// z_(k+1)(r1) - z_k(r1) above the lower edge s0-s1 (linear interpolation at r1), so no
+/// wall triangle is inverted.
+Real wall_rows_aspect(const BoxPlan& plan, const HeightMap& h) {
+    const std::vector<GridNode>& ring0 = plan.rings.front();
+    const auto q0 = static_cast<Index>(ring0.size());
+    const Real fail = std::numeric_limits<Real>::infinity();
+    Real aspect = 0.0;
+    for (Index k = 0; k < plan.rows(); ++k) {
         const Index m = plan.row_level[static_cast<std::size_t>(k)];
         const Index m1 = plan.row_level[static_cast<std::size_t>(k + 1)];
         const std::vector<Index>& upper = plan.ring_pos[static_cast<std::size_t>(m)];
         const std::vector<Index>& lower = plan.ring_pos[static_cast<std::size_t>(m1)];
         for (const Index p : upper) {
             if (!(plan.row_z(k + 1, p) > plan.row_z(k, p)))
-                return false;
+                return fail;
         }
-        if (m1 == m)
-            continue;
         std::size_t u = 0;
         for (std::size_t s = 0; s < lower.size() && u < upper.size(); ++s) {
             const Index s0 = lower[s];
             const Index s1 = s + 1 < lower.size() ? lower[s + 1] : q0;
+            // Every cell lies on one side: positions are uniformly spaced along it.
+            const GridNode& n0 = ring0[static_cast<std::size_t>(s0)];
+            const GridNode& n1 = ring0[static_cast<std::size_t>(s1 % q0)];
+            const Real d = n0.second == n1.second ? h.dx : h.dy;
+            const auto x = [&](Index p) { return static_cast<Real>(p - s0) * d; };
+            const auto z = [&](Index row, Index p) { return plan.row_z(row, p % q0); };
             const Index r1 = u + 1 < upper.size() ? upper[u + 1] : q0;
-            if (r1 == s1) {
+            if (r1 == s1) {  // quad: (r0, r1, s1), (r0, s1, s0)
+                aspect = std::max(
+                    {aspect, wall_aspect(x(s0), z(k, s0), x(s1), z(k, s1), x(s1), z(k + 1, s1)),
+                     wall_aspect(x(s0), z(k, s0), x(s1), z(k + 1, s1), x(s0), z(k + 1, s0))});
                 u += 1;
                 continue;
             }
-            u += 2;
-            // Positions are uniformly spaced along a side and every cell lies on one side.
-            const Real w = static_cast<Real>(r1 - s0) / static_cast<Real>(s1 - s0);
-            const Real z_edge = (1.0 - w) * plan.row_z(k + 1, s0) + w * plan.row_z(k + 1, s1 % q0);
-            const Real z_r1 = plan.row_z(k, r1 % q0);
-            const Real band = plan.row_z(k + 1, r1 % q0) - z_r1;
-            if (!(band > 0.0) || !(z_edge - z_r1 >= 0.5 * band))
-                return false;
+            u += 2;  // 2:1 cell: (r0, r1, s0), (r1, r2, s1), (r1, s1, s0)
+            const Real w = (x(r1) - x(s0)) / (x(s1) - x(s0));
+            const Real z_edge = (1.0 - w) * z(k + 1, s0) + w * z(k + 1, s1);
+            const Real band = z(k + 1, r1) - z(k, r1);
+            if (!(band > 0.0) || !(z_edge - z(k, r1) >= 0.5 * band))
+                return fail;
+            aspect = std::max(
+                {aspect, wall_aspect(x(s0), z(k, s0), x(r1), z(k, r1), x(s0), z(k + 1, s0)),
+                 wall_aspect(x(r1), z(k, r1), x(s1), z(k, s1), x(s1), z(k + 1, s1)),
+                 wall_aspect(x(r1), z(k, r1), x(s1), z(k + 1, s1), x(s0), z(k + 1, s0))});
         }
     }
-    return true;
+    return aspect;
 }
 
 /// Validates the input and resolves the grading (rules: make_mesh_from_height_map() in
@@ -822,9 +885,14 @@ BoxPlan make_box_plan(const HeightMap& h, Real depth, std::optional<Real> box_me
     while (pow2i(m + 1) <= cmin && ratio >= sqrt2 * pow2r(m) && fits(m + 1)) ++m;
     plan.levels_unreduced = m;
     // Safety net (documented in the header): a rim too rough for the rows reduces M.
+    if (m > 0)
+        plan.uniform_aspect = uniform_wall_aspect(h, depth);
     for (;; --m) {
         const bool room = set_levels(plan, h, m);
-        if (m == 0 || (room && wall_rows_ok(plan)))
+        if (m == 0)
+            break;
+        plan.wall_aspect = room ? wall_rows_aspect(plan, h) : std::numeric_limits<Real>::infinity();
+        if (plan.wall_aspect <= std::max(kMaxGradedAspect, kAspectSlack * plan.uniform_aspect))
             break;
     }
     return plan;
@@ -1069,6 +1137,8 @@ BoxGrading box_grading(const HeightMap& h, Real depth, std::optional<Real> box_m
     g.target_spacing = plan.target;
     g.relaxation_rows = plan.relax_rows;
     g.fine_rows = plan.fine_rows;
+    g.wall_aspect = plan.wall_aspect;
+    g.uniform_wall_aspect = plan.uniform_aspect;
     for (const Index level : plan.row_level) g.row_ring_sizes.push_back(plan.ring_size(level));
     return g;
 }

@@ -222,6 +222,11 @@ struct BoxGrading {
     Real target_spacing = 0.0;   ///< requested or automatic h_c [m]
     Index relaxation_rows = 0;   ///< R, level-0 relaxation rows between rim and anchor row
     Index fine_rows = 0;         ///< level-0 fine-band rows below the anchor row
+    /// Largest aspect ratio R / (2 r) of the graded side walls (M >= 1; 0 for M = 0).
+    Real wall_aspect = 0.0;
+    /// Same for the side walls of the uniform WP2 box on the same map (the reference of the
+    /// shape check; computed only when M >= 1 before the checks, else 0).
+    Real uniform_wall_aspect = 0.0;
     /// Number of wall vertices in every wall row, from the rim (row 0, shared with the top
     /// face) to the lowest row (shared with the bottom plate); size = wall rows + 1.
     std::vector<Index> row_ring_sizes;
