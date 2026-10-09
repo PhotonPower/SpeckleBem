@@ -24,6 +24,7 @@ add_executable(specklebem_unit_tests
     unit/test_result_writer.cpp
     unit/test_simulation.cpp
     unit/test_path.cpp
+    unit/test_plane_wave.cpp
     # unit/test_octree.cpp unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
