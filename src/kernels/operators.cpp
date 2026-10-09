@@ -173,8 +173,10 @@
 ///    shared edge for folds >= 90 degrees (the near-vertex case gets extra points, see above);
 ///  * shared vertex A: the single piece (A, B, C), features A and, if a source vertex projects
 ///    into the wedge of T at A (fold below 90 degrees), the two source edges from A.
-/// If no piece is split, no piece has extra points and the partition and gradings are those of
-/// WP7b, the WP7b table is used unchanged (bitwise identical blocks). For folds >= 90 degrees
+/// If no piece is split, the angles at the shared vertices are not doubly obtuse and the
+/// partition and gradings are those of WP7b, the WP7b table is used unchanged (bitwise identical
+/// blocks); the near-vertex extra points never make a pair adaptive by themselves, they apply
+/// only to pairs that use the adaptive pieces for one of these reasons. For folds >= 90 degrees
 /// (only the apex point and the shared edge are features) this holds unless the apex point
 /// splits a piece: shared edge A B with test vertex C, pieces (A, M, C) and (B, M, C): when
 /// the zero of |w|^2, at the foot of A (B) on the line M C with q = |AB| h_C / (2 |MC|^2)
@@ -1027,6 +1029,20 @@ constexpr int kExtraLevelsNearVertex = 3;
 /// Smallest distance (in units of the side p1 p2) of the complex zero of a feature from the
 /// real interval v in [0, 1]; closer zeros are split off.
 constexpr Real kZeroMin = 0.5;
+/// Right angles (WP7d): structured grids (the halves of rough-surface grid cells, the box rim)
+/// have angles of exactly 90 degrees at shared vertices, where an exact test would pick a rule
+/// by rounding. An angle counts as obtuse only if its cosine is below -kRightAngleTol, and a
+/// zero splits a piece only if it is closer than kZeroMin (1 - kRightAngleTol): the apex zero
+/// of a right isosceles piece lies exactly at kZeroMin. Right angles therefore take the rule of
+/// acute angles (no extra points, no split); both rules meet 1e-7 there (sweep shapes "right
+/// A A" and "right vertex" with perturbations of +-1e-9).
+constexpr Real kRightAngleTol = 1e-6;
+/// Shared vertex (WP7d): a source vertex at an elevation angle below asin(kInPlaneTol) (11.5
+/// degrees) over the test plane while the source triangle is steep (|n . n'| < kSteepCos,
+/// folds of ~46 to ~134 degrees) selects the adaptive piece (14 instead of 10 radial points at
+/// level 4; file comment: box rim).
+constexpr Real kInPlaneTol = 0.2;
+constexpr Real kSteepCos = 0.7;
 /// A zero within kEndTol of an end point (real and imaginary part) lies on that side: graded.
 constexpr Real kEndTol = 1e-3;
 
@@ -1080,7 +1096,7 @@ void add_piece(PieceList& pl, const Vec3& x, const Vec3& p1, const Vec3& p2, int
     }
     bool at0 = false;
     bool at1 = false;
-    Real worst = kZeroMin;
+    Real worst = kZeroMin * (1.0 - kRightAngleTol);
     Real split = -1.0;
     for (std::size_t i = 0; i < pl.n_features; ++i) {
         Real vf = 0.0;
@@ -1173,7 +1189,14 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
             set_features(pl, A, {});
         }
         add_piece(pl, A, B, C, 0, 0);
-        return folded || pl.changed || pl.p[0].grade != Grade::none;
+        // Steep source triangle with a vertex in the test plane (file comment: box rim).
+        const auto in_plane = [&](const Vec3& v) {
+            return std::abs((v - A).dot(n)) <= kInPlaneTol * (v - A).norm();
+        };
+        const Vec3 ns = (far[0] - A).cross(far[1] - A).normalized();
+        const bool rim =
+            std::abs(ns.dot(n)) < kSteepCos && (in_plane(far[0]) || in_plane(far[1]));
+        return folded || rim || pl.changed || pl.p[0].grade != Grade::none;
     }
     const Vec3 M = 0.5 * (A + B);
     const std::array<Real, 3> l = projected(far[0]);
@@ -1187,8 +1210,11 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
     // apex A (B) if the clipped projection S (folds below 90 degrees, else the projection P)
     // lies within kNearVertex |AB| of A (B) (for folds >= 90 degrees only when the pair uses the
     // adaptive pieces anyway).
-    const bool obtuse_a = (B - A).dot(C - A) < 0.0 && (B - A).dot(far[0] - A) < 0.0;
-    const bool obtuse_b = (A - B).dot(C - B) < 0.0 && (A - B).dot(far[0] - B) < 0.0;
+    const auto obtuse = [](const Vec3& x, const Vec3& p, const Vec3& q) {
+        return (p - x).dot(q - x) < -kRightAngleTol * (p - x).norm() * (q - x).norm();
+    };
+    const bool obtuse_a = obtuse(A, B, C) && obtuse(A, B, far[0]);
+    const bool obtuse_b = obtuse(B, A, C) && obtuse(B, A, far[0]);
     const Vec3 P = l[0] * A + l[1] * B + l[2] * C;
     const Vec3& Q = folded ? S : P;
     const bool near_a = (Q - A).norm() < kNearVertex * ab;

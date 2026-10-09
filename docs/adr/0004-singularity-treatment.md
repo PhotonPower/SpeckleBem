@@ -117,7 +117,9 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   level l + 3 (16 x 16; 16 x 14 left 8e-8). Hard bound per ordering: 48 pieces x 16 x 16 =
   12 288 outer points (WP7b table at level 4: 288 / 100); measured at most 2 624 for both
   orderings (doubly obtuse 75-degree hinge; `kernels::touching_rule_info` reports the counts).
-  Pairs that need no split and no extra points keep the WP7b table, so their blocks and the Mie
+  Pairs that need no split and are not doubly obtuse keep the WP7b table (the near-vertex extra
+  points never make a pair adaptive by themselves; they apply only to pairs that use the
+  adaptive pieces anyway), so their blocks and the Mie
   results are bitwise unchanged (tested): folds >= 90 degrees unless the apex point feature
   splits a piece (shared edge: |AB| h_C < |MC|^2 with the foot inside the side, roughly the
   median from C longer than AB or an obtuse angle at A or B; shared vertex: 4 area < |BC|^2,
@@ -131,8 +133,9 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   8.7e-5 obtuse vertex); raw asymmetry <= 2e-7. Cost (release, Si, time per `element_blocks`
   call against the WP7b table, both orderings, quietest of three runs; single-pair maxima vary
   by up to x2 under machine load, the point ratios are the deterministic measure): folds below
-  90 degrees mean x1.9 for shared edges (at most x3.3, doubly obtuse 75 degrees; x2.8 without the extra points)
-  and x1.6 for shared vertices (at most x3.2, obtuse 30 degrees); folds >= 90 degrees x1.3
+  90 degrees mean x1.9 for shared edges (at most x3.3, doubly obtuse 75 degrees; x2.8 without
+  the extra points) and x1.6 for shared vertices (at most x3.2, obtuse 30 degrees); folds >= 90
+  degrees x1.3
   (shared edges, at most x2.5 doubly obtuse) and x1.2 (shared vertices, at most x1.7 obtuse);
   outer points of the analytic part mean x2.5 / x2.6, at most x4.6 / x6.3 (shared edge /
   vertex below 90 degrees). The mean meets the backlog's x2; the maxima (rare doubly obtuse and
