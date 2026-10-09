@@ -74,7 +74,8 @@ sb.TriangleMesh(vertices, triangles)    # (V,3) real, (F,3) integer; copied; Val
 mesh.vertices, mesh.triangles, mesh.edges   # read-only zero-copy views (base = the mesh)
 mesh.num_vertices, mesh.num_triangles, mesh.num_edges, mesh.num_boundary_edges, mesh.num_components
 mesh.is_closed(), mesh.signed_volume(), mesh.bounding_box(), mesh.flip_normals()
-mesh.quality_report()                   # sb.MeshQuality: attributes; str(q) gives the text report
+mesh.quality()                          # sb.MeshQuality: attributes; str(q) == mesh.quality_report()
+mesh.quality_report()                   # str: the C++ multi-line text report
 sb.make_icosphere(radius, subdivisions, center=(0, 0, 0))
 sb.make_sphere(radius, target_edge_length, center=(0, 0, 0))
 sb.generate_gaussian_height_map(*, L, sigma, Lc, mesh_size, seed=0, use_fft=True)  # sb.HeightMap
@@ -85,7 +86,7 @@ sb.make_rough_surface_mesh(*, L, sigma, Lc, mesh_size, seed=0, box_depth=None,
 sb.RoughSurface(L, sigma, Lc, mesh_size, seed=0, *, box_depth=None, box_mesh_size=None,
                 box_fine_depth=None, use_fft=True)  # .mesh (lazy), .height_map, .heights, .dx, .dy
 sb.field_decay_length(material, wavelength) / sb.field_decay_length(eps_r, wavelength)
-sb.DispersiveMaterial(wavelengths, refractive_indices)   # .at(wl) == .at_wavelength(wl)
+sb.DispersiveMaterial(wavelengths, refractive_indices)   # n - jk; .at(wl) == .at_wavelength(wl)
 sb.PlaneWave(wavelength, direction, polarization, background=sb.vacuum())
 sb.GaussianBeam(wavelength, waist, polarization="p", incidence_angle=0.0, focus=(0, 0, 0),
                 background=sb.vacuum())
@@ -104,15 +105,28 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
   amplitude `e0` [V/m] (transverse). `GaussianBeam.waist` is `Params::waist_radius` (1/e^2
   intensity radius); `polarization` is `"p"`, `"s"` (any case) or `sb.Polarization.P/S`.
 - `Mie.material` is `MieParams::sphere`, `exterior` is `MieParams::medium` (lossless).
+- Inputs: any real NumPy layout or nested list is accepted (int32/uint32 connectivity,
+  Fortran order, strided views); it is converted to a C-contiguous float64 / int64 copy.
+  `TriangleMesh(np.zeros((0, 3)), np.zeros((0, 3), int))` is a valid empty mesh
+  (`bounding_box()` raises `RuntimeError`). The constructor re-orients the triangles (closed
+  components face outward), so `mesh.triangles` may differ from the input; the views reflect
+  a later `flip_normals()`.
 - `points` is an `(n, 3)` real array (or one `(3,)` point); fields are `(n, 3)` (or `(3,)`)
-  complex128.
-- `DispersiveMaterial` takes n in the exp(+jwt) form `n - jk`; the refractiveindex.info loader
-  (`from_refractiveindex_info`, conjugating `n + ik`) is not implemented yet.
+  complex128. Non-finite points (field evaluation) and angles (`bistatic_rcs`) raise
+  `ValueError` before any work is done.
+- `DispersiveMaterial` takes n in the exp(+jwt) form `n - jk`: wavelengths must be finite,
+  positive and strictly increasing, and an index with `Im(n) > 0` (unconjugated `n + ik`
+  optics data) raises `ValueError` with a conjugation hint. The table endpoints are inclusive.
+  The refractiveindex.info loader (`from_refractiveindex_info`, conjugating `n + ik`) is not
+  implemented yet.
+- Every bound class, function and method has a NumPy-style docstring with units
+  (`help(sb.Mie)`).
 - Exceptions: `std::invalid_argument`, `std::domain_error` (e.g. a Mie point on the wrong side
   of the sphere) and `std::out_of_range` (wavelength outside a `DispersiveMaterial` table) raise
   `ValueError`; `std::runtime_error` and `std::logic_error` raise `RuntimeError`.
 - The GIL is released during mesh construction and generation, height-map generation and
-  field / RCS evaluation loops.
+  field / RCS evaluation loops; not in `quality()` / `quality_report()` (cheap, and they must
+  not race with `flip_normals()`).
 
 ## Rules
 

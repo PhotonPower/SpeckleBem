@@ -5,6 +5,12 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- python (WP14b1f): `TriangleMesh.quality()` returns `MeshQuality` (with `__repr__`) and
+  `quality_report()` the C++ text report, as in C++; NumPy-style docstrings with units and
+  conventions on every bound class, function and method; `ValueError` for non-finite points in
+  field evaluation (`electric_field`, `magnetic_field`, Mie fields) and non-finite angles in
+  `bistatic_rcs`. Tests for input layouts (int32/uint32, Fortran order, strided views, nested
+  lists, empty mesh), keep-alive of `Mie.a_n`/`b_n` and docstring units.
 - python (WP14b1): bindings for `TriangleMesh` (read-only zero-copy `vertices`/`triangles`/`edges`
   views kept alive by the mesh, `quality_report()` as `MeshQuality`), `make_icosphere`,
   `make_sphere`, `HeightMap`, `generate_gaussian_height_map`, `make_rough_surface_mesh`,
@@ -148,3 +154,13 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - pybind11 module with materials and formulation enums; Python package skeleton.
 - Unit tests (Catch2) and Python tests (pytest).
 - Documentation: project plan, architecture, SIE and MLFMM theory, validation, conventions, coding guidelines, GPU strategy, compression survey, Python API, ADRs.
+
+### Changed
+- material (WP14b1f): `DispersiveMaterial` throws `std::invalid_argument` for non-finite,
+  non-positive or not strictly increasing wavelengths, non-finite indices and indices with
+  `Im(n) > 0` (the message says that exp(+jwt) needs `n - jk` and that `n + ik` optics data must
+  be conjugated); `at_wavelength` throws for a non-finite wavelength and now accepts the table
+  endpoints. Python: these raise `ValueError`.
+- python (WP14b1f): `TriangleMesh.quality_report()` returns the text report (`str`) instead of a
+  `MeshQuality`; use `quality()` for the numbers. `quality()`/`quality_report()` no longer
+  release the GIL.
