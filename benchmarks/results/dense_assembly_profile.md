@@ -77,6 +77,10 @@ Schedule (makespan on 24 threads from the measured row costs, L = 1.2 µm):
 | Decay-aware near/far target for lossy regions (WP7c part 4): relative target / δ, δ = (1 + αR_lb)e^{−αR_lb}, lowest degree when (S_d² + 1)δ ≤ target | `src/kernels/operators.cpp` (`select_degree`, `log_decay_factor`), `OperatorOptions::decay_aware_target` | ‖B_d − B‖ ≤ target ‖U‖, U the undamped magnitude bound of the block (ADR 0004); measured ≤ 4.0e-3 (Ag) and 7.1e-3 (Si) of the bound; lossless regions bitwise unchanged |
 | Branch-free, vectorised sin/cos/exp in the near/far point loop; `-fno-math-errno -fno-trapping-math` for operators.cpp | `include/specklebem/kernels/fast_math.hpp`, `src/kernels/operators.cpp` (`plain_kernel_values`), `src/CMakeLists.txt`, `OperatorOptions::fast_plain_kernel` | ≤ 1 ulp against the C library; blocks within 2.7e-15 relative |
 
+Mie validation after all changes (n = 3 icospheres, dense PMCHWT + LU): ε_rr xz / yz = 0.348 % /
+0.256 % (Ag) and 0.554 % / 0.396 % (Si), the values of `mie_sphere_dense.md` to the printed
+digits; all validation tests pass.
+
 ## After
 
 Sampled profiles of the WP15 systems (stride 20, CPU s of the full matrix, same session):
