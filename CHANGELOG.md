@@ -5,6 +5,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- python (WP14b1): bindings for `TriangleMesh` (read-only zero-copy `vertices`/`triangles`/`edges`
+  views kept alive by the mesh, `quality_report()` as `MeshQuality`), `make_icosphere`,
+  `make_sphere`, `HeightMap`, `generate_gaussian_height_map`, `make_rough_surface_mesh`,
+  `make_mesh_from_height_map` (keyword arguments incl. `box_depth`, `box_mesh_size`,
+  `box_fine_depth`), the Python class `RoughSurface`, `DispersiveMaterial`, `field_decay_length`,
+  `PlaneWave` / `GaussianBeam` (`shared_ptr` holders, vectorised `electric_field` /
+  `magnetic_field`) and `Mie` (broadcast `bistatic_rcs`, `scattered_E`, cross sections); GIL
+  released in mesh generation and field loops; invalid input raises `ValueError`. C++:
+  `geometry::MeshQuality`, `TriangleMesh::quality()` and `geometry::to_string(MeshQuality)`
+  (`quality_report()` unchanged). The module now builds with the project warning set (GCC's
+  `-Wnull-dereference`/`-Wmaybe-uninitialized` false positives in pybind11/Eigen headers are
+  disabled per source). Tests `tests/python/test_geometry.py`, `test_physics.py`.
 - core (WP-P1, ADR 0007): file paths are UTF-8 strings on every platform.
   `core::path_from_utf8` (validating, via `std::u8string`; malformed UTF-8 or a NUL byte throws
   `std::invalid_argument`), `core::path_to_utf8` (via `path::u8string()`) and
