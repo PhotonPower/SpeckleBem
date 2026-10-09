@@ -19,3 +19,7 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
 - [`results/mie_sphere_dense.md`](results/mie_sphere_dense.md) — Mie validation of the dense
   PMCHWT + LU solver (WP11, Phase 2 DoD): ε_rr in the xz- and yz-planes, power balance,
   assembly / LU timings and memory per icosphere level.
+- [`results/dense_assembly_profile.md`](results/dense_assembly_profile.md) — dense assembly
+  profile of the WP15 rough boxes and icospheres (WP-P2): time per pair class, region and
+  triangle size, near/far degrees, schedule makespan, before/after timings
+  (`dense_assembly_profile.cpp`).

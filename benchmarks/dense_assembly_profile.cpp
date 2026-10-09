@@ -9,12 +9,18 @@
 //    degrees of the near / far pairs (kernels::plain_rule_degree), the fold-adaptive statistics
 //    of the touching pairs (kernels::touching_rule_info), and the makespan of the assembler's
 //    OpenMP schedule estimated from the measured row costs;
-//  * --build R: R timed op::DenseStrategy::build calls (the real assembly), in the same process.
+//  * --build R: R timed op::DenseStrategy::build calls (the real assembly), in the same process;
+//  * --compare R: R rounds of the pre-WP-P2 pair loop (static schedule, strict target, C-library
+//    kernel) against DenseStrategy::build with each WP-P2 change added in turn;
+//  * --micro: single-thread cost of one far pair per degree (fast math vs C library) and of the
+//    isolated elementary functions.
+// --no-decay / --libm switch off OperatorOptions::decay_aware_target / fast_plain_kernel for
+// --profile and --build.
 //
 // Usage: specklebem_dense_assembly_profile [--mesh si|ag|sphere] [--material si|ag|glass|vacuum]
 //            [--L 1.6e-6] [--box-mesh-size 4e-7] [--sphere-n 4] [--radius 0.5e-6]
-//            [--stride 1] [--profile] [--build R] [--threads T] [--target 1e-5]
-//            [--schedule-threads 24]
+//            [--stride 1] [--profile] [--build R] [--compare R] [--micro] [--threads T]
+//            [--target 1e-5] [--no-decay] [--libm] [--schedule-threads 24]
 #include "specklebem/basis/rwg.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/formulation/formulation.hpp"
@@ -62,6 +68,7 @@ struct Options {
     bool profile = false;
     bool micro = false;
     bool no_decay = false;
+    bool libm = false;
     int compare = 0;
     int build = 0;
     int threads = 0;
@@ -92,6 +99,8 @@ Options parse(int argc, char** argv) {
             o.radius = std::stod(value());
         } else if (a == "--stride") {
             o.stride = std::stoi(value());
+        } else if (a == "--libm") {
+            o.libm = true;
         } else if (a == "--no-decay") {
             o.no_decay = true;
         } else if (a == "--compare") {
@@ -349,6 +358,7 @@ void run(const Options& o) {
     if (o.target >= 0.0)
         kopt.target_accuracy = o.target;
     kopt.decay_aware_target = !o.no_decay;
+    kopt.fast_plain_kernel = !o.libm;
     const material::Material exterior = material::vacuum();
     const std::array<kernels::RegionParams, 2> region = {region_params(exterior, omega),
                                                          region_params(object, omega)};
@@ -600,9 +610,12 @@ void run(const Options& o) {
     }
 
     if (o.compare > 0) {
-        // Same-process comparison, alternating: (a) the pre-WP-P2 pair loop (static schedule,
-        // no decay-aware target), (b) DenseStrategy::build without and (c) with the
-        // decay-aware target.
+        // Same-process comparison, alternating per round:
+        //  (a) before: the pre-WP-P2 pair loop (static schedule) with the pre-WP-P2 kernel
+        //      options (no decay-aware target, C-library kernel arithmetic);
+        //  (b) DenseStrategy::build (dynamic largest-first schedule) with those options;
+        //  (c) plus the decay-aware target;
+        //  (d) plus the fast plain kernel (the WP-P2 defaults).
         const std::unique_ptr<formulation::Formulation> form =
             formulation::make_formulation(formulation::Kind::ICTF);
         op::Problem p;
@@ -611,25 +624,29 @@ void run(const Options& o) {
         p.object = object;
         p.formulation = form.get();
         p.omega = omega;
-        kernels::OperatorOptions strict = kopt;
-        strict.decay_aware_target = false;
-        kernels::OperatorOptions relaxed = kopt;
-        relaxed.decay_aware_target = true;
+        kernels::OperatorOptions old_opt = kopt;
+        old_opt.decay_aware_target = false;
+        old_opt.fast_plain_kernel = false;
+        kernels::OperatorOptions decay_opt = old_opt;
+        decay_opt.decay_aware_target = true;
+        kernels::OperatorOptions new_opt = decay_opt;
+        new_opt.fast_plain_kernel = true;
         const op::DenseStrategy dense;
+        const auto timed_build = [&](const kernels::OperatorOptions& opt) {
+            p.kernel_options = opt;
+            const double a = now_seconds();
+            (void)dense.build(p);
+            return now_seconds() - a;
+        };
         for (int i = 0; i < o.compare; ++i) {
-            const double before = replica_static(space, region, strict);
-            p.kernel_options = strict;
-            double a = now_seconds();
-            (void)dense.build(p);
-            const double dyn = now_seconds() - a;
-            p.kernel_options = relaxed;
-            a = now_seconds();
-            (void)dense.build(p);
-            const double dyn_decay = now_seconds() - a;
+            const double before = replica_static(space, region, old_opt);
+            const double dyn = timed_build(old_opt);
+            const double dyn_decay = timed_build(decay_opt);
+            const double all = timed_build(new_opt);
             std::printf(
-                "COMPARE | round %d | before (static, strict) %.2f s | dynamic, strict %.2f "
-                "s (x%.2f) | dynamic, decay-aware %.2f s (x%.2f)\n",
-                i + 1, before, dyn, before / dyn, dyn_decay, before / dyn_decay);
+                "COMPARE | round %d | before %.2f s | +dynamic schedule %.2f s (x%.2f) | "
+                "+decay-aware target %.2f s (x%.2f) | +fast kernel %.2f s (x%.2f)\n",
+                i + 1, before, dyn, before / dyn, dyn_decay, before / dyn_decay, all, before / all);
             std::fflush(stdout);
         }
     }
