@@ -4,4 +4,4 @@
 - [Touching-pair quadrature findings](touching_quadrature_findings.md) — Duffy error sources (rays, obtuse apex, radial), reference n at sharp folds
 - [Rough box grading facts](rough_box_grading.md) — anchor row, stitched relaxation band (edges <= 2 h_g), safety net, measured box % and aspects
 - [Python bindings pitfalls](python_bindings.md) — flags order, vectorize, views, exceptions, GIL callbacks, Simulation lock design, test sensitivity
-- [MLFMM octree findings](mlfmm_octree_findings.md) — 4 um sphere leaves stop at lambda/2, surface list sizes, completeness test cost
+- [MLFMM octree findings](mlfmm_octree_findings.md) — anchored vertex-bbox root, lambda/4 floor tolerance, 4 um sphere leaf sizes, plate layers, test cost
