@@ -137,7 +137,8 @@ multilevel errors equal the single-level block errors at the same a/λ (interpol
 visible). Decisions:
 - **d₀ = 3:** the acceptance criterion is the docs/05 full-matvec error; λ/4 leaves are allowed (they
   keep the near field at ~15 GB for the 393 k-unknown WP22 case instead of 60–135 GB at 0.75 λ). The
-  block-based check of the WP19b amendment is reported per level in `describe()` but does not by itself
+  block-based check of the WP19b amendment is to be reported per level from WP20b/WP21 on (WP20a's
+  `describe()` reports the volume-random search error only) and does not by itself
   coarsen the leaves for d₀ = 3.
 - **d₀ = 5:** not yet established on a multilevel tree — on the test meshes (r_max/a ≈ 0.5) the order
   search finds no order meeting 1e-5. WP20b measures it on finely meshed problems (r_max/a ≤ 0.3,

@@ -5,6 +5,23 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm (WP20a): `mlfmm::MlfmmFarOperator` (`compression/mlfmm/far_operator.hpp`), the
+  multilevel FMM far part Z_far of the full 2N × 2N system (both regions, all four blocks with the
+  formulation weights a_i/η_i, b_i η_i, b_i/η_i; all leaf pairs that are neither the same leaf nor
+  adjacent). Per region two aggregated vector fields (Σ x_J V, Σ x_M V), K via k̂ × at reception;
+  leaf aggregation, upward pass (Lagrange interpolation with odd pole parity, shift
+  e^{+jk k̂·(c_child − c_parent)}), translation with weighted order-truncated translators per
+  (level, region, integer offset), downward pass (shift e^{−jk k̂·(c_child − c_parent)}, then
+  anterpolation of the weighted field), unweighted leaf reception through the antipodal map.
+  Orders per region and level from `search_truncation_order` with the enlarged diagonal (leaf:
+  `leaf_sampling`, oversampled to p − 1); all searches run before any setup, and a region/level
+  without an achievable order throws `std::runtime_error` (lossy policy: WP21). OpenMP over boxes,
+  per-call buffers (concurrent `apply` safe), bitwise deterministic for any thread count;
+  `describe()` reports boxes, orders, directions, translators, field memory and setup time per
+  level. Tests (`tests/unit/test_mlfmm.cpp`): far-only and full-matvec error vs the dense matrix
+  (4-level icosphere and rough box, release), equality with the single-level `far_block` sums at
+  3 levels, complex symmetry of S Z_far (interpolation/anterpolation adjointness) and thread
+  determinism, error cases; slow sweep `[mlfmm_far_sweep]` (errors vs leaf size, d₀, interior).
 - mlfmm (WP19b): `mlfmm::RadiationPatterns` (`compression/mlfmm/patterns.hpp`): the
   (θ̂, φ̂) components of the RWG radiation patterns V_n(k̂) = ∫ (I − k̂k̂) f_n e^{+jk k̂·(r' − c)}
   of one region relative to the leaf-box centres, for every basis (Morton order) and direction,

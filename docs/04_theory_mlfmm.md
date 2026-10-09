@@ -41,9 +41,9 @@ in k̂); with the (I − k̂k̂) projection the far-field form of the gradient t
 
 ## Passes per matvec
 
-1. **Aggregation (upward)**: leaf radiation `Σ_n x_n V_n(k̂)`; at each coarser level interpolate the child's pattern to the parent's finer sampling (Lagrange/global interpolation; later FFT in φ) and shift the phase `e^{−jk·(r_child − r_parent)}`.
-2. **Translation**: for every box pair in interaction lists, multiply pointwise by the precomputed `T_L` (translators depend only on the level and the integer offset → ≤ 316 unique per level).
-3. **Disaggregation (downward)**: phase-shift and anterpolate (transpose of interpolation) from parent to child; at the leaves integrate against receiving patterns with the quadrature weights.
+1. **Aggregation (upward)**: per region, two outgoing fields per leaf box, F_J = Σ_n x_J,n V_n(k̂) and F_M = Σ_n x_M,n V_n(k̂); at each coarser level interpolate the child's fields to the parent's sampling (local Lagrange, p from `interpolation_order(d₀)`, odd pole parity for θ̂/φ̂ components) and shift the phase by `e^{+jk k̂·(r_child − r_parent)}` (radiation convention).
+2. **Translation**: for every box and every box in its interaction list, multiply pointwise by the precomputed translator times the quadrature weights of that level, w_q T_L(k, c_obs − c_src, k̂_q) (≤ 316 unique offsets per level); the incoming fields therefore carry the level's weights.
+3. **Disaggregation (downward)**: shift the parent's incoming field by `e^{−jk k̂·(r_child − r_parent)}` and anterpolate (exact transpose of the interpolation) to the child — the parent weights are already in the field, no child weights are applied. At the leaves the reception is an **unweighted** sum over directions of the receiving patterns R_m(k̂) = V_m(−k̂) against U_J = e c_L G_J − e c_K k̂×G_M and U_M = h c_K k̂×G_J + m c_L G_M (c_L = ωμk/16π², c_K = k²/16π², e = a/η, h = bη, m = b/η); k̂× is applied once at reception (far_operator.hpp).
 4. **Add near part**: `y += Z_near x`.
 
 Each of the four blocks (`L1, L2, K1, K2`, combined by the formulation weights) reuses the same tree and translators per region; `L` and `K` differ only in the pattern (`V` vs `k̂ × V`), so aggregation can be done once per region per matvec and both operators obtained from the same outgoing pattern.
