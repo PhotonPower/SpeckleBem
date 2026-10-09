@@ -75,3 +75,35 @@ n ≤ 3 (2N ≤ 3 840).
 - The K operator uses the source-point gradient ∇'G = −`grad_green` (docs/03); E^s = −L J + K M.
 - `-Wconversion`/`-Wsign-conversion` are on: use `Index` (int64) for sizes, cast explicitly
   when indexing Eigen with `int` and when mixing `std::size_t` and `Index`.
+
+### Windows (MSYS2, WP-W1)
+
+- Presets `win-release` (UCRT64 GCC, libstdc++, OpenMP, OpenBLAS) and `win-debug` (CLANG64 Clang,
+  libc++, ASan + UBSan, `-Werror`); commands and packages in README.md "Windows (MSYS2)". Two
+  environments because MinGW GCC has no sanitizers and UCRT64's Clang has no ASan runtime.
+  Never mix them: objects/DLLs of UCRT64 (libstdc++) and CLANG64 (libc++) are not ABI compatible.
+- Line endings: `.gitattributes` forces LF (`* text=auto eol=lf`, `*.stl -text`). Without it,
+  `core.autocrlf=true` checks out CRLF and bash scripts and byte-compared fixtures break. Open
+  files that are compared byte by byte with `std::ios::binary` (text mode on Windows writes CRLF).
+- DLL lookup: a Windows executable finds its DLLs in its own directory, then on `PATH`. Git for
+  Windows puts `/mingw64/bin` (an older `libstdc++-6.dll`) early on `PATH` in Git Bash; a test
+  executable that picks it up dies with `0xc0000139` (entry point not found), already at build
+  time because `catch_discover_tests` runs the executable. The presets prepend
+  `$env{MSYS2_ROOT}/<env>/bin` for configure, build and test; outside the presets, put the MSYS2
+  `bin` first yourself. The Python extension's DLLs are found next to MSYS2's `python.exe`; use
+  the Python of the same environment as the compiler (`PYTHONPATH` separator is `;` there).
+- LLP64: `long` is 32 bit on Windows. Use `Index` / `std::int64_t` / `std::size_t` for sizes and
+  byte counts, `std::stoll` rather than `std::stol`, never `%ld`. No POSIX-only headers in shared
+  code (`sysconf`, `getrusage`, `<unistd.h>`; `std::aligned_alloc` does not exist on Windows,
+  `_aligned_malloc` needs `_aligned_free`). Keep `<windows.h>` out of headers: it defines the
+  macros `near` and `far` (collide with `kernels::Proximity`) and `min`/`max`; the platform code
+  of the tests lives in `tests/support/system_memory.cpp`.
+- Fetched dependencies are declared `SYSTEM` (CMake ≥ 3.25) so their headers do not trip
+  `-Werror`. Setting `INTERFACE_SYSTEM_INCLUDE_DIRECTORIES` on the fetched Eigen target by hand
+  breaks Eigen's `install(EXPORT)` with CMake 4. Clang 22 needs spdlog ≥ 1.15 (fmt 11; fmt 10's
+  `FMT_STRING` fails to compile) and Catch2 ≥ 3.14 (`__COUNTER__` is flagged by
+  `-Wc2y-extensions` at the macro expansion site, which `SYSTEM` cannot suppress).
+- CMake's FindPython also searches the Windows registry: pin `Python3_EXECUTABLE` /
+  `PYTHON_EXECUTABLE` to MSYS2's python (the presets and the CI job do).
+- Running dense validation tests with `ctest -j 12` oversubscribes the cores (each test runs an
+  OpenMP region on all cores): they take ~48 s each in parallel vs 3–6 s serially in win-release.
