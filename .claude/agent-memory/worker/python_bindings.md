@@ -45,9 +45,22 @@ metadata:
   releasing the GIL. Ctrl-C test: `threading.Timer(0.3, _thread.interrupt_main)` and assert the
   aborted solve stored no solution (a pending signal fires after a completed solve too).
 - The win-debug (ASan) module cannot be imported by CLANG64 `python.exe` (numpy/pytest/scipy
-  installed there in WP14b3): the late-loaded ASan runtime reports CRT frees from
-  `_wputenv_s` ("free on address which was not malloc()-ed"); `check_malloc_usable_size=0`
-  does not help. Not a SpeckleBem bug; needs an instrumented host.
+  installed there in WP14b3): the late-loaded ASan runtime rejects CRT memory from
+  `_wputenv_s`: "attempting to call malloc_usable_size() for pointer which is not owned" by
+  default, "attempting free on address which was not malloc()-ed" with
+  `check_malloc_usable_size=0` (both verified). Not a SpeckleBem bug; needs an instrumented host.
+- WP14b3 review round: a per-object mutex alone deadlocks when two solves call into each
+  other's Simulation from their callbacks; fixed with a thread_local held-lock counter
+  (try_lock + RuntimeError when > 0) and a `timed_mutex` waited in 50 ms slices with
+  `PyErr_CheckSignals()` on the main thread. Tests must prove sensitivity: build a broken
+  variant and confirm the test fails (a 2-point / 7-angle read overlap failed only 1 of 3
+  runs without the lock; 100 points / 91 angles, 3 reader threads looping until the writer is
+  done failed 10/10). Cross-thread barrier tests need a second barrier after the attempt, or
+  the first thread releases its lock before the other tries. Use daemon threads + join with
+  timeout so a deadlock fails instead of hanging pytest.
+- GMRES at 2N = 240 (CHEAP kernels) costs ~0.09 ms/iteration on the idle machine: a
+  20000-iteration "long" solve is ~2 s (it looked like 25-35 s only under load). For
+  interrupt tests use max_iter=500_000 (~45 s).
 
 **Why:** found while implementing WP14b1/WP14b2/WP14b3 (2026-10-09); each cost a rebuild cycle.
 **How to apply:** check before adding bindings in WP14b2 and later. See [[build-pitfalls-windows]].
