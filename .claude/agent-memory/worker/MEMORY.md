@@ -1,1 +1,1 @@
-- [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython registry, ctest -j oversubscription, worktree-guard workarounds, shared-machine timing, CRLF worktrees, Catch2 hidden cases
+- [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython registry, ctest -j oversubscription, shared-machine timing, CRLF worktrees, Catch2 hidden cases

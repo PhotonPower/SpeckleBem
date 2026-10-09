@@ -21,10 +21,7 @@ workers / Windows"; the non-obvious ones:
   private subdirectory for logs.
 - A worktree checked out before main had `.gitattributes` has a CRLF working copy (index LF);
   after merging main, delete those files and `git checkout -- .` to get LF (bash scripts).
-- The worktree-isolation guard refuses commands with `$`, `[...]` args or env-prefixed python
-  (e.g. `-L '^validation$'`, `"[kernels][slow]"`, `PYTHONPATH=... python`). Put them in a
-  small script in the scratchpad and run `bash script.sh`; `-L validation -LE validation-large`
-  equals `-L '^validation$'`.
+- `-L validation -LE validation-large` selects the same tests as `-L '^validation$'`.
 - Catch2 runs hidden (`[.]`) cases when a tag filter like `[kernels]` matches them; add
   `~[.]` (`'[kernels]~[.]'`) to time only the regular cases (hidden slow ones take minutes
   under ASan).
