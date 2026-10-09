@@ -5,6 +5,21 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm (WP17): `mlfmm::Octree` over the RWG edge midpoints: root cube from the padded mesh
+  vertex bounding box, anchored at its lower corner (flat or thin geometry stays one box layer
+  thick), uniform depth (all leaves on the finest level; the first level on which every box
+  holds <= `max_elements_per_leaf`, bounded by `max_levels` <= 21 and the floor
+  `(1 - kMinBoxSizeTolerance)`·`min_box_size_lambda`·λ with `kMinBoxSizeTolerance = 1e-2`, so
+  the 4 µm sphere at 500 nm, root 8 λ, reaches λ/4 leaves on 6 levels), Morton-ordered boxes
+  per level with integer coordinates `Box::ijk`, contiguous element ranges (`permutation()` /
+  `inverse_permutation()`), `find_box(level, ijk)`, near lists (same-level neighbours, self
+  excluded) and interaction lists (<= 189, levels >= 2), `summary()`. Tests check the
+  permutation, range nesting, Morton order, root box, box geometry and leaf criteria on
+  icospheres, a thin rough box and flat plates (exactly flat and with ±1e-15 m jitter: one box
+  layer, identical leaves), the near and interaction lists against an independent pairwise
+  classification from `ijk`, list symmetry and completeness over all leaf pairs (each pair near
+  or translated on exactly one level), the λ/4 floor (4 µm sphere regression) and `max_levels`
+  bounds, input errors, and the build time (122,880 basis functions in ~0.03 s, release).
 - python (WP14b3): calls on one `Simulation` from several Python threads are serialised by a
   per-object timed mutex taken with the GIL released (re-entrant calls from a `solve()` callback
   raise `RuntimeError`; from inside a callback another busy `Simulation` raises "Simulation
