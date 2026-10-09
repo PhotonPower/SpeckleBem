@@ -57,6 +57,7 @@
 /// grad' G = -grad_r G = -kernels::grad_green.
 #include "specklebem/basis/rwg.hpp"
 #include "specklebem/geometry/mesh.hpp"
+#include "specklebem/geometry/rough_surface.hpp"
 #include "specklebem/geometry/sphere.hpp"
 #include "specklebem/kernels/green.hpp"
 #include "specklebem/kernels/operators.hpp"
@@ -2444,8 +2445,13 @@ TriangleMesh vertex_fold(Real a, Real degrees, Real x2, Real y2, Real xd, Real r
 /// 120 degrees at A in both triangles) and near B (C' 0.27 |AB| from B, its projection within
 /// 0.2 |AB| of B: the near-vertex partition of the review probe asymmetric_hinge(a, 60, 0.4, 0.8,
 /// 0.9, 0.25)). Shared vertex (vertex_fold): regular, skewed (the edge A E at 31 degrees from
-/// the hinge) and obtuse (106 and 104 degrees at A). Both orderings of every pair are checked, so
-/// each triangle is once the test and once the source triangle. max_error_ge90: bound for folds
+/// the hinge) and obtuse (106 and 104 degrees at A). Right angles of structured grids (WP7d):
+/// shared edge with 90 degrees at A in both triangles (box rim; exact and both perturbed by
+/// +-1e-9 a: acute / obtuse) and at A in T and at B in T' (a grid line of a rough top face, right
+/// isosceles cells); shared vertex with a right isosceles T and a box-corner T' (A, D, E), D on
+/// the hinge line extension (-a, 0, 0) and E at 90 degrees from it. Both orderings of every pair
+/// are checked, so each triangle is once the test and once the source triangle. max_error_ge90:
+/// bound for folds
 /// >= 90 degrees, 1e-7 except near B, which keeps the WP7b table there (non-obtuse angles at A
 /// and B, no fold below 90 degrees): 1.4e-7 at 90 degrees (< 1e-7 from about 95 degrees).
 struct FoldShape {
@@ -2453,16 +2459,23 @@ struct FoldShape {
     Real x2, y2, x3, r3, xd, rd;
     Real max_error_ge90;
 };
-constexpr std::array<FoldShape, 5> kEdgeShapes = {
+constexpr std::array<FoldShape, 9> kEdgeShapes = {
     {{"regular", 0.4, 0.8, 0.55, 0.85, 0.0, 0.0, 1e-7},
      {"skewed", 0.3, 0.9, 0.8, 0.55, 0.0, 0.0, 1e-7},
      {"obtuse", -0.2, 0.7, 0.55, 0.85, 0.0, 0.0, 1e-7},
      {"doubly obtuse", -0.2, 0.7, -0.35, 0.6, 0.0, 0.0, 1e-7},
-     {"near B", 0.4, 0.8, 0.9, 0.25, 0.0, 0.0, 2e-7}}};
-constexpr std::array<FoldShape, 3> kVertexShapes = {
+     {"near B", 0.4, 0.8, 0.9, 0.25, 0.0, 0.0, 2e-7},
+     {"right A A", 0.0, 0.8, 0.0, 1.0, 0.0, 0.0, 1e-7},
+     {"right A A +1e-9", 1e-9, 0.8, 1e-9, 1.0, 0.0, 0.0, 1e-7},
+     {"right A A -1e-9", -1e-9, 0.8, -1e-9, 1.0, 0.0, 0.0, 1e-7},
+     {"right A B", 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1e-7}}};
+constexpr std::array<FoldShape, 6> kVertexShapes = {
     {{"regular", 0.4, 0.8, 0.3, 0.8, -0.3, 0.6, 1e-7},
      {"skewed", 0.3, 0.9, 0.75, 0.45, -0.1, 0.7, 1e-7},
-     {"obtuse", -0.2, 0.7, 0.2, 0.8, -0.6, 0.0, 1e-7}}};
+     {"obtuse", -0.2, 0.7, 0.2, 0.8, -0.6, 0.0, 1e-7},
+     {"right", 0.0, 1.0, 0.0, 1.0, -1.0, 0.0, 1e-7},
+     {"right +1e-9", 1e-9, 1.0, 0.0, 1.0, -1.0, 0.0, 1e-7},
+     {"right -1e-9", -1e-9, 1.0, 0.0, 1.0, -1.0, 0.0, 1e-7}}};
 constexpr std::array<Real, 8> kFoldAngles = {30.0, 45.0, 60.0, 75.0, 89.0, 90.0, 120.0, 179.0};
 
 struct FoldPair {
@@ -2596,9 +2609,10 @@ const std::array<std::array<std::array<Real, 2>, 2>, 12> kFoldGolden = {{
 
 TEST_CASE("fold-adaptive rule: folds of 90 degrees and more keep the WP7b rule", "[kernels]") {
     // Bitwise: the default options give the blocks of fold_adaptive = false for (a) the regular
-    // and skewed shapes at 90, 120 and 179 degrees, both orderings, and (b) every shared-edge and
-    // shared-vertex pair of the icosphere n = 1 (the Mie meshes); the WP7b blocks of (a) match the
-    // golden checksums of the WP7b code to 1e-10 (rounding differences between platforms are
+    // and skewed shapes at 90, 120 and 179 degrees, both orderings (shared vertex at 90 and 120
+    // degrees: ordering (t1, t2) only, (t2, t1) uses the WP7d rim rule), and (b) every shared-edge
+    // and shared-vertex pair of the icosphere n = 1 (the Mie meshes); the WP7b blocks of (a) match
+    // the golden checksums of the WP7b code to 1e-10 (rounding differences between platforms are
     // ~1e-13 of the nearly coplanar 179-degree K blocks; any change of the rule is >= 1e-9).
     const RegionParams si = all_regions()[1].p;
     std::size_t g = 0;
@@ -2609,9 +2623,17 @@ TEST_CASE("fold-adaptive rule: folds of 90 degrees and more keep the WP7b rule",
                 const RwgSpace space(p.mesh);
                 for (const auto& [t1, t2] :
                      {std::pair<Index, Index>{p.t1, p.t2}, std::pair<Index, Index>{p.t2, p.t1}}) {
+                    INFO(p.name << " degrees (" << t1 << "," << t2 << ")");
+                    if (!edge && t1 == p.t2 && deg < 179.0) {
+                        // WP7d: the source vertex B lies on the hinge, i.e. in the test plane,
+                        // and the source triangle is steep: the adaptive piece (box rim rule).
+                        const auto info = kernels::touching_rule_info(p.mesh, t1, t2, {});
+                        CHECK(info.fold_adaptive);
+                        CHECK(info.points == 140);
+                        continue;
+                    }
                     const Blocks b = blocks(space, t1, t2, si, OperatorOptions{});
                     const Blocks o = blocks(space, t1, t2, si, wp7b_options());
-                    INFO(p.name << " degrees (" << t1 << "," << t2 << ")");
                     CHECK((b.L.array() == o.L.array()).all());
                     CHECK((b.K.array() == o.K.array()).all());
                 }
@@ -2691,6 +2713,14 @@ TEST_CASE("fold-adaptive rule: point counts of the outer rule", "[kernels]") {
     const kernels::TouchingRuleInfo skw = info_of(kEdgeShapes[1], 60.0, 0, 1);
     CHECK(dob.points > 140 * dob.pieces);
     CHECK(skw.points == 140 * skw.pieces);
+    // Accepted deviation (ADR 0004): the near-B shape keeps the WP7b table from 90 degrees on.
+    for (const Real deg : {90.0, 120.0, 179.0}) {
+        for (const auto& [t1, t2] :
+             {std::pair<Index, Index>{0, 1}, std::pair<Index, Index>{1, 0}}) {
+            INFO("near B " << deg << " degrees (" << t1 << "," << t2 << ")");
+            CHECK_FALSE(info_of(kEdgeShapes[4], deg, t1, t2).fold_adaptive);
+        }
+    }
     OperatorOptions wp7 = opt;
     wp7.outer_grading_levels = 0;
     CHECK_THROWS_AS(kernels::touching_rule_info(geo.sphere, 0, 0, wp7), std::invalid_argument);
@@ -2699,6 +2729,138 @@ TEST_CASE("fold-adaptive rule: point counts of the outer rule", "[kernels]") {
                     std::invalid_argument);
     CHECK_THROWS_AS(kernels::touching_rule_info(geo.sphere, 0, geo.sphere.num_triangles(), opt),
                     std::out_of_range);
+}
+
+TEST_CASE("fold-adaptive rule: angular-point cap at grading levels 1 to 6", "[kernels]") {
+    // Doubly obtuse and near-B shapes (extra point levels): at most 16 x 16 points per piece for
+    // every level, both orderings, and element_blocks evaluates without throwing.
+    const RegionParams si = all_regions()[1].p;
+    for (const std::size_t s : {std::size_t{3}, std::size_t{4}}) {
+        for (const Real deg : {60.0, 90.0}) {
+            const FoldPair p = fold_pair(true, kEdgeShapes[s], deg);
+            const RwgSpace space(p.mesh);
+            for (int level = 1; level <= 6; ++level) {
+                OperatorOptions opt;
+                opt.outer_grading_levels = level;
+                for (const auto& [t1, t2] :
+                     {std::pair<Index, Index>{0, 1}, std::pair<Index, Index>{1, 0}}) {
+                    const kernels::TouchingRuleInfo info =
+                        kernels::touching_rule_info(p.mesh, t1, t2, opt);
+                    INFO(p.name << " degrees, level " << level << " (" << t1 << "," << t2
+                                << "): pieces " << info.pieces << ", points " << info.points);
+                    CHECK(info.points <= 256 * info.pieces);
+                    Block L;
+                    Block K;
+                    CHECK_NOTHROW(element_blocks(space, t1, t2, si, opt, L, K));
+                }
+            }
+        }
+    }
+}
+
+namespace {
+
+/// Rule (fold_adaptive, pieces, points) of both orderings of a fold pair at the default options.
+std::array<Index, 6> rule_of(const FoldPair& p) {
+    const OperatorOptions opt;
+    const kernels::TouchingRuleInfo a = kernels::touching_rule_info(p.mesh, p.t1, p.t2, opt);
+    const kernels::TouchingRuleInfo b = kernels::touching_rule_info(p.mesh, p.t2, p.t1, opt);
+    return {a.fold_adaptive ? 1 : 0, a.pieces, a.points,
+            b.fold_adaptive ? 1 : 0, b.pieces, b.points};
+}
+
+/// Right angles at the shared vertex: the exact shape and both +-1e-9 perturbations select the
+/// same rule at every sweep angle, and the perturbed ones meet 1e-7 at `degrees` (Si, reference
+/// of the exact shape with n points; the perturbation changes it by ~1e-9).
+void check_right_angles(bool edge, std::size_t exact, Real degrees, int n) {
+    const std::span<const FoldShape> shapes =
+        edge ? std::span<const FoldShape>(kEdgeShapes) : std::span<const FoldShape>(kVertexShapes);
+    for (const Real deg : kFoldAngles) {
+        const auto r0 = rule_of(fold_pair(edge, shapes[exact], deg));
+        INFO(shapes[exact].name << " " << deg << " degrees");
+        CHECK(rule_of(fold_pair(edge, shapes[exact + 1], deg)) == r0);
+        CHECK(rule_of(fold_pair(edge, shapes[exact + 2], deg)) == r0);
+    }
+    const std::vector<NamedRegion> si = {all_regions()[1]};
+    const FoldPair p = fold_pair(edge, shapes[exact], degrees);
+    const std::vector<Blocks> ref = relative_reference(RwgSpace(p.mesh), p.t1, p.t2, si, n);
+    for (std::size_t s = exact + 1; s <= exact + 2; ++s) {
+        const GradedResult r = fold_errors(fold_pair(edge, shapes[s], degrees), si, ref, {});
+        INFO(shapes[s].name << " " << degrees << " degrees: error " << r.err);
+        CHECK(r.err <= 1e-7);
+    }
+}
+
+/// Rough box of the rough-surface tests sized like the fold pairs (top-face spacing 0.7 a:
+/// |k| h <= 0.78 in Si), 4 x 4 cells, uniform walls two cells deep, fixed seed.
+TriangleMesh small_rough_box() {
+    const Real a = 0.6 * scaled(kVacuumRadius, all_regions()[1].p);
+    geometry::RoughSurfaceParams rp;
+    rp.mesh_size = 0.7 * a;
+    rp.edge_length_L = 4.0 * rp.mesh_size;
+    rp.rms_roughness = 0.1 * rp.mesh_size;
+    rp.correlation_length = 2.0 * rp.mesh_size;
+    rp.seed = 7;
+    rp.box_depth = 2.0 * rp.mesh_size;
+    rp.box_mesh_size = rp.mesh_size;
+    return geometry::make_rough_surface_mesh(rp);
+}
+
+/// Touching pair (t1, t2) of the rough box: class and faces (top: n_z < -0.9, wall: |n_z| <
+/// 0.1) as expected, and the default blocks of both orderings within 1e-7 of the reference (Si).
+void check_rough_pair(const TriangleMesh& m, Index t1, Index t2, Proximity cls, bool rim, int n) {
+    const auto face = [&](Index t) {
+        const Real nz = m.normal(t)(2);
+        return nz < -0.9 ? 0 : (std::abs(nz) < 0.1 ? 1 : 2);
+    };
+    REQUIRE(classify(m, t1, t2) == cls);
+    REQUIRE(face(t1) == 0);
+    REQUIRE(face(t2) == (rim ? 1 : 0));
+    const std::vector<NamedRegion> si = {all_regions()[1]};
+    const RwgSpace space(m);
+    const Blocks ref = relative_reference(space, t1, t2, si, n)[0];
+    const Blocks b12 = blocks(space, t1, t2, si[0].p, OperatorOptions{});
+    const Blocks b21 = blocks(space, t2, t1, si[0].p, OperatorOptions{});
+    const Real err =
+        std::max({rel_diff(b12.L, ref.L), rel_diff(b12.K, ref.K),
+                  rel_diff(b21.L.transpose(), ref.L), rel_diff(b21.K.transpose(), ref.K)});
+    INFO(class_name(cls) << (rim ? " top/wall" : " top/top") << " pair (" << t1 << "," << t2
+                         << "): error " << err);
+    CHECK(err <= 1e-7);
+}
+
+}  // namespace
+
+TEST_CASE("fold-adaptive rule: right angles at a shared edge select one rule", "[kernels]") {
+    check_right_angles(true, 5, 90.0, 20);
+}
+
+TEST_CASE("fold-adaptive rule: right angles at a shared vertex select one rule", "[kernels]") {
+    check_right_angles(false, 3, 90.0, 16);
+}
+
+TEST_CASE("fold-adaptive rule: rough-surface top-face shared edge agrees with the reference",
+          "[kernels]") {
+    // Grid line: right angles at different shared vertices.
+    check_rough_pair(small_rough_box(), 0, 17, Proximity::shared_edge, false, 20);
+}
+
+TEST_CASE("fold-adaptive rule: rough-surface top-face shared vertex agrees with the reference",
+          "[kernels]") {
+    check_rough_pair(small_rough_box(), 0, 4, Proximity::shared_vertex, false, 16);
+}
+
+TEST_CASE("fold-adaptive rule: rough-surface rim shared edge agrees with the reference",
+          "[kernels]") {
+    // Top/wall fold at the rim (about 90 degrees).
+    check_rough_pair(small_rough_box(), 61, 96, Proximity::shared_edge, true, 20);
+}
+
+TEST_CASE("fold-adaptive rule: rough-surface rim shared vertex agrees with the reference",
+          "[kernels]") {
+    // The rim edge of the wall triangle runs close to the top plane (WP7d rim rule; WP7b
+    // table: 1.2e-7).
+    check_rough_pair(small_rough_box(), 12, 112, Proximity::shared_vertex, true, 16);
 }
 
 // Hidden slow case, registered with ctest as "kernels: fold sweep (slow)" (label slow; run with

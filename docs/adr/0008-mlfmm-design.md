@@ -59,3 +59,41 @@ oracle (docs/05): every MLFMM result is checked against it.
 - Local Lagrange interpolation is simple and parallel-friendly but costs O(p²) per sample; if it
   dominates at large N, the FFT option is the planned upgrade.
 - The enlarged-diameter truncation slightly over-samples small leaf boxes; acceptable for λ/4 leaves.
+
+## Amendment 2026-10-09 (WP18 measurements)
+
+WP18 measured the plane-wave building blocks (tests/unit/test_plane_wave.cpp):
+- Local Lagrange interpolation at the §2 sampling (close to 4 points per pattern wavelength) with
+  p = 6 reaches only 1e-3 … 1e-2; 0.1 × 10^{−d₀} needs p ≈ 12–14 for d₀ = 3 and p ≈ 22 for d₀ = 5.
+- The corner-to-corner worst case of a two-box separation stays above 10^{−d₀} at the formula
+  order for every box size (1e-3 … 9e-2 at d₀ = 3), and raising L is capped by the low-frequency
+  breakdown (best ≈ 1e-2 at λ/4, 1e-3 at λ, 1e-5 at 4λ). Random points inside the boxes meet
+  10^{−d₀} for boxes ≥ λ/2; at λ/4 the formula loses up to one digit.
+
+Decisions replacing the corresponding parts of §2, §3 and §6:
+- **§3 interpolation order:** p is a function of d₀ taken from a measured table (default
+  p = 14 for d₀ ≤ 3, p = 22 for d₀ ≤ 5, extended by measurement for other d₀; still overridable).
+  The FFT/global option remains the planned upgrade if interpolation dominates.
+- **§2/§6 per-level accuracy check:** statistical, not worst-case corner: the maximum relative
+  error over a fixed, seeded set of random source/observer points inside the boxes for the
+  nearest interaction offsets (the norm-wise error that the docs/05 matvec criterion measures).
+  The matvec-versus-dense comparison of docs/05 remains the authoritative acceptance test.
+- **§2 truncation order per level:** the smallest L ≥ the formula value for which the statistical
+  check meets 10^{−d₀}; if no such L exists before the breakdown onset (detected by the check
+  getting worse with growing L), that level is not used as a leaf level (the leaf level is
+  coarsened, i.e. the effective `min_box_size_lambda` rises for this d₀ — expected at λ/4 for
+  d₀ = 5). For complex k the same search is the §6 validity test; where it fails at every L the
+  §6 alternatives (documented truncation by the decay bound, or near-field fallback) apply.
+
+## Amendment 2026-10-09 (WP18 review)
+
+- The interpolation order of the table can exceed the number of θ nodes of a coarse leaf sampling
+  (λ/4 leaves: n_θ = 9 at d₀ = 3, 12 at d₀ = 5). The leaf sampling is therefore oversampled when
+  needed: L_leaf = max(L from §2 / the amendment search, p − 1), and the interpolator accepts any
+  order whose stencil fits the extended (pole-reflected) θ range. The cost is a larger leaf
+  sampling only on the finest level.
+- Pattern phase convention: radiation patterns carry e^{+jk k̂·(r' − r_box)}, receiving patterns
+  e^{−jk k̂·(r − r_box)} = radiation pattern at −k̂ (docs/04 corrected; no conjugation, also for
+  complex k).
+- Special functions never fail silently: spherical Hankel values that underflow or overflow the
+  double range raise exceptions, and translators are checked for finiteness.

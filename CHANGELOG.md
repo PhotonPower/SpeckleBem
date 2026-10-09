@@ -217,6 +217,16 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - Documentation: project plan, architecture, SIE and MLFMM theory, validation, conventions, coding guidelines, GPU strategy, compression survey, Python API, ADRs.
 
 ### Changed
+- kernels (WP7d): the fold-adaptive rule classifies right angles at shared vertices (rough
+  top faces, box rim) with a relative tolerance of 1e-6 instead of exact sign / distance tests,
+  so exact and +-1e-9-perturbed right angles select the same rule (that of acute angles);
+  shared-vertex pairs with a steep source triangle that has a vertex less than 11.5 degrees
+  above the test plane (box rim) use the adaptive piece (rim K error 1.2e-7 -> 2e-10); with the
+  ray partition and S within 0.3 |AB| of a shared vertex the pieces of the other apex get the
+  points of level l + 3 (right angles at A, 75-degree fold: 3.8e-7 -> 4.7e-8). Icosphere
+  blocks are bitwise unchanged. Tests: right-angle shapes in the fold sweep and fast rule /
+  accuracy checks, top-face and rim pairs of a rough box against the reference, the near-B
+  deviation pinned, the 16 x 16 point cap at grading levels 1 to 6. Doc fixes (ADR 0004).
 - material (WP14b1f): `DispersiveMaterial` throws `std::invalid_argument` for non-finite,
   non-positive or not strictly increasing wavelengths, non-finite indices and indices with
   `Im(n) > 0` (the message says that exp(+jwt) needs `n - jk` and that `n + ik` optics data must

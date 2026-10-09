@@ -23,12 +23,20 @@ T_L(k, r, k̂) = Σ_{l=0}^{L} (−j)^l (2l+1) h_l^{(2)}(kr) P_l(k̂ · r̂)
 
 ## Radiation and receiving patterns
 
-For each leaf box and each RWG `f_n` inside it, precompute for every direction `k̂`:
+With the addition theorem above (source s near box centre C_s, observer o near C_o; prefactor
+−jk/4π; translator without that prefactor, `mlfmm::translator`), the source side carries
+e^{−jk k̂·(C_s − s)} = e^{+jk k̂·(s − C_s)} and the observer side e^{−jk k̂·(o − C_o)}. For each leaf box
+and each RWG `f_n` inside it, precompute for every direction `k̂`:
 ```
-V_n(k̂) = ∫_{supp f_n} (I − k̂k̂) f_n(r') e^{−jk·(r' − r_box)} dS'      (for L)
-W_n(k̂) = k̂ × V_n(k̂)                                                 (for K)
+radiation (source side):  V_n(k̂) = ∫_{supp f_n} (I − k̂k̂) f_n(r') e^{+jk k̂·(r' − r_box)} dS'   (for L)
+                          W_n(k̂) = k̂ × V_n(k̂)                                              (for K)
+receiving (observer side): R_m(k̂) = ∫_{supp f_m} (I − k̂k̂) f_m(r)  e^{−jk k̂·(r − r_box)} dS
+                                   = V_m(−k̂)            (also for complex k: no conjugation)
 ```
-Both components (θ̂, φ̂) are stored. The same quantities with `k_2` serve region R2. Receiving patterns are the conjugate-direction counterparts; for Galerkin testing they coincide with the radiation patterns up to sign.
+Both components (θ̂, φ̂) are stored. The same quantities with `k_2` serve region R2. The receiving
+pattern is the radiation pattern evaluated at the opposite direction (the projector I − k̂k̂ is even
+in k̂); with the (I − k̂k̂) projection the far-field form of the gradient terms of L is included
+(transverse part only). Conjugation is never used: for complex k it would be wrong.
 
 ## Passes per matvec
 
