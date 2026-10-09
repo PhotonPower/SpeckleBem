@@ -12,6 +12,8 @@
 #include <chrono>
 #include <cmath>
 #include <exception>
+#include <memory>
+#include <mutex>
 #include <span>
 #include <sstream>
 #include <stdexcept>
@@ -91,6 +93,35 @@ struct Level {
     std::array<VectorXc, 8> up, down;
 };
 
+/// Uninitialised storage of n complex values (std::complex<double> is an implicit-lifetime type).
+/// The passes zero every box segment before accumulating into it, so the memory is first touched
+/// by the threads that own the boxes and a reused workspace needs no separate zeroing sweep.
+class FieldBuffer {
+public:
+    explicit FieldBuffer(std::size_t n)
+        : n_(n), p_(n > 0 ? std::allocator<Complex>().allocate(n) : nullptr) {}
+    ~FieldBuffer() {
+        if (p_ != nullptr)
+            std::allocator<Complex>().deallocate(p_, n_);
+    }
+    FieldBuffer(const FieldBuffer&) = delete;
+    FieldBuffer& operator=(const FieldBuffer&) = delete;
+    [[nodiscard]] Complex* data() const { return p_; }
+
+private:
+    std::size_t n_;
+    Complex* p_;
+};
+
+/// Pass storage of one apply: the outgoing and incoming fields of every active region and level
+/// in one block (pointers per region and level) and the per-thread scratch.
+struct Workspace {
+    explicit Workspace(std::size_t n) : fields(n) {}
+    FieldBuffer fields;
+    std::array<std::vector<Complex*>, 2> out, in;
+    std::vector<Complex> scratch;
+};
+
 struct Region {
     bool active = false;
     Complex k;
@@ -111,14 +142,70 @@ struct MlfmmFarOperator::Impl {
     Real digits = 0;
     int interp_order = 0;
     std::array<Region, 2> region;
-    std::vector<Index> local;  ///< box -> position within its level
+    std::vector<Index> local;            ///< box -> position within its level
+    std::size_t field_entries = 0;       ///< complex entries of one workspace's fields
+    std::size_t max_nd = 0, max_ws = 0;  ///< largest sampling / interpolator workspace
+
+    /// Pool of reusable workspaces: apply() takes one (allocating only if none is free) and
+    /// returns it, so serial applies reuse one workspace and concurrent ones get their own.
+    mutable std::mutex pool_mutex;
+    mutable std::vector<std::unique_ptr<Workspace>> pool;
+    mutable std::size_t workspaces = 0;  ///< allocated so far (pooled or in use)
+
+    [[nodiscard]] std::unique_ptr<Workspace> take() const;
+    void give_back(std::unique_ptr<Workspace> w) const;
 
     /// Truncation search and samplings of every level (throws before any expensive setup).
     void plan_region(Region& r, const basis::RwgSpace& space, int index);
     /// Translators, interpolators, phase shifts and leaf patterns.
     void build_region(Region& r, const basis::RwgSpace& space, const PatternOptions& popt);
-    void apply_region(const Region& r, const VectorXc& x, VectorXc& y) const;
+    void apply_region(const Region& r, std::span<Complex* const> out, std::span<Complex* const> in,
+                      Complex* scratch, const VectorXc& x, VectorXc& y) const;
 };
+
+std::unique_ptr<Workspace> MlfmmFarOperator::Impl::take() const {
+    std::unique_ptr<Workspace> w;
+    {
+        const std::lock_guard<std::mutex> lock(pool_mutex);
+        if (!pool.empty()) {
+            w = std::move(pool.back());
+            pool.pop_back();
+        } else {
+            ++workspaces;
+        }
+    }
+    if (!w) {
+        try {
+            w = std::make_unique<Workspace>(field_entries);
+        } catch (...) {
+            const std::lock_guard<std::mutex> lock(pool_mutex);
+            --workspaces;
+            throw;
+        }
+        Complex* base = w->fields.data();
+        for (std::size_t i = 0; i < 2; ++i) {
+            if (!region[i].active)
+                continue;
+            for (const Level& lv : region[i].levels) {
+                const std::size_t size = sz(lv.info.boxes) * kFields * sz(lv.sampling.size());
+                w->out[i].push_back(base);
+                w->in[i].push_back(base + size);
+                base += 2 * size;
+            }
+        }
+    }
+    // Per-thread scratch: two direction buffers (or the 4 reception fields) + the interpolator
+    // workspace; the thread count may change between calls.
+    const std::size_t need = sz(std::max(max_threads(), 1)) * (4 * max_nd + max_ws);
+    if (w->scratch.size() < need)
+        w->scratch.resize(need);
+    return w;
+}
+
+void MlfmmFarOperator::Impl::give_back(std::unique_ptr<Workspace> w) const {
+    const std::lock_guard<std::mutex> lock(pool_mutex);
+    pool.push_back(std::move(w));
+}
 
 void MlfmmFarOperator::Impl::plan_region(Region& r, const basis::RwgSpace& space, int index) {
     const int leaf = tree.leaf_level();
@@ -244,6 +331,21 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
     if (m.n != static_cast<Index>(tree.permutation().size())) {
         throw std::invalid_argument("MlfmmFarOperator: the octree was not built on problem.space");
     }
+    if (tree.levels() >= 3) {
+        // Z_far leaves out the jump terms of K, which only coincident triangles carry. Far pairs
+        // have midpoints more than one leaf edge apart, two bases sharing a triangle at most
+        // r_max (each midpoint lies in the shared triangle): r_max < a_leaf excludes them.
+        const Real rmax = max_support_radius(space);
+        const Real a = tree.box_size(tree.leaf_level());
+        if (!(rmax < a)) {
+            std::ostringstream os;
+            os << "MlfmmFarOperator: the largest RWG support radius (" << rmax
+               << " m) must be smaller than the leaf box edge (" << a
+               << " m), otherwise far pairs could share a triangle (jump terms); refine the "
+                  "mesh or use larger leaves";
+            throw std::invalid_argument(os.str());
+        }
+    }
     m.local.assign(tree.boxes().size(), -1);
     for (int l = 0; l < tree.levels(); ++l) {
         const std::vector<Index>& b = tree.boxes_at_level(l);
@@ -274,11 +376,21 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
             m.plan_region(r, space, static_cast<int>(i));
     }
     for (Region& r : m.region) {
-        if (r.active)
-            m.build_region(r, space, popt);
+        if (!r.active)
+            continue;
+        m.build_region(r, space, popt);
+        for (const Level& lv : r.levels) {
+            m.field_entries += 2 * sz(lv.info.boxes) * kFields * sz(lv.sampling.size());
+            m.max_nd = std::max(m.max_nd, sz(lv.sampling.size()));
+            if (lv.interp)
+                m.max_ws = std::max(m.max_ws, sz(lv.interp->workspace_size()));
+        }
     }
-    SBEM_INFO("MlfmmFarOperator: 2N = {}, {} octree levels, d0 = {}, {:.1f} MB stored", rows(),
-              tree.levels(), m.digits, static_cast<Real>(memory_bytes()) / 1048576.0);
+    SBEM_INFO(
+        "MlfmmFarOperator: 2N = {}, {} octree levels, d0 = {}, {:.1f} MB (incl. one apply "
+        "workspace of {:.1f} MB)",
+        rows(), tree.levels(), m.digits, static_cast<Real>(memory_bytes()) / 1048576.0,
+        static_cast<Real>(workspace_bytes()) / 1048576.0);
     SBEM_DEBUG("{}", describe());
 }
 
@@ -315,34 +427,45 @@ void MlfmmFarOperator::apply(const VectorXc& x, VectorXc& y) const {
     if (x.size() != cols())
         throw std::invalid_argument("MlfmmFarOperator::apply: x has the wrong size");
     VectorXc out = VectorXc::Zero(rows());
-    for (const Region& r : impl_->region) {
-        if (r.active)
-            impl_->apply_region(r, x, out);
+    const Impl& m = *impl_;
+    if (m.field_entries > 0) {
+        // Returned to the pool also when a pass throws (the passes re-zero what they use).
+        struct Lease {
+            const Impl& m;
+            std::unique_ptr<Workspace> w;
+            ~Lease() { m.give_back(std::move(w)); }
+        } lease{m, m.take()};
+        for (std::size_t i = 0; i < 2; ++i) {
+            if (m.region[i].active)
+                m.apply_region(m.region[i], lease.w->out[i], lease.w->in[i],
+                               lease.w->scratch.data(), x, out);
+        }
     }
     y = std::move(out);
 }
 
-void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x, VectorXc& y) const {
+std::size_t MlfmmFarOperator::workspace_bytes() const {
+    return impl_->field_entries * sizeof(Complex);
+}
+
+std::size_t MlfmmFarOperator::workspaces() const {
+    const std::lock_guard<std::mutex> lock(impl_->pool_mutex);
+    return impl_->workspaces;
+}
+
+void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* const> out,
+                                          std::span<Complex* const> in, Complex* scratch,
+                                          const VectorXc& x, VectorXc& y) const {
     const int leaf = tree.leaf_level();
     const std::size_t nl = r.levels.size();
-    std::vector<std::vector<Complex>> out(nl), in(nl);
-    std::size_t max_nd = 0, max_ws = 0;
-    for (std::size_t li = 0; li < nl; ++li) {
-        const Level& lv = r.levels[li];
-        const std::size_t size = sz(lv.info.boxes) * kFields * sz(lv.sampling.size());
-        out[li].assign(size, Complex(0.0, 0.0));
-        in[li].assign(size, Complex(0.0, 0.0));
-        max_nd = std::max(max_nd, sz(lv.sampling.size()));
-        if (lv.interp)
-            max_ws = std::max(max_ws, sz(lv.interp->workspace_size()));
-    }
-    const auto nthreads = static_cast<std::size_t>(std::max(max_threads(), 1));
-    // Per-thread scratch: two direction buffers (or the 4 reception fields) + workspace.
+    // Per-thread scratch (Impl::take): two direction buffers (or the 4 reception fields) + the
+    // interpolator workspace.
     const std::size_t stride = 4 * max_nd + max_ws;
-    std::vector<Complex> scratch(nthreads * stride);
-    const auto thread_scratch = [&]() { return scratch.data() + thread_id() * stride; };
-    const auto field = [](auto& v, Index pos, std::size_t f, std::size_t nd) {
-        return v.data() + (sz(pos) * kFields + f) * nd;
+    const auto thread_scratch = [&]() { return scratch + thread_id() * stride; };
+    // out / in are uninitialised or hold a previous apply: every pass zeroes the box segments it
+    // accumulates into (by the thread that owns the box) before writing to them.
+    const auto field = [](Complex* v, Index pos, std::size_t f, std::size_t nd) {
+        return v + (sz(pos) * kFields + f) * nd;
     };
     const std::vector<Index>& perm = tree.permutation();
     const auto& boxes = tree.boxes();
@@ -360,6 +483,7 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x, Ve
         for (Index ib = 0; ib < nb; ++ib) {
             const Box& box = boxes[sz(leaves[sz(ib)])];
             Complex* F = field(out.back(), ib, 0, nd);
+            std::fill(F, F + kFields * nd, Complex(0.0, 0.0));
             for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p) {
                 const Index basis = perm[sz(p)];
                 const Complex xj = x(basis);
@@ -390,6 +514,8 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x, Ve
                 Complex* tmp = thread_scratch();
                 const std::span<Complex> ws(tmp + 2 * max_nd, max_ws);
                 const Box& P = boxes[sz(parents[sz(ip)])];
+                Complex* Fp = field(out[li], ip, 0, ndp);
+                std::fill(Fp, Fp + kFields * ndp, Complex(0.0, 0.0));
                 for (std::size_t s = 0; s < 8; ++s) {
                     const Index c = P.children[s];
                     if (c < 0)
@@ -425,6 +551,7 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, const VectorXc& x, Ve
         for (Index ia = 0; ia < nb; ++ia) {
             const Box& A = boxes[sz(obs[sz(ia)])];
             Complex* G = field(in[li], ia, 0, nd);
+            std::fill(G, G + kFields * nd, Complex(0.0, 0.0));
             for (const Index b : A.interaction_list) {
                 const Box& B = boxes[sz(b)];
                 const Complex* T = lv.translators[sz(lv.slot[offset_slot(A.ijk, B.ijk)])].data();
@@ -543,7 +670,8 @@ std::string MlfmmFarOperator::describe() const {
                << " MB per apply, setup " << f.setup_seconds << " s";
         }
     }
-    os << "\n  stored " << static_cast<Real>(memory_bytes()) / 1048576.0 << " MB, per-apply fields "
+    os << "\n  memory " << static_cast<Real>(memory_bytes()) / 1048576.0 << " MB incl. "
+       << std::max<std::size_t>(workspaces(), 1) << " pooled apply workspace(s) of "
        << static_cast<Real>(apply_bytes) / 1048576.0 << " MB";
     return os.str();
 }
@@ -559,9 +687,12 @@ std::size_t MlfmmFarOperator::memory_bytes() const {
             b += lv.translators.size() * sz(lv.sampling.size()) * sizeof(Complex);
             if (li > 0)  // phase shifts at the parent directions
                 b += 16 * sz(r.levels[li - 1].sampling.size()) * sizeof(Complex);
+            if (lv.interp)
+                b += lv.interp->memory_bytes();
         }
     }
-    return b;
+    // Apply workspaces: the pooled ones, at least the one a serial solve needs.
+    return b + std::max<std::size_t>(workspaces(), 1) * workspace_bytes();
 }
 
 }  // namespace specklebem::mlfmm

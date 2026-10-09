@@ -412,3 +412,25 @@ TEST_CASE("mlfmm: far operator accuracy sweep", "[.][mlfmm_far_sweep]") {
         }
     }
 }
+
+TEST_CASE("mlfmm: far operator apply timing", "[.][mlfmm_apply_timing]") {
+#ifndef NDEBUG
+    SKIP("release-only timing");
+#endif
+    // Apply time of the far operator on a 2N = 61440 icosphere (R = 2 um, subdivision 5, 6
+    // levels: lambda0 / 4 leaves, r_max / a ~ 0.5), n = 1.5, PMCHWT, d0 = 3: one warm-up apply,
+    // then the mean of 5 (WP20b: per-apply allocation vs the workspace pool).
+    const Case c(geometry::make_icosphere(4.0 * kLambda, 5), 6, medium(1.5), Kind::PMCHWT, 3.0);
+    auto t0 = std::chrono::steady_clock::now();
+    const MlfmmFarOperator far(c.problem, c.tree, c.params);
+    const Real setup = seconds_since(t0);
+    const VectorXc x = random_vector(far.cols(), 5);
+    VectorXc y = far * x;
+    t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < 5; ++i) far.apply(x, y);
+    const Real apply = seconds_since(t0) / 5.0;
+    WARN("far apply timing: 2N = " << far.rows() << ", setup " << setup << " s, apply " << apply
+                                   << " s\n"
+                                   << far.describe());
+    CHECK(y.allFinite());
+}

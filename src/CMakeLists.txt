@@ -33,7 +33,7 @@ set(SPECKLEBEM_SOURCES
     compression/mlfmm/patterns.cpp
     compression/mlfmm/near_field.cpp
     compression/mlfmm/far_operator.cpp
-    # compression/mlfmm/mlfmm_operator.cpp
+    compression/mlfmm/mlfmm_operator.cpp
     solver/gmres.cpp
     solver/preconditioner.cpp
     # postprocessing/speckle_statistics.cpp

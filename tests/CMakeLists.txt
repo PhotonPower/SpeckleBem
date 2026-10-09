@@ -47,9 +47,11 @@ add_test(NAME "assembler: rhs degree study (slow)" COMMAND specklebem_unit_tests
 add_test(NAME "mlfmm: plane-wave accuracy sweep (slow)" COMMAND specklebem_unit_tests "[mlfmm_sweep]")
 add_test(NAME "mlfmm: single-level FMM accuracy sweep (slow)" COMMAND specklebem_unit_tests "[patterns_sweep]")
 add_test(NAME "mlfmm: far operator accuracy sweep (slow)" COMMAND specklebem_unit_tests "[mlfmm_far_sweep]")
+add_test(NAME "mlfmm: far operator apply timing (slow)" COMMAND specklebem_unit_tests "[mlfmm_apply_timing]")
 set_tests_properties("kernels: fold sweep (slow)" "assembler: rhs degree study (slow)"
     "mlfmm: plane-wave accuracy sweep (slow)" "mlfmm: single-level FMM accuracy sweep (slow)"
-    "mlfmm: far operator accuracy sweep (slow)" PROPERTIES LABELS slow SKIP_RETURN_CODE 4)
+    "mlfmm: far operator accuracy sweep (slow)" "mlfmm: far operator apply timing (slow)"
+    PROPERTIES LABELS slow SKIP_RETURN_CODE 4)
 
 # Zero-allocation check of the element kernels. Separate executable because it replaces the
 # global operator new / delete (which would disable ASan's new/delete mismatch detection for

@@ -37,7 +37,15 @@
 /// for an active region at some level, the constructor throws (the lossy-region policy of ADR
 /// 0008 §6 is WP21). A region whose weights are all zero is skipped.
 ///
-/// apply() is safe for concurrent calls: all pass storage is allocated per call. OpenMP over boxes
+/// Jump terms: Z_far has none (the dense K carries -/+ 1/2 on coincident triangles only), which
+/// needs r_max < a_leaf: far pairs have midpoints more than a_leaf apart, bases sharing a triangle
+/// at most r_max (checked by the constructor).
+///
+/// apply() is safe for concurrent calls (WP20b): the pass storage (outgoing and incoming fields of
+/// every level, workspace_bytes()) comes from a mutex-guarded pool of workspaces; a call takes a
+/// free one or allocates a new one and returns it afterwards, so serial calls (GMRES) reuse one
+/// workspace and k concurrent calls hold k. The storage is not zero-filled up front: every pass
+/// zeroes the box segments it accumulates into, by the thread that owns the box. OpenMP over boxes
 /// in every pass, each box written by one thread in a fixed order: the result is bitwise identical
 /// for any thread count.
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
@@ -73,8 +81,9 @@ public:
     /// @param params accuracy_digits = d0 in (0, 5] (interpolation_order); truncation_L must be 0
     ///        (per-level search), precompute_translators true, use_fft_interpolation false;
     ///        params.octree is not used (the tree is given).
-    /// @throws std::invalid_argument for an invalid Problem (op::validate), unsupported params or a
-    ///         tree not built on problem.space; std::runtime_error if no truncation order meets
+    /// @throws std::invalid_argument for an invalid Problem (op::validate), unsupported params, a
+    ///         tree not built on problem.space or (trees with >= 3 levels) a largest support
+    ///         radius r_max >= the leaf edge; std::runtime_error if no truncation order meets
     ///         10^-d0 for an active region at some level (lossy region, WP21);
     ///         std::underflow_error / std::overflow_error from the plane-wave functions.
     MlfmmFarOperator(const op::Problem& problem, const Octree& tree, const MlfmmParams& params);
@@ -86,7 +95,15 @@ public:
     /// y = Z_far x. @throws std::invalid_argument if x has the wrong size.
     void apply(const VectorXc& x, VectorXc& y) const override;
     [[nodiscard]] std::string describe() const override;
+    /// Stored tables (leaf patterns, translators, phase shifts, interpolators) plus the pooled
+    /// apply workspaces, counted as at least one (the one a serial solve needs).
     [[nodiscard]] std::size_t memory_bytes() const override;
+    /// Bytes of one apply workspace (the fields of all levels and active regions; 0 without far
+    /// levels), excluding the per-thread scratch.
+    [[nodiscard]] std::size_t workspace_bytes() const;
+    /// Number of apply workspaces allocated so far (pooled or in use): 0 before the first apply,
+    /// 1 after serial applies, at most the peak number of concurrent apply() calls.
+    [[nodiscard]] std::size_t workspaces() const;
 
     [[nodiscard]] const Octree& octree() const;
     /// Region 0 = R1 (exterior), 1 = R2 (object). @throws std::out_of_range for other indices.
