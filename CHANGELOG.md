@@ -12,7 +12,8 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   degrees with regular, skewed and obtuse triangles (WP7b: up to 4.5e-5 skewed / 8.7e-5 obtuse
   at 30 degrees) at x1.7 (shared edges) / x1.45 (shared vertices) mean cost for folds below
   90 degrees; folds >= 90 degrees with non-obtuse angles (all Mie icosphere pairs) bitwise
-  unchanged. Slow dihedral sweep registered as the ctest entry `kernels: fold sweep (slow)`
+  unchanged. Slow dihedral sweep and right-hand-side degree study registered as the ctest
+  entries `kernels: fold sweep (slow)` and `assembler: rhs degree study (slow)`
   (label `slow`). The log-Gauss tables are checked against all 2n moments.
 - operator (WP7c): `OperatorOptions::quad_degree_rhs` (default 8, positive-interior), the
   Dunavant degree of `op::assemble_rhs` (before: `quad_degree_near` = 19); relative error
