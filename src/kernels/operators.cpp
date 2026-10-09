@@ -1242,6 +1242,7 @@ void validate(const OperatorOptions& opt) {
     check_degree(opt.quad_degree_far, "quad_degree_far", false);
     check_degree(opt.quad_degree_near, "quad_degree_near", true);
     check_degree(opt.quad_degree_sing, "quad_degree_sing", true);
+    check_degree(opt.quad_degree_rhs, "quad_degree_rhs", true);
     if (opt.quad_degree_far > opt.quad_degree_near) {
         throw std::invalid_argument(
             "OperatorOptions: quad_degree_far (" + std::to_string(opt.quad_degree_far) +

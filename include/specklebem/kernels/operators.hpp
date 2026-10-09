@@ -67,9 +67,11 @@ struct OperatorOptions {
     /// target_accuracy = 0 the fixed degree of far pairs.
     int quad_degree_far = 3;
     /// Upper bound of the near/far degree selection; positive-interior (ADR 0004), and
-    /// >= quad_degree_far. With target_accuracy = 0 the fixed degree of near pairs. Also the
-    /// right-hand-side rule of op::assemble_rhs.
+    /// >= quad_degree_far. With target_accuracy = 0 the fixed degree of near pairs.
     int quad_degree_near = 19;
+    /// Dunavant degree of the right-hand side <f_m, E_inc>, <f_m, H_inc> (op::assemble_rhs,
+    /// WP7c); positive-interior. RHS_DEFAULT_DOC
+    int quad_degree_rhs = 8;
     /// Touching pairs: Dunavant degree of the smooth remainder of the singularity subtraction
     /// (inner rule; for outer_grading_levels = 0 also the outer rule); positive-interior. Fixed,
     /// not chosen by target_accuracy: the remainder error grows like (|k| h)^4 (about 1e-9 at

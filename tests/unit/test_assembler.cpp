@@ -11,14 +11,19 @@
 /// leaves an O(1) residual that does not decrease with refinement. The Ag jump-sign case, the
 /// n = 2 / n = 3 residual convergence, the dense Mie solves at 500 nm and the assembly timing
 /// are in tests/validation/test_assembler_mie.cpp.
+#include "specklebem/geometry/rough_surface.hpp"
+#include "specklebem/geometry/sphere.hpp"
 #include "specklebem/kernels/operators.hpp"
 #include "specklebem/kernels/quadrature.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -240,18 +245,18 @@ TEST_CASE("assembler: right-hand side", "[operator]") {
     SphereCase c(lossless_n15(), 2, Kind::PMCHWT);
     op::Problem& p = c.problem();
     const Index N = c.size();
-    p.kernel_options.quad_degree_near = 8;  // the right-hand-side rule (default 19 since WP7b)
+    p.kernel_options.quad_degree_rhs = 8;  // the right-hand-side rule (default 8 since WP7c)
     const VectorXc b8 = op::assemble_rhs(p);
-    p.kernel_options.quad_degree_near = 4;
+    p.kernel_options.quad_degree_rhs = 4;
     const VectorXc b4 = op::assemble_rhs(p);
-    p.kernel_options.quad_degree_near = 12;
+    p.kernel_options.quad_degree_rhs = 12;
     const VectorXc b12 = op::assemble_rhs(p);
     const Real d4 = (b4 - b12).norm() / b12.norm();
     const Real d8 = (b8 - b12).norm() / b12.norm();
     WARN("rhs: degree 4 vs 12: " << d4 << ", degree 8 vs 12: " << d8);
     // Measured (WP9): 3.2e-5 (degree 4) and 4.9e-10 (degree 8, the WP7 default). The plane wave
     // varies by k h ~ 2 rad over a triangle of this mesh, so degree 4 cannot reach 1e-6; degree 8
-    // (and the WP7b default 19) does.
+    // (the WP7c default of quad_degree_rhs; the WP7b right-hand side used degree 19) does.
     CHECK(d4 < 1e-4);
     CHECK(d8 < 1e-6);
     CHECK(d8 < 1e-3 * d4);
@@ -283,7 +288,7 @@ TEST_CASE("assembler: right-hand side", "[operator]") {
 
     // ICTF weights scale the two halves by a1/eta1 = 2/(eta1+eta2) and b1 eta1 = (eta1+eta2)/2.
     SphereCase ci(lossless_n15(), 2, Kind::ICTF);
-    ci.problem().kernel_options.quad_degree_near = 12;
+    ci.problem().kernel_options.quad_degree_rhs = 12;
     const VectorXc bi = op::assemble_rhs(ci.problem());
     const Complex eta1 = constants::eta0;
     const Complex eta2 = constants::eta0 / 1.5;
@@ -353,4 +358,146 @@ TEST_CASE("assembler: dense PMCHWT solve of the n = 1.5 sphere against Mie (smok
     CHECK(res.residual < 1e-10);
     CHECK(res.exact_residual < 0.45);
     CHECK(res.eps_rr < 0.1);
+}
+
+// ---------------------------------------------------------------------------------------------
+// WP7c: Dunavant degree of the right-hand side (OperatorOptions::quad_degree_rhs).
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// <f_m, E_inc> (first N entries) and <f_m, H_inc> (last N) with the degree-d Dunavant rule,
+/// written directly with RwgSpace::value (independent of op::assemble_rhs; d may be any degree:
+/// the incident fields are smooth everywhere).
+VectorXc rhs_moments(const basis::RwgSpace& space, const excitation::Excitation& exc, int d) {
+    const geometry::TriangleMesh& mesh = space.mesh();
+    const kernels::TriangleRule& rule = kernels::triangle_rule(d);
+    const Index N = space.size();
+    VectorXc b = VectorXc::Zero(2 * N);
+    for (Index t = 0; t < mesh.num_triangles(); ++t) {
+        const basis::RwgSpace::Support s = space.support(t);
+        const Vec3 v0 = mesh.vertices().row(mesh.triangles()(t, 0)).transpose();
+        const Vec3 v1 = mesh.vertices().row(mesh.triangles()(t, 1)).transpose();
+        const Vec3 v2 = mesh.vertices().row(mesh.triangles()(t, 2)).transpose();
+        for (std::size_t q = 0; q < rule.weights.size(); ++q) {
+            const Vec3& l = rule.barycentric[q];
+            const Vec3 r = l(0) * v0 + l(1) * v1 + l(2) * v2;
+            const Real w = rule.weights[q] * mesh.area(t);
+            const Vec3c E = exc.electric_field(r);
+            const Vec3c H = exc.magnetic_field(r);
+            for (int a = 0; a < s.count; ++a) {
+                const Vec3 f = space.value(s.n[a], t, r);
+                b(s.n[a]) += w * (f(0) * E(0) + f(1) * E(1) + f(2) * E(2));
+                b(N + s.n[a]) += w * (f(0) * H(0) + f(1) * H(1) + f(2) * H(2));
+            }
+        }
+    }
+    return b;
+}
+
+/// max over the E and H halves of |a - ref| / |ref|.
+Real rhs_rel(const VectorXc& a, const VectorXc& ref) {
+    const Index N = ref.size() / 2;
+    return std::max((a.head(N) - ref.head(N)).norm() / ref.head(N).norm(),
+                    (a.tail(N) - ref.tail(N)).norm() / ref.tail(N).norm());
+}
+
+Real longest_mesh_edge(const geometry::TriangleMesh& m) {
+    Real h = 0.0;
+    for (Index t = 0; t < m.num_triangles(); ++t) {
+        for (Index i = 0; i < 3; ++i) {
+            const Vec3 a = m.vertices().row(m.triangles()(t, i)).transpose();
+            const Vec3 b = m.vertices().row(m.triangles()(t, (i + 1) % 3)).transpose();
+            h = std::max(h, (a - b).norm());
+        }
+    }
+    return h;
+}
+
+/// Rough-surface box (uniform box at the top-face spacing 50 nm, L = 0.6 um, depth 0.4 um).
+geometry::TriangleMesh rhs_rough_box() {
+    geometry::RoughSurfaceParams p;
+    p.edge_length_L = 0.6e-6;
+    p.rms_roughness = 50e-9;
+    p.correlation_length = 200e-9;
+    p.mesh_size = 50e-9;
+    p.seed = 20261009;
+    p.box_depth = 0.4e-6;
+    p.box_mesh_size = 50e-9;
+    return geometry::make_rough_surface_mesh(p);
+}
+
+/// Degree study on one mesh: for lambda = 10 h and 27 h (h the longest edge), a plane wave
+/// (+z, E along x) and a paraxial Gaussian beam (w0 = lambda, focus at the origin, p
+/// polarisation), the relative RHS error of every positive-interior degree against degree 20.
+/// Returns the worst error of each degree (index = degree).
+std::array<Real, 21> rhs_degree_errors(const geometry::TriangleMesh& mesh, std::string& table) {
+    const basis::RwgSpace space(mesh);
+    const Real h = longest_mesh_edge(mesh);
+    std::array<Real, 21> worst{};
+    for (const Real ratio : {10.0, 27.0}) {
+        const Real lambda = ratio * h;
+        excitation::GaussianBeam::Params gp;
+        gp.wavelength = lambda;
+        gp.waist_radius = lambda;
+        const excitation::PlaneWave pw(lambda, Vec3(0.0, 0.0, 1.0), Vec3c(1.0, 0.0, 0.0));
+        const excitation::GaussianBeam gb(gp);
+        for (const excitation::Excitation* exc :
+             {static_cast<const excitation::Excitation*>(&pw),
+              static_cast<const excitation::Excitation*>(&gb)}) {
+            const VectorXc ref = rhs_moments(space, *exc, 20);
+            table += "\n  lambda/" + std::to_string(static_cast<int>(ratio)) +
+                     (exc == &pw ? " plane wave:" : " Gaussian beam:");
+            for (int d = 1; d <= 19; ++d) {
+                if (!kernels::triangle_rule_is_positive_interior(d)) {
+                    continue;
+                }
+                const Real e = rhs_rel(rhs_moments(space, *exc, d), ref);
+                auto& w = worst[static_cast<std::size_t>(d)];
+                w = std::max(w, e);
+                std::ostringstream os;
+                os << std::scientific << std::setprecision(1) << " d" << d << " " << e;
+                table += os.str();
+            }
+        }
+    }
+    return worst;
+}
+
+}  // namespace
+
+TEST_CASE("assembler: right-hand-side degree study (icosphere)", "[operator]") {
+    std::string table;
+    const std::array<Real, 21> e = rhs_degree_errors(geometry::make_icosphere(0.5e-6, 3), table);
+    WARN("rhs degree study, icosphere n = 3 (relative error vs degree 20):" << table);
+    CHECK(e[static_cast<std::size_t>(kernels::OperatorOptions{}.quad_degree_rhs)] <= 1e-8);
+}
+
+TEST_CASE("assembler: right-hand-side degree study (rough box)", "[operator]") {
+    std::string table;
+    const std::array<Real, 21> e = rhs_degree_errors(rhs_rough_box(), table);
+    WARN("rhs degree study, rough box (relative error vs degree 20):" << table);
+    CHECK(e[static_cast<std::size_t>(kernels::OperatorOptions{}.quad_degree_rhs)] <= 1e-8);
+}
+
+TEST_CASE("assembler: quad_degree_rhs alone sets the right-hand-side rule", "[operator]") {
+    // PMCHWT (a1/eta1 = b1 eta1 = 1): b = [<f, E_inc>; <f, H_inc>]. With quad_degree_rhs = 19 (the
+    // WP7b right-hand side, which used quad_degree_near = 19) b is the direct degree-19 evaluation
+    // and does not depend on quad_degree_near; the default (8) differs from it by < 1e-8 even on
+    // this coarse mesh (k h ~ 2).
+    SphereCase c(lossless_n15(), 2, Kind::PMCHWT);
+    op::Problem& p = c.problem();
+    p.kernel_options.quad_degree_rhs = 19;
+    p.kernel_options.quad_degree_near = 19;
+    const VectorXc b19 = op::assemble_rhs(p);
+    p.kernel_options.quad_degree_near = 8;
+    CHECK((op::assemble_rhs(p).array() == b19.array()).all());
+    const VectorXc direct = rhs_moments(c.setup.space, *p.excitation, 19);
+    CHECK(rhs_rel(b19, direct) <= 1e-13);
+    p.kernel_options = kernels::OperatorOptions{};
+    const Real d = rhs_rel(op::assemble_rhs(p), b19);
+    WARN("default right-hand side (degree 8) vs degree 19, icosphere n = 2 at 500 nm: " << d);
+    CHECK(d <= 1e-8);
+    p.kernel_options.quad_degree_rhs = 3;  // negative weights: not positive-interior
+    CHECK_THROWS_AS(op::assemble_rhs(p), std::invalid_argument);
 }
