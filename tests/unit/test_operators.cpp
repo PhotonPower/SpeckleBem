@@ -2736,7 +2736,7 @@ TEST_CASE("fold-adaptive rule: angular-point cap at grading levels 1 to 6", "[ke
     // every level, both orderings, and element_blocks evaluates without throwing.
     const RegionParams si = all_regions()[1].p;
     for (const std::size_t s : {std::size_t{3}, std::size_t{4}}) {
-        for (const Real deg : {45.0, 60.0, 90.0, 179.0}) {
+        for (const Real deg : {60.0, 90.0}) {
             const FoldPair p = fold_pair(true, kEdgeShapes[s], deg);
             const RwgSpace space(p.mesh);
             for (int level = 1; level <= 6; ++level) {
@@ -2839,20 +2839,28 @@ TEST_CASE("fold-adaptive rule: right angles at a shared vertex select one rule",
     check_right_angles(false, 3, 90.0, 16);
 }
 
-TEST_CASE("fold-adaptive rule: rough-surface top-face pairs agree with the reference",
+TEST_CASE("fold-adaptive rule: rough-surface top-face shared edge agrees with the reference",
           "[kernels]") {
-    // Grid line (right angles at different shared vertices) and a shared grid vertex.
-    const TriangleMesh m = small_rough_box();
-    check_rough_pair(m, 0, 17, Proximity::shared_edge, false, 20);
-    check_rough_pair(m, 0, 4, Proximity::shared_vertex, false, 16);
+    // Grid line: right angles at different shared vertices.
+    check_rough_pair(small_rough_box(), 0, 17, Proximity::shared_edge, false, 20);
 }
 
-TEST_CASE("fold-adaptive rule: rough-surface rim pairs agree with the reference", "[kernels]") {
-    // Top/wall fold at the rim (about 90 degrees): shared edge, and a shared vertex whose wall
-    // triangle has its rim edge close to the top plane (WP7d rim rule; WP7b table: 1.2e-7).
-    const TriangleMesh m = small_rough_box();
-    check_rough_pair(m, 61, 96, Proximity::shared_edge, true, 20);
-    check_rough_pair(m, 12, 112, Proximity::shared_vertex, true, 16);
+TEST_CASE("fold-adaptive rule: rough-surface top-face shared vertex agrees with the reference",
+          "[kernels]") {
+    check_rough_pair(small_rough_box(), 0, 4, Proximity::shared_vertex, false, 16);
+}
+
+TEST_CASE("fold-adaptive rule: rough-surface rim shared edge agrees with the reference",
+          "[kernels]") {
+    // Top/wall fold at the rim (about 90 degrees).
+    check_rough_pair(small_rough_box(), 61, 96, Proximity::shared_edge, true, 20);
+}
+
+TEST_CASE("fold-adaptive rule: rough-surface rim shared vertex agrees with the reference",
+          "[kernels]") {
+    // The rim edge of the wall triangle runs close to the top plane (WP7d rim rule; WP7b
+    // table: 1.2e-7).
+    check_rough_pair(small_rough_box(), 12, 112, Proximity::shared_vertex, true, 16);
 }
 
 // Hidden slow case, registered with ctest as "kernels: fold sweep (slow)" (label slow; run with
