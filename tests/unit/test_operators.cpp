@@ -28,16 +28,21 @@
 /// threshold and determinism, the degree selection (D/h in {2, 3, 5, 10}, |k| h in {0.1, 0.5,
 /// 1, 2}, one material per case) and its bounds, symmetry per material, static limit, jump
 /// block, options, slots, coplanar K, non-finite guard, WP7 golden blocks (hard-coded blocks of
-/// four pairs with the WP7 options, 1e-12) and a 2 000-call far-pair timing smoke check. The
-/// full sweeps are hidden test cases tagged [.slow] (not registered by catch_discover_tests):
-/// far (6 pairs), near against the composite brute force, WP7 touching (8 pairs, all
-/// materials, degrees {4, 5, 6, 8, 9, 10, 12}), polar and relative-coordinate reference
-/// convergence, the graded touching sweep (13 pairs, errors by level), sharp folds (60 and 30
-/// degrees, asymmetric and skewed hinges, by level), the degree-selection sweep (D/h 1.1 to 15,
-/// |k| h 0.1 to 3, all materials), the class-boundary pairs of the n = 4 Mie mesh, 10 000
-/// far-pair calls and the cost comparison with the WP7 options. Run them with
-/// `build/<preset>/tests/specklebem_unit_tests "[slow]"`. The zero-allocation check lives in
-/// its own executable (test_operators_alloc.cpp) because it replaces the global operator new.
+/// four pairs with the WP7 options, 1e-12), a 2 000-call far-pair timing smoke check, and the
+/// WP7c fold-adaptive rule (30- and 60-degree skewed shared edges and a 30-degree skewed shared
+/// vertex to 1e-7; folds >= 90 degrees and all icosphere touching pairs bitwise equal to the WP7b
+/// rule, golden checksums). The full sweeps are hidden test cases tagged [.slow] (not registered
+/// by catch_discover_tests): far (6 pairs), near against the composite brute force, WP7
+/// touching (8 pairs, all materials, degrees {4, 5, 6, 8, 9, 10, 12}), polar and
+/// relative-coordinate reference convergence, the graded touching sweep (13 pairs, errors by
+/// level), the degree-selection sweep (D/h 1.1 to 15, |k| h 0.1 to 3, all materials), the
+/// class-boundary pairs of the n = 4 Mie mesh, 10 000 far-pair calls and the cost comparison
+/// with the WP7 options; run them with `build/<preset>/tests/specklebem_unit_tests "[slow]"`.
+/// The WP7c fold sweep (dihedral angles 30 to 179 degrees x regular / skewed / obtuse x shared
+/// edge / shared vertex, accuracy and cost against the WP7b rule) is registered with ctest as
+/// "kernels: fold sweep (slow)" (label slow, `ctest --preset release -L slow`). The
+/// zero-allocation check lives in its own executable (test_operators_alloc.cpp) because it
+/// replaces the global operator new.
 ///
 /// Geometry scale: the work package names make_icosphere(1e-6, 1) (longest edge ~0.62 um).
 /// At 500 nm this is k h = 7.8 in vacuum, 33 in Si and 24 in Ag, i.e. 1.2 to 5 wavelengths
@@ -2443,12 +2448,11 @@ struct FoldShape {
     Real x2, y2, x3, r3, xd, rd;
 };
 constexpr std::array<FoldShape, 3> kEdgeShapes = {{{"regular", 0.4, 0.8, 0.55, 0.85, 0.0, 0.0},
-                                                    {"skewed", 0.3, 0.9, 0.8, 0.55, 0.0, 0.0},
-                                                    {"obtuse", -0.2, 0.7, 0.55, 0.85, 0.0, 0.0}}};
-constexpr std::array<FoldShape, 3> kVertexShapes = {
-    {{"regular", 0.4, 0.8, 0.3, 0.8, -0.3, 0.6},
-     {"skewed", 0.3, 0.9, 0.75, 0.45, -0.1, 0.7},
-     {"obtuse", -0.2, 0.7, 0.2, 0.8, -0.6, 0.0}}};
+                                                   {"skewed", 0.3, 0.9, 0.8, 0.55, 0.0, 0.0},
+                                                   {"obtuse", -0.2, 0.7, 0.55, 0.85, 0.0, 0.0}}};
+constexpr std::array<FoldShape, 3> kVertexShapes = {{{"regular", 0.4, 0.8, 0.3, 0.8, -0.3, 0.6},
+                                                     {"skewed", 0.3, 0.9, 0.75, 0.45, -0.1, 0.7},
+                                                     {"obtuse", -0.2, 0.7, 0.2, 0.8, -0.6, 0.0}}};
 /// Shared edge with obtuse angles at A in both triangles (106 and 120 degrees): informational.
 constexpr FoldShape kDoublyObtuse = {"doubly obtuse", -0.2, 0.7, -0.35, 0.6, 0.0, 0.0};
 constexpr std::array<Real, 8> kFoldAngles = {30.0, 45.0, 60.0, 75.0, 89.0, 90.0, 120.0, 179.0};
@@ -2489,8 +2493,8 @@ GradedResult fold_errors(const FoldPair& p, const std::vector<NamedRegion>& regs
         res.err = std::max({res.err, rel_diff(b12.L, ref[g].L), rel_diff(b12.K, ref[g].K),
                             rel_diff(b21.L.transpose(), ref[g].L),
                             rel_diff(b21.K.transpose(), ref[g].K)});
-        res.asym = std::max({res.asym, rel_diff(b21.L.transpose(), b12.L),
-                             rel_diff(b21.K.transpose(), b12.K)});
+        res.asym = std::max(
+            {res.asym, rel_diff(b21.L.transpose(), b12.L), rel_diff(b21.K.transpose(), b12.K)});
     }
     return res;
 }
@@ -2674,8 +2678,7 @@ TEST_CASE("element_blocks (full): fold sweep", "[kernels][.slow][fold]") {
                         element_blocks(space, p.t2, p.t1, regs[1].p, o, L, K);
                     }
                     us[static_cast<std::size_t>(w)] =
-                        std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0)
-                            .count() *
+                        std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count() *
                         1e6 / 200.0;
                 }
                 const std::size_t cls = (edge ? 0U : 2U) + (deg >= 90.0 ? 1U : 0U);

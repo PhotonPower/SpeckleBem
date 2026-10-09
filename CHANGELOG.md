@@ -5,6 +5,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- kernels (WP7c): fold-adaptive outer rule for shared-edge and shared-vertex pairs
+  (`OperatorOptions::fold_adaptive`, default on): the test triangle is cut into Duffy pieces at
+  the singular directions through the shared vertex (projected source edges of folds below
+  90 degrees, obtuse apex angles); touching-pair error <= 7.6e-8 for dihedral angles 30 to 179
+  degrees with regular, skewed and obtuse triangles (WP7b: up to 4.5e-5 skewed / 8.7e-5 obtuse
+  at 30 degrees) at x1.7 (shared edges) / x1.45 (shared vertices) mean cost for folds below
+  90 degrees; folds >= 90 degrees with non-obtuse angles (all Mie icosphere pairs) bitwise
+  unchanged. Slow dihedral sweep registered as the ctest entry `kernels: fold sweep (slow)`
+  (label `slow`). The log-Gauss tables are checked against all 2n moments.
+- operator (WP7c): `OperatorOptions::quad_degree_rhs` (default 8, positive-interior), the
+  Dunavant degree of `op::assemble_rhs` (before: `quad_degree_near` = 19); relative error
+  <= 7.5e-14 against degree 20 for plane waves and Gaussian beams on lambda/10 meshes.
 - kernels (WP7b): graded outer quadrature for touching triangle pairs (generalised Gauss-log rules on
   Duffy sub-triangles, `OperatorOptions::outer_grading_levels`, default 4) and k-aware near/far degree
   selection (`target_accuracy`, default 1e-5, within [`quad_degree_far`, `quad_degree_near`] = [3, 19]);

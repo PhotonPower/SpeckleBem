@@ -121,12 +121,58 @@
 /// Accuracy of the analytic part at the default level 4 (self-convergence against level 6 and
 /// comparison with the relative-coordinate reference of the tests): ~3e-9 (identical, n = 8),
 /// ~6e-10 (K of folded shared edges, n = 12), ~1e-11 (shared vertices, n = 10) of the block
-/// norm, for shared-edge dihedral angles >= ~90 degrees. Sharper folds are near-singular: the
-/// far vertex of one triangle approaches the other triangle away from the shared edge, so the
-/// outer integrand varies sharply where the edge grading does not refine; the error depends on
-/// the triangle shapes (60 degrees: 1.5e-8 to 3.4e-7 at level 4, 3.4e-9 at level 6; 30
-/// degrees: 6.8e-8 to 4.5e-5 at level 4, up to 3.7e-6 at level 6). Geometric Gauss-Legendre grading
-/// needs ~30 levels (10^4 points) for 1e-10.
+/// norm, for shared-edge dihedral angles >= ~90 degrees and non-obtuse angles at the shared
+/// vertices. Sharper folds and obtuse angles need the fold-adaptive rule below (with this table
+/// alone: 60 degrees 1.5e-8 to 3.4e-7, 30 degrees 6.8e-8 to 4.5e-5, obtuse angles 2e-8 to
+/// 9e-5). Geometric Gauss-Legendre grading needs ~30 levels (10^4 points) for 1e-10.
+///
+/// Fold-adaptive outer rule (WP7c, OperatorOptions::fold_adaptive, default on; shared edges and
+/// shared vertices). In the Duffy coordinates of a sub-triangle with apex x (a shared vertex)
+/// and opposite side p1 p2, r = x + u w(v), w(v) = (p1 - x) + v (p2 - p1), every singular
+/// feature of the analytic part through x is a function of the squared distance of w(v) from
+/// it, a quadratic in v whose complex zero v_f + j q marks the singularity in the angular
+/// coordinate v:
+///  * the apex itself, |w|^2 (log |r - x| terms; the zero comes close to [0, 1] when the angle at
+///    x is obtuse or the side p1 p2 is long compared with the height of x above it);
+///  * the source edges from x, |w|^2 - (w . d)^2 for the unit edge direction d, counted only if
+///    the closest approach is on the forward side of the edge: the shared edge (zero at an end,
+///    q = 0) and the other source edge(s) from x, whose zero lies near the projection of that
+///    edge onto the test plane with q of the order of its elevation angle (sharp folds).
+/// A zero within 1e-3 of an end grades that side (log-Gauss in v; both ends: the piece is
+/// halved); otherwise the piece is split until every zero is at least 0.5 side lengths from
+/// [0, 1] (at its real part if inside, else at distance / 0.5 from the nearer end; at most 8
+/// levels, 48 pieces). The radial direction uses the log-Gauss rule with 6 + 2 l points (14 at
+/// level 4, at most 16), the angular direction 2 + 2 l points (log-Gauss on graded pieces,
+/// Gauss-Legendre otherwise; 10 at level 4). Measured with 12 radial points the obtuse and
+/// 30-degree shared-vertex cases stayed at 1e-7 to 2e-6: the remaining error is radial, from
+/// source vertices not at the apex (vertex A seen from the pieces of apex B behind an obtuse
+/// angle, the far source vertex of sharp folds) that come close to the far side of a piece.
+/// Partition:
+///  * shared edge A B (test vertex C, source vertex C', P the projection of C' onto the test
+///    plane with barycentric coordinates lambda): for lambda_C > 0.1 (fold clearly below 90
+///    degrees) the source edges A C' and B C' project onto the rays A S and B S with S = P
+///    clipped into T along those rays, S = (max(lambda_A, 0) A + max(lambda_B, 0) B + lambda_C C)
+///    / sum; the pieces (A, M, S), (A, S, C) [features A, A B, A C'] and (B, M, S), (B, S, C)
+///    [B, B A, B C'] have the near-singular rays as sides (otherwise a ray from B would cross
+///    the pieces of apex A, where it is not a feature). If S is closer than 0.2 |AB| to A or B,
+///    or lambda_C <= 0.1, the WP7b partition (A, M, C), (B, M, C) is used, with all features
+///    for folds below 90 degrees (lambda_C > 1e-6) and only the apex and the shared edge for
+///    folds >= 90 degrees;
+///  * shared vertex A: the single piece (A, B, C), features A and, if a source vertex projects
+///    into the wedge of T at A (fold below 90 degrees), the two source edges from A.
+/// If no piece is split and the partition and gradings are those of WP7b (always for folds >=
+/// 90 degrees with non-obtuse angles at the shared vertices, e.g. every touching pair of an
+/// icosphere), the WP7b table is used unchanged (bitwise identical blocks). Accuracy (default
+/// level 4, |k| h <= 0.78, both orderings, vacuum / Si / Ag; tests/unit/test_operators.cpp
+/// "fold sweep", relative-coordinate reference converged to 1e-9): <= 7.6e-8 for dihedral angles
+/// 30 to 179 degrees, regular, skewed (projected source edge at a small angle to the shared
+/// edge) and obtuse (106 degrees at the shared vertex) shared-edge and shared-vertex pairs,
+/// where the WP7b table gave up to 4.5e-5 (skewed 30 degrees) and 8.7e-5 (obtuse shared vertex,
+/// 30 degrees). Both triangles obtuse at the same shared vertex (106 and 120 degrees) reach
+/// 3.8e-8 to 5.3e-7 at level 4 and <= 7.9e-8 at level 6. Cost (release, Si, mean time per call
+/// against the WP7b table): folds below 90 degrees x1.7 (shared edges, at most x2.4) and x1.45
+/// (shared vertices, at most x2.3); folds >= 90 degrees unchanged except obtuse shapes (aspect
+/// splits, x1.1 to x1.7). The pieces are built per call on the stack (no allocation).
 ///
 /// The remainder of the graded path uses a Dunavant outer rule (it is far smoother: rem has
 /// R^2 and R^3 terms, the analytic part carries all of 1/R and R): degree quad_degree_sing for
@@ -545,10 +591,10 @@ struct GradedTables {
                 }
                 const Real jp = static_cast<Real>(j + 1);
                 if (std::abs(s0 - 1.0 / jp) > 1e-14 || std::abs(s1 + 1.0 / (jp * jp)) > 1e-14) {
-                    throw std::logic_error("operators.cpp: corrupted log-Gauss table, n = " +
-                                           std::to_string(n) + ", moment " + std::to_string(j) +
-                                           ": " + std::to_string(s0 - 1.0 / jp) + ", " +
-                                           std::to_string(s1 + 1.0 / (jp * jp)));
+                    throw std::logic_error(
+                        "operators.cpp: corrupted log-Gauss table, n = " + std::to_string(n) +
+                        ", moment " + std::to_string(j) + ": " + std::to_string(s0 - 1.0 / jp) +
+                        ", " + std::to_string(s1 + 1.0 / (jp * jp)));
                 }
             }
         }
@@ -955,8 +1001,8 @@ struct PieceList {
     std::array<DuffyPiece, kMaxPieces> p;
     std::array<Feature, 4> features{};  ///< features of the current apex
     std::size_t n_features = 0;
-    Real min_area = 0.0;  ///< pieces below this area are dropped (degenerate slivers)
-    bool changed = false; ///< a piece was split or the partition differs from the WP7b one
+    Real min_area = 0.0;   ///< pieces below this area are dropped (degenerate slivers)
+    bool changed = false;  ///< a piece was split or the partition differs from the WP7b one
 };
 
 /// Complex zero v_f + j q (q >= 0) of the squared distance |w|^2 - (w . d)^2 (ray) or |w|^2
@@ -1083,8 +1129,8 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
         // features; otherwise only the apex (obtuse angles).
         const std::array<Real, 3> l0 = projected(far[0]);
         const std::array<Real, 3> l1 = projected(far[1]);
-        const bool folded = (l0[1] > kFoldTol && l0[2] > kFoldTol) ||
-                            (l1[1] > kFoldTol && l1[2] > kFoldTol);
+        const bool folded =
+            (l0[1] > kFoldTol && l0[2] > kFoldTol) || (l1[1] > kFoldTol && l1[2] > kFoldTol);
         if (folded) {
             set_features(pl, A, {far[0], far[1]});
         } else {
@@ -1115,8 +1161,8 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
             set_features(pl, B, {A});
         }
         add_piece(pl, B, M, C, 0, 0);
-        return folded || pl.changed || n_a != 1 || pl.count != 2 ||
-               pl.p[0].grade != Grade::at_p1 || pl.p[1].grade != Grade::at_p1;
+        return folded || pl.changed || n_a != 1 || pl.count != 2 || pl.p[0].grade != Grade::at_p1 ||
+               pl.p[1].grade != Grade::at_p1;
     }
     // Fold below 90 degrees: the source edges A C' and B C' project onto the rays A S and B S
     // (S = P clipped into T along those rays), which become sides of the pieces.
@@ -1322,8 +1368,8 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
             bool adaptive = false;
             if (opt.fold_adaptive && kind != GradedKind::identical) {
                 const std::array<Vec3, 3> src_abc = shared_first(mesh, ts, tt);
-                const std::array<Vec3, 2> far =
-                    kind == GradedKind::shared_edge ? std::array<Vec3, 2>{src_abc[2], src_abc[2]}
+                const std::array<Vec3, 2> far = kind == GradedKind::shared_edge
+                                                    ? std::array<Vec3, 2>{src_abc[2], src_abc[2]}
                                                     : std::array<Vec3, 2>{src_abc[1], src_abc[2]};
                 adaptive = fold_pieces(kind, abc, far, pieces);
             }
