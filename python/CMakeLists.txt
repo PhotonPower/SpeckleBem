@@ -1,4 +1,7 @@
-pybind11_add_module(_specklebem MODULE src/bindings.cpp)
+pybind11_add_module(_specklebem MODULE
+    src/bindings.cpp
+    src/bind_excitation.cpp
+    src/bind_geometry.cpp)
 target_link_libraries(_specklebem PRIVATE SpeckleBem::specklebem)
 target_compile_definitions(_specklebem PRIVATE VERSION_INFO="${PROJECT_VERSION}")
 set_target_properties(_specklebem PROPERTIES
@@ -8,7 +11,8 @@ set_target_properties(_specklebem PROPERTIES
 # `PYTHONPATH=<build>/python python3 -c "import specklebem"` works without installing
 # (CI and local tests). Listed explicitly, like the C++ sources.
 set(SPECKLEBEM_PYTHON_FILES
-    specklebem/__init__.py)
+    specklebem/__init__.py
+    specklebem/rough_surface.py)
 foreach(_py IN LISTS SPECKLEBEM_PYTHON_FILES)
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/${_py} ${CMAKE_CURRENT_BINARY_DIR}/${_py} COPYONLY)
 endforeach()

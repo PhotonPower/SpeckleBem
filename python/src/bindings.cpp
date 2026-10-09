@@ -1,5 +1,11 @@
 /// pybind11 bindings. Zero-copy NumPy interop via Eigen; the Python package
 /// `specklebem` wraps this module with a friendlier API (python/specklebem/).
+///
+/// Exceptions: pybind11's defaults map std::invalid_argument, std::domain_error and
+/// std::length_error to ValueError, std::overflow_error to OverflowError, std::bad_alloc to
+/// MemoryError and every other std::exception (std::runtime_error, std::logic_error) to
+/// RuntimeError. std::out_of_range (e.g. DispersiveMaterial outside its table) is mapped to
+/// ValueError instead of IndexError by a module-local translator.
 #include "specklebem/core/config.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/formulation/formulation.hpp"
@@ -10,12 +16,26 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <exception>
+#include <stdexcept>
+
+#include "common.hpp"
+
 namespace py = pybind11;
 using namespace specklebem;
 
 PYBIND11_MODULE(_specklebem, m) {
     m.doc() = "SpeckleBem core bindings";
     m.attr("__version__") = VERSION_INFO;
+    py::register_local_exception_translator([](std::exception_ptr p) {
+        try {
+            if (p) {
+                std::rethrow_exception(p);
+            }
+        } catch (const std::out_of_range& e) {
+            PyErr_SetString(PyExc_ValueError, e.what());
+        }
+    });
 
     m.def("has_openmp", &has_openmp);
     m.def("has_cuda", &has_cuda);
@@ -43,6 +63,15 @@ PYBIND11_MODULE(_specklebem, m) {
     m.def("vacuum", &material::vacuum);
     m.def("silver_500nm", &material::silver_500nm);
     m.def("silicon_500nm", &material::silicon_500nm);
+    m.def("field_decay_length",
+          py::overload_cast<const material::Material&, Real>(&material::field_decay_length),
+          py::arg("material"), py::arg("wavelength"));
+    m.def("field_decay_length", py::overload_cast<Complex, Real>(&material::field_decay_length),
+          py::arg("eps_r"), py::arg("wavelength"));
+    py::class_<material::DispersiveMaterial>(m, "DispersiveMaterial")
+        .def(py::init<VectorXr, VectorXc>(), py::arg("wavelengths"), py::arg("refractive_indices"))
+        .def("at_wavelength", &material::DispersiveMaterial::at_wavelength, py::arg("wavelength"))
+        .def("at", &material::DispersiveMaterial::at_wavelength, py::arg("wavelength"));
 
     py::enum_<formulation::Kind>(m, "Formulation")
         .value("PMCHWT", formulation::Kind::PMCHWT)
@@ -54,5 +83,7 @@ PYBIND11_MODULE(_specklebem, m) {
         return py::make_tuple(r.kind, r.diagonal_preconditioner);
     });
 
-    // Mesh, excitation, Simulation, post-processing: added in Phases 1-6.
+    specklebem::python::bind_geometry(m);
+    specklebem::python::bind_excitation(m);
+    // Simulation, operators, post-processing, I/O: WP14b2.
 }
