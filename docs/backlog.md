@@ -61,6 +61,12 @@ n ≤ 3 (2N ≤ 3 840).
   Ag sphere 0.078 % at λ/13 met, the λ/20 case awaits a large node; symmetry met; Fresnel (WP12) deferred.
 - Phase 3 (GMRES, preconditioners, `Simulation` driver, formulation study) is broken down when WP9 lands.
 
+## Phase 3
+
+| WP | Title | Phase | Depends on | Files | Acceptance criterion | Status | Branch | Issue |
+|----|-------|-------|------------|-------|----------------------|--------|--------|-------|
+| WP13 | `solver::gmres` (complex, full and restarted, left/right preconditioning) with `IdentityPreconditioner` / `DiagonalPreconditioner` | 3 | WP8, WP9 | `src/solver/gmres.cpp`, `src/solver/preconditioner.cpp`, `tests/unit/test_gmres.cpp`, `tests/validation_large/test_gmres_vs_lu_large.cpp` | Full GMRES agrees with LU on random and dense BEM systems; left-Jacobi iterations invariant under row scaling (issue #15); docs/05 "GMRES vs LU, 2·10⁴ unknowns": Si rough-surface box (2N = 19 968), ICTF unpreconditioned, tol 1e-6, converged with true residual ≤ 1e-6 | review | `wp/13-gmres` | — |
+
 ## Platform and tooling
 
 | WP | Title | Phase | Depends on | Files | Acceptance criterion | Status | Branch | Issue |

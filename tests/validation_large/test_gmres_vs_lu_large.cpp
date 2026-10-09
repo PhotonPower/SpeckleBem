@@ -15,8 +15,9 @@
 // basis adds 16 (iterations + 1) 2N bytes. SKIPs in unoptimised builds and when Z plus the LU
 // copy exceed 60 % of the physical memory.
 //
-// Measured (win-release, 24 cores, OpenBLAS): see the WARN output and
-// benchmarks/results/gmres_vs_lu.md.
+// Measured 2026-10-09 (win-release, 24 cores, 128 GB, OpenBLAS; 182 s in total): assembly
+// 10.4 s; full GMRES 330 iterations in 87 s, monitored = true residual 9.67e-7; LU 84.8 s,
+// residual 2.7e-15, rcond 8.9e-8; |x_GMRES - x_LU| / |x_LU| = 5.3e-6; peak RSS 12.8 GB.
 #include "specklebem/basis/rwg.hpp"
 #include "specklebem/excitation/excitation.hpp"
 #include "specklebem/formulation/formulation.hpp"
@@ -45,7 +46,7 @@ double seconds_since(std::chrono::steady_clock::time_point t0) {
 
 }  // namespace
 
-TEST_CASE("GMRES vs LU large: Si rough-surface box, 2N ~ 2e4, ICTF unpreconditioned",
+TEST_CASE("gmres vs LU large: Si rough-surface box, 2N ~ 2e4, ICTF unpreconditioned",
           "[validation-large][gmres]") {
 #ifndef NDEBUG
     SKIP("validation-large cases run in optimised builds only");

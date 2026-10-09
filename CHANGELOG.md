@@ -5,6 +5,16 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver (WP13): `solver::gmres`, complex GMRES (Saad & Schultz; MGS Arnoldi with one
+  re-orthogonalisation pass, Givens rotations, happy-breakdown and singular-Krylov handling),
+  full or restarted (`GmresParams::restart`), left or right preconditioning
+  (`PreconditionerSide`, default left: the stopping criterion is the preconditioned residual,
+  invariant under row scaling with Jacobi, issue #15), `GmresResult::true_relative_residual`;
+  `DiagonalPreconditioner` (validated, stores 1/d). Unit tests `tests/unit/test_gmres.cpp`
+  (LU agreement, termination in ≤ n steps, breakdown, restart, row-scaling invariance, right
+  preconditioning, errors, dense BEM sphere systems for Si/ICTF and Ag/PMCHWT + Jacobi);
+  validation-large case `tests/validation_large/test_gmres_vs_lu_large.cpp` (Si rough-surface
+  box, 2N = 19 968, GMRES vs LU).
 - tooling (WP-W1): native Windows build with MSYS2: presets `win-release` (UCRT64 GCC, OpenMP,
   OpenBLAS) and `win-debug` (CLANG64 Clang/libc++, ASan + UBSan, `-Werror`), a Windows MSYS2
   UCRT64 CI job, `.gitattributes` (LF checkouts everywhere), Windows memory guard of the dense
