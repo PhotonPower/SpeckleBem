@@ -80,6 +80,7 @@ add_executable(specklebem_validation_tests
     validation/test_assembler_mie.cpp
     validation/test_mie_sphere_dense.cpp
     validation/test_simulation_mie.cpp
+    validation/test_mlfmm_simulation.cpp
     support/system_memory.cpp
     # validation/test_mie_sphere_mlfmm.cpp
     # validation/test_mlfmm_vs_dense.cpp
@@ -96,6 +97,7 @@ catch_discover_tests(specklebem_validation_tests PROPERTIES SKIP_RETURN_CODE 4 L
 add_executable(specklebem_validation_large_tests
     validation_large/test_mie_sphere_dense_large.cpp
     validation_large/test_gmres_vs_lu_large.cpp
+    validation_large/test_mlfmm_vs_dense_large.cpp
     support/system_memory.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
