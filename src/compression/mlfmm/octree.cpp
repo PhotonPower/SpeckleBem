@@ -18,6 +18,9 @@ namespace specklebem::mlfmm {
 namespace {
 
 constexpr int kMaxLevels = 21;  // finest level 20: 3 x 20 bits of a 64-bit Morton code
+/// Relative padding of the root cube on every side (fraction of the largest extent), so
+/// that no point lies on the root boundary up to rounding.
+constexpr Real kRootPadding = 1e-6;
 
 std::size_t sz(Index i) {
     return static_cast<std::size_t>(i);
@@ -109,31 +112,38 @@ void Octree::build(const basis::RwgSpace& space) {
     const auto& edges = space.mesh().edges();
     const Index num = space.size();
 
+    // Root: the vertex bounding box of the mesh (TriangleMesh::bounding_box()), turned into a
+    // cube anchored at its lower corner and padded by kRootPadding * extent on every side.
+    // Anchoring (rather than centring) keeps flat or thin geometry inside one layer of boxes
+    // instead of cutting it at its mid-plane. The midpoints lie in the vertex box (convex).
+    const auto [lo, hi] = space.mesh().bounding_box();
+    if (!lo.allFinite() || !hi.allFinite()) {
+        throw std::invalid_argument("Octree: non-finite vertex coordinates");
+    }
+    const Real extent = (hi - lo).maxCoeff();
+    const Real pad = kRootPadding * extent;
+    const Vec3 origin = lo - Vec3::Constant(pad);
+    root_size_ = extent > 0.0 ? extent + 2.0 * pad : wavelength_;
+    root_center_ = origin + Vec3::Constant(0.5 * root_size_);
+
     std::vector<Vec3> mid(sz(num));
-    Vec3 lo = Vec3::Constant(std::numeric_limits<Real>::infinity());
-    Vec3 hi = -lo;
     for (Index n = 0; n < num; ++n) {
-        const Vec3 m = 0.5 * (vertices.row(edges(n, 0)) + vertices.row(edges(n, 1))).transpose();
-        if (!m.allFinite()) {
+        mid[sz(n)] = 0.5 * (vertices.row(edges(n, 0)) + vertices.row(edges(n, 1))).transpose();
+        if (!mid[sz(n)].allFinite()) {  // a NaN need not propagate into the min / max above
             throw std::invalid_argument("Octree: non-finite vertex coordinates");
         }
-        mid[sz(n)] = m;
-        lo = lo.cwiseMin(m);
-        hi = hi.cwiseMax(m);
     }
-    root_center_ = 0.5 * (lo + hi);
-    const Real extent = (hi - lo).maxCoeff();
-    root_size_ = extent > 0.0 ? extent * (1.0 + 1e-6) : wavelength_;
 
-    // Deepest admissible level: box edge >= min_box_size_lambda * lambda and < max_levels.
-    const Real min_size = params_.min_box_size_lambda * wavelength_;
+    // Deepest admissible level: box edge >= (1 - kMinBoxSizeTolerance) * min_box_size_lambda
+    // * lambda and level < max_levels.
+    const Real min_size = (1.0 - kMinBoxSizeTolerance) * params_.min_box_size_lambda * wavelength_;
     int cap = 0;
     while (cap + 1 < params_.max_levels && std::ldexp(root_size_, -(cap + 1)) >= min_size) {
         ++cap;
     }
 
-    // Morton codes on the deepest admissible level, sorted (ties by basis index).
-    const Vec3 origin = root_center_ - Vec3::Constant(0.5 * root_size_);
+    // Morton codes on the deepest admissible level, sorted (ties by basis index). The clamp
+    // maps points on the upper root boundary (and rounding just outside) into the last box.
     const Real h = std::ldexp(root_size_, -cap);
     const Index cells = Index{1} << cap;
     std::vector<std::pair<std::uint64_t, Index>> keys(sz(num));
@@ -231,15 +241,15 @@ void Octree::build_lists() {
         for (const Index b : level_boxes_[sz(l)]) {
             Box& box = boxes_[sz(b)];
             const Box& parent = boxes_[sz(box.parent)];
-            auto add_children = [&](const Box& p) {
-                for (const Index ch : p.children) {
+            // Only the children of the parent's near boxes: the parent's own children (the
+            // siblings) share one 2x2x2 block with the box and are therefore always near.
+            for (const Index pn : parent.near_list) {
+                for (const Index ch : boxes_[sz(pn)].children) {
                     if (ch >= 0 && chebyshev(boxes_[sz(ch)].ijk, box.ijk) > 1) {
                         box.interaction_list.push_back(ch);
                     }
                 }
-            };
-            add_children(parent);
-            for (const Index pn : parent.near_list) add_children(boxes_[sz(pn)]);
+            }
             std::sort(box.interaction_list.begin(), box.interaction_list.end());
         }
     }

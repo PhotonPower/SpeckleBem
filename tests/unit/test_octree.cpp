@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 using namespace specklebem;
@@ -27,6 +28,11 @@ namespace {
 
 std::size_t sz(Index i) {
     return static_cast<std::size_t>(i);
+}
+
+/// Smallest admissible box edge for the given floor (the octree's level criterion).
+Real floor_size(const OctreeParams& p, Real lambda) {
+    return (1.0 - mlfmm::kMinBoxSizeTolerance) * p.min_box_size_lambda * lambda;
 }
 
 std::uint64_t morton(const std::array<Index, 3>& ijk, int bits) {
@@ -73,6 +79,15 @@ void check_structure(const Octree& tree, const basis::RwgSpace& space, Real lamb
     }
     REQUIRE(std::all_of(seen.begin(), seen.end(), [](int c) { return c == 1; }));
 
+    // Root: the vertex bounding box, padded and anchored at its lower corner.
+    const auto [lo, hi] = space.mesh().bounding_box();
+    const Real extent = (hi - lo).maxCoeff();
+    CHECK(tree.box_size(0) >= extent);
+    CHECK(tree.box_size(0) <= extent * (1.0 + 1e-5));
+    const Vec3 root_min = tree.root_center() - Vec3::Constant(0.5 * tree.box_size(0));
+    CHECK((root_min - lo).cwiseAbs().maxCoeff() <= 1e-5 * extent);
+    CHECK((root_min - lo).maxCoeff() <= 0.0);
+
     const auto& boxes = tree.boxes();
     REQUIRE(boxes[0].parent == -1);
     REQUIRE(boxes[0].num_elements == n);
@@ -80,7 +95,7 @@ void check_structure(const Octree& tree, const basis::RwgSpace& space, Real lamb
         const auto& ids = tree.boxes_at_level(l);
         const Real s = tree.box_size(l);
         if (l >= 1)
-            CHECK(s >= p.min_box_size_lambda * lambda);
+            CHECK(s >= floor_size(p, lambda));
         Index next = 0;
         std::uint64_t prev_code = 0;
         for (std::size_t q = 0; q < ids.size(); ++q) {
@@ -128,7 +143,7 @@ void check_structure(const Octree& tree, const basis::RwgSpace& space, Real lamb
     // the split; the leaf level is the first one meeting the limit.
     const int leaf = tree.leaf_level();
     const bool can_split =
-        leaf + 1 < p.max_levels && tree.box_size(leaf) / 2 >= p.min_box_size_lambda * lambda;
+        leaf + 1 < p.max_levels && tree.box_size(leaf) / 2 >= floor_size(p, lambda);
     Index leaf_max = 0;
     for (const Index b : tree.boxes_at_level(leaf)) {
         leaf_max = std::max(leaf_max, boxes[sz(b)].num_elements);
@@ -144,7 +159,8 @@ void check_structure(const Octree& tree, const basis::RwgSpace& space, Real lamb
     }
 }
 
-/// Near / interaction list properties and the brute-force completeness over all leaf pairs.
+/// Near / interaction list properties, an independent O(B^2) classification of every
+/// same-level box pair from ijk, and the brute-force completeness over all leaf pairs.
 /// Returns the number of leaf pairs checked.
 std::size_t check_lists(const Octree& tree) {
     const auto& boxes = tree.boxes();
@@ -153,34 +169,37 @@ std::size_t check_lists(const Octree& tree) {
         const auto self = static_cast<Index>(i);
         REQUIRE(std::is_sorted(b.near_list.begin(), b.near_list.end()));
         REQUIRE(std::is_sorted(b.interaction_list.begin(), b.interaction_list.end()));
-        Index expected_near = 0;
-        for (Index dk = -1; dk <= 1; ++dk) {
-            for (Index dj = -1; dj <= 1; ++dj) {
-                for (Index di = -1; di <= 1; ++di) {
-                    if ((di != 0 || dj != 0 || dk != 0) &&
-                        tree.find_box(b.level, {b.ijk[0] + di, b.ijk[1] + dj, b.ijk[2] + dk}) >=
-                            0) {
-                        ++expected_near;
-                    }
-                }
-            }
-        }
-        REQUIRE(static_cast<Index>(b.near_list.size()) == expected_near);
         for (const Index nb : b.near_list) {
             REQUIRE(nb != self);
-            REQUIRE(boxes[sz(nb)].level == b.level);
-            REQUIRE(chebyshev(b, boxes[sz(nb)]) == 1);
             REQUIRE(contains(boxes[sz(nb)].near_list, self));  // symmetric
         }
         REQUIRE(b.interaction_list.size() <= 189);
         if (b.level < 2)
             REQUIRE(b.interaction_list.empty());
         for (const Index f : b.interaction_list) {
-            const Box& fb = boxes[sz(f)];
-            REQUIRE(fb.level == b.level);
-            REQUIRE(chebyshev(b, fb) > 1);
-            REQUIRE((fb.parent == b.parent || contains(boxes[sz(b.parent)].near_list, fb.parent)));
-            REQUIRE(contains(fb.interaction_list, self));  // symmetric
+            REQUIRE(contains(boxes[sz(f)].interaction_list, self));  // symmetric
+        }
+    }
+    // Expected lists from the integer coordinates alone: near = Chebyshev distance 1,
+    // interaction = distance > 1 with parents at distance <= 1 (same or adjacent parent).
+    // The level's boxes are in ascending index order, so the expected lists come out sorted.
+    for (int l = 0; l < tree.levels(); ++l) {
+        const auto& ids = tree.boxes_at_level(l);
+        for (const Index a : ids) {
+            const Box& ba = boxes[sz(a)];
+            std::vector<Index> near, inter;
+            for (const Index c : ids) {
+                const Box& bc = boxes[sz(c)];
+                const Index d = chebyshev(ba, bc);
+                if (d == 1) {
+                    near.push_back(c);
+                } else if (d > 1 && l >= 2 &&
+                           chebyshev(boxes[sz(ba.parent)], boxes[sz(bc.parent)]) <= 1) {
+                    inter.push_back(c);
+                }
+            }
+            REQUIRE(ba.near_list == near);
+            REQUIRE(ba.interaction_list == inter);
         }
     }
     // Completeness: each leaf pair is near or translated at exactly one level.
@@ -211,50 +230,119 @@ std::size_t check_lists(const Octree& tree) {
     return pairs;
 }
 
-geometry::TriangleMesh rough_box() {
+geometry::TriangleMesh rough_box(Real depth) {
     geometry::RoughSurfaceParams p;
     p.edge_length_L = 2e-6;
     p.rms_roughness = 50e-9;
     p.correlation_length = 200e-9;
     p.mesh_size = 100e-9;
     p.seed = 20261009;
-    p.box_depth = 0.5e-6;
+    p.box_depth = depth;
     return geometry::make_rough_surface_mesh(p);
+}
+
+/// Open square plate [0, side]^2 in the plane z = 0 (m x m cells, two triangles each); with
+/// `jitter` the vertices alternate between z = +1e-15 and -1e-15 m.
+geometry::TriangleMesh plate(Real side, int m, bool jitter) {
+    const Index row = m + 1;
+    Vertices v(row * row, 3);
+    for (Index j = 0; j < row; ++j) {
+        for (Index i = 0; i < row; ++i) {
+            const Index r = j * row + i;
+            v(r, 0) = side * static_cast<Real>(i) / m;
+            v(r, 1) = side * static_cast<Real>(j) / m;
+            v(r, 2) = jitter ? (((i + j) % 2 != 0) ? 1e-15 : -1e-15) : 0.0;
+        }
+    }
+    Triangles t(2 * Index{m} * m, 3);
+    Index k = 0;
+    for (Index j = 0; j < m; ++j) {
+        for (Index i = 0; i < m; ++i) {
+            const Index a = j * row + i;
+            t.row(k++) << a, a + 1, a + row + 1;
+            t.row(k++) << a, a + row + 1, a + row;
+        }
+    }
+    return geometry::TriangleMesh(v, t);
+}
+
+/// Number of leading levels on which every box lies in the bottom layer (ijk[2] == 0).
+int flat_levels(const Octree& tree) {
+    for (int l = 0; l < tree.levels(); ++l) {
+        for (const Index b : tree.boxes_at_level(l)) {
+            if (tree.boxes()[sz(b)].ijk[2] != 0)
+                return l;
+        }
+    }
+    return tree.levels();
 }
 
 }  // namespace
 
-TEST_CASE("Octree: structure on icospheres and a rough box", "[octree]") {
+TEST_CASE("Octree: structure on icospheres, a thin rough box and flat plates", "[octree]") {
     struct Case {
+        std::string label;
         geometry::TriangleMesh mesh;
         Real lambda;
         OctreeParams p;
+        int min_flat_levels;  ///< leading levels expected one box layer thick
     };
     std::vector<Case> cases;
-    cases.push_back({geometry::make_icosphere(1e-6, 3), 500e-9, OctreeParams{}});
-    cases.push_back({geometry::make_icosphere(1e-6, 4), 100e-9, OctreeParams{32, 12, 0.25}});
-    cases.push_back({rough_box(), 500e-9, OctreeParams{50, 12, 0.25}});
+#ifdef NDEBUG
+    const int fine = 4;  // sphere at lambda = 100 nm: 7680 basis functions
+#else
+    const int fine = 3;  // unoptimised builds (time budget): 1920 basis functions
+#endif
+    cases.push_back({"sphere n=3", geometry::make_icosphere(1e-6, 3), 500e-9, OctreeParams{}, 1});
+    cases.push_back({"sphere fine", geometry::make_icosphere(1e-6, fine), 100e-9,
+                     OctreeParams{32, 12, 0.25}, 1});
+    // Thin box (z range < 0.5 um, root 2 um): anchored at the bottom, levels 0..2 are flat.
+    cases.push_back({"rough box", rough_box(0.3e-6), 500e-9, OctreeParams{50, 12, 0.25}, 3});
+    // Plates: zero extent in z, and +-1e-15 m jitter; leaves are one layer thick.
+    cases.push_back({"plate", plate(1e-6, 24, false), 500e-9, OctreeParams{8, 12, 0.0}, 0});
+    cases.push_back({"plate jitter", plate(1e-6, 24, true), 500e-9, OctreeParams{8, 12, 0.0}, 0});
+    std::vector<std::array<Index, 3>> flat_plate_leaves;
     for (const Case& c : cases) {
+        INFO(c.label);
         const basis::RwgSpace space(c.mesh);
         const Octree tree(space, c.lambda, c.p);
         CHECK(tree.levels() >= 3);
         check_structure(tree, space, c.lambda, c.p);
         const std::size_t pairs = check_lists(tree);
         CHECK(pairs > 0);
+        if (c.min_flat_levels > 0) {
+            CHECK(flat_levels(tree) >= c.min_flat_levels);
+            continue;
+        }
+        // Plates: every level one layer thick, 4^l boxes at most, and the same leaves with
+        // and without jitter.
+        CHECK(flat_levels(tree) == tree.levels());
+        for (int l = 0; l < tree.levels(); ++l) {
+            CHECK(tree.boxes_at_level(l).size() <= (std::size_t{1} << (2 * l)));
+        }
+        std::vector<std::array<Index, 3>> leaves;
+        for (const Index b : tree.boxes_at_level(tree.leaf_level())) {
+            leaves.push_back(tree.boxes()[sz(b)].ijk);
+        }
+        if (flat_plate_leaves.empty()) {
+            flat_plate_leaves = leaves;
+        } else {
+            CHECK(leaves == flat_plate_leaves);
+        }
     }
 }
 
 TEST_CASE("Octree: list completeness on deep trees", "[octree]") {
     const auto sphere = geometry::make_icosphere(1e-6, 3);
     const basis::RwgSpace space(sphere);
-    // Small leaves without the lambda bound: 5 levels, 824 leaves (6.8e5 pairs).
+    // Small leaves without the lambda bound: 5 levels, ~800 leaves (~6.6e5 pairs).
     const OctreeParams p{6, 12, 0.0};
     const Octree tree(space, 500e-9, p);
     CHECK(tree.levels() >= 5);
     check_structure(tree, space, 500e-9, p);
     const auto leaves = tree.boxes_at_level(tree.leaf_level()).size();
     CHECK(check_lists(tree) == leaves * leaves);
-    // A surface fills only part of the 6x6x6 parent neighbourhood (61 at most here).
+    // A surface fills only part of the 6x6x6 parent neighbourhood (~61 at most here).
     std::size_t largest = 0;
     for (const Box& b : tree.boxes()) largest = std::max(largest, b.interaction_list.size());
     CHECK(largest > 26);
@@ -264,11 +352,12 @@ TEST_CASE("Octree: lambda bound and max_levels stop the subdivision", "[octree]"
     const auto sphere = geometry::make_icosphere(1e-6, 3);
     const basis::RwgSpace space(sphere);
     const Real lambda = 500e-9;
-    const Octree tree(space, lambda, OctreeParams{1, 12, 0.25});
+    const OctreeParams bounded{1, 12, 0.25};
+    const Octree tree(space, lambda, bounded);
     const Real leaf = tree.box_size(tree.leaf_level());
-    CHECK(leaf >= 0.25 * lambda);
-    CHECK(leaf / 2 < 0.25 * lambda);  // the bound, not the element limit, stopped
-    check_structure(tree, space, lambda, OctreeParams{1, 12, 0.25});
+    CHECK(leaf >= floor_size(bounded, lambda));
+    CHECK(leaf / 2 < floor_size(bounded, lambda));  // the bound, not the element limit, stopped
+    check_structure(tree, space, lambda, bounded);
 
     const Octree capped(space, lambda, OctreeParams{1, 3, 0.0});
     CHECK(capped.levels() == 3);
@@ -279,6 +368,28 @@ TEST_CASE("Octree: lambda bound and max_levels stop the subdivision", "[octree]"
     CHECK(root_only.boxes().size() == 1);
     CHECK(root_only.boxes()[0].near_list.empty());
     CHECK(root_only.boxes()[0].num_elements == space.size());
+}
+
+TEST_CASE("Octree: 4 um sphere at 500 nm reaches lambda/4 leaves", "[octree]") {
+    // Regression: the root (vertex bounding cube of a 4 um sphere) is 8 lambda up to the
+    // padding, so the lambda/4 level (8 lambda / 2^5) must be admitted: 6 levels.
+    const auto sphere = geometry::make_icosphere(2e-6, 4);
+    const basis::RwgSpace space(sphere);
+    const Real lambda = 500e-9;
+    const OctreeParams p{4, 12, 0.25};
+    const Octree tree(space, lambda, p);
+    CHECK(tree.box_size(0) / lambda >= 8.0);
+    CHECK(tree.box_size(0) / lambda <= 8.0 * (1.0 + 1e-5));
+    CHECK(tree.levels() == 6);
+    const Real leaf = tree.box_size(tree.leaf_level());
+    CHECK(leaf >= floor_size(p, lambda));
+    CHECK(leaf <= 0.25 * lambda * (1.0 + 1e-5));
+    check_structure(tree, space, lambda, p);
+    Index leaf_max = 0;
+    for (const Index b : tree.boxes_at_level(tree.leaf_level())) {
+        leaf_max = std::max(leaf_max, tree.boxes()[sz(b)].num_elements);
+    }
+    CHECK(leaf_max <= 4);
 }
 
 TEST_CASE("Octree: invalid input and summary", "[octree]") {
@@ -324,9 +435,10 @@ TEST_CASE("Octree: build time for ~1e5 basis functions", "[octree]") {
     const Octree tree(space, 500e-9, OctreeParams{});
     const double seconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    UNSCOPED_INFO("N = " << space.size() << ", build " << seconds << " s\n" << tree.summary());
+    WARN("octree build, N = " << space.size() << ": " << seconds << " s\n" << tree.summary());
     CHECK(tree.permutation().size() == static_cast<std::size_t>(space.size()));
 #ifdef NDEBUG
+    CHECK(tree.levels() == 6);  // 8 lambda root down to lambda/4 leaves
     CHECK(seconds <= 1.0);
 #endif
 }

@@ -4,16 +4,20 @@
 /// structures", ADR 0008 §1), data layout after Gumerov, Duraiswami & Borovikova (2003).
 ///
 /// Elements are the RWG functions, positioned at their edge midpoints. The root is the cube
-/// centred at the bounding-box centre of all midpoints, edge = largest extent (1 + 1e-6)
-/// (padded so that no midpoint lies on its boundary). Box (level l, integer coordinates
-/// ijk in [0, 2^l)^3) has edge s_l = s_0 / 2^l and centre root_min + (ijk + 1/2) s_l.
+/// built from the mesh vertex bounding box [lo, hi] (geometry::TriangleMesh::bounding_box()):
+/// edge s_0 = e (1 + 2e-6) with e = max(hi - lo), anchored at the lower corner
+/// root_min = lo - 1e-6 e (padded so that no midpoint lies on its boundary; anchoring instead
+/// of centring keeps flat or thin geometry in one layer of boxes). Box (level l, integer
+/// coordinates ijk in [0, 2^l)^3) has edge s_l = s_0 / 2^l and centre
+/// root_min + (ijk + 1/2) s_l; a point on a box face shared with a higher-index box belongs
+/// to that box, points on the upper root faces to the last box.
 ///
 /// **Uniform depth.** All leaves lie on the finest level D = levels() - 1, so the level-wise
 /// interaction lists of the MLFMM passes need no adaptive (U/V/W/X) lists. D is the first
 /// level at which every box holds <= max_elements_per_leaf elements, unless a further split
-/// would make the box edge smaller than min_box_size_lambda * lambda or exceed max_levels;
-/// then D is the deepest admissible level and leaves may hold more elements. Only non-empty
-/// boxes are created.
+/// would make the box edge smaller than (1 - kMinBoxSizeTolerance) * min_box_size_lambda *
+/// lambda or exceed max_levels; then D is the deepest admissible level and leaves may hold
+/// more elements. Only non-empty boxes are created.
 ///
 /// **Order.** Boxes are stored level by level (root first), each level in Morton order (bits
 /// interleaved x, y, z with x lowest; child slot = (i & 1) | (j & 1) << 1 | (k & 1) << 2).
@@ -25,8 +29,9 @@
 ///  * near_list: boxes whose ijk differ by at most 1 per axis, **excluding the box itself**;
 ///    the self-interaction is near as well (WP19 assembles leaf-self and leaf-near_list
 ///    blocks exactly). Filled on every level.
-///  * interaction_list: children of the parent and of the parent's near_list that are not
-///    near the box (<= 189). Empty on levels 0 and 1 (every pair is near there).
+///  * interaction_list: children of the parent's near_list that are not near the box
+///    (<= 189; the parent's own children are always near). Empty on levels 0 and 1 (every
+///    pair is near there).
 /// For two leaves A, B exactly one holds: A == B or B in A.near_list, or there is exactly one
 /// level l >= 2 at which ancestor(B, l) is in ancestor(A, l).interaction_list.
 #include "specklebem/basis/rwg.hpp"
@@ -38,6 +43,13 @@
 #include <vector>
 
 namespace specklebem::mlfmm {
+
+/// Relative tolerance of the leaf-size floor: a level is admitted if its box edge is
+/// >= (1 - kMinBoxSizeTolerance) * min_box_size_lambda * lambda. The floor only guards
+/// against the gradual low-frequency breakdown (ADR 0008 derives the truncation from the
+/// actual box diagonal and checks the accuracy per level), so it need not be exact; the
+/// tolerance keeps a root that rounds to just below 2^D * floor from losing its last level.
+inline constexpr Real kMinBoxSizeTolerance = 1e-2;
 
 struct Box {
     Index parent = -1;
@@ -54,7 +66,9 @@ struct Box {
 struct OctreeParams {
     int max_elements_per_leaf = 100;  ///< >= 1
     int max_levels = 12;              ///< number of levels incl. the root, in [1, 21]
-    Real min_box_size_lambda = 0.25;  ///< do not subdivide below this * lambda (>= 0)
+    /// Leaf edge floor in wavelengths (>= 0): no level with a box edge below
+    /// (1 - kMinBoxSizeTolerance) * min_box_size_lambda * lambda.
+    Real min_box_size_lambda = 0.25;
 };
 
 class Octree {
