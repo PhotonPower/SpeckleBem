@@ -51,7 +51,8 @@
       "cacheVariables": {
         "CMAKE_PREFIX_PATH": "$env{MSYS2_PREFIX}",
         "BLA_VENDOR": "OpenBLAS",
-        "Python3_EXECUTABLE": "$env{MSYS2_PREFIX}/bin/python.exe"
+        "Python3_EXECUTABLE": "$env{MSYS2_PREFIX}/bin/python.exe",
+        "PYTHON_EXECUTABLE": "$env{MSYS2_PREFIX}/bin/python.exe"
       }
     },
     {

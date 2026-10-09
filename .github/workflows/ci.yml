@@ -55,6 +55,54 @@ jobs:
         run: |
           PYTHONPATH=build/python:python python3 -m pytest tests/python -q
 
+  # Native Windows build with MSYS2 UCRT64 (GCC, libstdc++, OpenBLAS), as the win-release
+  # preset. MSYS2's eigen3 package is Eigen 5 and deliberately not installed: Eigen 3.4.0 is
+  # fetched (cmake/Dependencies.cmake), like spdlog, Catch2 and pybind11. The checkout is LF
+  # despite the runner's core.autocrlf=true because of .gitattributes.
+  windows-msys2:
+    name: windows-2022 / msys2-ucrt64-gcc / Release
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: git
+          pacboy: >-
+            gcc:p cmake:p ninja:p openblas:p python:p python-numpy:p python-pytest:p
+
+      # The Python executables are pinned to MSYS2's python: CMake's FindPython also searches the
+      # Windows registry and would otherwise pick the runner's preinstalled CPython.
+      - name: Configure
+        run: |
+          py="$(cygpath -m "$(command -v python)")"
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPECKLEBEM_WARNINGS_AS_ERRORS=ON \
+            -DSPECKLEBEM_BUILD_PYTHON=ON \
+            -DBLA_VENDOR=OpenBLAS \
+            -DPython3_EXECUTABLE="$py" -DPYTHON_EXECUTABLE="$py"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure -LE validation
+
+      - name: Validation tests
+        run: ctest --test-dir build --output-on-failure -L '^validation$'
+
+      # MSYS2's python.exe is a native Windows program: PYTHONPATH entries are separated by ';'.
+      # The extension's DLLs (libstdc++, libgcc, libwinpthread) are found next to python.exe.
+      - name: Python tests
+        run: |
+          PYTHONPATH='build/python;python' python -m pytest tests/python -q
+
   format-check:
     runs-on: ubuntu-24.04
     steps:
