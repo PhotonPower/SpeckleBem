@@ -28,6 +28,17 @@ metadata:
   trailing spaces by hand (awk 'length > 100').
 - Non-finite inputs: `common.hpp::require_all_finite` before releasing the GIL; use it for new
   point/angle evaluation bindings.
+- WP14b2 (Simulation): Python callbacks into C++ loops run with the GIL released: the
+  std::function captures a *pointer* to the py::object (copies never touch refcounts) and does
+  `gil_scoped_acquire`; a raised Python exception travels through gmres as
+  py::error_already_set and pybind11 restores the original type (tested). `Simulation::solve`
+  copy-assigns the solution, so `currents` is returned as a copy, not a view.
+- GIL-release test pattern: run the heavy call in a worker thread, spin in the main thread and
+  assert the longest pause between ticks < 0.25 x elapsed (no GIL release -> one long pause).
+- STL import renumbers vertices (welded in first-appearance order): compare
+  `mesh.vertices[mesh.triangles]`, not `vertices`/`triangles`, in STL round trips.
+- SciPy: Ubuntu 24.04 apt ships 1.11 (`gmres(..., tol=)`), MSYS2 1.17 (`rtol=`); pick the
+  keyword via `inspect.signature`. Default `restart=20` in scipy gmres: pass restart=n.
 
-**Why:** found while implementing WP14b1 (2026-10-09); each cost a rebuild cycle.
+**Why:** found while implementing WP14b1/WP14b2 (2026-10-09); each cost a rebuild cycle.
 **How to apply:** check before adding bindings in WP14b2 and later. See [[build-pitfalls-windows]].
