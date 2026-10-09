@@ -191,15 +191,19 @@ TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p);
 ///    sigma = 50 nm, Lc = 100 nm or 200 nm, and sigma = 250 nm, Lc = 100 nm or 500 nm: M = 3,
 ///    R = 1 (8.9-9.2 %). Under WP2b (rows following the rim) these maps fell back to M = 0-2
 ///    (up to 180 %). The wall aspect ratios of very rough rims are set by the rim itself
-///    (rim steps sheared over one h-wide column) and stay at or below those of the uniform
-///    WP2 box. Safety net: every column must be strictly monotone and the middle upper node
-///    of every 2:1 cell must lie at least half its band height above the edge below it, and
-///    the transitions and half a coarse row must fit below the anchor row (or the fine band)
-///    in the mean column, and every column must keep at least a quarter of the mean column
-///    height depth - z_S (no rows squeezed against the bottom plate); otherwise M is reduced
-///    by one until the rows fit, ultimately down to the uniform box (one SBEM_WARN per
-///    mesh). With the construction above only an anchor row close to the bottom plate (a
-///    deep rim pit) or a too deep fine band triggers it.
+///    (rim steps sheared over one h-wide column, as in the uniform WP2 box); the anchor row
+///    of a steep rim also shears the 2:1 cells (graded walls up to 1.7 x the worst uniform
+///    wall triangle for sigma = 250 nm, Lc = 500 nm; below it for Lc = 100 nm).
+///    Safety net, per M: every column strictly monotone; the middle upper node of every 2:1
+///    cell at least half its band height above the edge below it; the transitions and half
+///    a coarse row fit below the anchor row (or the fine band) in the mean column; every
+///    column keeps at least a quarter of the mean column height depth - z_S; and the
+///    largest wall aspect ratio R / (2 r) is at most max(4, 2 x that of the uniform WP2 box
+///    walls on the same map). Otherwise M is reduced by one until the rows fit, ultimately
+///    down to the uniform box (one SBEM_WARN per mesh). With the construction above only an
+///    anchor row close to the bottom plate (deep rim pits in a shallow box: L = 2 um,
+///    sigma = 250 nm, Lc = 100 nm, depth 1 um gives the uniform box) or a too deep fine band
+///    triggers it.
 ///  * The bottom plate is the structured grid of the level-M nodes, welded to the lowest
 ///    wall row.
 /// @throws std::invalid_argument for a grid smaller than 2 x 2, non-positive spacing,
