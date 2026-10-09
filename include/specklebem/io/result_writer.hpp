@@ -6,23 +6,53 @@
 #include "specklebem/core/types.hpp"
 #include "specklebem/geometry/mesh.hpp"
 
+#include <memory>
 #include <string>
 
 namespace specklebem::io {
 
+/// Sink for named arrays, meshes and scalar attributes.
+///
+/// Names (and mesh groups) consist of components of the characters [A-Za-z0-9_.-]
+/// separated by '/', which denotes a group (a sub-directory for the .npy writer). Empty
+/// components, components "." and "..", components ending in '.' (Windows strips trailing
+/// dots), leading or trailing '/' and any other character are rejected with
+/// std::invalid_argument. Writing a name twice overwrites the earlier data. I/O failures
+/// throw std::runtime_error naming the path.
 class ResultWriter {
 public:
     virtual ~ResultWriter() = default;
+    /// Vertices (V x 3, Real) and triangles (F x 3, 0-based Index, orientation as stored).
     virtual void write_mesh(const std::string& group, const geometry::TriangleMesh& m) = 0;
     virtual void write_vector(const std::string& name, const VectorXc& v) = 0;
     virtual void write_matrix(const std::string& name, const MatrixXr& m) = 0;
     virtual void write_matrix(const std::string& name, const MatrixXc& m) = 0;
+    /// String attribute; must be valid UTF-8 (std::invalid_argument otherwise).
     virtual void write_attribute(const std::string& name, const std::string& value) = 0;
+    /// Real attribute; must be finite (std::invalid_argument otherwise).
     virtual void write_attribute(const std::string& name, Real value) = 0;
 };
 
-std::unique_ptr<ResultWriter> open_hdf5(
-    const std::string& path);  ///< requires SPECKLEBEM_ENABLE_HDF5
+/// HDF5 writer. Not implemented yet: always throws std::runtime_error (with a message
+/// saying whether the library was built with SPECKLEBEM_ENABLE_HDF5).
+std::unique_ptr<ResultWriter> open_hdf5(const std::string& path);
+
+/// Writer into a directory of NumPy .npy files (format version 1.0, little-endian, C order),
+/// created with all parents if needed (an existing directory is reused; files of the same
+/// name are overwritten):
+///  * write_vector(name, v)  -> <dir>/<name>.npy, dtype '<c16', shape (n,);
+///  * write_matrix(name, m)  -> <dir>/<name>.npy, dtype '<f8' or '<c16', shape (rows, cols),
+///    stored row-major ('fortran_order': False), so numpy.load(...)[i, j] == m(i, j);
+///  * write_mesh(group, m)   -> <dir>/<group>/vertices.npy ('<f8', (V, 3)) and
+///    <dir>/<group>/triangles.npy ('<i8', (F, 3));
+///  * write_attribute(name, value) -> one JSON object in <dir>/attributes.json (UTF-8), keys in
+///    order of first write, strings escaped per RFC 8259, Reals in shortest round-trip form
+///    (always with '.' or an exponent, so Python reads them as float). The file is rewritten
+///    completely on every write_attribute call, so it is complete at any time, in particular
+///    after the writer is destroyed. A new writer starts with no attributes: its first
+///    write_attribute replaces an attributes.json left in the directory by an earlier run.
+/// @throws std::invalid_argument for an empty path, std::runtime_error if the directory
+///         cannot be created.
 std::unique_ptr<ResultWriter> open_npy_directory(const std::string& dir);
 
 }  // namespace specklebem::io
