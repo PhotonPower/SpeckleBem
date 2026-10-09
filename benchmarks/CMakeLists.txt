@@ -16,6 +16,18 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math")
 endif()
 
+# Validity of the graded closing box under beam illumination (WP-V1, ADR 0006): far field in the
+# reflection hemisphere of one rough-box configuration (depth, grading, fine band, L), dense
+# operator + GMRES; --compare evaluates the differences. Run by hand (one configuration per
+# process, up to ~60 GB), see benchmarks/results/box_validity.md.
+add_executable(specklebem_box_validity box_validity.cpp)
+target_link_libraries(specklebem_box_validity PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # Vectorised plane-wave sum of the angular-spectrum beam (kernels::fast_sincos).
+    set_source_files_properties(box_validity.cpp PROPERTIES
+        COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math")
+endif()
+
 # Benchmarks reproduce Fig. 2(c) of the paper: wall time vs N for dense LU,
 # preconditioned MLFMM (Ag) and ICTF-MLFMM (Si). Added in Phase 4.
 # add_executable(bench_matvec bench_matvec.cpp)
