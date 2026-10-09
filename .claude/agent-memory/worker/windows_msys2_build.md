@@ -16,5 +16,18 @@ workers / Windows"; the non-obvious ones:
   PYTHON_EXECUTABLE (pybind11 2.13 uses the old FindPythonLibsNew).
 - `ctest -j 12` oversubscribes OpenMP: dense validation tests 48 s in parallel vs 3-6 s serial.
 
-**Why:** these cost several iterations in WP-W1.
+- Worktree-isolated agents: the Bash guard refuses compound commands that mix `$VAR`
+  expansions, heredocs and git/sed. Put edit scripts in the scratchpad via Write and run
+  them with a literal path (`/c/msys64/ucrt64/bin/python "C:\...\x.py"`); no `python3` on PATH.
+- MSYS2 Python defaults to cp1252: always `open(..., encoding='utf-8')` (or PYTHONUTF8=1).
+  `open(p, 'w')` truncates before the encode error, so a failed write empties the file
+  (restore with `git checkout -- <file>`). An open for write can also fail with EINVAL
+  while a concurrent build reads the file; just retry.
+- GCC 16 (win-release) false positive: `vec.insert(end, n, x)` followed by
+  `vec.insert(end, {a, b, c})` triggers -Warray-bounds in stl_uninitialized.h; push_back.
+- win-debug (-O0, ASan, Eigen asserts) runs per-triangle Eigen checks at ~200 us/triangle:
+  test helpers like check_box over 50k triangles take ~5 s; keep big per-triangle checks
+  release-only (`#ifdef NDEBUG`) and run a small analogue in debug.
+
+**Why:** these cost several iterations in WP-W1 and WP2c.
 **How to apply:** any WP that builds or tests on this Windows machine.

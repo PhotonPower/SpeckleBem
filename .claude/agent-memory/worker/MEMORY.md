@@ -1,1 +1,2 @@
-- [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython registry, ctest -j oversubscription, worktree-guard workarounds
+- [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython, ctest -j, worktree guard, cp1252 truncation, GCC16 false positive
+- [Rough box grading facts](rough_box_grading.md) — anchor row, relaxation cap 1, shape safety net 2x uniform, measured box % and aspects
