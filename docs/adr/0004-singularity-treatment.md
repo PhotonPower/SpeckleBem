@@ -64,7 +64,14 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   pairs dominate dense assembly: the n = 3 icosphere (2N = 3840) takes 6.6 s (n = 1.5), 7.7 s
   (Ag) and 11.8 s (Si) with the 1e-5 default on 3 threads (5.2 / 5.9 / 9.1 s on 4), against
   6.3 s, 7.9 s and 14 s with 1e-6 in an earlier run and 2.7 s with the WP7 options (3 threads;
-  the paired comparison 1e-5 vs 1e-6 on one machine gave 20-38 % less assembly time).
+  the paired comparison 1e-5 vs 1e-6 on one machine gave 20-38 % less assembly time). On a
+  24-core Windows machine (win-release, 24 OpenMP threads) the n = 3 assemblies take 1.1 /
+  1.3 / 1.9 s (n = 1.5 / Ag / Si) and the n = 4 ones (2N = 15 360) 7.5 s (n = 1.5) and 11 s
+  (Ag). Against the WP7 options the Mie eps_rr (xz / yz) changes by at most 0.03 percentage
+  points: n = 4 0.073 % / 0.074 % (n = 1.5; WP7 0.074 % / 0.076 %) and 0.078 % / 0.057 % (Ag;
+  unchanged), n = 3 0.263 % / 0.274 % (n = 1.5), 0.348 % / 0.256 % (Ag) and 0.554 % / 0.396 %
+  (Si; WP7 0.58 % / 0.42 %), while the Si power-balance defect drops from 0.42 % to 0.007 %
+  (`benchmarks/results/mie_sphere_dense.md`).
   Touching outer points at level 4: 384 / 288 / 100 (identical / shared edge / shared vertex)
   instead of 25 (Dunavant degree 10); worst touching error by level 0..4: 2.7e-2, 8.8e-3,
   5.6e-5, 3.1e-7, 3.0e-9.
