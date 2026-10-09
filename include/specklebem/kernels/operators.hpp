@@ -40,28 +40,89 @@ struct RegionParams {
     Complex mu;   ///< absolute permeability
 };
 
-/// Quadrature degrees by proximity class (ADR 0004). Accuracy of the defaults (relative to
-/// the block norm, measured in the WP7 review against independent hp-graded references):
-///  * far (degree 3): 2.6e-5 for L and 1.3e-3 for K at the class boundary (centroid distance
-///    2 x longest edge) on a lambda/13 mesh; up to 1e-2 for Ag; decreasing with distance.
-///  * near (degree 8): about 2e-7 for L and 1e-5 for K.
-///  * touching (degree 10): about 2e-4 for L and about 1e-4 of the 1/2 I jump term for K.
-///    The limit is the outer Dunavant rule (the inner potential is only finitely smooth at
-///    the shared edge / vertex); the singularity subtraction itself is exact to ~5e-11. A
-///    graded outer rule for touching pairs is a planned follow-up (WP7b).
+/// Quadrature options (ADR 0004, WP7b). Accuracy of the defaults, relative to the block norm
+/// (L and K separately), measured against independent references (tests/unit/test_operators.cpp):
+///  * touching pairs (identical, shared edge, shared vertex), outer_grading_levels = 4,
+///    |k| h <= 0.78: within 3e-9 (L, identical triangles), 1.2e-9 (L, shared edges; the R^3
+///    term of the smooth remainder, growing like (|k| h)^4), 6e-10 (K) and 4e-10 (shared
+///    vertices) of a relative-coordinate (Sauter-Schwab type) reference; raw swap asymmetry
+///    below 5e-10. Shared edges: within 1e-8 for dihedral angles >= ~90 degrees between the
+///    two triangles. Sharper folds are near-singular (the far vertex of one triangle comes
+///    close to the other, away from the graded edge), the error depends on the triangle shapes
+///    and is dominated by K (measured, slow test "sharp folds"): 60 degrees 1.5e-8 to 3.4e-7 at
+///    level 4 (3.4e-9 at level 6); 30 degrees 6.8e-8 (level 4) / 5.7e-9 (level 5) for the
+///    folded hinge of the tests, but 4.5e-5 (level 4) / 3.7e-6 (level 6) for a skewed pair.
+///  * near and far pairs: the degree is chosen per pair for target_accuracy = 1e-5 (default; see
+///    target_accuracy); measured errors are 0.05 to 0.5 of the target for D/h = 1.1 .. 15 and
+///    |k| h = 0.1 .. 3 (vacuum, Si, Ag); at the near/far class boundary of the n = 4 Mie mesh
+///    4.4e-7 (n = 1.5) and 2.5e-6 (Ag) (target 1e-6: 5.8e-8 and 4.4e-7). Against
+///    target_accuracy = 1e-6 the dense n = 3 Mie assembly is 20 to 38 % faster and eps_rr
+///    changes by <= 1e-8 (absolute).
+///  * WP7 defaults for comparison (outer_grading_levels = 0, target_accuracy = 0,
+///    quad_degree_near = 8): touching about 2e-4 (L) and 1e-2 of the K block (about 1e-4 of the
+///    1/2 I jump term); at the class boundary of the n = 4 Mie mesh (lambda/13) 4.3e-3
+///    (n = 1.5) and 2.5e-2 (Ag), mostly K; near degree 8 about 1e-5 (K).
 struct OperatorOptions {
-    int quad_degree_far = 3;   ///< Dunavant degree for well-separated pairs (any of 1..20)
-    int quad_degree_near = 8;  ///< for near pairs (distance < factor * size); positive-interior
-    /// Outer rule and smooth remainder of touching pairs; positive-interior (ADR 0004).
+    /// Lower bound of the near/far degree selection (see target_accuracy); any of 1..20. With
+    /// target_accuracy = 0 the fixed degree of far pairs.
+    int quad_degree_far = 3;
+    /// Upper bound of the near/far degree selection; positive-interior (ADR 0004), and
+    /// >= quad_degree_far. With target_accuracy = 0 the fixed degree of near pairs. Also the
+    /// right-hand-side rule of op::assemble_rhs.
+    int quad_degree_near = 19;
+    /// Touching pairs: Dunavant degree of the smooth remainder of the singularity subtraction
+    /// (inner rule; for outer_grading_levels = 0 also the outer rule); positive-interior. Fixed,
+    /// not chosen by target_accuracy: the remainder error grows like (|k| h)^4 (about 1e-9 at
+    /// |k| h = 0.78, about 1e-6 at |k| h = 4); a k-aware choice is a follow-up.
     int quad_degree_sing = 10;
     Real near_distance_factor = 2.0;
+    /// Outer (test-triangle) rule of the analytic static part of touching pairs (WP7b):
+    /// tensor rules of generalised Gauss-Legendre-log type on Duffy sub-triangles graded
+    /// towards the singular set (all three edges for identical triangles, the shared edge,
+    /// the shared vertex); level l in 1..6 uses n = 2 l points per direction for identical
+    /// triangles, 4 + 2 l for shared edges and 2 + 2 l for shared vertices (default: 384, 288
+    /// and 100 points; table in src/kernels/operators.cpp). 0 restores the WP7 scheme (one Dunavant
+    /// rule of degree quad_degree_sing for the whole outer integral, blocks averaged over both
+    /// orderings). Level 4 reaches ~1e-8 of the block norm for shared edges with dihedral
+    /// angles >= ~90 degrees; sharper folds need levels 5 to 6 (60 degrees: up to 3.4e-7 at
+    /// level 4, 3.4e-9 at level 6); below ~45 degrees skewed pairs are not resolved better than
+    /// ~1e-5 (30 degrees: 4.5e-5 at level 4, 3.7e-6 at level 6; a grading towards the
+    /// near-singular vertex is a follow-up).
+    int outer_grading_levels = 4;
+    /// Graded path: touching blocks of pairs with |k| h > symmetrize_touching_above_kh (h the
+    /// larger longest edge) are averaged over both orderings, (B(t1, t2) + B(t2, t1)^T) / 2
+    /// (twice the cost for shared edges and vertices), which makes them bitwise symmetric.
+    /// Identical-triangle L blocks are always symmetrised, (L + L^T) / 2 (free). Below the
+    /// threshold the raw asymmetry is < 1e-9 of the block norm (measured <= 4.4e-10 at |k| h =
+    /// 0.78) and the blocks are not averaged. Above it the smooth remainder is no longer smooth on
+    /// the triangle scale and the raw asymmetry grows (unaveraged, the PMCHWT matrix of the Ag
+    /// icosphere n = 1 at 500 nm, |k| h ~ 12, is asymmetric by 1.5e-5). 0 = always average,
+    /// infinity = never. Must not be NaN or negative.
+    Real symmetrize_touching_above_kh = 1.0;
+    /// Near and far pairs: the Dunavant degree d (the same rule on both triangles) is the
+    /// smallest one in the ladder quad_degree_far, then every positive-interior degree up to
+    /// quad_degree_near, whose estimated relative block error is <= target_accuracy; the
+    /// estimate is an empirical upper envelope E_d(kappa), kappa = sqrt((h / D)^2 +
+    /// (0.15 |k| h)^2), D the centroid distance and h the larger longest edge (calibration in
+    /// src/kernels/operators.cpp). The choice is monotone: non-decreasing in |k| and h,
+    /// non-increasing in D. Near-class pairs only use positive-interior degrees. If no degree
+    /// of the ladder reaches the target, quad_degree_near is used. 0 disables the selection
+    /// (fixed degrees: quad_degree_far for far pairs, quad_degree_near for near pairs, as in
+    /// WP7). Must be finite and in [0, 1). Governs near and far pairs only: touching pairs
+    /// (identical, shared edge, shared vertex) use the fixed quad_degree_sing and
+    /// outer_grading_levels, whose remainder error grows like (|k| h)^4 (about 1e-9 at |k| h =
+    /// 0.78, about 1e-6 at |k| h = 4) independently of this target. Default 1e-5: against 1e-6
+    /// the dense Mie n = 3 assembly is 20 to 38 % faster and eps_rr changes by <= 1e-8.
+    Real target_accuracy = 1e-5;
 };
 
-/// Checks the options (ADR 0004): every degree in 1..20, quad_degree_near and
+/// Checks the options (ADR 0004): quad_degree_far in 1..20, quad_degree_near and
 /// quad_degree_sing positive-interior (triangle_rule_is_positive_interior: 1, 2, 4, 5, 6, 8,
-/// 9, 10, 12, 13, 14, 17, 19), near_distance_factor finite and >= 0. O(1) (integer checks
-/// against a table built once). element_blocks calls it on every invocation; an assembler
-/// may call it once up front to fail early.
+/// 9, 10, 12, 13, 14, 17, 19), quad_degree_far <= quad_degree_near (bounds of the degree
+/// selection), near_distance_factor finite and >= 0, outer_grading_levels in 0..6,
+/// target_accuracy finite and in [0, 1), symmetrize_touching_above_kh >= 0 (may be infinite). O(1)
+/// (integer checks against a table built once). element_blocks calls it on every invocation; an
+/// assembler may call it once up front to fail early.
 /// @throws std::invalid_argument if any check fails.
 void validate(const OperatorOptions& opt);
 
@@ -72,18 +133,24 @@ void validate(const OperatorOptions& opt);
 /// RWG function on its triangle is included (as in space.value / space.divergence). K is
 /// the principal value without the jump term (see jump_block). Quadrature by proximity
 /// class (classify with opt.near_distance_factor):
-///  * far:  outer and inner Dunavant rule of degree quad_degree_far, plain kernel;
-///  * near: both of degree quad_degree_near, plain kernel;
-///  * identical, shared_edge, shared_vertex: outer rule of degree quad_degree_sing; inner
-///    integral by singularity subtraction (1/R, R, grad(1/R) and grad R analytically with
+///  * near, far: outer and inner Dunavant rule of the degree chosen by the selection rule of
+///    OperatorOptions::target_accuracy (the same for both orderings of a pair), plain kernel;
+///  * identical, shared_edge, shared_vertex: inner integral by singularity subtraction
+///    (1/R, R, grad(1/R), grad R and, on the graded path, R (r' - r) analytically with
 ///    static_integrals over t_src, the smooth remainder with the degree-quad_degree_sing
-///    rule). Shared-edge and shared-vertex blocks are averaged over both orderings
-///    ((B(t1, t2) + B(t2, t1)^T) / 2, twice the cost), identical L blocks are symmetrised,
-///    so touching blocks are exactly symmetric: element_blocks(t_src, t_test) is bitwise
-///    the transpose. K is exactly zero for coplanar touching pairs (identical triangles and
-///    shared-edge / shared-vertex pairs with parallel normals: f_m, grad' G and f_n coplanar).
-/// Allocation-free (rules come from the triangle_rule cache, which the first call of a
-/// process may build). Not parallelised; safe to call concurrently.
+///    rule). With outer_grading_levels >= 1 (default) the analytic part is integrated over
+///    t_test with the graded rule and the remainder with a Dunavant outer rule; identical L
+///    blocks are symmetrised, shared-edge and shared-vertex blocks are averaged over both
+///    orderings only for |k| h > symmetrize_touching_above_kh (raw asymmetry below 1e-9 of the
+///    block norm otherwise). With outer_grading_levels = 0 (WP7) the
+///    whole outer integral uses the degree-quad_degree_sing rule, shared-edge and shared-vertex
+///    blocks are averaged over both orderings ((B(t1, t2) + B(t2, t1)^T) / 2, twice the cost) and
+///    identical L blocks are symmetrised. Averaged blocks are exactly symmetric:
+///    element_blocks(t_src, t_test) is bitwise the transpose. K is exactly zero for coplanar
+///    touching pairs (identical triangles and shared-edge / shared-vertex pairs with parallel
+///    normals: f_m, grad' G and f_n coplanar).
+/// Allocation-free (rules come from the triangle_rule cache and the graded tables, which the
+/// first call of a process may build). Not parallelised; safe to call concurrently.
 /// @throws std::out_of_range for triangle indices outside the mesh.
 /// @throws std::invalid_argument for invalid options (validate); if a touching pair reports a
 ///         boundary finite part of the static gradient integral (an outer quadrature point

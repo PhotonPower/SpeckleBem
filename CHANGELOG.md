@@ -12,6 +12,14 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   validated names (`[A-Za-z0-9_.-]`, `/` for groups); `open_hdf5` throws until HDF5 support
   lands. Unit tests `tests/unit/test_result_writer.cpp` (independent NPY reader, bitwise data);
   NumPy round trip `tests/python/test_result_writer.py` via the helper `specklebem_npy_fixture`.
+- geometry (WP2c): rough-surface box with optional decay-aware fine band (`box_fine_depth`) and a
+  per-column stitched relaxation band under rough rims (vertical wall edges ≤ 2 h_g, M = 3 kept for
+  σ ≤ 250 nm, Lc ≥ 100 nm; box 7–14 % of the top face at L = 10 µm); `material::field_decay_length`.
+- kernels (WP7b): graded outer quadrature for touching triangle pairs (generalised Gauss-log rules on
+  Duffy sub-triangles, `OperatorOptions::outer_grading_levels`, default 4) and k-aware near/far degree
+  selection (`target_accuracy`, default 1e-5, within [`quad_degree_far`, `quad_degree_near`] = [3, 19]);
+  touching-pair error 2e-4 → 3e-9, class-boundary error 4e-3 → 4e-7; Mie benchmark re-measured on the
+  24-core Windows machine (`benchmarks/results/mie_sphere_dense.md`).
 - solver (WP13): `solver::gmres`, complex GMRES (Saad & Schultz; MGS Arnoldi with one
   re-orthogonalisation pass, Givens rotations, happy-breakdown and singular-Krylov handling),
   full or restarted (`GmresParams::restart`), left or right preconditioning
