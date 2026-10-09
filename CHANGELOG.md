@@ -5,6 +5,23 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- operator / mlfmm (WP19a): near field Z_near of the MLFMM. `op::SparseOperator` (row-major
+  CSR with `Index` indices; `apply` OpenMP over rows, bitwise identical for any thread count,
+  x and y may alias; `describe`, `memory_bytes`, `nonzeros`). `op::BasisPattern` (basis-pair
+  pattern with row groups sharing one column list) and `op::assemble_sparse(Problem, pattern)`:
+  the exact Galerkin entries of all four blocks (both regions, formulation weights, jump terms
+  of coincident triangles) of every pattern pair, from the dense assembler's colour schedule
+  (dynamic largest-first, shared helpers `test_schedule` / `for_each_test_triangle`) and pair
+  blocks, visiting only the source triangles of the pattern pairs; every stored entry is bitwise
+  equal to the `DenseStrategy` entry (same contributions, same order). `mlfmm::near_pattern`
+  (one group per leaf: the leaf and its near list, ADR 0008 §1; checks that the octree belongs
+  to the space) and `mlfmm::assemble_near`; the octree-to-pattern step lives in mlfmm because
+  mlfmm sits above the operator layer. Tests (`[near_field]`): stored entries bitwise equal to
+  the dense matrix and the stored pattern equal to the near pairs from the leaf `ijk` on an
+  icosphere and a rough box (Si, Ag, n = 1.5; PMCHWT, ICTF and a single-region system with
+  non-cancelling jump terms), `apply` against the masked dense product (1e-13) and across thread
+  counts, `DenseStrategy` bitwise equal to a serial copy of the pre-WP19a algorithm, input
+  errors.
 - mlfmm (WP17): `mlfmm::Octree` over the RWG edge midpoints: root cube from the padded mesh
   vertex bounding box, anchored at its lower corner (flat or thin geometry stays one box layer
   thick), uniform depth (all leaves on the finest level; the first level on which every box

@@ -6,7 +6,9 @@
 /// the leaf ijk (Chebyshev distance <= 1). Meshes: icosphere n = 1 (80 triangles) and a small
 /// closed rough box (uniform box at the top-face spacing), at lambda = 1 um with the cheap WP7
 /// kernel options (the entries are compared with the same options; accuracy is not the point),
-/// and octrees of 3 to 4 levels (6 elements per leaf, no leaf-size floor).
+/// and octrees of 3 to 4 levels (6 elements per leaf, no leaf-size floor). The kernel options are
+/// the WP7 scheme at the lowest positive-interior degrees (far 1, near and singular 2): the
+/// comparisons are exact for any options, and the sanitizer run must stay within ~5 s per case.
 #include "specklebem/compression/mlfmm/near_field.hpp"
 #include "specklebem/compression/mlfmm/octree.hpp"
 #include "specklebem/formulation/formulation.hpp"
@@ -57,7 +59,9 @@ kernels::OperatorOptions cheap_options() {
     kernels::OperatorOptions opt;
     opt.outer_grading_levels = 0;
     opt.target_accuracy = 0.0;
-    opt.quad_degree_near = 8;
+    opt.quad_degree_far = 1;
+    opt.quad_degree_near = 2;
+    opt.quad_degree_sing = 2;
     return opt;
 }
 
@@ -351,16 +355,17 @@ TEST_CASE("near_field: apply equals the masked dense product, any thread count",
 }
 
 TEST_CASE("near_field: DenseStrategy matrix unchanged by the WP19a refactoring", "[near_field]") {
+    // Icosphere n = 1 with PMCHWT; the serial reference is slow under the sanitizers, so MCTF
+    // and the single-region system (non-cancelling jump terms) use the icosahedron.
     NearCase c(geometry::make_icosphere(0.5e-6, 1));
-    for (const Kind kind : {Kind::PMCHWT, Kind::MCTF}) {
-        c.set(material::silver_500nm(), kind);
-        const MatrixXc Z = dense(c.problem);
-        const MatrixXc ref = reference_dense(c.problem);
-        CHECK((Z.array() == ref.array()).all());
-    }
-    assembler_test::SingleRegion single(1);
-    c.problem.formulation = &single;
+    c.set(material::silver_500nm(), Kind::PMCHWT);
     CHECK((dense(c.problem).array() == reference_dense(c.problem).array()).all());
+    NearCase c0(geometry::make_icosphere(0.5e-6, 0));
+    c0.set(material::silver_500nm(), Kind::MCTF);
+    CHECK((dense(c0.problem).array() == reference_dense(c0.problem).array()).all());
+    assembler_test::SingleRegion single(1);
+    c0.problem.formulation = &single;
+    CHECK((dense(c0.problem).array() == reference_dense(c0.problem).array()).all());
 }
 
 TEST_CASE("near_field: input errors", "[near_field]") {
