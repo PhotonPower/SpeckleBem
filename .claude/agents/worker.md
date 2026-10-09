@@ -52,4 +52,7 @@ documented assumption and list it in your final report rather than stopping.
 
 Keep your project memory up to date with reusable findings: build pitfalls (FetchContent,
 sanitizer quirks, `-Wconversion` traps with Eigen), quadrature and sign/convention details,
-test-tolerance experiences. Do not store secrets, tokens or credentials anywhere.
+test-tolerance experiences. Do not store secrets, tokens or credentials anywhere. Never record
+which commands a tool permission guard refuses or how to route around it (no workaround
+recipes); if a command is refused, use the dedicated tools (Edit/Write/Read) or report it.
+Keep existing `MEMORY.md` index entries when adding new ones.
