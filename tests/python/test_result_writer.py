@@ -4,8 +4,9 @@ The helper executable ``specklebem_npy_fixture`` (tests/support/npy_fixture_main
 fixed dataset; this test reads it back with ``numpy.load`` and ``json.load``. The executable is
 taken from the environment variable ``SPECKLEBEM_NPY_FIXTURE`` or, by default, from the build
 tree of the imported ``specklebem`` package (``<build>/python/specklebem`` ->
-``<build>/tests``). The test is skipped if neither exists (e.g. an installed package or a
-build with SPECKLEBEM_BUILD_TESTS=OFF).
+``<build>/tests``). The test is skipped if the variable is unset and the build-tree helper does
+not exist (e.g. an installed package or a build with SPECKLEBEM_BUILD_TESTS=OFF); it fails if
+the variable is set but names no file (CI sets it, so the round trip cannot be skipped silently).
 """
 
 import json
@@ -23,7 +24,10 @@ import specklebem as sb
 def _fixture_executable() -> Path | None:
     env = os.environ.get("SPECKLEBEM_NPY_FIXTURE")
     if env:
-        return Path(env)
+        exe = Path(env).resolve()
+        if not exe.is_file():
+            pytest.fail(f"SPECKLEBEM_NPY_FIXTURE={env!r} does not name an existing file")
+        return exe
     name = "specklebem_npy_fixture" + (".exe" if os.name == "nt" else "")
     candidate = Path(sb.__file__).resolve().parents[2] / "tests" / name
     return candidate if candidate.is_file() else None
