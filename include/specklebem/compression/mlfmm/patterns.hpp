@@ -42,7 +42,9 @@ struct PatternOptions {
     /// Fixed Dunavant degree (1..20) for every triangle; 0: pattern_quadrature_degree per
     /// triangle from |k| h_T and target_accuracy.
     int quad_degree = 0;
-    /// Target relative quadrature error of the automatic degree choice, in (0, 1).
+    /// Target relative quadrature error of the automatic degree choice, in (0, 1). The default
+    /// is conservative; for an accuracy target of d0 digits 0.01 x 10^-d0 suffices (the tests
+    /// use it: the single-level errors do not change).
     Real target_accuracy = 1e-8;
 };
 

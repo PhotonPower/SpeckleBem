@@ -5,6 +5,24 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm (WP19b): `mlfmm::RadiationPatterns` (`compression/mlfmm/patterns.hpp`): the
+  (θ̂, φ̂) components of the RWG radiation patterns V_n(k̂) = ∫ (I − k̂k̂) f_n e^{+jk k̂·(r' − c)}
+  of one region relative to the leaf-box centres, for every basis (Morton order) and direction,
+  stored contiguously as (basis, direction, component); W_n = k̂ × V_n implicit
+  (W_θ = −V_φ, W_φ = V_θ), receiving patterns R_m(k̂) = V_m(−k̂) through the antipodal index map
+  (θ → π − θ, φ → φ + π; R_θ = V_θ(q'), R_φ = −V_φ(q')), no conjugation for complex k.
+  Per-triangle Dunavant degree from |k| h (`pattern_quadrature_degree`, calibrated envelope
+  3 (|k|h/4)^{d+1}/(d+1)!), OpenMP over leaf boxes. `far_block`: single-level FMM L and K^PV
+  blocks between two interaction-list leaves, L = (ωμk/16π²) Σ w T R·V, K = (k²/16π²) Σ w T R·W
+  (derivation in `src/compression/mlfmm/patterns.cpp`); `max_support_radius` and
+  `leaf_sampling` (order search with the enlarged diagonal √3 a + 2 r_max, L_leaf =
+  max(L, p − 1)); `translator(k, r, sampling, order)` overload (truncation below the sampling
+  order). Tests: quadrature convergence (|k| h ≤ 3, real and Si-like k), antipodal map vs direct
+  evaluation (1e-13), single-level FMM vs dense `element_blocks` on icospheres and a rough box
+  (vacuum, n = 1.5, Si; d0 = 3 at a ≥ 0.75 λ; flipped K sign gives error 2), invalid input; slow
+  sweep (`[patterns_sweep]`) with the error table up to d0 = 5. Finding: at a = λ/2 the nearest
+  pairs exceed 10^-d0 (1.3e-3 at d0 = 3) although the statistical order search reports the
+  target achievable; d0 = 5 needs a ≳ 1.5 λ.
 - mlfmm (WP17): `mlfmm::Octree` over the RWG edge midpoints: root cube from the padded mesh
   vertex bounding box, anchored at its lower corner (flat or thin geometry stays one box layer
   thick), uniform depth (all leaves on the finest level; the first level on which every box

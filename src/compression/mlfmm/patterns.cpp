@@ -166,14 +166,16 @@ RadiationPatterns::RadiationPatterns(const basis::RwgSpace& space, const Octree&
     const geometry::TriangleMesh& mesh = space.mesh();
     const Vertices& vert = mesh.vertices();
     const Index nd = sampling_.size();
-    const auto nbasis = static_cast<std::size_t>(num_basis_);
-    data_.assign(nbasis * static_cast<std::size_t>(nd) * 2, Complex(0.0, 0.0));
+    // Sizes in std::size_t from clamped values (GCC -O3 -Wnull-dereference false positives).
+    const auto nbasis = static_cast<std::size_t>(std::max<Index>(num_basis_, 1));
+    const auto ndir = static_cast<std::size_t>(std::max<Index>(nd, 1));
+    data_.assign(nbasis * ndir * 2, Complex(0.0, 0.0));
     leaf_box_.assign(nbasis, -1);
 
     // Antipodal map: theta -> pi - theta (GL nodes are symmetric), phi -> phi + pi.
     const int nt = sampling_.num_theta();
     const int np = sampling_.num_phi();
-    antipode_.resize(static_cast<std::size_t>(nd));
+    antipode_.resize(ndir);
     for (int it = 0; it < nt; ++it) {
         for (int ip = 0; ip < np; ++ip) {
             antipode_[static_cast<std::size_t>(sampling_.index(it, ip))] =
@@ -183,7 +185,7 @@ RadiationPatterns::RadiationPatterns(const basis::RwgSpace& space, const Octree&
 
     // Quadrature degree per triangle (rules fetched before the parallel loop).
     const Index nf = mesh.num_triangles();
-    std::vector<int> degree(static_cast<std::size_t>(nf), opt.quad_degree);
+    std::vector<int> degree(static_cast<std::size_t>(std::max<Index>(nf, 1)), opt.quad_degree);
     const Real absk = std::abs(k);
     for (Index t = 0; t < nf; ++t) {
         if (opt.quad_degree == 0) {
