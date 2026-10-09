@@ -84,3 +84,16 @@ Decisions replacing the corresponding parts of §2, §3 and §6:
   coarsened, i.e. the effective `min_box_size_lambda` rises for this d₀ — expected at λ/4 for
   d₀ = 5). For complex k the same search is the §6 validity test; where it fails at every L the
   §6 alternatives (documented truncation by the decay bound, or near-field fallback) apply.
+
+## Amendment 2026-10-09 (WP18 review)
+
+- The interpolation order of the table can exceed the number of θ nodes of a coarse leaf sampling
+  (λ/4 leaves: n_θ = 9 at d₀ = 3, 12 at d₀ = 5). The leaf sampling is therefore oversampled when
+  needed: L_leaf = max(L from §2 / the amendment search, p − 1), and the interpolator accepts any
+  order whose stencil fits the extended (pole-reflected) θ range. The cost is a larger leaf
+  sampling only on the finest level.
+- Pattern phase convention: radiation patterns carry e^{+jk k̂·(r' − r_box)}, receiving patterns
+  e^{−jk k̂·(r − r_box)} = radiation pattern at −k̂ (docs/04 corrected; no conjugation, also for
+  complex k).
+- Special functions never fail silently: spherical Hankel values that underflow or overflow the
+  double range raise exceptions, and translators are checked for finiteness.
