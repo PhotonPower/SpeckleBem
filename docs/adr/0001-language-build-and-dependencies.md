@@ -11,7 +11,7 @@ Alternatives: Fortran (fast, but weak abstraction and GPU ecosystem), Julia (att
 
 ## Decision
 - C++20 with Eigen for linear algebra, BLAS/LAPACK (OpenBLAS/MKL) through Eigen, OpenMP for shared memory, spdlog for logging.
-- CMake ≥ 3.24 with presets; system packages first, FetchContent fallback for small dependencies; heavy ones (MKL, CUDA, HDF5) are found only.
+- CMake ≥ 3.25 with presets (amended 2026-10-09, WP-W1: was 3.24; FetchContent `SYSTEM` and preset schema v6 need 3.25); system packages first, FetchContent fallback for small dependencies; heavy ones (MKL, CUDA, HDF5) are found only.
 - Python bindings with pybind11, packaged with scikit-build-core.
 - Catch2 for C++ tests, pytest for Python.
 - No Boost, no in-house linear algebra.

@@ -27,18 +27,15 @@ namespace assembler_test {
 using namespace fields_test;
 
 /// Sphere (radius kRadius) in vacuum, icosphere mesh, plane wave e0 = x, k_hat = z at the
-/// vacuum wavelength `lambda` (default 500 nm), formulation `kind`; problem.omega is the
-/// excitation's. The projected exact Mie currents are in setup.solution.currents. Icosphere
-/// n = 1 at lambda = 1 um has the same h / lambda as n = 2 at 500 nm (fast unit tests).
+/// vacuum wavelength `lambda` (default 500 nm; MieSetup::wave), formulation `kind`;
+/// problem.omega is the excitation's. The projected exact Mie currents are in
+/// setup.solution.currents. Icosphere n = 1 at lambda = 1 um has the same h / lambda as n = 2 at
+/// 500 nm (fast unit tests).
 struct SphereCase {
     SphereCase(const material::Material& sphere, int subdivisions, formulation::Kind kind,
                Real lambda = kLambda)
-        : setup(sphere, subdivisions, lambda),
-          wave(lambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0)),
-          form(formulation::make_formulation(kind)) {
+        : setup(sphere, subdivisions, lambda), form(formulation::make_formulation(kind)) {
         setup.problem.formulation = form.get();
-        setup.problem.excitation = &wave;
-        setup.problem.omega = wave.omega();
     }
     SphereCase(const SphereCase&) = delete;
     SphereCase& operator=(const SphereCase&) = delete;
@@ -48,7 +45,6 @@ struct SphereCase {
     [[nodiscard]] Index size() const { return setup.space.size(); }
 
     MieSetup setup;
-    excitation::PlaneWave wave;
     std::unique_ptr<formulation::Formulation> form;
 };
 
@@ -196,7 +192,7 @@ inline SolveResult solve_and_compare(SphereCase& c) {
     const VectorXc b = op::assemble_rhs(c.problem());
     solver::DirectSolveInfo info;
     const VectorXc x = solver::solve_direct(Z, b, &info);
-    const post::SurfaceSolution sol{&c.problem(), x, 0.0};
+    const post::SurfaceSolution sol{&c.problem(), x};
     return {rcs_eps_rr(sol, c.setup.mie), info.residual, residual(Z.matrix(), c.exact(), b)};
 }
 

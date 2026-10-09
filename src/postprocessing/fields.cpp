@@ -103,43 +103,22 @@ const basis::RwgSpace& checked_space(const SurfaceSolution& s, const std::string
     return space;
 }
 
-/// Angular frequency of the solution: Problem::omega if > 0 (WP9; SurfaceSolution::omega and
-/// the excitation's must then agree with it), otherwise SurfaceSolution::omega or the
-/// excitation's.
+/// Angular frequency of the solution: Problem::omega, the single source of the frequency
+/// (WP9a). It must be finite and > 0 and, if an excitation is attached, equal to its omega()
+/// within 1e-12 relative (the rule of op::validate).
 Real resolve_omega(const SurfaceSolution& s, const std::string& who) {
+    if (s.problem == nullptr) {
+        throw std::invalid_argument(who + ": SurfaceSolution::problem is null");
+    }
+    const Real omega = s.problem->omega;
+    if (!(std::isfinite(omega) && omega > 0.0)) {
+        throw std::invalid_argument(who + ": Problem::omega must be finite and > 0");
+    }
     const excitation::Excitation* exc = s.problem->excitation;
-    if (!std::isfinite(s.omega) || s.omega < 0.0) {
-        throw std::invalid_argument(who + ": SurfaceSolution::omega must be finite and >= 0");
+    if (exc != nullptr && !(std::abs(exc->omega() - omega) <= 1e-12 * omega)) {
+        throw std::invalid_argument(who + ": Problem::omega differs from the excitation's omega");
     }
-    const Real pw = s.problem->omega;
-    if (!std::isfinite(pw) || pw < 0.0) {
-        throw std::invalid_argument(who + ": Problem::omega must be finite and >= 0");
-    }
-    if (pw > 0.0) {
-        if ((s.omega > 0.0 && std::abs(s.omega - pw) > 1e-12 * pw) ||
-            (exc != nullptr && std::abs(exc->omega() - pw) > 1e-12 * pw)) {
-            throw std::invalid_argument(who +
-                                        ": Problem::omega differs from SurfaceSolution::omega "
-                                        "or the excitation's");
-        }
-        return pw;
-    }
-    if (s.omega > 0.0) {
-        if (exc != nullptr && std::abs(exc->omega() - s.omega) > 1e-12 * s.omega) {
-            throw std::invalid_argument(who +
-                                        ": SurfaceSolution::omega differs from the excitation's");
-        }
-        return s.omega;
-    }
-    if (exc == nullptr) {
-        throw std::invalid_argument(who +
-                                    ": unknown frequency (SurfaceSolution::omega is 0 and the "
-                                    "problem has no excitation)");
-    }
-    if (!(exc->omega() > 0.0) || !std::isfinite(exc->omega())) {
-        throw std::invalid_argument(who + ": excitation omega must be positive and finite");
-    }
-    return exc->omega();
+    return omega;
 }
 
 /// Medium parameters of one region.

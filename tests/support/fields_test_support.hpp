@@ -50,22 +50,14 @@ inline Vec3 direction(Real theta, Real phi) {
 }
 
 /// Incident field of docs/06 in vacuum: E = x exp(-j k z), H = y exp(-j k z) / eta0, with
-/// k = 2 pi / lambda (vacuum wavelength lambda, default kLambda).
+/// k = 2 pi / lambda (vacuum wavelength lambda, default kLambda). Analytic form of
+/// MieSetup::wave (excitation::PlaneWave), used to build the projected Mie currents.
 inline Vec3c incident_E(const Vec3& r, Real lambda = kLambda) {
     return {std::exp(-kJ * k_vacuum(lambda) * r.z()), 0, 0};
 }
 inline Vec3c incident_H(const Vec3& r, Real lambda = kLambda) {
     return {0, std::exp(-kJ * k_vacuum(lambda) * r.z()) / constants::eta0, 0};
 }
-
-/// Test-local analytic plane wave (WP8's PlaneWave is implemented concurrently and is not used
-/// here): the Mie incident field above, background vacuum.
-class TestPlaneWave final : public excitation::Excitation {
-public:
-    explicit TestPlaneWave(Real omega) : Excitation(omega, material::vacuum()) {}
-    [[nodiscard]] Vec3c electric_field(const Vec3& r) const override { return incident_E(r); }
-    [[nodiscard]] Vec3c magnetic_field(const Vec3& r) const override { return incident_H(r); }
-};
 
 /// Complex vector times real vector without conjugation.
 inline Complex dot_cr(const Vec3c& a, const Vec3& b) {
@@ -115,20 +107,24 @@ inline VectorXc project_mie_currents(const basis::RwgSpace& space, const MieSolu
     return x;
 }
 
-/// Sphere in vacuum, icosphere mesh, RWG space and projected Mie currents (no excitation, the
-/// frequency is given in SurfaceSolution::omega). Vacuum wavelength `lambda` (default kLambda;
-/// the near-field / RCS error helpers below assume kLambda).
+/// Sphere in vacuum, icosphere mesh, RWG space and projected Mie currents, with the plane wave
+/// of docs/06 (excitation::PlaneWave, k_hat = z, e0 = x, vacuum background) attached as
+/// problem.excitation and problem.omega = wave.omega(). Vacuum wavelength `lambda` (default
+/// kLambda; the near-field / RCS error helpers below assume kLambda). problem.formulation is
+/// not set (post-processing does not need it).
 struct MieSetup {
     MieSetup(const material::Material& sphere, int subdivisions, Real lambda = kLambda)
         : mesh(geometry::make_icosphere(kRadius, subdivisions)),
           space(mesh),
-          mie(MieParams{kRadius, lambda, sphere, material::vacuum(), 0}) {
+          mie(MieParams{kRadius, lambda, sphere, material::vacuum(), 0}),
+          wave(lambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0)) {
         problem.space = &space;
         problem.exterior = material::vacuum();
         problem.object = sphere;
+        problem.excitation = &wave;
+        problem.omega = wave.omega();
         solution.problem = &problem;
         solution.currents = project_mie_currents(space, mie, lambda);
-        solution.omega = omega_of(lambda);
     }
     MieSetup(const MieSetup&) = delete;
     MieSetup& operator=(const MieSetup&) = delete;
@@ -136,6 +132,7 @@ struct MieSetup {
     geometry::TriangleMesh mesh;
     basis::RwgSpace space;
     MieSolution mie;
+    excitation::PlaneWave wave;
     op::Problem problem;
     post::SurfaceSolution solution;
 };

@@ -38,14 +38,10 @@
 
 namespace specklebem::post {
 
+/// Solved surface currents of a problem. The frequency lives in op::Problem (Problem::omega).
 struct SurfaceSolution {
     const op::Problem* problem = nullptr;
     VectorXc currents;  ///< [J; M]
-    /// Angular frequency [rad/s] of the currents. Precedence: problem->omega (if > 0) >
-    /// SurfaceSolution::omega (if > 0) > problem->excitation->omega(); every frequency that is
-    /// given must agree with the one used (relative 1e-12), otherwise std::invalid_argument.
-    /// Additive member (WP10); with Problem::omega (WP9) it is a fallback only.
-    Real omega = 0.0;
 };
 
 /// Quadrature options of the field evaluation (additive API, WP10).
@@ -94,8 +90,9 @@ struct GreenFactors {
 
 /// Scattered E and H in region R1 (z < surface) or R2 at arbitrary points.
 /// In R2 the "scattered" field is the total field there (no incident field in R2).
-/// @throws std::invalid_argument for a null problem or space, currents.size() != 2N, an
-///         unknown frequency (omega <= 0 and no excitation) or points too close to the surface.
+/// @throws std::invalid_argument for a null problem or space, currents.size() != 2N, a
+///         Problem::omega that is not finite and > 0 or differs from the excitation's omega()
+///         (relative 1e-12, as op::validate), or points too close to the surface.
 void scattered_field(const SurfaceSolution& s, const Vertices& points,
                      Eigen::Matrix<Complex, Eigen::Dynamic, 3>& E,
                      Eigen::Matrix<Complex, Eigen::Dynamic, 3>& H);

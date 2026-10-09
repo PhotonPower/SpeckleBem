@@ -2,7 +2,8 @@
 /// outer rules of every level, forced averaging, degree selection).
 ///
 /// Separate executable (specklebem_alloc_tests): it replaces the global allocation functions
-/// with counting versions that forward to malloc / aligned_alloc / free. Linking them into the
+/// with counting versions that forward to malloc / aligned_alloc / free (_aligned_malloc /
+/// _aligned_free on Windows, which has no std::aligned_alloc). Linking them into the
 /// main unit-test binary would disable AddressSanitizer's new/delete mismatch detection for
 /// every other test.
 #include "specklebem/basis/rwg.hpp"
@@ -17,6 +18,9 @@
 #include <cstddef>
 #include <cstdlib>
 #include <limits>
+#ifdef _WIN32
+#include <malloc.h>
+#endif
 #include <new>
 #include <utility>
 #include <vector>
@@ -33,7 +37,20 @@ void* counted_aligned(std::size_t size, std::align_val_t align) {
     g_allocations.fetch_add(1, std::memory_order_relaxed);
     const auto a = static_cast<std::size_t>(align);
     const std::size_t rounded = ((size == 0 ? 1 : size) + a - 1) / a * a;
+#ifdef _WIN32
+    return _aligned_malloc(rounded, a);
+#else
     return std::aligned_alloc(a, rounded);
+#endif
+}
+
+// Memory from counted_aligned: _aligned_malloc memory must be released with _aligned_free.
+void aligned_free(void* p) noexcept {
+#ifdef _WIN32
+    _aligned_free(p);
+#else
+    std::free(p);
+#endif
 }
 
 void* checked(void* p) {
@@ -87,22 +104,22 @@ void operator delete[](void* p, const std::nothrow_t&) noexcept {
     std::free(p);
 }
 void operator delete(void* p, std::align_val_t) noexcept {
-    std::free(p);
+    aligned_free(p);
 }
 void operator delete[](void* p, std::align_val_t) noexcept {
-    std::free(p);
+    aligned_free(p);
 }
 void operator delete(void* p, std::size_t, std::align_val_t) noexcept {
-    std::free(p);
+    aligned_free(p);
 }
 void operator delete[](void* p, std::size_t, std::align_val_t) noexcept {
-    std::free(p);
+    aligned_free(p);
 }
 void operator delete(void* p, std::align_val_t, const std::nothrow_t&) noexcept {
-    std::free(p);
+    aligned_free(p);
 }
 void operator delete[](void* p, std::align_val_t, const std::nothrow_t&) noexcept {
-    std::free(p);
+    aligned_free(p);
 }
 
 using namespace specklebem;

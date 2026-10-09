@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)   # FetchContent_Declare(... SYSTEM)
 
 project(SpeckleBem
     VERSION 0.1.0

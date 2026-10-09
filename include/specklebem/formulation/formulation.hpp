@@ -38,8 +38,11 @@ public:
 std::unique_ptr<Formulation> make_formulation(Kind kind);
 Kind parse_kind(const std::string& name);
 
-/// Material-based default from the paper's findings: ICTF for dielectrics
-/// (Re eps_r > 0), diagonal-preconditioned ICTF/MCTF for metals (Re eps_r < 0).
+/// Material-based default from the paper's findings: ICTF without preconditioner for
+/// dielectrics (Re eps_r > 0); diagonal preconditioner for metals (Re eps_r < 0). With the
+/// Jacobi preconditioner PMCHWT, ICTF and MCTF are the same system (block-row scalings of
+/// PMCHWT, docs/03, issue #15), so the returned kind is immaterial for metals; ICTF is
+/// returned for uniformity.
 struct Recommendation {
     Kind kind;
     bool diagonal_preconditioner;

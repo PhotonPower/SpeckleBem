@@ -19,7 +19,7 @@ The design follows Fu, Daiber-Huppert, Frenner & Osten, *Optics and Lasers in En
 
 ```
 SpeckleBem/
-├── CMakeLists.txt, CMakePresets.json   build system (C++20, CMake ≥ 3.24)
+├── CMakeLists.txt, CMakePresets.json   build system (C++20, CMake ≥ 3.25)
 ├── cmake/                               dependency and warning modules
 ├── include/specklebem/                  public headers (one directory per layer)
 │   ├── core/          types, logging, timers
@@ -64,7 +64,7 @@ SpeckleBem/
 ## Building
 
 ```bash
-# Dependencies: C++20 compiler, CMake ≥ 3.24, Ninja, Eigen 3.4, BLAS/LAPACK (OpenBLAS or MKL),
+# Dependencies: C++20 compiler, CMake ≥ 3.25, Ninja, Eigen 3.4, BLAS/LAPACK (OpenBLAS or MKL),
 # OpenMP, Python ≥ 3.10 with NumPy. spdlog, Catch2 and pybind11 are fetched automatically if absent.
 cmake --preset release
 cmake --build --preset release
@@ -79,6 +79,26 @@ python -c "import specklebem as sb; print(sb.__version__, sb.silver_500nm().n)"
 ```
 
 Optional: `-DSPECKLEBEM_USE_MKL=ON`, `-DSPECKLEBEM_ENABLE_CUDA=ON`, `-DSPECKLEBEM_ENABLE_HDF5=ON`.
+
+### Windows (MSYS2)
+
+Native build with [MSYS2](https://www.msys2.org) in `C:/msys64` (other locations: a preset in
+`CMakeUserPresets.json` that inherits `win-release` / `win-debug` and sets
+`"environment": {"MSYS2_ROOT": "D:/msys64"}`), plus CMake ≥ 3.25, Ninja and Git on `PATH`. Two
+MSYS2 environments are used because MinGW GCC has no sanitizers and UCRT64's Clang no ASan runtime:
+
+```bash
+# UCRT64 (GCC, release) and CLANG64 (Clang + libc++ + ASan/UBSan, debug):
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,openblas,python,python-numpy,python-pytest} \
+                   mingw-w64-clang-x86_64-{clang,lld,compiler-rt,llvm-openmp,openblas,python}
+cmake --preset win-release && cmake --build --preset win-release && ctest --preset win-release -LE validation-large -j 12
+cmake --preset win-debug   && cmake --build --preset win-debug   && ctest --preset win-debug   -LE validation-large -j 12
+PYTHONPATH='build/win-release/python;python' /c/msys64/ucrt64/bin/python -m pytest tests/python -q
+```
+
+MSYS2's `eigen3` package (Eigen 5) is not needed and is ignored if installed: `find_package(Eigen3 3.4)`
+rejects it and Eigen 3.4.0 is fetched. The presets put the MSYS2 environment first on `PATH` for
+configure, build and test, so the right `libstdc++` / `libc++` / OpenMP / OpenBLAS / ASan DLLs are found.
 
 ## Status
 

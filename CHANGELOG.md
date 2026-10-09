@@ -5,6 +5,13 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tooling (WP-W1): native Windows build with MSYS2: presets `win-release` (UCRT64 GCC, OpenMP,
+  OpenBLAS) and `win-debug` (CLANG64 Clang/libc++, ASan + UBSan, `-Werror`), a Windows MSYS2
+  UCRT64 CI job, `.gitattributes` (LF checkouts everywhere), Windows memory guard of the dense
+  validation tests (`tests/support/system_memory.cpp`). CMake ≥ 3.25 (FetchContent `SYSTEM`);
+  fetched Eigen/spdlog/Catch2/pybind11 are system includes; fetched spdlog 1.14.1 → 1.15.3 and
+  Catch2 3.7.1 → 3.16.1 (Clang 22 compatibility; the fetched Catch2 runs only in the Windows job,
+  Linux CI uses the system Catch2 3.4). CI also runs on pushes to `wp/**` branches.
 - geometry (WP1, #1): `TriangleMesh` edge topology (interior edges with plus/minus triangles,
   boundary-edge count, non-manifold and duplicate-triangle rejection), orientation check and
   repair with per-component outward orientation, closedness, signed volume, bounding box,
@@ -59,6 +66,14 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `benchmarks/results/mie_sphere_dense.md`.
 - tooling: `.github/workflows/ci.yml` had an invalid flow-mapping `env` since the scaffold so CI
   never ran; fixed. CI runs `-L '^validation$'`; `validation-large` is nightly/manual.
+- post (WP9a): `SurfaceSolution::omega` removed; the frequency comes only from `op::Problem::omega`
+  (checked against an attached excitation to 1e-12 relative); post-processing tests use
+  `excitation::PlaneWave`. `validation-large` tests run serially (RUN_SERIAL).
+- geometry (WP2b, #14): graded side walls and bottom plate of the rough-surface box
+  (`RoughSurfaceParams::box_mesh_size`, automatic coarse spacing min(depth/2, L/8, 10 h), conforming
+  2:1 transition strips, decay-based validity contract, rough-rim guard); reference case L = 10 µm,
+  50 nm, depth 2 µm: closing box 7.2 % of the top face instead of 180 % (224 000 → 85 750
+  triangles); uniform fallback bit-identical to the previous mesh.
 - build: fetched Eigen is a system include and no longer pollutes the CMake package registry.
 - tooling: coordinator/worker/reviewer agent definitions, `CLAUDE.md`, `docs/backlog.md`.
 - Project scaffold: CMake build with presets, dependency resolution, warnings, CI (GCC/Clang, Release/Debug+sanitizers).

@@ -9,7 +9,8 @@
 - Medgyesi-Mitschang L.N., Putnam J.M., Gedera M.B. *Generalized method of moments for three-dimensional penetrable scatterers.* JOSA A 11 (1994) 1383. (PMCHWT, tangential operators)
 - Rao S.M., Wilton D.R., Glisson A.W. *Electromagnetic scattering by surfaces of arbitrary shape.* IEEE TAP 30 (1982) 409. (RWG)
 - Solís D.M., Taboada J.M., Rubiños-López O., Obelleiro F. *Improved combined tangential formulation for electromagnetic analysis of penetrable bodies.* JOSA B 32 (2015) 1780. (ICTF)
-- Karaosmanoğlu B., Yilmaz A., Ergül Ö. *A comparative study of surface integral equations for accurate and efficient analysis of plasmonic structures.* IEEE TAP 65 (2017) 3049. (MCTF)
+- Karaosmanoğlu B., Yılmaz A., Ergül Ö. *A comparative study of surface integral equations for accurate and efficient analysis of plasmonic structures.* IEEE TAP 65 (2017) 3049. (MCTF)
+- Karaosmanoğlu B., Ergül Ö. ACES Journal 34(5) (2019) 811. (MCTF matrix form, Eq. 1; confirms Table 1, issue #15)
 - Ergül Ö., Gürel L. *Comparison of integral-equation formulations ... with the multilevel fast multipole algorithm.* IEEE TAP 57 (2009) 176. (JMCFIE and others)
 - Gómez-Sousa H., Rubiños-López O., Martínez-Lorenzo J.Á. *Comparison of iterative solvers for electromagnetic analysis of plasmonic nanostructures using multiple surface integral equation formulations.* J. Electromagn. Waves Appl. 30 (2016) 456.
 
