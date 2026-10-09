@@ -53,10 +53,12 @@ jobs:
         run: ctest --test-dir build --output-on-failure -L '^validation$'
 
       # SPECKLEBEM_NPY_FIXTURE makes the NumPy round trip of the .npy writer fail instead of
-      # skip if the helper is missing; -rs lists the reasons of any skipped test.
+      # skip if the helper is missing, SPECKLEBEM_REQUIRE_SCIPY the SciPy test if SciPy is
+      # missing; -rs lists the reasons of any skipped test.
       - name: Python tests
         env:
           SPECKLEBEM_NPY_FIXTURE: build/tests/specklebem_npy_fixture
+          SPECKLEBEM_REQUIRE_SCIPY: "1"
         run: |
           PYTHONPATH=build/python:python python3 -m pytest tests/python -q -rs
 
@@ -107,6 +109,7 @@ jobs:
       - name: Python tests
         env:
           SPECKLEBEM_NPY_FIXTURE: build/tests/specklebem_npy_fixture.exe
+          SPECKLEBEM_REQUIRE_SCIPY: "1"
         run: |
           PYTHONPATH='build/python;python' python -m pytest tests/python -q -rs
 
