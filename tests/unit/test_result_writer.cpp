@@ -188,9 +188,9 @@ TEST_CASE("result_writer: attributes.json escaping and Real round trip", "[io]")
     TempDir tmp2;
     const auto w = io::open_npy_directory(tmp2.path().string());
     w->write_attribute(
-        "s", "say \"hi\" \\ C:\\dir\nline\ttab\x01\x1f \xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80");
+        "s", "say \"hi\" \\ C:\\dir\nline\ttab\x01\x1f\r \xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80");
     CHECK(read_file(tmp2.path() / "attributes.json") ==
-          "{\n  \"s\": \"say \\\"hi\\\" \\\\ C:\\\\dir\\nline\\ttab\\u0001\\u001f \xc3\xa9 "
+          "{\n  \"s\": \"say \\\"hi\\\" \\\\ C:\\\\dir\\nline\\ttab\\u0001\\u001f\\u000d \xc3\xa9 "
           "\xe2\x82\xac \xf0\x9f\x98\x80\"\n}\n");
 
     // Shortest round-trip form parses back to the identical double.

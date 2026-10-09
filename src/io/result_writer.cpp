@@ -180,37 +180,20 @@ std::string json_string(const std::string& s) {
     std::string out = "\"";
     for (const char ch : s) {
         const auto c = static_cast<unsigned char>(ch);
-        switch (ch) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\b':
-                out += "\\b";
-                break;
-            case '\f':
-                out += "\\f";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                if (c < 0x20U) {
-                    constexpr char kHex[] = "0123456789abcdef";
-                    out += "\\u00";
-                    out.push_back(kHex[c >> 4]);
-                    out.push_back(kHex[c & 0xfU]);
-                } else {
-                    out.push_back(ch);  // UTF-8 passes through unescaped
-                }
+        if (ch == '"' || ch == '\\') {
+            out.push_back('\\');
+            out.push_back(ch);
+        } else if (ch == '\n') {
+            out += "\\n";
+        } else if (ch == '\t') {
+            out += "\\t";
+        } else if (c < 0x20U) {  // other control characters as \u00XX
+            constexpr char kHex[] = "0123456789abcdef";
+            out += "\\u00";
+            out.push_back(kHex[c >> 4]);
+            out.push_back(kHex[c & 0xfU]);
+        } else {
+            out.push_back(ch);  // UTF-8 passes through unescaped
         }
     }
     return out + '"';
