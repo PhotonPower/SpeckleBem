@@ -70,9 +70,9 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   (default on; WP7c part 4: lossy regions bound the near/far error by target × the undamped
   magnitude bound of the block, ADR 0004; lossless regions bitwise unchanged);
   `OperatorOptions::fast_plain_kernel` (default on; branch-free vectorised sin/cos/exp in
-  `kernels/fast_math.hpp`, ≤ 1 ulp, blocks within 2.7e-15; operators.cpp built with
+  `kernels/fast_math.hpp`, ≤ 2 ulp (measured 1), blocks within 2.7e-15; operators.cpp built with
   `-fno-math-errno -fno-trapping-math`); `kernels::plain_rule_degree` (diagnostics); Python
-  `kernels=dict(decay_aware_target=...)`. WP15 systems: Si 1513–1535 s → 242 s, Ag 1056–1293 s
+  `kernels=dict(decay_aware_target=..., fast_plain_kernel=...)`. WP15 systems: Si 1513–1535 s → 242 s, Ag 1056–1293 s
   → 35 s (24 threads); the Si box stays ~5–10× the N²-scaled sphere figure because of its coarse
   box cells (|k_Si| h ≈ 30, see the record).
 - python (WP14b3): calls on one `Simulation` from several Python threads are serialised by a

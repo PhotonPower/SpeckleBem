@@ -48,8 +48,10 @@
 /// 2) covers pairs outside the calibration set. Non-positive-interior degrees 7, 11, 15, 16,
 /// 18, 20 (possible only as quad_degree_far) use the model of the next lower calibrated degree.
 /// The estimate is increasing in kappa for every d, so the chosen degree is non-decreasing in
-/// |k| and h and non-increasing in D. It depends only on symmetric quantities, so both
-/// orderings of a pair use the same rule (blocks symmetric up to rounding).
+/// |k| and h and non-increasing in D (with the decay-aware target below: in |Re k| and h, and
+/// non-increasing in D; not monotone in Im k). It depends only on symmetric quantities
+/// (R_lb = D - (rho_test + rho_src) in this order), so both orderings of a pair use the same
+/// rule (blocks symmetric up to rounding).
 ///
 /// Decay-aware target (WP-P2, WP7c part 4; OperatorOptions::decay_aware_target, default on).
 /// In a lossy region, k = beta - j alpha with alpha > 0, every point pair of a near or far pair
@@ -805,7 +807,9 @@ Real log_decay_factor(const TriangleGeometry& g_test, const Vec3& c_test,
     if (!opt.decay_aware_target || opt.target_accuracy == 0.0 || !(alpha > 0.0)) {
         return 0.0;
     }
-    const Real r_lb = distance - centroid_radius(g_test, c_test) - centroid_radius(g_src, c_src);
+    // distance - (rho_test + rho_src): the sum commutes, so R_lb and the degree are bitwise
+    // symmetric in (t_test, t_src).
+    const Real r_lb = distance - (centroid_radius(g_test, c_test) + centroid_radius(g_src, c_src));
     if (!(r_lb > 0.0)) {
         return 0.0;
     }
@@ -1130,7 +1134,7 @@ Accumulator integrate_plain(const Side& test, const Side& src, const TriangleRul
         const TriangleGeometry& gs = *src.geom;
         const Vec3 ct = (gt.v0 + gt.v1 + gt.v2) / 3.0;
         const Vec3 cs = (gs.v0 + gs.v1 + gs.v2) / 3.0;
-        const Real r_max = (ct - cs).norm() + centroid_radius(gt, ct) + centroid_radius(gs, cs);
+        const Real r_max = (ct - cs).norm() + (centroid_radius(gt, ct) + centroid_radius(gs, cs));
         fast = std::abs(k.real()) * r_max <= fastmath::kFastSincosMax;  // false for NaN
     }
     Accumulator acc;

@@ -139,8 +139,9 @@ struct OperatorOptions {
     /// (0.15 |k| h)^2), D the centroid distance and h the larger longest edge (calibration in
     /// src/kernels/operators.cpp). The choice is monotone: non-decreasing in |k| and h,
     /// non-increasing in D (with the decay-aware target of lossy regions: non-decreasing in
-    /// |Re k| and h, non-increasing in D and -Im k). Near-class pairs only use positive-interior
-    /// degrees. If no degree
+    /// |Re k| and h, non-increasing in D; not monotone in Im k, since a larger -Im k raises |k|
+    /// in the error model while the target relaxes only for pairs with R_lb > 0). Near-class
+    /// pairs only use positive-interior degrees. If no degree
     /// of the ladder reaches the target, quad_degree_near is used. 0 disables the selection
     /// (fixed degrees: quad_degree_far for far pairs, quad_degree_near for near pairs, as in
     /// WP7). Must be finite and in [0, 1). Governs near and far pairs only: touching pairs
@@ -169,7 +170,9 @@ struct OperatorOptions {
     bool decay_aware_target = true;
     /// Near and far pairs: evaluate exp(-jkR) with the branch-free, vectorisable fastmath
     /// functions (kernels/fast_math.hpp, WP-P2) instead of the C library's sin, cos and exp
-    /// (blocks agree to ~1e-15 relative; x3 to x4 faster near/far pairs). Used where the
+    /// (blocks agree to ~1e-15 relative; measured on UCRT64 GCC: x1.35 (lossless) / x1.8 (Si)
+    /// per degree-19 far pair, x1.5 on the whole rough-box assembly, x2.9 for the isolated
+    /// sin + cos loop; benchmarks/results/dense_assembly_profile.md). Used where the
     /// arguments are in range for the whole pair (|Re k| R <= 1e6, Im k <= 0); otherwise, and
     /// with false, the C library (the pre-WP-P2 arithmetic, bitwise). Touching pairs always
     /// use the C library.

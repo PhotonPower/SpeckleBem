@@ -8,7 +8,7 @@ metadata:
 Measured 2026-10-09 (WP-P2, `benchmarks/dense_assembly_profile.cpp`):
 - Rough boxes: near/far pairs with a 400 nm box cell dominate; the degree selection uses
   kappa = sqrt((h/D)^2 + (0.15 |k| h)^2), so |k| h >~ 7 forces degrees 12-19 regardless of D
-  (Si interior |k| h ~ 30 -> cap 19, 59-66 % of CPU). Touching pairs < 3 %.
+  (Si interior |k| h ~ 30 -> cap 19: 59-63 % of CPU before WP-P2, 66 % after; Ag 46 % before). Touching pairs < 3 %.
 - OpenMP static schedule over index-ordered rows was x2.5 (Si) / x4.5 (Ag) the ideal on boxes;
   box triangles come last in the mesh. Static schedules also suffer badly from other agents'
   load. Use dynamic, largest-first (bitwise identical: one writer per row per colour).
@@ -16,7 +16,7 @@ Measured 2026-10-09 (WP-P2, `benchmarks/dense_assembly_profile.cpp`):
   (-ftrapping-math): per-file `-fno-math-errno -fno-trapping-math` fixes both (value-neutral).
   `-fopt-info-vec-all` on a scratch TU shows why a loop is missed.
 - UCRT std::exp is fast (~3 ns); sin+cos ~13-19 ns. Custom fdlibm-style sincos/exp agree to
-  <= 1 ulp; element blocks within 2.7e-15.
+  <= 1 ulp measured (tests enforce 2 ulp); element blocks within 2.7e-15.
 - Rough-box wall pairs are exactly coplanar: K is rounding noise; relative-K checks need an
   absolute floor (e.g. 1e-12 x |f||f| grad-G scale).
 - Timing: absolute numbers vary x2-3 with other agents; compare in the same process

@@ -200,13 +200,19 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   k = beta - j alpha, alpha > 0, every point pair of a near or far pair satisfies R >= R_lb =
   D - rho_test - rho_src (rho the largest centroid-vertex distance), so |G| <= delta / (4 pi R)
   and |grad G| <= delta (1 + |beta| R) / (4 pi R^2) with delta = (1 + alpha R_lb)
-  exp(-alpha R_lb) <= 1. With U the entrywise bound A_test A_src max |integrand| for these
-  undamped magnitudes, ||B|| <= delta ||U||. Definition (Frobenius norms, L and K separately):
-  every near/far block of a lossy region satisfies ||B_d - B|| <= target_accuracy ||U||. The
-  selection achieves it by asking the empirical envelope for E_d <= target / delta, and takes the
-  lowest degree of the ladder when (S_d^2 + 1) delta <= target (S_d = sum |w| of the rule, 1 for
-  positive rules, 2.125 for degree 3: then any rule meets the bound and the envelope, calibrated
-  only up to |k| h = 3, is not consulted). Meaning: a block may carry the absolute error that the
+  exp(-alpha R_lb) <= 1. U is the entrywise bound with these undamped magnitudes (moduli
+  summed, maxima over r in t_test and r' in t_src; c_vec = j omega mu, c_sca = 1 / (j omega eps)):
+    U^L_mn = A_test A_src max (|c_vec| |f_m(r) . f_n(r')| + |c_sca| |div f_m div' f_n|) / (4 pi R),
+    U^K_mn = A_test A_src max |f_m(r) . (R^ x f_n(r'))| (1 + |beta| R) / (4 pi R^2),
+  R^ = (r - r') / R (the `undamped_bound` of tests/unit/test_operators.cpp evaluates exactly
+  these over sample points); then ||B|| <= delta ||U||. Definition (Frobenius norms, L and K
+  separately): every near/far block of a lossy region satisfies ||B_d - B|| <= target_accuracy
+  ||U||. The selection takes the lowest degree of the ladder when (S_d^2 + 1) delta <= target
+  (S_d = sum |w| of the rule, 1 for positive rules, 2.125 for degree 3): in this negligible
+  branch any rule meets the bound, rigorously, and the envelope, calibrated only up to |k| h =
+  3, is not consulted. Otherwise it asks the empirical envelope for E_d <= target / delta, so
+  the bound holds as well as E_d bounds the relative error (the same status as the lossless
+  relative target, ||B_d - B|| <= target ||B||). Meaning: a block may carry the absolute error that the
   same pair is allowed in a lossless region (target ||B|| <= target ||U||), so the error summed
   over a matrix row stays bounded as for a lossless medium of the same geometry; only blocks
   that are small because of the attenuation lose their relative resolution. Lossless regions
@@ -216,13 +222,19 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   blocks by d / h and loosens the row-sum error by ~L / h. Measured on a 0.3 um rough box (h =
   50 nm, graded walls) against degree-19 references: worst ||B_d - B_ref|| / (target ||U||) =
   4.0e-3 over 3 960 relaxed Ag pairs (85 % of all near/far pairs relaxed) and 7.1e-3 over 350
-  relaxed Si pairs (tests/unit/test_operators.cpp). All Mie validation cases (including Ag)
-  pass unchanged.
+  relaxed Si pairs (tests/unit/test_operators.cpp). That box covers |k| h <~ 8 (100 nm box
+  cells: |k_Ag| h ~ 5.6, |k_Si| h ~ 7.6). On the WP15 boxes, relaxed pairs at larger |k| h
+  come only from the negligible branch (checked independently: Ag pairs up to |k| h = 23 are
+  relaxed through it; the Si coarse cells at |k| h ~ 30 are never relaxed), so the envelope is
+  not extrapolated beyond the tested range by the relaxation. All Mie validation cases
+  (including Ag) pass unchanged.
 - Plain-kernel arithmetic (WP-P2; `OperatorOptions::fast_plain_kernel`, default on). The near/far
   point loop called the C library's sincos and exp once per point pair (~30-40 ns per kernel
   evaluation on UCRT64). It now uses branch-free sin/cos (Cody-Waite reduction, fdlibm
-  polynomials) and exp of a non-positive argument from `kernels/fast_math.hpp` (within 1 ulp of
-  the C library: absolute <= 2.2e-16 for sin/cos up to |x| = 1e6, relative <= 2.2e-16 for exp),
+  polynomials) and exp of a non-positive argument from `kernels/fast_math.hpp` (<= 2 ulp of the
+  C library enforced by the tests, 1 ulp measured: absolute <= 2.2e-16 for sin/cos up to
+  |x| = 1e6, relative <= 2.2e-16 for exp; the header rejects -ffast-math and x87 excess
+  precision at compile time),
   vectorised by the compiler (operators.cpp is built with `-fno-math-errno -fno-trapping-math`,
   which change no value). Blocks agree with the C-library arithmetic to 2.7e-15 relative; outside
   the argument range (|Re k| R > 1e6 or Im k > 0) and with `fast_plain_kernel = false` the

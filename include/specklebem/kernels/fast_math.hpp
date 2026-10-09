@@ -17,11 +17,21 @@
 ///
 /// Requirements: IEEE double arithmetic in round-to-nearest mode without reassociation (no
 /// -ffast-math / -fassociative-math): round_to_int relies on (x + 1.5 2^52) - 1.5 2^52 being
-/// evaluated as written. Fused multiply-add contraction is harmless.
+/// evaluated as written. Fused multiply-add contraction is harmless. Both requirements are
+/// checked at compile time below (-ffast-math defines __FAST_MATH__; x87 excess precision
+/// gives FLT_EVAL_METHOD != 0).
 #include "specklebem/core/types.hpp"
 
 #include <bit>
+#include <cfloat>
 #include <cstdint>
+
+#if defined(__FAST_MATH__)
+#error "kernels/fast_math.hpp: round_to_int needs IEEE evaluation; do not build with -ffast-math"
+#endif
+static_assert(FLT_EVAL_METHOD == 0,
+              "kernels/fast_math.hpp: round_to_int needs double evaluated in double precision "
+              "(no x87 excess precision; use SSE2 arithmetic)");
 
 namespace specklebem::kernels::fastmath {
 

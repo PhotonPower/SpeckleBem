@@ -184,6 +184,8 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
             o.fold_adaptive = dict_value<bool>(v, key, "kernels");
         } else if (key == "decay_aware_target") {
             o.decay_aware_target = dict_value<bool>(v, key, "kernels");
+        } else if (key == "fast_plain_kernel") {
+            o.fast_plain_kernel = dict_value<bool>(v, key, "kernels");
         } else {
             throw py::value_error("kernels: unknown key '" + key + "'");
         }
@@ -484,7 +486,9 @@ kernels : dict, optional
     Quadrature options (kernels::OperatorOptions member names): quad_degree_far,
     quad_degree_near, quad_degree_sing, outer_grading_levels, near_distance_factor,
     symmetrize_touching_above_kh, target_accuracy, quad_degree_rhs, fold_adaptive,
-    decay_aware_target.
+    decay_aware_target (True: relaxed near/far target in lossy regions, ADR 0004),
+    fast_plain_kernel (True: vectorised sin/cos/exp in near/far pairs; False reproduces the
+    pre-WP-P2 C-library arithmetic bitwise).
 
 Raises
 ------

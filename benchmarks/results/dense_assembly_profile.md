@@ -61,8 +61,9 @@ Schedule (makespan on 24 threads from the measured row costs, L = 1.2 µm):
 2. **Coarse box cells in the object region**: the near/far degree selection estimates the
    relative block error from κ = sqrt((h/D)² + (0.15 |k| h)²); for the 400 nm cells |k_Si| h ≈ 30
    and |k_Ag| h ≈ 22, no Dunavant degree reaches 1e-5 and the cap 19 (73 × 73 point pairs) is
-   used for every pair with a coarse triangle, whatever its distance: 59 % (Si) and 48 % (Ag) of
-   the CPU time. For Ag nearly all of these blocks are negligible (decay length 25 nm); for Si
+   used for every pair with a coarse triangle, whatever its distance: 59 % (Si, L = 3.2 µm
+   profile above; 547 of 872 CPU s = 63 % at L = 1.2 µm) and 46 % (Ag, 114 of 249 CPU s at
+   L = 1.2 µm, degree table) of the CPU time. For Ag nearly all of these blocks are negligible (decay length 25 nm); for Si
    they are not (decay length 1.13 µm), and their accuracy at degree 19 is below the target
    anyway — the coarse cells do not resolve the Si wavelength (116 nm), which is a mesh-validity
    question (WP-V1), not a quadrature one.
@@ -75,7 +76,7 @@ Schedule (makespan on 24 threads from the measured row costs, L = 1.2 µm):
 |---|---|---|
 | Dynamic schedule, rows of a colour handed out one by one in order of decreasing longest edge | `src/operator/assembler.cpp` (`order_by_cost`, `schedule(dynamic, 1)`) | bitwise identical matrix (each row has one writer per colour; summation order unchanged) |
 | Decay-aware near/far target for lossy regions (WP7c part 4): relative target / δ, δ = (1 + αR_lb)e^{−αR_lb}, lowest degree when (S_d² + 1)δ ≤ target | `src/kernels/operators.cpp` (`select_degree`, `log_decay_factor`), `OperatorOptions::decay_aware_target` | ‖B_d − B‖ ≤ target ‖U‖, U the undamped magnitude bound of the block (ADR 0004); measured ≤ 4.0e-3 (Ag) and 7.1e-3 (Si) of the bound; lossless regions bitwise unchanged |
-| Branch-free, vectorised sin/cos/exp in the near/far point loop; `-fno-math-errno -fno-trapping-math` for operators.cpp | `include/specklebem/kernels/fast_math.hpp`, `src/kernels/operators.cpp` (`plain_kernel_values`), `src/CMakeLists.txt`, `OperatorOptions::fast_plain_kernel` | ≤ 1 ulp against the C library; blocks within 2.7e-15 relative |
+| Branch-free, vectorised sin/cos/exp in the near/far point loop; `-fno-math-errno -fno-trapping-math` for operators.cpp | `include/specklebem/kernels/fast_math.hpp`, `src/kernels/operators.cpp` (`plain_kernel_values`), `src/CMakeLists.txt`, `OperatorOptions::fast_plain_kernel` | ≤ 2 ulp against the C library (enforced by the tests, 1 ulp measured); blocks within 2.7e-15 relative |
 
 Mie validation after all changes (n = 3 icospheres, dense PMCHWT + LU): ε_rr xz / yz = 0.348 % /
 0.256 % (Ag) and 0.554 % / 0.396 % (Si), the values of `mie_sphere_dense.md` to the printed

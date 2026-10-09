@@ -132,8 +132,28 @@ def test_callback_and_overrides():
         make_sim(kernels={3: 1})
     # WP7c options are accepted (same results for these settings on a sphere).
     make_sim(kernels=dict(CHEAP, quad_degree_rhs=8, fold_adaptive=False))
-    # WP-P2 option.
-    make_sim(kernels=dict(CHEAP, decay_aware_target=False))
+    # WP-P2 options.
+    make_sim(kernels=dict(CHEAP, decay_aware_target=False, fast_plain_kernel=False))
+    with pytest.raises(ValueError):
+        make_sim(kernels=dict(CHEAP, fast_plain_kernel=1.5))
+
+
+def test_wp_p2_kernel_options_change_lossy_operator_only():
+    """decay_aware_target relaxes only lossy regions; fast_plain_kernel changes rounding only."""
+
+    def op(material, **kernels):
+        sim = make_sim(material, formulation="PMCHWT", kernels=kernels)
+        sim.assemble()
+        return np.array(sim.operator())
+
+    # Default quadrature options (degree selection active, target 1e-5).
+    ag, ag_strict = op(sb.silver_500nm()), op(sb.silver_500nm(), decay_aware_target=False)
+    assert not np.array_equal(ag, ag_strict)
+    assert rel(ag, ag_strict) < 1e-4
+    glass, glass_strict = op(N15), op(N15, decay_aware_target=False)
+    np.testing.assert_array_equal(glass, glass_strict)
+    libm = op(N15, fast_plain_kernel=False)
+    assert 0 < rel(glass, libm) < 1e-13
 
 
 def test_gmres_solve_releases_gil():

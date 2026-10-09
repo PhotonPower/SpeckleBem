@@ -3244,3 +3244,37 @@ TEST_CASE("plain_rule_degree: matches element_blocks' rule and rejects touching 
         CHECK(kernels::plain_rule_degree(m, s, 0, ag.k, OperatorOptions{}) == d);
     }
 }
+
+TEST_CASE("plain_rule_degree: the degree choice is symmetric in the pair on a rough box",
+          "[kernels]") {
+    // R_lb = D - (rho_test + rho_src) and kappa use symmetric quantities only, so both orderings
+    // select bitwise the same degree (no rounding-dependent choice at the decay-aware thresholds).
+    const TriangleMesh m = decay_rough_box();
+    std::vector<RegionParams> regions;
+    for (const NamedRegion& r : all_regions()) regions.push_back(r.p);
+    // Weakly lossy medium: delta passes the thresholds for pairs at a few 100 nm.
+    regions.push_back(region_of({Complex(2.25, -0.4), Complex(1.0, 0.0)}, kLambda));
+    OperatorOptions loose;
+    loose.target_accuracy = 1e-2;  // negligible branch reachable on the 0.3 um box
+    const Index F = m.num_triangles();
+    std::size_t compared = 0;
+    std::size_t asymmetric = 0;
+    for (Index t = 0; t < F; ++t) {
+        for (Index s = t + 1; s < F; ++s) {
+            const Proximity p = classify(m, t, s);
+            if (p != Proximity::near && p != Proximity::far)
+                continue;
+            for (const RegionParams& reg : regions) {
+                for (const OperatorOptions& opt : {OperatorOptions{}, loose}) {
+                    ++compared;
+                    if (kernels::plain_rule_degree(m, t, s, reg.k, opt) !=
+                        kernels::plain_rule_degree(m, s, t, reg.k, opt))
+                        ++asymmetric;
+                }
+            }
+        }
+    }
+    INFO(compared << " (pair, region, options) combinations");
+    CHECK(compared > 1000);
+    CHECK(asymmetric == 0);
+}

@@ -31,6 +31,7 @@
 #include "specklebem/kernels/singularity.hpp"
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/assembler.hpp"
+#include "specklebem/simulation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -334,7 +335,8 @@ void run(const Options& o) {
         rp.correlation_length = kCorrelationLength;
         rp.mesh_size = kMeshSize;
         rp.seed = 1;
-        rp.box_depth = o.mesh == "si" ? 5.65e-6 : 2e-6;  // WP15 default_box_depth
+        // The WP15 depth of the mesh material (independent of --material).
+        rp.box_depth = default_box_depth(material_by_name(o.mesh), kLambda);
         rp.box_mesh_size = o.box_mesh_size;
         const geometry::HeightMap hm = geometry::generate_gaussian_height_map(rp);
         mesh = geometry::make_mesh_from_height_map(hm, rp.box_depth, rp.box_mesh_size);

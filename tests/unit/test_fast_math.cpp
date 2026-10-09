@@ -103,6 +103,42 @@ TEST_CASE("fast_exp_nonpositive agrees with std::exp", "[kernels]") {
           2.0 * kUlp1 * std::exp(-708.0));
 }
 
+TEST_CASE("fast_sincos and fast_exp_nonpositive propagate NaN", "[kernels]") {
+    const Real nan = std::numeric_limits<Real>::quiet_NaN();
+    for (const Real x : {nan, -nan}) {
+        Real s = 0.0;
+        Real c = 0.0;
+        fast_sincos(x, s, c);
+        CHECK(std::isnan(s));
+        CHECK(std::isnan(c));
+        CHECK(std::isnan(fast_exp_nonpositive(x)));
+    }
+    // In a loop the compiler may vectorise (as in the plain kernel): NaN lanes stay NaN and do not
+    // disturb their neighbours.
+    std::vector<Real> x(37);
+    for (std::size_t i = 0; i < x.size(); ++i)
+        x[i] = i % 5 == 2 ? nan : -0.37 * static_cast<Real>(i);
+    std::vector<Real> s(x.size());
+    std::vector<Real> c(x.size());
+    std::vector<Real> e(x.size());
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        fast_sincos(x[i], s[i], c[i]);
+        e[i] = fast_exp_nonpositive(x[i]);
+    }
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        INFO("i = " << i);
+        if (i % 5 == 2) {
+            CHECK(std::isnan(s[i]));
+            CHECK(std::isnan(c[i]));
+            CHECK(std::isnan(e[i]));
+        } else {
+            CHECK(std::abs(s[i] - std::sin(x[i])) <= 2.0 * kUlp1);
+            CHECK(std::abs(c[i] - std::cos(x[i])) <= 2.0 * kUlp1);
+            CHECK(std::abs(e[i] - std::exp(x[i])) <= 2.0 * kUlp1 * std::exp(x[i]));
+        }
+    }
+}
+
 TEST_CASE("element_blocks: fast plain kernel agrees with the C-library arithmetic", "[kernels]") {
     const geometry::TriangleMesh mesh = geometry::make_icosphere(0.5e-6, 2);
     const basis::RwgSpace space(mesh);
