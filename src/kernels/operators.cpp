@@ -1194,8 +1194,7 @@ bool fold_pieces(GradedKind kind, const std::array<Vec3, 3>& abc, const std::arr
             return std::abs((v - A).dot(n)) <= kInPlaneTol * (v - A).norm();
         };
         const Vec3 ns = (far[0] - A).cross(far[1] - A).normalized();
-        const bool rim =
-            std::abs(ns.dot(n)) < kSteepCos && (in_plane(far[0]) || in_plane(far[1]));
+        const bool rim = std::abs(ns.dot(n)) < kSteepCos && (in_plane(far[0]) || in_plane(far[1]));
         return folded || rim || pl.changed || pl.p[0].grade != Grade::none;
     }
     const Vec3 M = 0.5 * (A + B);
