@@ -24,6 +24,10 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
   PMCHWT / ICTF / MCTF without and with the left Jacobi preconditioner on Si and Ag Gaussian rough
   surfaces (dense operator, L reduced to 3.2 µm). Histories (every 10th iteration):
   [`results/formulation_convergence_histories.csv`](results/formulation_convergence_histories.csv).
+- [`results/dense_assembly_profile.md`](results/dense_assembly_profile.md) — dense assembly
+  profile of the WP15 rough boxes and icospheres (WP-P2): time per pair class, region and
+  triangle size, near/far degrees, schedule makespan, before/after timings
+  (`dense_assembly_profile.cpp`).
 
 ## Executables (`-DSPECKLEBEM_BUILD_BENCHMARKS=ON`)
 
@@ -34,3 +38,11 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
   (w0 = L / factor, default 3), `--fine-band` (ADR 0006 fine band 3δ + 3σ), `--mesh-only`
   (print the setup and the unknown count, no assembly). Each dense system (2N ≈ 3·10⁴) needs
   ~16 GB; the systems are processed one after the other.
+- `specklebem_dense_assembly_profile` (`dense_assembly_profile.cpp`): the WP-P2 profile.
+  Options `--mesh si|ag|sphere`, `--material si|ag|glass|vacuum`, `--L <m>`,
+  `--box-mesh-size <m>`, `--sphere-n <n>`, `--radius <m>`, `--stride <n>`, `--profile`
+  (per-class element_blocks timings and degree statistics), `--build R` (R timed
+  DenseStrategy::build runs), `--compare R` (pre-WP-P2 pair loop in the same process),
+  `--micro` (single-thread cost per far pair and degree), `--threads T`, `--target <t>`,
+  `--no-decay` / `--libm` (switch off `decay_aware_target` / `fast_plain_kernel`),
+  `--schedule-threads T`. See `results/dense_assembly_profile.md`.

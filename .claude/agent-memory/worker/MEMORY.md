@@ -4,5 +4,6 @@
 - [Touching-pair quadrature findings](touching_quadrature_findings.md) — Duffy error sources (rays, obtuse apex, radial), reference n at sharp folds
 - [Rough box grading facts](rough_box_grading.md) — anchor row, stitched relaxation band (edges <= 2 h_g), safety net, measured box % and aspects
 - [MLFMM plane-wave accuracy](mlfmm_plane_wave_accuracy.md) — ADR truncation vs box size, corner worst case, Lagrange p, Hankel refs, Eigen dot
+- [Assembly performance](assembly_performance.md) — box cost drivers, schedule, GCC vectorisation flags, fast-math accuracy, timing method
 - [Python bindings pitfalls](python_bindings.md) — flags order, vectorize, views, exceptions, GIL callbacks, Simulation lock design, test sensitivity
 - [MLFMM octree findings](mlfmm_octree_findings.md) — anchored vertex-bbox root, lambda/4 floor tolerance, 4 um sphere leaf sizes, plate layers, test cost

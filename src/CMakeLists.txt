@@ -42,6 +42,15 @@ set(SPECKLEBEM_SOURCES
 add_library(specklebem ${SPECKLEBEM_SOURCES})
 add_library(SpeckleBem::specklebem ALIAS specklebem)
 
+# WP-P2: the plain-kernel point loop of kernels/operators.cpp (kernels/fast_math.hpp and
+# std::sqrt) vectorises only without errno handling (sqrt) and without the trapping-math limit
+# on if-converting floating-point comparisons. Neither flag changes a computed value (no
+# reassociation, no contraction, no finite-math assumptions).
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(kernels/operators.cpp PROPERTIES
+        COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math")
+endif()
+
 target_include_directories(specklebem
     PUBLIC
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>

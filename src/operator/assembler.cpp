@@ -55,11 +55,19 @@
 /// Parallelism (docs/07: deterministic results): the test triangles are coloured greedily so
 /// that no two triangles of one colour share a basis function (edge-adjacent triangles differ;
 /// at most 4 colours since a triangle has at most 3 neighbours). The colours are processed in
-/// turn; within a colour the triangles are distributed with an OpenMP static schedule, each
-/// writing only the rows of its own basis functions (m and N + m). Every entry Z(m, n)
-/// therefore receives its contributions in a fixed order (colour of the test triangle, then
-/// test triangle index, then source triangle index) for any thread count: the matrix is
-/// bitwise identical with 1 or many threads and free of data races.
+/// turn; within a colour the triangles are distributed with an OpenMP dynamic schedule, each
+/// writing only the rows of its own basis functions (m and N + m). A basis function lives on two
+/// triangles of different colours, so within a colour each row receives contributions from one
+/// test triangle only, and every entry Z(m, n) receives its contributions in a fixed order
+/// (colour of the test triangle, then source triangle index) for any thread count and any
+/// assignment of triangles to threads: the matrix is bitwise identical with 1 or many threads
+/// and free of data races. Load balance (WP-P2): the cost of a row of pair blocks varies by
+/// more than x10 on graded meshes (coarse box triangles of rough surfaces need high near/far
+/// degrees against every source triangle), and the static schedule of contiguous chunks gave one
+/// thread all coarse rows (x2.5 the ideal time on 24 threads for the WP15 boxes). Within a
+/// colour the triangles are therefore handed out one by one (schedule(dynamic, 1)) in the order
+/// of decreasing longest edge (a cost proxy; largest first keeps the tail short), which does
+/// not change any entry.
 #include "specklebem/operator/assembler.hpp"
 
 #include "specklebem/core/logging.hpp"
@@ -198,6 +206,27 @@ std::vector<std::vector<Index>> colour_triangles(const basis::RwgSpace& space,
     return groups;
 }
 
+/// Orders the triangles of every colour group by decreasing longest edge (ties: ascending index),
+/// the processing order of DenseStrategy::build (file comment: largest, i.e. costliest, rows
+/// first for the dynamic schedule). The order does not affect the matrix entries.
+void order_by_cost(const geometry::TriangleMesh& mesh, std::vector<std::vector<Index>>& groups) {
+    const Index F = mesh.num_triangles();
+    std::vector<Real> edge(static_cast<std::size_t>(F));
+    for (Index t = 0; t < F; ++t) {
+        const auto v = [&](Eigen::Index i) -> Vec3 {
+            return mesh.vertices().row(mesh.triangles()(t, i)).transpose();
+        };
+        edge[static_cast<std::size_t>(t)] =
+            std::max({(v(1) - v(0)).squaredNorm(), (v(2) - v(1)).squaredNorm(),
+                      (v(0) - v(2)).squaredNorm()});
+    }
+    for (std::vector<Index>& g : groups) {
+        std::stable_sort(g.begin(), g.end(), [&](Index a, Index b) {
+            return edge[static_cast<std::size_t>(a)] > edge[static_cast<std::size_t>(b)];
+        });
+    }
+}
+
 /// Slot of basis n in support(t) (-1 if not supported).
 int slot_of(const basis::RwgSpace::Support& sup, Index n) {
     for (int a = 0; a < sup.count; ++a) {
@@ -277,7 +306,8 @@ std::shared_ptr<LinearOperator> DenseStrategy::build(const Problem& p) const {
     const Index F = space.mesh().num_triangles();
     const Setup setup = make_setup(p);
     std::vector<int> colour_of;
-    const std::vector<std::vector<Index>> groups = colour_triangles(space, colour_of);
+    std::vector<std::vector<Index>> groups = colour_triangles(space, colour_of);
+    order_by_cost(space.mesh(), groups);
     const Real bytes = 16.0 * static_cast<Real>(2 * N) * static_cast<Real>(2 * N);
     SBEM_INFO("dense assembly: N = {}, 2N = {}, {} triangles, {} colours, matrix {:.3f} GB", N,
               2 * N, F, groups.size(), bytes * 1e-9);
@@ -290,7 +320,7 @@ std::shared_ptr<LinearOperator> DenseStrategy::build(const Problem& p) const {
     for (const std::vector<Index>& group : groups) {
         const auto ng = static_cast<Index>(group.size());
 #ifdef SPECKLEBEM_HAVE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(dynamic, 1)
 #endif
         for (Index g = 0; g < ng; ++g) {
             try {

@@ -170,7 +170,11 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`. `kernels`
   keys are the `kernels::OperatorOptions` member names (`quad_degree_far`, `quad_degree_near`,
   `quad_degree_sing`, `outer_grading_levels`, `near_distance_factor`,
-  `symmetrize_touching_above_kh`, `target_accuracy`, `quad_degree_rhs`, `fold_adaptive`).
+  `symmetrize_touching_above_kh`, `target_accuracy`, `quad_degree_rhs`, `fold_adaptive`,
+  `decay_aware_target`, `fast_plain_kernel`; WP-P2: `decay_aware_target=False` restores the
+  relative near/far target in lossy regions, `fast_plain_kernel=False` the C-library kernel
+  arithmetic, so both together with the default schedule reproduce the pre-WP-P2 matrix
+  bitwise).
   Unknown strings, keys or value types raise `ValueError`. The mesh is copied, the excitation
   shared (`shared_ptr`).
 - `solve()` overrides apply to this call only (C++ `solve(GmresParams, cb)`; `restart=0` = full

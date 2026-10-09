@@ -60,6 +60,21 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   complex-z Hankel check up to |z| = 80 against Miller j_l / upward y_l with their Wronskian,
   lambda/4 interpolation with the oversampled leaf, order search, and a `slow` sweep
   (`mlfmm: plane-wave accuracy sweep (slow)`) printing the measured tables.
+- kernels / operator (WP-P2): dense assembly performance on rough boxes. Profile benchmark
+  `benchmarks/dense_assembly_profile.cpp` (per-class element_blocks timings, near/far degree and
+  touching-rule statistics, schedule makespan, same-process before/after comparison) and record
+  `benchmarks/results/dense_assembly_profile.md`. Root causes: OpenMP static schedule (one
+  thread got all coarse box rows, ×2.5 / ×4.5 the ideal time), degree cap 19 for every object-
+  region pair with a 400 nm box cell, C-library sincos/exp in the near/far loop. Fixes: dynamic
+  largest-first schedule (bitwise identical matrix); `OperatorOptions::decay_aware_target`
+  (default on; WP7c part 4: lossy regions bound the near/far error by target × the undamped
+  magnitude bound of the block, ADR 0004; lossless regions bitwise unchanged);
+  `OperatorOptions::fast_plain_kernel` (default on; branch-free vectorised sin/cos/exp in
+  `kernels/fast_math.hpp`, ≤ 2 ulp (measured 1), blocks within 2.7e-15; operators.cpp built with
+  `-fno-math-errno -fno-trapping-math`); `kernels::plain_rule_degree` (diagnostics); Python
+  `kernels=dict(decay_aware_target=..., fast_plain_kernel=...)`. WP15 systems: Si 1513–1535 s → 242 s, Ag 1056–1293 s
+  → 35 s (24 threads); the Si box stays ~5–10× the N²-scaled sphere figure because of its coarse
+  box cells (|k_Si| h ≈ 30, see the record).
 - python (WP14b3): calls on one `Simulation` from several Python threads are serialised by a
   per-object timed mutex taken with the GIL released (re-entrant calls from a `solve()` callback
   raise `RuntimeError`; from inside a callback another busy `Simulation` raises "Simulation

@@ -1286,6 +1286,9 @@ Real check_selection(const std::vector<Real>& ratios, const std::vector<Real>& k
                 for (const Real target : {1e-4, kDefaultTarget, 1e-6, 1e-8}) {
                     OperatorOptions opt;
                     opt.target_accuracy = target;
+                    // The relative error model itself (the decay-aware target of lossy regions
+                    // is checked against its own bound in the WP-P2 cases).
+                    opt.decay_aware_target = false;
                     const Blocks b = blocks(space, t1, t2, reg.p, opt);
                     const Real eL = rel_diff(b.L, ref[0].L);
                     const Real eK = rel_diff(b.K, ref[0].K);
@@ -2349,14 +2352,17 @@ TEST_CASE("element_blocks (full): class-boundary pairs of the n = 4 Mie mesh", "
     }
     REQUIRE(boundary.size() >= 10);
     for (const NamedRegion& reg : regs) {
-        OperatorOptions opt6;
+        // Relative targets (the decay-aware target of the Ag interior has its own bound).
+        OperatorOptions strict;
+        strict.decay_aware_target = false;
+        OperatorOptions opt6 = strict;
         opt6.target_accuracy = 1e-6;
         Real worst_new = 0.0;
         Real worst_6 = 0.0;
         Real worst_old = 0.0;
         for (const auto& [t1, t2] : boundary) {
             const Blocks ref = brute_force_dunavant(space, t1, t2, {reg}, 20, 2)[0];
-            const Blocks b = blocks(space, t1, t2, reg.p, OperatorOptions{});
+            const Blocks b = blocks(space, t1, t2, reg.p, strict);
             const Blocks b6 = blocks(space, t1, t2, reg.p, opt6);
             const Blocks o = blocks(space, t1, t2, reg.p, wp7_options());
             const Real e = std::max(rel_diff(b.L, ref.L), rel_diff(b.K, ref.K));
@@ -2960,4 +2966,315 @@ TEST_CASE("element_blocks (full): fold sweep", "[kernels][.slow][fold]") {
              << pts_abs_max[c] << " per pair)";
     }
     WARN("fold-adaptive cost factor against the WP7b rule (Si):" << cost.str());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Decay-aware target of lossy regions (WP-P2, OperatorOptions::decay_aware_target).
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// Rough box at the WP15 scale (top-face spacing 50 nm = lambda / 10, sigma 50 nm), small patch
+/// and a graded box, so that pair distances reach ~0.5 um (Ag: alpha R ~ 20).
+TriangleMesh decay_rough_box() {
+    geometry::RoughSurfaceParams rp;
+    rp.mesh_size = 50e-9;
+    rp.edge_length_L = 0.3e-6;
+    rp.rms_roughness = 50e-9;
+    rp.correlation_length = 150e-9;
+    rp.seed = 11;
+    rp.box_depth = 0.3e-6;
+    rp.box_mesh_size = 100e-9;
+    return geometry::make_rough_surface_mesh(rp);
+}
+
+/// Sample points of triangle t: degree-8 Dunavant points, vertices and edge midpoints.
+std::vector<Vec3> sample_points(const TriangleMesh& m, Index t) {
+    const std::array<Vec3, 3> v = corners(m, t);
+    std::vector<Vec3> p;
+    for (const Vec3& l : kernels::triangle_rule(8).barycentric) {
+        p.push_back(l(0) * v[0] + l(1) * v[1] + l(2) * v[2]);
+    }
+    for (std::size_t i = 0; i < 3; ++i) {
+        p.push_back(v[i]);
+        p.push_back(0.5 * (v[i] + v[(i + 1) % 3]));
+    }
+    return p;
+}
+
+/// Lower estimate of the bound U of ADR 0004 / OperatorOptions::decay_aware_target (entrywise
+/// A_test A_src max |integrand| with the undamped kernel magnitudes 1 / R (L, times the material
+/// factors) and (1 + |Re k| R) / (4 pi R^2) (K)), the maxima taken over sample points only, so
+/// that the estimate never exceeds U: a check against it is at least as strict as the bound.
+/// k_scale: the K bound without the geometric factor |f_m . (R^ x f_n)| <= |f_m| |f_n|, the
+/// scale of the rounding errors of K (K of coplanar pairs is zero up to rounding).
+Blocks undamped_bound(const RwgSpace& space, Index t, Index s, const RegionParams& reg,
+                      Real& k_scale) {
+    const TriangleMesh& m = space.mesh();
+    const Complex c_vec = kJ * reg.omega * reg.mu / (4.0 * kPi);
+    const Complex c_sca = 1.0 / (4.0 * kPi * kJ * reg.omega * reg.eps);
+    const Real beta = std::abs(reg.k.real());
+    const RwgSpace::Support st = space.support(t);
+    const RwgSpace::Support ss = space.support(s);
+    const std::vector<Vec3> pt = sample_points(m, t);
+    const std::vector<Vec3> ps = sample_points(m, s);
+    const Real areas = m.area(t) * m.area(s);
+    Blocks u;
+    k_scale = 0.0;
+    for (int a = 0; a < st.count; ++a) {
+        for (int b = 0; b < ss.count; ++b) {
+            const Real div = std::abs(space.divergence(st.n[a], t) * space.divergence(ss.n[b], s));
+            Real max_l = 0.0;
+            Real max_k = 0.0;
+            for (const Vec3& r : pt) {
+                const Vec3 fa = space.value(st.n[a], t, r);
+                for (const Vec3& rp : ps) {
+                    const Vec3 fb = space.value(ss.n[b], s, rp);
+                    const Vec3 d = r - rp;
+                    const Real R = d.norm();
+                    max_l = std::max(
+                        max_l,
+                        (std::abs(c_vec) * std::abs(fa.dot(fb)) + std::abs(c_sca) * div) / R);
+                    const Real g = (1.0 + beta * R) / (4.0 * kPi * R * R);
+                    max_k = std::max(max_k, std::abs(fa.dot((d / R).cross(fb))) * g);
+                    k_scale = std::max(k_scale, areas * fa.norm() * fb.norm() * g);
+                }
+            }
+            u.L(a, b) = areas * max_l;
+            u.K(a, b) = areas * max_k;
+        }
+    }
+    return u;
+}
+
+struct DecayCheck {
+    std::size_t pairs = 0;       ///< near / far pairs
+    std::size_t changed = 0;     ///< pairs whose degree the decay-aware target lowers
+    std::size_t checked = 0;     ///< changed pairs compared with the reference
+    std::size_t negligible = 0;  ///< changed pairs at quad_degree_far
+    Real worst = 0.0;            ///< max ||B_relaxed - B_ref|| / (target ||U||), L and K
+    Real worst_strict = 0.0;     ///< the same for the strict blocks of the checked pairs
+};
+
+/// All near / far pairs of decay_rough_box() in region reg: the decay-aware degree never exceeds
+/// the strict one; the blocks of every `stride`-th pair with a lower degree are compared with a
+/// degree-19 reference against the documented bound ||B - B_ref|| <= target ||U||.
+DecayCheck check_decay(const RegionParams& reg, std::size_t stride) {
+    const TriangleMesh m = decay_rough_box();
+    const RwgSpace space(m);
+    const OperatorOptions relaxed;  // defaults: decay_aware_target = true
+    OperatorOptions strict;
+    strict.decay_aware_target = false;
+    OperatorOptions ref;
+    ref.target_accuracy = 0.0;
+    ref.quad_degree_far = 19;
+    ref.quad_degree_near = 19;
+    const Real target = relaxed.target_accuracy;
+    const Real tiny = std::numeric_limits<Real>::min();
+    DecayCheck out;
+    const Index F = m.num_triangles();
+    for (Index t = 0; t < F; ++t) {
+        for (Index s = 0; s < F; ++s) {
+            const Proximity p = classify(m, t, s);
+            if (p != Proximity::near && p != Proximity::far)
+                continue;
+            ++out.pairs;
+            const int d_relaxed = kernels::plain_rule_degree(m, t, s, reg.k, relaxed);
+            const int d_strict = kernels::plain_rule_degree(m, t, s, reg.k, strict);
+            REQUIRE(d_relaxed <= d_strict);
+            if (d_relaxed == d_strict)
+                continue;
+            ++out.changed;
+            if (d_relaxed == relaxed.quad_degree_far)
+                ++out.negligible;
+            if ((out.changed - 1) % stride != 0)
+                continue;
+            ++out.checked;
+            const Blocks br = blocks(space, t, s, reg, relaxed);
+            const Blocks bs = blocks(space, t, s, reg, strict);
+            const Blocks b0 = blocks(space, t, s, reg, ref);
+            Real k_scale = 0.0;
+            const Blocks u = undamped_bound(space, t, s, reg, k_scale);
+            // K: plus a rounding allowance 1e-12 k_scale (coplanar wall pairs: K = 0 exactly,
+            // both blocks are rounding noise).
+            const Real k_den = target * u.K.norm() + 1e-12 * k_scale + tiny;
+            const Real e_l = (br.L - b0.L).norm() / (target * u.L.norm() + tiny);
+            const Real e_k = (br.K - b0.K).norm() / k_den;
+            INFO("pair (" << t << ", " << s << "), degree " << d_relaxed << " (strict " << d_strict
+                          << "): L " << e_l << ", K " << e_k << " of target ||U||");
+            CHECK(e_l <= 1.0);
+            CHECK(e_k <= 1.0);
+            out.worst = std::max({out.worst, e_l, e_k});
+            out.worst_strict =
+                std::max({out.worst_strict, (bs.L - b0.L).norm() / (target * u.L.norm() + tiny),
+                          (bs.K - b0.K).norm() / k_den});
+        }
+    }
+    return out;
+}
+
+#ifdef NDEBUG
+constexpr std::size_t kDecayStride = 10;  // ~4 000 Ag pairs, all relaxed Si pairs
+#else
+constexpr std::size_t kDecayStride = 400;  // ASan / -O0: a few pairs per material
+#endif
+
+}  // namespace
+
+TEST_CASE("decay-aware target: relaxed Ag blocks of a rough box meet the documented bound",
+          "[kernels]") {
+    const DecayCheck c = check_decay(all_regions()[2].p, kDecayStride);
+    WARN("decay-aware target (Ag): "
+         << c.changed << " of " << c.pairs << " near/far pairs relaxed (" << c.negligible
+         << " negligible), " << c.checked << " checked: worst error / (target ||U||) " << c.worst
+         << " (strict blocks " << c.worst_strict << ")");
+    // Ag at 500 nm decays over 25 nm: most pairs of the 0.3 um box are relaxed, many negligible.
+    CHECK(c.changed > c.pairs / 2);
+    CHECK(c.negligible > 0);
+    CHECK(c.checked > 0);
+}
+
+TEST_CASE("decay-aware target: relaxed Si blocks of a rough box meet the documented bound",
+          "[kernels]") {
+    const DecayCheck c =
+        check_decay(all_regions()[1].p, std::max<std::size_t>(1, kDecayStride / 40));
+    WARN("decay-aware target (Si): "
+         << c.changed << " of " << c.pairs << " near/far pairs relaxed (" << c.negligible
+         << " negligible), " << c.checked << " checked: worst error / (target ||U||) " << c.worst
+         << " (strict blocks " << c.worst_strict << ")");
+    // Si decays over 1.13 um: on a 0.3 um box no block is negligible.
+    CHECK(c.negligible == 0);
+}
+
+TEST_CASE("decay-aware target: lossless regions and fixed degrees are unaffected", "[kernels]") {
+    const TriangleMesh m = decay_rough_box();
+    const RwgSpace space(m);
+    OperatorOptions strict;
+    strict.decay_aware_target = false;
+    const OperatorOptions relaxed;
+    const RegionParams glass = region_of({Complex(2.25, 0.0), Complex(1.0, 0.0)}, kLambda);
+    const RegionParams vac = all_regions()[0].p;
+    const Index F = m.num_triangles();
+    std::size_t compared = 0;
+    for (Index t = 0; t < F; t += 3) {
+        for (Index s = 0; s < F; s += 5) {
+            const Proximity p = classify(m, t, s);
+            if (p != Proximity::near && p != Proximity::far)
+                continue;
+            for (const RegionParams& reg : {glass, vac}) {
+                REQUIRE(kernels::plain_rule_degree(m, t, s, reg.k, relaxed) ==
+                        kernels::plain_rule_degree(m, t, s, reg.k, strict));
+            }
+            ++compared;
+        }
+    }
+    CHECK(compared > 100);
+    // Bitwise identical blocks (lossless region), and fixed degrees ignore the option.
+    REQUIRE(classify(m, 0, F - 1) == Proximity::far);
+    const Blocks a = blocks(space, 0, F - 1, glass, relaxed);
+    const Blocks b = blocks(space, 0, F - 1, glass, strict);
+    CHECK(a.L == b.L);
+    CHECK(a.K == b.K);
+    OperatorOptions fixed = relaxed;
+    fixed.target_accuracy = 0.0;
+    const RegionParams ag = all_regions()[2].p;
+    CHECK(kernels::plain_rule_degree(m, 0, F - 1, ag.k, fixed) == fixed.quad_degree_far);
+    // Negligible Ag pairs ((S_3^2 + 1) delta <= target with S_3 = 2.125, delta = (1 + a R_lb)
+    // exp(-a R_lb), R_lb = D - rho - rho') take the lowest degree (target 1e-2: the 0.3 um box
+    // is too small for negligible pairs at 1e-5); the strict rule resolves many of them.
+    OperatorOptions loose = relaxed;
+    loose.target_accuracy = 1e-2;
+    OperatorOptions loose_strict = loose;
+    loose_strict.decay_aware_target = false;
+    std::size_t resolved = 0;
+    const Real alpha = -ag.k.imag();
+    const auto centroid = [&](Index t) {
+        const std::array<Vec3, 3> v = corners(m, t);
+        return Vec3((v[0] + v[1] + v[2]) / 3.0);
+    };
+    const auto radius = [&](Index t) {
+        const std::array<Vec3, 3> v = corners(m, t);
+        const Vec3 c = centroid(t);
+        return std::max({(v[0] - c).norm(), (v[1] - c).norm(), (v[2] - c).norm()});
+    };
+    std::size_t negligible = 0;
+    for (Index t = 0; t < F; ++t) {
+        for (Index s = t + 1; s < F; ++s) {
+            if (classify(m, t, s) != Proximity::far)
+                continue;
+            const Real r_lb = (centroid(t) - centroid(s)).norm() - radius(t) - radius(s);
+            const Real delta = (1.0 + alpha * r_lb) * std::exp(-alpha * r_lb);
+            // 1 % margin against rounding in the comparison.
+            if (r_lb <= 0.0 || (2.125 * 2.125 + 1.0) * delta > 0.99 * loose.target_accuracy)
+                continue;
+            ++negligible;
+            CHECK(kernels::plain_rule_degree(m, t, s, ag.k, loose) == loose.quad_degree_far);
+            if (kernels::plain_rule_degree(m, t, s, ag.k, loose_strict) > loose.quad_degree_far)
+                ++resolved;
+        }
+    }
+    CHECK(negligible > 10);
+    CHECK(resolved > 0);
+}
+
+TEST_CASE("plain_rule_degree: matches element_blocks' rule and rejects touching pairs",
+          "[kernels]") {
+    const TriangleMesh m = decay_rough_box();
+    const RwgSpace space(m);
+    const RegionParams ag = all_regions()[2].p;
+    const Index F = m.num_triangles();
+    REQUIRE(classify(m, 0, 0) == Proximity::identical);
+    CHECK_THROWS_AS(kernels::plain_rule_degree(m, 0, 0, ag.k, OperatorOptions{}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(kernels::plain_rule_degree(m, 0, F, ag.k, OperatorOptions{}),
+                    std::out_of_range);
+    // The reported degree is the one element_blocks uses: same blocks as with that fixed degree.
+    for (const Index s : {F / 2, F - 1}) {
+        const Proximity p = classify(m, 0, s);
+        REQUIRE((p == Proximity::far || p == Proximity::near));
+        const int d = kernels::plain_rule_degree(m, 0, s, ag.k, OperatorOptions{});
+        OperatorOptions fixed;
+        fixed.target_accuracy = 0.0;
+        fixed.quad_degree_far = p == Proximity::far ? d : 1;
+        fixed.quad_degree_near = p == Proximity::far ? std::max(d, 19) : d;
+        const Blocks a = blocks(space, 0, s, ag, OperatorOptions{});
+        const Blocks b = blocks(space, 0, s, ag, fixed);
+        CHECK(a.L == b.L);
+        CHECK(a.K == b.K);
+        CHECK(kernels::plain_rule_degree(m, s, 0, ag.k, OperatorOptions{}) == d);
+    }
+}
+
+TEST_CASE("plain_rule_degree: the degree choice is symmetric in the pair on a rough box",
+          "[kernels]") {
+    // R_lb = D - (rho_test + rho_src) and kappa use symmetric quantities only, so both orderings
+    // select bitwise the same degree (no rounding-dependent choice at the decay-aware thresholds).
+    const TriangleMesh m = decay_rough_box();
+    std::vector<RegionParams> regions;
+    for (const NamedRegion& r : all_regions()) regions.push_back(r.p);
+    // Weakly lossy medium: delta passes the thresholds for pairs at a few 100 nm.
+    regions.push_back(region_of({Complex(2.25, -0.4), Complex(1.0, 0.0)}, kLambda));
+    OperatorOptions loose;
+    loose.target_accuracy = 1e-2;  // negligible branch reachable on the 0.3 um box
+    const Index F = m.num_triangles();
+    std::size_t compared = 0;
+    std::size_t asymmetric = 0;
+    for (Index t = 0; t < F; ++t) {
+        for (Index s = t + 1; s < F; ++s) {
+            const Proximity p = classify(m, t, s);
+            if (p != Proximity::near && p != Proximity::far)
+                continue;
+            for (const RegionParams& reg : regions) {
+                for (const OperatorOptions& opt : {OperatorOptions{}, loose}) {
+                    ++compared;
+                    if (kernels::plain_rule_degree(m, t, s, reg.k, opt) !=
+                        kernels::plain_rule_degree(m, s, t, reg.k, opt))
+                        ++asymmetric;
+                }
+            }
+        }
+    }
+    INFO(compared << " (pair, region, options) combinations");
+    CHECK(compared > 1000);
+    CHECK(asymmetric == 0);
 }

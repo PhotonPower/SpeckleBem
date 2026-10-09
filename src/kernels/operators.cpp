@@ -48,8 +48,42 @@
 /// 2) covers pairs outside the calibration set. Non-positive-interior degrees 7, 11, 15, 16,
 /// 18, 20 (possible only as quad_degree_far) use the model of the next lower calibrated degree.
 /// The estimate is increasing in kappa for every d, so the chosen degree is non-decreasing in
-/// |k| and h and non-increasing in D. It depends only on symmetric quantities, so both
-/// orderings of a pair use the same rule (blocks symmetric up to rounding).
+/// |k| and h and non-increasing in D (with the decay-aware target below: in |Re k| and h, and
+/// non-increasing in D; not monotone in Im k). It depends only on symmetric quantities
+/// (R_lb = D - (rho_test + rho_src) in this order), so both orderings of a pair use the same
+/// rule (blocks symmetric up to rounding).
+///
+/// Decay-aware target (WP-P2, WP7c part 4; OperatorOptions::decay_aware_target, default on).
+/// In a lossy region, k = beta - j alpha with alpha > 0, every point pair of a near or far pair
+/// has R >= R_lb = D - rho_test - rho_src (rho the largest centroid-vertex distance), and
+///   |G| = e^{-alpha R} / (4 pi R)                 <= delta / (4 pi R),
+///   |grad G| = |1 + jkR| e^{-alpha R} / (4 pi R^2) <= (1 + alpha R)(1 + |beta| R) e^{-alpha R}
+///            / (4 pi R^2)                          <= delta (1 + |beta| R) / (4 pi R^2),
+///   delta = (1 + alpha R_lb) e^{-alpha R_lb} <= 1   ((1 + x) e^{-x} decreases for x > 0).
+/// Let U be the entrywise bound A_test A_src max |integrand| of a block with the undamped
+/// magnitudes 1 / (4 pi R) and (1 + |beta| R) / (4 pi R^2); then ||B|| <= delta ||U|| (Frobenius
+/// norm, L and K separately). The selection asks for E_d <= target / delta, so
+///   ||B_d - B|| <= E_d ||B|| <= target ||U||.
+/// Moreover the double rule is bounded by S_d^2 A_test A_src max |integrand| (S_d = sum |w_i| of
+/// the area-normalised rule: 1 for positive rules, 2.125 for degree 3), so for (S_d^2 + 1)
+/// delta <= target any rule has ||B_d - B|| <= (S_d^2 + 1) delta ||U|| <= target ||U|| and the
+/// first degree of the ladder is taken without consulting the error model (whose calibration
+/// ends at |k| h = 3). Lossless regions select bitwise as before (delta = 1; the negligible test
+/// never passes there since S_d^2 + 1 >= 2 > target).
+/// Meaning: a block may have the absolute error that the same pair is allowed in a lossless
+/// region (target ||B|| <= target ||U||); the error summed over a matrix row is therefore bounded
+/// like that of a lossless medium of the same geometry, while blocks that the attenuation makes
+/// negligible are no longer resolved to a relative 1e-5 (Ag at 500 nm, alpha = 39 / um:
+/// R_lb > ~0.4 um is negligible at target 1e-5). Checked on a rough box with Si and Ag interiors
+/// (tests/unit/test_operators.cpp): worst ||B_d - B_ref|| / (target ||U||) = 4e-3 (Ag), 7e-3 (Si).
+///
+/// Plain kernel evaluation (WP-P2; OperatorOptions::fast_plain_kernel, default on). The point
+/// loop is split into a pass computing r' - r and the weighted kernel and gradient factors per
+/// inner point (branch-free, vectorised: kernels/fast_math.hpp sin / cos / exp and std::sqrt,
+/// with -fno-math-errno -fno-trapping-math for this file) and a summation pass in point order.
+/// The fast functions are used when Im k <= 0 and |Re k| R_max <= 1e6 for the pair (R_max = D +
+/// rho_test + rho_src); otherwise, and with fast_plain_kernel = false, the C library (bitwise the
+/// pre-WP-P2 arithmetic). Blocks agree with the C-library variant to ~3e-15 relative.
 ///
 /// Touching pairs (identical, shared_edge, shared_vertex): inner integral by singularity
 /// subtraction (ADR 0004):
@@ -265,6 +299,7 @@
 /// of every call.
 #include "specklebem/kernels/operators.hpp"
 
+#include "specklebem/kernels/fast_math.hpp"
 #include "specklebem/kernels/quadrature.hpp"
 #include "specklebem/kernels/singularity.hpp"
 
@@ -381,8 +416,27 @@ constexpr Real kModelMargin = 0.3;
 /// Weight of |k| h in kappa.
 constexpr Real kModelBeta = 0.15;
 
-/// Degree of the plain double Dunavant rule for a near or far pair (file comment).
-int select_degree(Proximity prox, Real distance, Real size, Real abs_k,
+/// log10(S_d^2 + 1) per degree d = 1..20, S_d = sum |w| of the Dunavant rule (1 for rules with
+/// positive weights, 2.125 for degree 3): (S_d^2 + 1) max|integrand| A_test A_src bounds the
+/// error of the double rule for any integrand (decay-aware target, file comment).
+const std::array<Real, kMaxDegree + 1>& log_rule_error_bound() {
+    static const std::array<Real, kMaxDegree + 1> table = [] {
+        std::array<Real, kMaxDegree + 1> t{};
+        for (int d = 1; d <= kMaxDegree; ++d) {
+            Real s = 0.0;
+            for (const Real w : triangle_rule(d).weights) {
+                s += std::abs(w);
+            }
+            t[static_cast<std::size_t>(d)] = std::log10(s * s + 1.0);
+        }
+        return t;
+    }();
+    return table;
+}
+
+/// Degree of the plain double Dunavant rule for a near or far pair (file comment). log_decay =
+/// log10 delta <= 0 of the decay-aware target (0: no relaxation).
+int select_degree(Proximity prox, Real distance, Real size, Real abs_k, Real log_decay,
                   const OperatorOptions& opt) {
     if (opt.target_accuracy == 0.0) {
         return prox == Proximity::near ? opt.quad_degree_near : opt.quad_degree_far;
@@ -391,14 +445,23 @@ int select_degree(Proximity prox, Real distance, Real size, Real abs_k,
     const Real kh = kModelBeta * abs_k * size;
     const Real log_kappa = 0.5 * std::log10(inv * inv + kh * kh);
     const Real log_target = std::log10(opt.target_accuracy);
+    // Relative block error allowed by the decay-aware target: target / delta (exactly the
+    // target for log_decay = 0, so lossless regions select bitwise as before).
+    const Real log_relative = log_target - log_decay;
     for (int d = opt.quad_degree_far; d < opt.quad_degree_near; ++d) {
         const bool allowed =
             is_positive_interior(d) || (prox == Proximity::far && d == opt.quad_degree_far);
         if (!allowed) {
             continue;
         }
-        const DegreeModel& m = kDegreeModel[static_cast<std::size_t>(d)];
-        if (m.a + kModelMargin + m.p * log_kappa <= log_target) {
+        const auto di = static_cast<std::size_t>(d);
+        // Negligible block: any rule's error is below target U (never for log_decay = 0, since
+        // log10(S_d^2 + 1) >= log10 2 > log10 target).
+        if (log_decay + log_rule_error_bound()[di] <= log_target) {
+            return d;
+        }
+        const DegreeModel& m = kDegreeModel[di];
+        if (m.a + kModelMargin + m.p * log_kappa <= log_relative) {
             return d;
         }
     }
@@ -727,6 +790,45 @@ Real longest_edge(const TriangleGeometry& g) {
         {(g.v1 - g.v0).squaredNorm(), (g.v2 - g.v1).squaredNorm(), (g.v0 - g.v2).squaredNorm()}));
 }
 
+/// Largest distance of a vertex from the centroid c: the triangle lies in the ball of this
+/// radius about c.
+Real centroid_radius(const TriangleGeometry& g, const Vec3& c) {
+    return std::sqrt(
+        std::max({(g.v0 - c).squaredNorm(), (g.v1 - c).squaredNorm(), (g.v2 - c).squaredNorm()}));
+}
+
+/// log10 delta of the decay-aware target (file comment): delta = (1 + a R_lb) exp(-a R_lb) with
+/// a = -Im k and R_lb = D - rho_test - rho_src; 0 (no relaxation) for a <= 0, R_lb <= 0, fixed
+/// degrees or decay_aware_target = false.
+Real log_decay_factor(const TriangleGeometry& g_test, const Vec3& c_test,
+                      const TriangleGeometry& g_src, const Vec3& c_src, Real distance, Complex k,
+                      const OperatorOptions& opt) {
+    const Real alpha = -k.imag();
+    if (!opt.decay_aware_target || opt.target_accuracy == 0.0 || !(alpha > 0.0)) {
+        return 0.0;
+    }
+    // distance - (rho_test + rho_src): the sum commutes, so R_lb and the degree are bitwise
+    // symmetric in (t_test, t_src).
+    const Real r_lb = distance - (centroid_radius(g_test, c_test) + centroid_radius(g_src, c_src));
+    if (!(r_lb > 0.0)) {
+        return 0.0;
+    }
+    const Real x = alpha * r_lb;
+    return std::log10(1.0 + x) - x / std::log(10.0);
+}
+
+/// Dunavant degree of a near or far pair (select_degree with the pair's centroid distance, larger
+/// longest edge and decay factor).
+int plain_degree(Proximity prox, const TriangleGeometry& g_test, const TriangleGeometry& g_src,
+                 Complex k, const OperatorOptions& opt) {
+    const Vec3 c_test = (g_test.v0 + g_test.v1 + g_test.v2) / 3.0;
+    const Vec3 c_src = (g_src.v0 + g_src.v1 + g_src.v2) / 3.0;
+    const Real distance = (c_test - c_src).norm();
+    return select_degree(prox, distance, std::max(longest_edge(g_test), longest_edge(g_src)),
+                         std::abs(k),
+                         log_decay_factor(g_test, c_test, g_src, c_src, distance, k, opt), opt);
+}
+
 /// Quadrature points mapped to a triangle; weights include the area. Fixed capacity.
 struct Points {
     std::size_t count = 0;
@@ -759,32 +861,106 @@ struct Moments {
     C3 psi{};
 };
 
+/// Inner points of the plain kernel in structure-of-arrays layout (contiguous loads for the
+/// vectorised point loop); weights include the area.
+struct PointsSoA {
+    std::size_t count = 0;
+    std::array<Real, kMaxPoints> x, y, z, w;
+};
+
+void map_rule(const TriangleRule& rule, const TriangleGeometry& g, PointsSoA& out) {
+    out.count = rule.weights.size();
+    const P3 a = to_p3(g.v0);
+    const P3 b = to_p3(g.v1);
+    const P3 c = to_p3(g.v2);
+    for (std::size_t q = 0; q < out.count; ++q) {
+        const Real* l = rule.barycentric[q].data();
+        out.x[q] = l[0] * a.x + l[1] * b.x + l[2] * c.x;
+        out.y[q] = l[0] * a.y + l[1] * b.y + l[2] * c.y;
+        out.z[q] = l[0] * a.z + l[1] * b.z + l[2] * c.z;
+        out.w[q] = rule.weights[q] * g.area;
+    }
+}
+
+/// Per-point values of the plain kernel at one outer point (r' - r and the weighted kernel and
+/// gradient factors), computed by plain_kernel_values and summed by plain_moments.
+struct PlainValues {
+    std::array<Real, kMaxPoints> dx, dy, dz, gr, gi, ggr, ggi;
+};
+
+/// Point loop of the plain kernel (file comment "Plain kernel evaluation"). kFast: the
+/// branch-free fastmath functions (inlined, vectorisable), else the C library; kLossy: the
+/// factor e^{ki R}. The C-library variant is the pre-WP-P2 arithmetic (bitwise).
+template <bool kFast, bool kLossy>
+void plain_kernel_values(const P3& r, const PointsSoA& src, Real kr, Real ki, PlainValues& v) {
+    const std::size_t n = src.count;
+    for (std::size_t q = 0; q < n; ++q) {
+        const Real dx = src.x[q] - r.x;  // r' - r
+        const Real dy = src.y[q] - r.y;
+        const Real dz = src.z[q] - r.z;
+        const Real R = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const Real inv_r = 1.0 / R;
+        Real amp = src.w[q] * inv_r;
+        if constexpr (kLossy) {
+            amp *= kFast ? fastmath::fast_exp_nonpositive(ki * R) : std::exp(ki * R);
+        }
+        const Real phase = kr * R;
+        Real sn;
+        Real cs;
+        if constexpr (kFast) {
+            fastmath::fast_sincos(phase, sn, cs);
+        } else {
+            sn = std::sin(phase);
+            cs = std::cos(phase);
+        }
+        const Real gr = amp * cs;  // g = w e^{-jkR} / R
+        const Real gi = -amp * sn;
+        // grad' (e^{-jkR}/R) = (1 + jkR) e^{-jkR} / R^3 (r - r') = -(1 + jkR) e/R^3 (r' - r)
+        const Real c = 1.0 - ki * R;
+        const Real inv_r2 = inv_r * inv_r;
+        v.dx[q] = dx;
+        v.dy[q] = dy;
+        v.dz[q] = dz;
+        v.gr[q] = gr;
+        v.gi[q] = gi;
+        v.ggr[q] = -(gr * c - gi * phase) * inv_r2;
+        v.ggi[q] = -(gr * phase + gi * c) * inv_r2;
+    }
+}
+
 /// Plain kernel (non-touching pairs, R > 0), in real arithmetic (the hot loop of every near and
 /// far pair; complex products would go through the NaN-checking library multiplication). With
 /// k = kr + j ki: e^{-jkR} = e^{ki R} (cos(kr R) - j sin(kr R)), 1 + jkR = (1 - ki R) + j kr R.
-Moments plain_moments(const P3& r, const Points& src, Complex k) {
+/// `fast`: fastmath functions (the caller checks their argument ranges for the pair).
+Moments plain_moments(const P3& r, const PointsSoA& src, Complex k, bool fast) {
     const Real kr = k.real();
     const Real ki = k.imag();
     const bool lossy = ki != 0.0;
-    // Real and imaginary parts: phi0 (re, im), phi1 and psi (x re, x im, y re, ..., z im).
+    PlainValues v;
+    if (fast) {
+        if (lossy) {
+            plain_kernel_values<true, true>(r, src, kr, ki, v);
+        } else {
+            plain_kernel_values<true, false>(r, src, kr, ki, v);
+        }
+    } else if (lossy) {
+        plain_kernel_values<false, true>(r, src, kr, ki, v);
+    } else {
+        plain_kernel_values<false, false>(r, src, kr, ki, v);
+    }
+    // Real and imaginary parts: phi0 (re, im), phi1 and psi (x re, x im, y re, ..., z im),
+    // summed in point order.
     std::array<Real, 2> s0{};
     std::array<Real, 6> s1{};
     std::array<Real, 6> s2{};
     for (std::size_t q = 0; q < src.count; ++q) {
-        const Real dx = src.r[q].x - r.x;  // r' - r
-        const Real dy = src.r[q].y - r.y;
-        const Real dz = src.r[q].z - r.z;
-        const Real R = std::sqrt(dx * dx + dy * dy + dz * dz);
-        const Real inv_r = 1.0 / R;
-        const Real amp = src.w[q] * inv_r * (lossy ? std::exp(ki * R) : 1.0);
-        const Real phase = kr * R;
-        const Real gr = amp * std::cos(phase);  // g = w e^{-jkR} / R
-        const Real gi = -amp * std::sin(phase);
-        // grad' (e^{-jkR}/R) = (1 + jkR) e^{-jkR} / R^3 (r - r') = -(1 + jkR) e/R^3 (r' - r)
-        const Real c = 1.0 - ki * R;
-        const Real inv_r2 = inv_r * inv_r;
-        const Real ggr = -(gr * c - gi * phase) * inv_r2;
-        const Real ggi = -(gr * phase + gi * c) * inv_r2;
+        const Real gr = v.gr[q];
+        const Real gi = v.gi[q];
+        const Real ggr = v.ggr[q];
+        const Real ggi = v.ggi[q];
+        const Real dx = v.dx[q];
+        const Real dy = v.dy[q];
+        const Real dz = v.dz[q];
         s0[0] += gr;
         s0[1] += gi;
         s1[0] += gr * dx;
@@ -944,15 +1120,26 @@ struct Side {
 };
 
 /// Plain kernel, same Dunavant rule on both triangles (near and far pairs).
-Accumulator integrate_plain(const Side& test, const Side& src, const TriangleRule& rule,
-                            Complex k) {
+/// `fast_math`: OperatorOptions::fast_plain_kernel; the fastmath functions are used only where
+/// their arguments are in range for every point pair of the pair (file comment).
+Accumulator integrate_plain(const Side& test, const Side& src, const TriangleRule& rule, Complex k,
+                            bool fast_math) {
     Points outer;
-    Points inner;
+    PointsSoA inner;
     map_rule(rule, *test.geom, outer);
     map_rule(rule, *src.geom, inner);
+    bool fast = false;
+    if (fast_math && k.imag() <= 0.0) {
+        const TriangleGeometry& gt = *test.geom;
+        const TriangleGeometry& gs = *src.geom;
+        const Vec3 ct = (gt.v0 + gt.v1 + gt.v2) / 3.0;
+        const Vec3 cs = (gs.v0 + gs.v1 + gs.v2) / 3.0;
+        const Real r_max = (ct - cs).norm() + (centroid_radius(gt, ct) + centroid_radius(gs, cs));
+        fast = std::abs(k.real()) * r_max <= fastmath::kFastSincosMax;  // false for NaN
+    }
     Accumulator acc;
     for (std::size_t i = 0; i < outer.count; ++i) {
-        accumulate(outer.r[i], outer.w[i], plain_moments(outer.r[i], inner, k), *test.slots,
+        accumulate(outer.r[i], outer.w[i], plain_moments(outer.r[i], inner, k, fast), *test.slots,
                    *src.slots, true, acc);
     }
     return acc;
@@ -1464,12 +1651,8 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
     const bool need_k = !k_zero;
     Accumulator acc;
     if (!touching) {
-        const Vec3 c_test = (g_test.v0 + g_test.v1 + g_test.v2) / 3.0;
-        const Vec3 c_src = (g_src.v0 + g_src.v1 + g_src.v2) / 3.0;
-        const int degree = select_degree(prox, (c_test - c_src).norm(),
-                                         std::max(longest_edge(g_test), longest_edge(g_src)),
-                                         std::abs(region.k), opt);
-        acc = integrate_plain(test, src, triangle_rule(degree), region.k);
+        const int degree = plain_degree(prox, g_test, g_src, region.k, opt);
+        acc = integrate_plain(test, src, triangle_rule(degree), region.k, opt.fast_plain_kernel);
     } else if (opt.outer_grading_levels == 0) {
         const TriangleRule& rule = triangle_rule(opt.quad_degree_sing);
         acc = integrate_touching_dunavant(test, src, rule, region.k, need_k);
@@ -1554,6 +1737,22 @@ TouchingRuleInfo touching_rule_info(const geometry::TriangleMesh& mesh, Index t_
         info.points += adaptive_radial_points(level) * adaptive_angular_points(level);
     }
     return info;
+}
+
+int plain_rule_degree(const geometry::TriangleMesh& mesh, Index t_test, Index t_src, Complex k,
+                      const OperatorOptions& opt) {
+    validate(opt);
+    if (t_test < 0 || t_test >= mesh.num_triangles() || t_src < 0 ||
+        t_src >= mesh.num_triangles()) {
+        throw std::out_of_range("plain_rule_degree: triangle index out of range");
+    }
+    const Proximity prox = classify(mesh, t_test, t_src, opt.near_distance_factor);
+    if (prox != Proximity::near && prox != Proximity::far) {
+        throw std::invalid_argument("plain_rule_degree: triangles " + std::to_string(t_test) +
+                                    " and " + std::to_string(t_src) + " touch");
+    }
+    return plain_degree(prox, triangle_geometry(mesh, t_test), triangle_geometry(mesh, t_src), k,
+                        opt);
 }
 
 void jump_block(const basis::RwgSpace& space, Index t, Eigen::Matrix<Complex, 3, 3>& I) {
