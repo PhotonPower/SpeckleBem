@@ -23,6 +23,7 @@ using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
 using geometry::make_icosphere;
 using geometry::make_sphere;
+using geometry::MeshQuality;
 using geometry::TriangleMesh;
 
 namespace {
@@ -368,6 +369,36 @@ TEST_CASE("quality report edge statistics and aspect ratio", "[geometry]") {
         CHECK(aspect[0] > 1.0);
         CHECK(aspect[0] < 1.5);
     }
+}
+
+TEST_CASE("quality() holds the numbers of the quality report", "[geometry]") {
+    const TriangleMesh mesh = make_icosphere(kRadius, 2, kCenter);
+    const MeshQuality q = mesh.quality();
+    const std::string report = mesh.quality_report();
+    CHECK(report == to_string(q));
+    CHECK(q.num_vertices == 162);
+    CHECK(q.num_edges == 480);
+    CHECK(q.num_triangles == 320);
+    CHECK(q.num_boundary_edges == 0);
+    CHECK(q.num_unreferenced_vertices == 0);
+    CHECK(q.euler_characteristic == 2);
+    CHECK(q.num_components == 1);
+    CHECK(q.num_vertex_components == 1);
+    CHECK(q.closed);
+    CHECK(q.consistently_oriented);
+    const std::vector<Real> len = report_reals(report, "edge length min/max/mean");
+    REQUIRE(len.size() == 3);
+    CHECK_THAT(q.min_edge_length, WithinRel(len[0], 1e-5));
+    CHECK_THAT(q.max_edge_length, WithinRel(len[1], 1e-5));
+    CHECK_THAT(q.mean_edge_length, WithinRel(len[2], 1e-5));
+    CHECK_THAT(q.max_aspect_ratio, WithinRel(report_reals(report, "max aspect ratio")[0], 1e-5));
+
+    const MeshQuality empty = TriangleMesh().quality();
+    CHECK(empty.num_triangles == 0);
+    CHECK_FALSE(empty.closed);
+    CHECK(std::isnan(empty.min_edge_length));
+    CHECK(std::isnan(empty.max_aspect_ratio));
+    CHECK(to_string(empty).find("max aspect ratio        : n/a") != std::string::npos);
 }
 
 TEST_CASE("bounding box of a small fixed point cloud is exact", "[geometry]") {

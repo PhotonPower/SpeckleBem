@@ -10,7 +10,7 @@ SI throughout the C++ core: metres, seconds, volts/metre, amperes/metre. The Pyt
 Consequences:
 - Outgoing waves: `exp(−jkR)`; Green's function `G = exp(−jkR)/(4πR)`.
 - Passive media: `Im(ε_r) ≤ 0`, `Im(n) ≤ 0`, `Im(k) ≤ 0`. Ag at 500 nm: `ε_r = −9.794 − j0.313`; Si: `18.478 − j0.606`.
-- Data from optics sources (refractiveindex.info uses `n + ik`, i.e. `exp(−iωt)`) must be conjugated on import (`DispersiveMaterial` does this).
+- Data from optics sources (refractiveindex.info uses `n + ik`, i.e. `exp(−iωt)`) must be conjugated on import (`DispersiveMaterial` rejects `Im(n) > 0` with a conjugation hint; the planned refractiveindex.info loader conjugates).
 - Maxwell curl equations: `∇×E = −jωμH`, `∇×H = jωεE`.
 
 ## Regions and normals

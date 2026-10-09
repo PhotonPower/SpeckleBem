@@ -27,9 +27,10 @@ Clang + libc++ with `-Werror` + ASan/UBSan. Packages: `mingw-w64-ucrt-x86_64-{gc
 `mingw-w64-clang-x86_64-{clang,lld,compiler-rt,llvm-openmp,openblas,python}`.
 
 ```bash
-cmake --preset win-release && cmake --build --preset win-release && ctest --preset win-release -LE validation-large -j 12
-cmake --preset win-debug   && cmake --build --preset win-debug   && ctest --preset win-debug   -LE validation-large -j 12
+cmake --preset win-release && cmake --build --preset win-release && ctest --preset win-release -LE "validation-large|slow" -j 12
+cmake --preset win-debug   && cmake --build --preset win-debug   && ctest --preset win-debug   -LE "validation-large|slow" -j 12
 ctest --preset win-release -L '^validation$'
+ctest --preset win-release -L slow            # long kernel sweeps (fold sweep, RHS degree study), as CI excludes them
 /c/msys64/ucrt64/bin/python -m pytest -o "pythonpath=build/win-release/python python" tests/python -q -rs
 ```
 

@@ -5,6 +5,72 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- python (WP14b3): calls on one `Simulation` from several Python threads are serialised by a
+  per-object timed mutex taken with the GIL released (re-entrant calls from a `solve()` callback
+  raise `RuntimeError`; from inside a callback another busy `Simulation` raises "Simulation
+  busy" instead of waiting, so two solves calling into each other cannot deadlock; a main
+  thread waiting for the lock checks for Ctrl-C every 50 ms); GMRES solves are interruptible
+  with Ctrl-C (`PyErr_CheckSignals()` per iteration with a callback, every 50 ms on the main
+  thread without one); `exterior=None` now means `excitation.background` (was vacuum). Tests
+  for concurrent `solve()` (alternating tolerances) against `field()` / `bistatic_rcs()` /
+  `currents` / `report()` with exact comparison to the two possible results, a concurrent first
+  `solve()` on an unassembled Simulation, cross-Simulation callbacks, re-entrancy, interruption
+  of a solve and of a lock wait via `_thread.interrupt_main()`, a dielectric background and the
+  `SolveResult.x` keep-alive. `op::LinearOperator::apply` documents that it must be safe to
+  call concurrently. CI sets `SPECKLEBEM_REQUIRE_SCIPY=1`, which makes the SciPy test fail
+  instead of skip without SciPy.
+- python (WP14b2): `Simulation` (keyword mapping onto `SimulationConfig`: formulation,
+  preconditioner, solver, compression, `gmres=dict(...)`, `kernels=dict(...)`; unknown strings
+  and keys raise `ValueError`), `assemble()` / `solve(tol, max_iter, restart, side, callback)`
+  with the GIL released and Python exceptions from the callback propagated, `SolveResult`,
+  `report()`, resolved `formulation` / `preconditioner`, `currents` and `rhs()` (copies),
+  `operator()` as `LinearOperator` (`matvec`, `@`, `as_scipy()`; keeps the Simulation alive),
+  `field`, `far_field`, `bistatic_rcs`; free functions `plane_grid`, `cylinder_grid`,
+  `intensity`, `polarized_intensity`, `differential_reflection_coefficient`; mesh file I/O
+  (`read_mesh` / `write_mesh` and the STL / OBJ / Gmsh variants) and `open_npy_directory` /
+  `ResultWriter` with `str` / `os.PathLike` UTF-8 paths. Tests `tests/python/test_simulation.py`
+  (GMRES vs direct, Mie n = 1.5 at icosphere n = 2 with eps_rr < 2 %, callbacks, keep-alive,
+  SciPy GMRES on `as_scipy()`, GIL release) and `test_io.py` (round trips under a non-ASCII
+  directory). CI installs SciPy (apt `python3-scipy`, MSYS2 `python-scipy`).
+- python (WP14b1f): `TriangleMesh.quality()` returns `MeshQuality` (with `__repr__`) and
+  `quality_report()` the C++ text report, as in C++; NumPy-style docstrings with units and
+  conventions on every bound class, function and method; `ValueError` for non-finite points in
+  field evaluation (`electric_field`, `magnetic_field`, Mie fields) and non-finite angles in
+  `bistatic_rcs`. Tests for input layouts (int32/uint32, Fortran order, strided views, nested
+  lists, empty mesh), keep-alive of `Mie.a_n`/`b_n` and docstring units.
+- kernels (WP7c): fold-adaptive outer rule for shared-edge and shared-vertex pairs
+  (`OperatorOptions::fold_adaptive`, default on): the test triangle is cut into Duffy pieces at
+  the singular directions through the shared vertex (projected source edges of folds below
+  90 degrees, obtuse apex angles), with the points of level l + 2 / l + 3 on the pieces of
+  doubly obtuse shared edges (both triangles obtuse at the same vertex) and of far vertices
+  projecting within 0.2 |AB| of a shared vertex; touching-pair error <= 8.3e-8 for dihedral
+  angles 30 to 179 degrees with regular, skewed, obtuse, doubly obtuse and near-vertex
+  triangles (WP7b: up to 4.5e-5 skewed / 4.2e-5 near-vertex / 8.7e-5 obtuse at 30 to 45
+  degrees; not covered: near-vertex shapes at folds of 90 to ~95 degrees keep the WP7b table,
+  <= 1.5e-7). Cost against the WP7b rule (time per call, folds below 90 degrees): mean x1.9
+  (shared edges, at most x3.3 for doubly obtuse pairs) and x1.6 (shared vertices, at most
+  x3.2); hard bound 48 pieces x 16 x 16 outer points per ordering. Folds >= 90 degrees whose
+  pieces need no split (all Mie icosphere pairs) bitwise unchanged.
+  `kernels::touching_rule_info` reports the deterministic outer point counts. Slow dihedral
+  sweep and right-hand-side degree study registered as the ctest entries
+  `kernels: fold sweep (slow)` and `assembler: rhs degree study (slow)` (label `slow`,
+  excluded from CI and the standard runs). The log-Gauss tables are checked against all 2n
+  moments.
+- operator (WP7c): `OperatorOptions::quad_degree_rhs` (default 8, positive-interior), the
+  Dunavant degree of `op::assemble_rhs` (before: `quad_degree_near` = 19); relative error
+  <= 7.5e-14 against degree 20 for plane waves and Gaussian beams on lambda/10 meshes.
+- python (WP14b1): bindings for `TriangleMesh` (read-only zero-copy `vertices`/`triangles`/`edges`
+  views kept alive by the mesh, `quality_report()` as `MeshQuality`), `make_icosphere`,
+  `make_sphere`, `HeightMap`, `generate_gaussian_height_map`, `make_rough_surface_mesh`,
+  `make_mesh_from_height_map` (keyword arguments incl. `box_depth`, `box_mesh_size`,
+  `box_fine_depth`), the Python class `RoughSurface`, `DispersiveMaterial`, `field_decay_length`,
+  `PlaneWave` / `GaussianBeam` (`shared_ptr` holders, vectorised `electric_field` /
+  `magnetic_field`) and `Mie` (broadcast `bistatic_rcs`, `scattered_E`, cross sections); GIL
+  released in mesh generation and field loops; invalid input raises `ValueError`. C++:
+  `geometry::MeshQuality`, `TriangleMesh::quality()` and `geometry::to_string(MeshQuality)`
+  (`quality_report()` unchanged). The module now builds with the project warning set (GCC's
+  `-Wnull-dereference`/`-Wmaybe-uninitialized` false positives in pybind11/Eigen headers are
+  disabled per source). Tests `tests/python/test_geometry.py`, `test_physics.py`.
 - core (WP-P1, ADR 0007): file paths are UTF-8 strings on every platform.
   `core::path_from_utf8` (validating, via `std::u8string`; malformed UTF-8 or a NUL byte throws
   `std::invalid_argument`), `core::path_to_utf8` (via `path::u8string()`) and
@@ -136,3 +202,13 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - pybind11 module with materials and formulation enums; Python package skeleton.
 - Unit tests (Catch2) and Python tests (pytest).
 - Documentation: project plan, architecture, SIE and MLFMM theory, validation, conventions, coding guidelines, GPU strategy, compression survey, Python API, ADRs.
+
+### Changed
+- material (WP14b1f): `DispersiveMaterial` throws `std::invalid_argument` for non-finite,
+  non-positive or not strictly increasing wavelengths, non-finite indices and indices with
+  `Im(n) > 0` (the message says that exp(+jwt) needs `n - jk` and that `n + ik` optics data must
+  be conjugated); `at_wavelength` throws for a non-finite wavelength and now accepts the table
+  endpoints. Python: these raise `ValueError`.
+- python (WP14b1f): `TriangleMesh.quality_report()` returns the text report (`str`) instead of a
+  `MeshQuality`; use `quality()` for the numbers. `quality()`/`quality_report()` no longer
+  release the GIL.

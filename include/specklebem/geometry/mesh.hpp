@@ -11,11 +11,38 @@
 
 #include "specklebem/core/types.hpp"
 
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace specklebem::geometry {
+
+/// Mesh statistics of TriangleMesh::quality(); formatted by to_string() (quality_report()).
+/// Edge lengths are taken over all edges, interior and boundary; undefined values (no edges,
+/// no triangles) are NaN.
+struct MeshQuality {
+    Index num_vertices = 0;
+    Index num_unreferenced_vertices = 0;
+    Index num_edges = 0;  ///< interior edges (E)
+    Index num_boundary_edges = 0;
+    Index num_nonmanifold_edges = 0;  ///< always 0 for a constructed mesh
+    Index num_triangles = 0;
+    /// V_used - E_all + F (E_all includes boundary edges).
+    Index euler_characteristic = 0;
+    Index num_components = 0;         ///< connected through shared edges
+    Index num_vertex_components = 0;  ///< connected through shared vertices
+    bool closed = false;
+    bool consistently_oriented = true;
+    Real min_edge_length = std::numeric_limits<Real>::quiet_NaN();
+    Real max_edge_length = std::numeric_limits<Real>::quiet_NaN();
+    Real mean_edge_length = std::numeric_limits<Real>::quiet_NaN();
+    /// Largest circumradius / (2 inradius) (1 for equilateral).
+    Real max_aspect_ratio = std::numeric_limits<Real>::quiet_NaN();
+};
+
+/// Multi-line text of TriangleMesh::quality_report().
+[[nodiscard]] std::string to_string(const MeshQuality& q);
 
 /// Consistently oriented, edge-manifold triangle surface mesh with per-element cache.
 /// Normals point from the object (region R2) into the exterior (region R1).
@@ -89,7 +116,9 @@ public:
     /// all edges and max aspect ratio (circumradius / (2 inradius), 1 for equilateral).
     /// The non-manifold edge count is always 0 for a constructed mesh, because the
     /// constructor throws on non-manifold edges (the count is in the exception message).
-    [[nodiscard]] std::string quality_report() const;
+    [[nodiscard]] std::string quality_report() const { return to_string(quality()); }
+    /// The statistics of quality_report() as numbers.
+    [[nodiscard]] MeshQuality quality() const;
 
     /// True if there are no boundary and no non-manifold edges and F > 0.
     [[nodiscard]] bool is_closed() const;

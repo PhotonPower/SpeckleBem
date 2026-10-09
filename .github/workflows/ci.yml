@@ -26,7 +26,8 @@ jobs:
           # cmake/Dependencies.cmake then fetches spdlog 1.15.3 with its bundled fmt (as in the
           # presets used for development). libomp-dev provides OpenMP for clang.
           sudo apt-get install -y ninja-build libeigen3-dev libopenblas-dev liblapack-dev \
-              libomp-dev catch2 pybind11-dev python3-dev python3-numpy python3-pytest
+              libomp-dev catch2 pybind11-dev python3-dev python3-numpy python3-pytest \
+              python3-scipy
 
       - name: Configure
         env:
@@ -44,18 +45,21 @@ jobs:
       # ctest -L / -LE take regular expressions: -LE validation excludes both the `validation`
       # and the `validation-large` labels, -L '^validation$' selects only `validation`.
       # `ctest -L validation-large` (dense solves with 2N >= 15 k, minutes to hours, several GB)
-      # is nightly / manual only and never runs in CI.
+      # and `ctest -L slow` (hidden accuracy and cost studies, minutes) are nightly / manual
+      # only and never run in CI.
       - name: Unit tests
-        run: ctest --test-dir build --output-on-failure -LE validation
+        run: ctest --test-dir build --output-on-failure -LE 'validation|slow'
 
       - name: Validation tests
         run: ctest --test-dir build --output-on-failure -L '^validation$'
 
       # SPECKLEBEM_NPY_FIXTURE makes the NumPy round trip of the .npy writer fail instead of
-      # skip if the helper is missing; -rs lists the reasons of any skipped test.
+      # skip if the helper is missing, SPECKLEBEM_REQUIRE_SCIPY the SciPy test if SciPy is
+      # missing; -rs lists the reasons of any skipped test.
       - name: Python tests
         env:
           SPECKLEBEM_NPY_FIXTURE: build/tests/specklebem_npy_fixture
+          SPECKLEBEM_REQUIRE_SCIPY: "1"
         run: |
           PYTHONPATH=build/python:python python3 -m pytest tests/python -q -rs
 
@@ -78,7 +82,7 @@ jobs:
           update: true
           install: git
           pacboy: >-
-            gcc:p cmake:p ninja:p openblas:p python:p python-numpy:p python-pytest:p
+            gcc:p cmake:p ninja:p openblas:p python:p python-numpy:p python-pytest:p python-scipy:p
 
       # The Python executables are pinned to MSYS2's python: CMake's FindPython also searches the
       # Windows registry and would otherwise pick the runner's preinstalled CPython.
@@ -96,7 +100,7 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Unit tests
-        run: ctest --test-dir build --output-on-failure -LE validation
+        run: ctest --test-dir build --output-on-failure -LE 'validation|slow'
 
       - name: Validation tests
         run: ctest --test-dir build --output-on-failure -L '^validation$'
@@ -106,6 +110,7 @@ jobs:
       - name: Python tests
         env:
           SPECKLEBEM_NPY_FIXTURE: build/tests/specklebem_npy_fixture.exe
+          SPECKLEBEM_REQUIRE_SCIPY: "1"
         run: |
           PYTHONPATH='build/python;python' python -m pytest tests/python -q -rs
 
