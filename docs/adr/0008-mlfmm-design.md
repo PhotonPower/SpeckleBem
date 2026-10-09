@@ -97,3 +97,16 @@ Decisions replacing the corresponding parts of §2, §3 and §6:
   complex k).
 - Special functions never fail silently: spherical Hankel values that underflow or overflow the
   double range raise exceptions, and translators are checked for finiteness.
+
+## Amendment 2026-10-09 (WP18 review round)
+
+- `mlfmm::search_truncation_order` implements the per-level search of the first amendment
+  (statistical check, breakdown detection). For strongly lossy media the bandwidth formula with
+  Re k gives far too small orders (Ag: 2–3); the search finds usable orders for small boxes
+  (Ag at d₀ = 3: L ≈ 9 / 13 / 22 for 0.05 / 0.1 / 0.25 λ₀) and reports breakdown for larger
+  ones. The §6 policy therefore always uses the search result, never the formula alone, for
+  complex k; the formula only provides the starting order.
+- The interpolation order is required explicitly (`interpolation_order(d₀)`: 14 for d₀ ≤ 3, 22
+  for d₀ ≤ 5; d₀ > 5 must be measured first). When the oversampled leaf sampling equals the
+  parent sampling (λ/4 leaves at d₀ = 3) the leaf-to-parent interpolation is the identity and may
+  be skipped.
