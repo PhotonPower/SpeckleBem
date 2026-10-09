@@ -19,6 +19,10 @@ metadata:
 - Use Edit/Write for file changes; to see Catch2 INFO values, temporarily change INFO to WARN
   with Edit and run `ctest -V -R ...`.
 - No `python3` on PATH in Git Bash (Windows Store alias only).
+- `scripts/format.sh` uses the clang-format from the registry Python's Scripts dir; `ruff` is not
+  installed, so Python files must be kept within 100 columns by hand (python/pyproject.toml).
+- Test helper executables built in `build/<preset>/tests/` can be located from Python via the
+  build-tree package: `Path(specklebem.__file__).parents[2] / "tests"` (WP16 npy fixture).
 
 **Why:** cost several rebuild cycles in WP13 (2026-10-09).
 **How to apply:** check these before the first debug build of a new WP. See [[gmres-observations]].
