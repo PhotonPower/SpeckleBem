@@ -38,6 +38,13 @@ endif()
 add_executable(specklebem_ag_sphere_mlfmm ag_sphere_mlfmm.cpp)
 target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
 
+# Flat-interface limit vs Fresnel (WP22c, docs/05 row "Flat box, tapered beam"): flat patch closed
+# by the ADR 0006 box, rigorous beam, MLFMM; one case per process, run by hand, see
+# benchmarks/results/fresnel_flat.md. Shares the case code with the validation tests
+# (tests/support/fresnel_flat_support.hpp).
+add_executable(specklebem_fresnel_flat fresnel_flat.cpp)
+target_link_libraries(specklebem_fresnel_flat PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
 # Benchmarks reproduce Fig. 2(c) of the paper: wall time vs N for dense LU,
 # preconditioned MLFMM (Ag) and ICTF-MLFMM (Si). Added in Phase 4.
 # add_executable(bench_matvec bench_matvec.cpp)

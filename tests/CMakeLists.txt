@@ -91,7 +91,7 @@ add_executable(specklebem_validation_tests
     validation/test_mlfmm_simulation.cpp
     # validation/test_mie_sphere_mlfmm.cpp
     # validation/test_mlfmm_vs_dense.cpp
-    # validation/test_flat_interface_fresnel.cpp
+    validation/test_flat_interface_fresnel.cpp
 )
 target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
