@@ -618,6 +618,43 @@ TEST_CASE("gmres: CGS2 is bitwise deterministic across runs and thread counts", 
 #endif
 }
 
+TEST_CASE("gmres: CGS2 over several row blocks and basis panels (70 iterations)", "[gmres]") {
+    // n spans three full row blocks and a partial one; 71 basis columns span a full panel of 64
+    // and a remainder panel of 7 (full GMRES, m + 1 = 71).
+    const DiagonalPlusLowRank Z(kLargeN, 101);
+    const VectorXc b = random_vector(kLargeN, 102);
+    const GmresParams p = params(1e-14, 70);
+    const GmresResult c =
+        solver::gmres(Z, b, kNone, with(p, solver::Orthogonalization::CGS2, true));
+    const GmresResult m = solver::gmres(Z, b, kNone, with(p, solver::Orthogonalization::MGS, true));
+    REQUIRE(c.iterations == 70);
+    REQUIRE(m.iterations == 70);
+    REQUIRE(c.basis.rows() == kLargeN);
+    REQUIRE(c.basis.cols() == 71);
+    REQUIRE(m.basis.cols() == 71);
+    const Real loss_c = orthogonality_loss(c.basis);
+    const Real loss_m = orthogonality_loss(m.basis);
+    Real max_hist = 0;
+    for (std::size_t k = 0; k < c.residual_history.size(); ++k) {
+        max_hist = std::max(max_hist, std::abs(c.residual_history[k] - m.residual_history[k]) /
+                                          m.residual_history[k]);
+    }
+    INFO("|I - V^H V|_F: CGS2 " << loss_c << ", MGS " << loss_m << "; residual "
+                                << c.residual_history.back() << "; history rel. diff " << max_hist
+                                << "; |x_c - x_m| / |x_m| " << rel_diff(c.x, m.x));
+    CHECK_FALSE(c.converged);
+    CHECK(loss_c <= 1e-12);
+    CHECK(loss_m <= 1e-12);
+    CHECK(max_hist <= 1e-10);
+    CHECK(rel_diff(c.x, m.x) <= 1e-10);
+    // A GMRES(66) cycle fills both panels exactly (64 + 3 columns) before the restart.
+    const GmresResult r = solver::gmres(
+        Z, b, kNone, with(params(1e-14, 70, 66), solver::Orthogonalization::CGS2, true));
+    REQUIRE(r.iterations == 70);
+    CHECK(r.basis.cols() == 5);  // last cycle: 4 iterations after the restart
+    CHECK(orthogonality_loss(r.basis) <= 1e-12);
+}
+
 TEST_CASE("gmres: CGS2 matches MGS with left/right preconditioning and restart", "[gmres]") {
     const DiagonalPlusLowRank Z(kLargeN, 91);
     const VectorXc b = random_vector(kLargeN, 92);

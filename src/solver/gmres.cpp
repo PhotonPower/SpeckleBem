@@ -140,27 +140,36 @@ double seconds_since(std::chrono::steady_clock::time_point t) {
 }
 
 /// Rows per block of the parallel CGS2 products. The block partition (and so the order of the
-/// partial sums) depends on n only, never on the thread count.
+/// partial sums) depends on n only, never on the thread count. Blocks are handed out
+/// dynamically, one at a time (schedule(dynamic, 1)), so a thread stalled by other load does not
+/// hold up a fixed share of the rows; each block's partial result depends on its rows only, not
+/// on the thread that computes it, so the results stay bitwise reproducible.
 constexpr Index kRowBlock = 4096;
-/// Columns per panel of the Krylov basis.
+/// Columns per panel of the Krylov basis (the last panel holds the remainder).
 constexpr Index kPanelCols = 64;
 /// Target size of the part of V (sub-block rows x k columns) that the fused CGS2 sweep reuses
 /// from cache (per thread; between the L2 and the per-thread L3 share of current CPUs).
 constexpr Index kFusedCacheBytes = Index{1} << 20;
 
-/// Krylov basis V (n x size()), stored as contiguous column-major panels of equal width so
-/// that it grows without copying. Panels are kept across restarts.
+/// Krylov basis V (n x size()), stored as contiguous column-major panels so that it grows
+/// without copying. All panels have kPanelCols columns except the last one that max_cols
+/// allows, which holds only the remainder: a basis filled to max_cols = m + 1 columns occupies
+/// exactly (m + 1) n complex values. Panels are kept across restarts.
 class KrylovBasis {
 public:
-    KrylovBasis(Index n, Index max_cols)
-        : n_(n), panel_cols_(std::max<Index>(1, std::min(kPanelCols, max_cols))) {}
+    KrylovBasis(Index n, Index max_cols) : n_(n), max_cols_(max_cols) {}
 
     [[nodiscard]] Index size() const { return size_; }
     void clear() { size_ = 0; }
 
     void append(const VectorXc& v) {
-        if (size_ == static_cast<Index>(panels_.size()) * panel_cols_)
-            panels_.emplace_back(n_, panel_cols_);
+        if (size_ == allocated_) {
+            const Index width = std::min(kPanelCols, max_cols_ - allocated_);
+            if (width < 1)
+                throw std::logic_error("gmres: Krylov basis exceeds its column limit");
+            panels_.emplace_back(n_, width);
+            allocated_ += width;
+        }
         col(size_) = v;
         ++size_;
     }
@@ -170,7 +179,9 @@ public:
     void project(const VectorXc& w, Index k, VectorXc& h) {
         const Index blocks = num_blocks();
         partial_.resize(k, blocks);
-#pragma omp parallel for schedule(static) if (blocks > 1)
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic, 1) if (blocks > 1)
+#endif
         for (Index b = 0; b < blocks; ++b) {
             const Index r0 = b * kRowBlock;
             project_rows(w, k, r0, std::min(kRowBlock, n_ - r0), partial_.col(b), false);
@@ -181,7 +192,9 @@ public:
     /// w -= V(:, 0 .. k-1) h(0 .. k-1).
     void subtract(VectorXc& w, Index k, const VectorXc& h) {
         const Index blocks = num_blocks();
-#pragma omp parallel for schedule(static) if (blocks > 1)
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic, 1) if (blocks > 1)
+#endif
         for (Index b = 0; b < blocks; ++b) {
             const Index r0 = b * kRowBlock;
             subtract_rows(w, k, h, r0, std::min(kRowBlock, n_ - r0));
@@ -195,7 +208,9 @@ public:
         const Index blocks = num_blocks();
         const Index sub = std::clamp<Index>(kFusedCacheBytes / (16 * k), 64, kRowBlock);
         partial_.resize(k, blocks);
-#pragma omp parallel for schedule(static) if (blocks > 1)
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic, 1) if (blocks > 1)
+#endif
         for (Index b = 0; b < blocks; ++b) {
             const Index end = std::min((b + 1) * kRowBlock, n_);
             for (Index s0 = b * kRowBlock; s0 < end; s0 += sub) {
@@ -253,14 +268,15 @@ private:
     }
 
     [[nodiscard]] MatrixXc::ColXpr col(Index j) {
-        return panels_[static_cast<std::size_t>(j / panel_cols_)].col(j % panel_cols_);
+        return panels_[static_cast<std::size_t>(j / kPanelCols)].col(j % kPanelCols);
     }
     [[nodiscard]] MatrixXc::ConstColXpr col(Index j) const {
-        return panels_[static_cast<std::size_t>(j / panel_cols_)].col(j % panel_cols_);
+        return panels_[static_cast<std::size_t>(j / kPanelCols)].col(j % kPanelCols);
     }
 
     Index n_;
-    Index panel_cols_;
+    Index max_cols_;
+    Index allocated_ = 0;  // columns in panels_
     Index size_ = 0;
     std::vector<MatrixXc> panels_;
     MatrixXc partial_;

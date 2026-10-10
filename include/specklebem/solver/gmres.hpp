@@ -29,10 +29,11 @@ enum class PreconditionerSide { Left, Right };
 /// - CGS2 (default): classical Gram-Schmidt with re-orthogonalisation, always two passes
 ///   ("twice is enough": orthogonality to working precision, Giraud et al., Numer. Math. 101,
 ///   2005): h_i = V^H w, w -= V h_i for i = 1, 2, Hessenberg column h = h_1 + h_2. The products
-///   are OpenMP-parallel over fixed blocks of rows, and the update of pass 1 is fused with the
-///   projection of pass 2 (three sweeps over V per step). Block partial sums of V^H w are added
+///   are OpenMP-parallel over fixed blocks of rows (handed to the threads dynamically, one block
+///   at a time), and the update of pass 1 is fused with the projection of pass 2 (three sweeps
+///   over V per step). Each block's partial sums of V^H w depend on its rows only and are added
 ///   in block order, so results are bitwise reproducible from run to run and independent of the
-///   number of threads (for deterministic A and M^{-1}).
+///   number of threads and of their scheduling (for deterministic A and M^{-1}).
 /// - MGS: modified Gram-Schmidt, serial, column by column, with a second pass when |w| drops
 ///   below 0.7 of its norm before the first (the algorithm before WP-G1). Kept for comparison
 ///   and as a fallback; never chosen automatically.
@@ -94,13 +95,15 @@ using IterationCallback = std::function<void(int iter, Real residual)>;
 ///   singular on the Krylov space: the column is discarded, the iteration stops and a warning
 ///   is logged.
 /// - Reaching max_iter is not an error: converged = false and a warning is logged.
-/// - Memory: the Krylov basis dominates, (m + 1) n complex values (16 (m + 1) n bytes) with
-///   m = restart, or m = iterations for full GMRES (the basis grows on demand in contiguous
-///   column-major panels of min(m + 1, 64) columns, so it is never copied); the Hessenberg
-///   factor adds 16 m^2 / 2 bytes. Cost per iteration: one A and one M^{-1} application plus
-///   O(k n) for the orthogonalisation, memory-bandwidth bound: CGS2 streams the k basis vectors
-///   three times per step, in parallel; MGS once per pass (the second read of each vector
-///   mostly hits the cache), serially.
+/// - Memory: the Krylov basis dominates, at most (m + 1) n complex values (16 (m + 1) n bytes)
+///   with m = restart, or m = max_iter for full GMRES. It grows on demand in contiguous
+///   column-major panels of 64 columns, so it is never copied; the last panel holds only the
+///   remainder of m + 1, so a filled basis (e.g. a GMRES(100) cycle: 64 + 37 columns) takes
+///   exactly 16 (m + 1) n bytes, and a run that stops after k iterations allocates
+///   min(m + 1, 64 ceil((k + 1) / 64)) columns. The Hessenberg factor adds 16 m^2 / 2 bytes. Cost
+///   per iteration: one A and one M^{-1} application plus O(k n) for the orthogonalisation,
+///   memory-bandwidth bound: CGS2 streams the k basis vectors three times per step, in parallel;
+///   MGS once per pass (the second read of each vector mostly hits the cache), serially.
 /// - OpenMP only in the CGS2 products and in forming the iterate V y; A and M^{-1} parallelise
 ///   their own work.
 /// @throws std::invalid_argument if A is not square, b.size() != A.rows(), b has non-finite
