@@ -7,9 +7,13 @@
 // matrix per case (geometry, interior, formulation), shared by the MLFMM configurations:
 //  * d0 = 3 with a lambda / 4 leaf floor (the default; ADR 0008 WP20a amendment),
 //  * d0 = 5 with a lambda / 2 floor, and lambda leaves on a coarser plate.
-// Since WP21 MlfmmOperator applies the leaf rule a >= max(a_min(d0), r_max / 0.3): on the
-// R = 1 um icosphere and the 2 um box (r_max ~ 70 / 45 nm) the d0 = 3 leaves are lambda / 2 too;
-// the R = 0.5 um icosphere (r_max ~ 36 nm) keeps lambda / 4 leaves at d0 = 3.
+// Since WP21 MlfmmOperator applies the leaf rule a >= max(a_min(d0), r_max / max_support_ratio(d0))
+// (ratio 0.6 for d0 <= 3, 0.3 for d0 > 3, WP21 review): every case here keeps lambda / 4 leaves at
+// d0 = 3 (rough box Ag: 0.3 lambda) and lambda / 2 at d0 = 5 (rough box Ag: 0.6 lambda).
+// After the WP21 review (2026-10-10): d0 = 3: 1.7e-4 / 2.1e-4 / 1.0e-4 (icosphere n = 1.5 / Si /
+// Ag R = 0.5 um), 7.2e-5 / 4.3e-5 / 6.4e-5 (rough box n = 1.5 / Si / Ag), 5.4e-6 (plate); d0 = 5:
+// 3.7e-6 / 6.5e-6 / 4.1e-6 (icosphere), 6.7e-6 / 4.2e-6 / 2.1e-6 (rough box), 5.5e-7 (plate);
+// exact rows: 2.3e-4 (Si icosphere 61 440), 1.1e-4 (Ag icosphere 61 440), 2.9e-4 (box 88 320).
 // Measured 2026-10-10 before WP21 (win-release, 24 cores, lambda / 4 leaves at r_max / a ~ 0.57
 // for d0 = 3): d0 = 3: 1.7e-4 / 2.1e-4 (icosphere n = 1.5 / Si), 7.2e-5 / 4.3e-5 (rough box
 // n = 1.5 / Si), 5.4e-6 (plate, lambda leaves); d0 = 5: 3.7e-6 / 6.5e-6 (icosphere), 6.7e-6 /
@@ -258,7 +262,8 @@ TEST_CASE("mlfmm vs dense large: icosphere Ag, PMCHWT", "[validation-large][mlfm
     // R = 0.5 um, subdivision 4: 2N = 15360, r_max ~ 35 nm, so the leaf rule keeps lambda / 4
     // leaves at d0 = 3 (lambda / 2 at d0 = 5). The Ag interior (skin depth ~13 nm) uses no
     // expansion: its far pairs are truncated by the decay bound or evaluated exactly (WP21).
-    // Measured 2026-10-10: 1.0e-4 (d0 = 3, exact part 408 MB, total 803 MB), 4.1e-6 (d0 = 5).
+    // Measured 2026-10-10: 1.0e-4 (d0 = 3; exact part 4.45e6 basis pairs, 170 MB with the (L, K)
+    // storage, 408 MB before), 4.1e-6 (d0 = 5; 100 MB).
     const Setup s(geometry::make_icosphere(kLambda, 4), material::silver_500nm(), Kind::PMCHWT);
     run_case("icosphere R = 0.5 um, Ag, PMCHWT", s, {{3.0, 0.25}, {5.0, 0.5}});
 #endif
@@ -269,7 +274,9 @@ TEST_CASE("mlfmm vs dense large: rough box Ag, PMCHWT", "[validation-large][mlfm
     SKIP("validation-large cases run in optimised builds only");
 #else
     // 1.2 um x 1.2 um x 0.3 um, mesh 35 nm: 2N = 21216, r_max = 46 nm (rim triangles), so the
-    // leaf rule gives 0.6 lambda leaves (3 levels) for both d0. Measured 2026-10-10: 4.8e-6
+    // leaf rule gives 0.3 lambda leaves at d0 = 3 and 0.6 lambda at d0 = 5. Measured 2026-10-10
+    // after the WP21 review: 6.4e-5 (d0 = 3, exact part 204 MB vs near 679 MB); with 0.6 lambda
+    // leaves at both d0 before: 4.8e-6
     // (d0 = 3), 2.1e-6 (d0 = 5); Ag interior exact at the leaf level (272 / 382 box pairs).
     const Setup s(rough_box(1.2e-6, 0.3e-6, 35e-9), material::silver_500nm(), Kind::PMCHWT);
     run_case("rough box 1.2 um, Ag, PMCHWT", s, {{3.0, 0.25}, {5.0, 0.5}});
