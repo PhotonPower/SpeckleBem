@@ -11,6 +11,11 @@ namespace system_memory {
 /// Total physical memory of the machine in bytes (0 if unknown).
 specklebem::Real physical_memory_bytes();
 
+/// Physical memory currently available to new allocations in bytes (Windows ullAvailPhys,
+/// POSIX free pages; 0 if unknown). On a shared machine this, not physical_memory_bytes(),
+/// decides whether a large case can start without swapping.
+specklebem::Real available_memory_bytes();
+
 /// Peak resident set size (peak working set on Windows) of this process in bytes (0 if
 /// unknown). catch_discover_tests runs every test case in its own process.
 specklebem::Real peak_rss_bytes();
