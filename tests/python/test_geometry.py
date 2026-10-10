@@ -215,6 +215,14 @@ def test_box_defaults_adr0006_amendment():
     si, ag, vac = sb.silicon_500nm(), sb.silver_500nm(), sb.vacuum()
     assert sb.exterior_wavelength(vac, lam) == lam
     assert sb.exterior_wavelength(sb.Material(eps_r=2.25), lam) == pytest.approx(lam / 1.5)
+    # Lossy background: lambda_0 / |n_1| (conservative); metallic background: rejected.
+    lossy = sb.Material(eps_r=2.25 - 0.3j)
+    assert sb.exterior_wavelength(lossy, lam) == pytest.approx(lam / abs(2.25 - 0.3j) ** 0.5)
+    for metal in (sb.Material(eps_r=-4.0), sb.Material(eps_r=-1.0 - 0.5j), ag):
+        with pytest.raises(ValueError):
+            sb.exterior_wavelength(metal, lam)
+        with pytest.raises(ValueError):
+            sb.rough_surface_box_params(si, metal, lam, 50e-9, 50e-9)
     # Largest 2^M h <= lambda_1 / 5: 100 nm for 50 nm, uniform (h) for 60 nm.
     assert sb.default_box_mesh_size(vac, lam, 50e-9) == 2 * 50e-9
     assert sb.default_box_mesh_size(background=vac, wavelength=lam, mesh_size=60e-9) == 60e-9
@@ -225,15 +233,26 @@ def test_box_defaults_adr0006_amendment():
     assert p_si.box_depth == sb.default_box_depth(si, lam)
     assert p_si.box_fine_depth == sb.default_box_fine_depth(si, lam, 50e-9)
     assert p_si.box_fine_depth == pytest.approx(3.54e-6, abs=0.01e-6)
-    assert p_si.box_mesh_size == 100e-9 and p_si.exterior_wavelength == lam
+    # box_mesh_size None: the generator caps the coarse spacing with the actual grid spacing.
+    assert p_si.box_mesh_size is None and p_si.exterior_wavelength == lam
+    assert p_si.uniform_fallback is False
     p_ag = sb.rough_surface_box_params(
         object=ag, background=vac, wavelength=lam, sigma=50e-9, mesh_size=50e-9
     )
     assert p_ag.box_depth == 2e-6 and p_ag.box_fine_depth is None
     assert p_ag.kwargs() == dict(
-        box_depth=2e-6, box_mesh_size=100e-9, box_fine_depth=None, exterior_wavelength=lam
+        box_depth=2e-6, box_mesh_size=None, box_fine_depth=None, exterior_wavelength=lam
     )
-    assert "RoughBoxParams" in repr(p_ag)
+    r = repr(p_ag)
+    assert r.startswith("<RoughBoxParams")
+    assert "box_depth=2e-06" in r and "exterior_wavelength=5e-07" in r, r
+    assert "box_mesh_size=None" in r and "uniform_fallback=False" in r, r
+    assert f"box_fine_depth={p_si.box_fine_depth:.6g}" in repr(p_si), repr(p_si)  # 6 digits
+    # Very rough Si: the band would reach the bottom plate -> uniform box (warned).
+    p_fb = sb.rough_surface_box_params(si, vac, lam, 1e-6, 50e-9)
+    assert p_fb.uniform_fallback is True and p_fb.box_fine_depth is None
+    assert p_fb.box_mesh_size == 50e-9 and p_fb.kwargs()["box_mesh_size"] == 50e-9
+    assert "box_mesh_size=5e-08" in repr(p_fb) and "uniform_fallback=True" in repr(p_fb)
     with pytest.raises(ValueError):
         sb.rough_surface_box_params(sb.Material(eps_r=2.25), vac, lam, 50e-9, 50e-9)
     # The keywords build the mesh; the automatic rule with exterior_wavelength gives the same.

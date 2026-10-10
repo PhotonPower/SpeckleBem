@@ -251,8 +251,8 @@ exterior_wavelength is given; without it a graded box logs a warning: the old ru
 validated under illumination, ADR 0006 amendment). box_fine_depth [m]: the walls keep the
 top-face spacing down to this z (None: no fine band); size it as 3 delta + 3 sigma with
 delta = field_decay_length (mandatory for weakly absorbing objects such as Si).
-exterior_wavelength [m]: lambda_1 = lambda_0 / Re(n_1) in R1. rough_surface_box_params
-chooses all four from the materials.
+exterior_wavelength [m]: lambda_1 = lambda_0 / |n_1| in R1 (sb.exterior_wavelength).
+rough_surface_box_params chooses all four from the materials.
 )doc");
 }
 
