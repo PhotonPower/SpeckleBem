@@ -1,6 +1,6 @@
-// Ag sphere with MLFMM vs Mie (WP22a, Phase 4 definition of done, docs/01 and docs/05 row "Ag sphere
-// d = 4 um, lambda/27, MLFMM": eps_rr <= 0.5 % in both scattering planes; Fu et al. 2023: 0.26 % /
-// 0.37 %, 393 216 unknowns, preconditioned, 424 iterations).
+// Ag sphere with MLFMM vs Mie (WP22a, Phase 4 definition of done, docs/01 and docs/05 row "Ag
+// sphere d = 4 um, lambda/27, MLFMM": eps_rr <= 0.5 % in both scattering planes; Fu et al. 2023:
+// 0.26 % / 0.37 %, 393 216 unknowns, preconditioned, 424 iterations).
 //
 // One case per process (a background command is limited in time, and the peak memory of a case
 // should be its own): sphere of diameter --d in vacuum, lambda = 500 nm, Ag eps_r = -9.794 -
@@ -10,7 +10,8 @@
 // formulation::recommend (ICTF + left Jacobi for Ag) unless --formulation / --jacobi, full GMRES
 // with tolerance --tol. Output (stdout): the setup, eps_rr in the xz- and yz-planes (181 and 1801
 // angles), iterations, timings, the memory per component and the peak working set, then the
-// operator description and the Simulation report. Record: benchmarks/results/ag_sphere_4um_mlfmm.md.
+// operator description and the Simulation report. Record:
+// benchmarks/results/ag_sphere_4um_mlfmm.md.
 //
 // --estimate-only prints the mesh, the octree after the leaf rule and the near-field estimate
 // (no assembly; seconds).
@@ -84,8 +85,7 @@ int main(int argc, char** argv) {
                     system_memory::physical_memory_bytes() / 1e9);
         std::fflush(stdout);
         if (o.estimate_only) {
-            const geometry::TriangleMesh mesh =
-                make_mesh(o.c.mesh, o.c.diameter, o.c.subdivisions);
+            const geometry::TriangleMesh mesh = make_mesh(o.c.mesh, o.c.diameter, o.c.subdivisions);
             std::printf("%s\n", summary(estimate(mesh, o.c)).c_str());
             return 0;
         }

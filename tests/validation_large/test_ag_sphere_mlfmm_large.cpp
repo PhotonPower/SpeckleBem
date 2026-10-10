@@ -24,10 +24,11 @@ using namespace ag_sphere_mlfmm;
 namespace {
 
 /// Peak working set of an MLFMM case estimated from the near-field estimate: measured on the WP22a
-/// ramp-up (benchmarks/results/ag_sphere_4um_mlfmm.md), peak RSS <= kPeakPerNear x near field +
-/// the full-GMRES basis.
-constexpr Real kPeakPerNear = 4.0;
-constexpr Real kMarginBytes = 10e9;
+/// ramp-up (benchmarks/results/ag_sphere_4um_mlfmm.md: 2N = 393 216, 33.8 GB = 2.77 x the 12.2 GB
+/// near field including a 2.8 GB Krylov basis), peak RSS <= kPeakPerNear x near field + the
+/// full-GMRES basis.
+[[maybe_unused]] constexpr Real kPeakPerNear = 3.0;
+[[maybe_unused]] constexpr Real kMarginBytes = 10e9;
 
 /// SKIPs (returns false) in unoptimised builds and when the case does not fit into the memory
 /// available now.
@@ -79,7 +80,7 @@ TEST_CASE("Ag sphere MLFMM: d = 1 um at icosphere n = 5 (lambda / 26.5) vs Mie",
 TEST_CASE("Ag sphere MLFMM: d = 4 um at the paper's 393 216 unknowns vs Mie (Phase 4 DoD)",
           "[validation-large][ag_sphere_mlfmm]") {
     Case c;  // defaults: octa n = 7, d = 4 um, d0 = 3, tol 1e-3
-    if (!case_runs(c, 1500))
+    if (!case_runs(c, 600))
         return;
     const Result r = run(c);
     WARN(label(c) << "\n" << summary(r));

@@ -66,8 +66,8 @@ inline geometry::TriangleMesh make_octasphere(Real radius, int subdivisions) {
     if (!(radius > 0.0) || !std::isfinite(radius))
         throw std::invalid_argument("make_octasphere: radius must be finite and > 0");
     using Face = std::array<Index, 3>;
-    std::vector<Vec3> v = {Vec3::UnitX(), -Vec3::UnitX(), Vec3::UnitY(),
-                           -Vec3::UnitY(), Vec3::UnitZ(), -Vec3::UnitZ()};
+    std::vector<Vec3> v = {Vec3::UnitX(),  -Vec3::UnitX(), Vec3::UnitY(),
+                           -Vec3::UnitY(), Vec3::UnitZ(),  -Vec3::UnitZ()};
     std::vector<Face> f = {{0, 2, 4}, {2, 1, 4}, {1, 3, 4}, {3, 0, 4},
                            {2, 0, 5}, {1, 2, 5}, {3, 1, 5}, {0, 3, 5}};
     for (Face& t : f) {
@@ -307,13 +307,13 @@ inline Result run(const Case& c) {
     r.krylov_bytes = static_cast<Real>(g.iterations + 1) * static_cast<Real>(sim.num_unknowns()) *
                      static_cast<Real>(sizeof(Complex));
     const auto t0 = Clock::now();
-    const reference::MieSolution mie(reference::MieParams{0.5 * c.diameter, kLambda,
-                                                          material::silver_500nm(),
-                                                          material::vacuum(), 0});
+    const reference::MieSolution mie(reference::MieParams{
+        0.5 * c.diameter, kLambda, material::silver_500nm(), material::vacuum(), 0});
     r.eps_xz = eps_rr(sim.solution(), mie, kRcsAngles, Vec3::UnitY(), 0.0);
     r.eps_yz = eps_rr(sim.solution(), mie, kRcsAngles, -Vec3::UnitX(), 0.5 * constants::pi);
     r.eps_xz_fine = eps_rr(sim.solution(), mie, kRcsAnglesFine, Vec3::UnitY(), 0.0);
-    r.eps_yz_fine = eps_rr(sim.solution(), mie, kRcsAnglesFine, -Vec3::UnitX(), 0.5 * constants::pi);
+    r.eps_yz_fine =
+        eps_rr(sim.solution(), mie, kRcsAnglesFine, -Vec3::UnitX(), 0.5 * constants::pi);
     r.post_s = std::chrono::duration<Real>(Clock::now() - t0).count();
     r.report = sim.report();
     r.peak_rss = system_memory::peak_rss_bytes();
@@ -346,13 +346,14 @@ inline std::string summary(const Estimate& e) {
 inline std::string summary(const Result& r) {
     std::ostringstream os;
     os << summary(r.est) << "\n"
-       << "formulation " << r.formulation << (r.jacobi ? " + left Jacobi" : "") << "; eps_rr xz = "
-       << r.eps_xz << ", yz = " << r.eps_yz << " (" << kRcsAngles << " angles), " << r.eps_xz_fine
-       << " / " << r.eps_yz_fine << " (" << kRcsAnglesFine << " angles)\n"
+       << "formulation " << r.formulation << (r.jacobi ? " + left Jacobi" : "")
+       << "; eps_rr xz = " << r.eps_xz << ", yz = " << r.eps_yz << " (" << kRcsAngles
+       << " angles), " << r.eps_xz_fine << " / " << r.eps_yz_fine << " (" << kRcsAnglesFine
+       << " angles)\n"
        << "GMRES " << r.iterations << " iterations, converged " << (r.converged ? "yes" : "no")
        << ", true residual " << r.true_residual << "; assembly " << r.assembly_s << " s, solve "
-       << r.solve_s << " s (" << r.solve_s / std::max(1, r.iterations) << " s/it), RCS "
-       << r.post_s << " s\n"
+       << r.solve_s << " s (" << r.solve_s / std::max(1, r.iterations) << " s/it), RCS " << r.post_s
+       << " s\n"
        << "memory: near " << static_cast<Real>(r.near_bytes) / 1e9 << " GB (nnz " << r.near_nnz
        << ", " << static_cast<Real>(r.near_nnz) / static_cast<Real>(r.est.unknowns)
        << " per row), exact R1 " << static_cast<Real>(r.exact_bytes[0]) / 1e9 << " GB ("
