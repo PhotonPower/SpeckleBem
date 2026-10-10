@@ -94,6 +94,10 @@ Checks against the existing records:
   8.5 s; near field 57.8 s), Jacobi diagonal 20.1 s, right-hand side 0.04 s; GMRES 442 it in
   780 s (1.76 s/it including the Gram–Schmidt growth: 1.0 s/it over the first 100 iterations);
   RCS evaluation (181 + 1801 angles, both planes) 24.5 s. Total ≈ 15.6 min.
+- Repeat as the validation-large ctest case (`ctest --preset win-release -R "Ag sphere MLFMM"`,
+  machine less loaded): identical ε_rr, iterations and memory (the run is deterministic);
+  assembly 96 s, GMRES 521 s (1.18 s/it), RCS 18 s, 636 s for the whole test. The d = 1 µm case
+  took 169 s.
 - GMRES history (monitored residual): 3.3e-2 (50), 1.7e-2 (100), 6.4e-3 (200), 2.6e-3 (300),
   1.2e-3 (400), 1.0e-3 (442); true residual 1.04e-3.
 
