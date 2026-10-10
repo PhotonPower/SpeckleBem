@@ -68,12 +68,20 @@
 /// colour the triangles are therefore handed out one by one (schedule(dynamic, 1)) in the order
 /// of decreasing longest edge (a cost proxy; largest first keeps the tail short), which does
 /// not change any entry.
+///
+/// Sparse assembly (WP19a, assemble_sparse) shares this schedule (test_schedule,
+/// for_each_test_triangle) and pair_blocks; per test triangle it visits only the source
+/// triangles of its pattern pairs, in ascending order, and scatters only the pattern entries.
+/// A stored entry thus receives exactly the dense contributions in the dense order: bitwise
+/// equal to the DenseStrategy entry.
 #include "specklebem/operator/assembler.hpp"
 
 #include "specklebem/core/logging.hpp"
 #include "specklebem/core/timer.hpp"
 #include "specklebem/kernels/quadrature.hpp"
 #include "specklebem/operator/dense_operator.hpp"
+#include "specklebem/operator/region_sparse_operator.hpp"
+#include "specklebem/operator/sparse_operator.hpp"
 
 #include <algorithm>
 #include <array>
@@ -257,6 +265,75 @@ private:
     std::exception_ptr ptr_;
 };
 
+/// Colour groups of the test triangles in processing order (colour_triangles, order_by_cost):
+/// the test-triangle schedule shared by DenseStrategy::build and assemble_sparse.
+std::vector<std::vector<Index>> test_schedule(const basis::RwgSpace& space) {
+    std::vector<int> colour_of;
+    std::vector<std::vector<Index>> groups = colour_triangles(space, colour_of);
+    order_by_cost(space.mesh(), groups);
+    return groups;
+}
+
+/// Calls body(t) for every test triangle t: colour by colour, within a colour OpenMP
+/// schedule(dynamic, 1) in group order (file comment). body(t) may write only the rows of the
+/// basis functions of t. The first exception is rethrown after the colour.
+template <class Body>
+void for_each_test_triangle(const std::vector<std::vector<Index>>& groups, const Body& body) {
+    ExceptionSlot error;
+    for (const std::vector<Index>& group : groups) {
+        const auto ng = static_cast<Index>(group.size());
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic, 1)
+#endif
+        for (Index g = 0; g < ng; ++g) {
+            try {
+                body(group[static_cast<std::size_t>(g)]);
+            } catch (...) {
+                error.capture();
+            }
+        }
+        error.rethrow();
+    }
+}
+
+/// Throws std::invalid_argument unless `pat` is a consistent N x N basis-pair pattern.
+void check_pattern(const BasisPattern& pat, Index N) {
+    const auto fail = [](const std::string& what) {
+        throw std::invalid_argument("assemble_sparse: invalid BasisPattern: " + what);
+    };
+    if (static_cast<Index>(pat.group_of_row.size()) != N)
+        fail("group_of_row has " + std::to_string(pat.group_of_row.size()) +
+             " entries, N = " + std::to_string(N));
+    if (pat.col_ptr.empty() || pat.col_ptr.front() != 0)
+        fail("col_ptr must start with 0");
+    const auto G = static_cast<Index>(pat.col_ptr.size()) - 1;
+    if (pat.col_ptr.back() != static_cast<Index>(pat.cols.size()))
+        fail("col_ptr.back() differs from cols.size()");
+    for (const Index g : pat.group_of_row) {
+        if (g < 0 || g >= G)
+            fail("group index " + std::to_string(g) + " outside [0, " + std::to_string(G) + ")");
+    }
+    // Check all of col_ptr before reading cols (a malformed col_ptr must not index past cols).
+    const auto ncols = static_cast<Index>(pat.cols.size());
+    for (std::size_t g = 0; g + 1 < pat.col_ptr.size(); ++g) {
+        if (pat.col_ptr[g + 1] < pat.col_ptr[g])
+            fail("col_ptr decreases");
+        if (pat.col_ptr[g + 1] > ncols)
+            fail("col_ptr exceeds cols.size()");
+    }
+    for (std::size_t g = 0; g + 1 < pat.col_ptr.size(); ++g) {
+        const Index b = pat.col_ptr[g];
+        const Index e = pat.col_ptr[g + 1];
+        for (Index k = b; k < e; ++k) {
+            const Index c = pat.cols[static_cast<std::size_t>(k)];
+            if (c < 0 || c >= N)
+                fail("column " + std::to_string(c) + " outside [0, N)");
+            if (k > b && c <= pat.cols[static_cast<std::size_t>(k - 1)])
+                fail("columns of a group are not strictly ascending");
+        }
+    }
+}
+
 }  // namespace
 
 void validate(const Problem& p) {
@@ -305,9 +382,7 @@ std::shared_ptr<LinearOperator> DenseStrategy::build(const Problem& p) const {
     }
     const Index F = space.mesh().num_triangles();
     const Setup setup = make_setup(p);
-    std::vector<int> colour_of;
-    std::vector<std::vector<Index>> groups = colour_triangles(space, colour_of);
-    order_by_cost(space.mesh(), groups);
+    const std::vector<std::vector<Index>> groups = test_schedule(space);
     const Real bytes = 16.0 * static_cast<Real>(2 * N) * static_cast<Real>(2 * N);
     SBEM_INFO("dense assembly: N = {}, 2N = {}, {} triangles, {} colours, matrix {:.3f} GB", N,
               2 * N, F, groups.size(), bytes * 1e-9);
@@ -316,45 +391,205 @@ std::shared_ptr<LinearOperator> DenseStrategy::build(const Problem& p) const {
     MatrixXc Z = MatrixXc::Zero(2 * N, 2 * N);
     Complex* const data = Z.data();
     const Index ld = Z.outerStride();
-    ExceptionSlot error;
-    for (const std::vector<Index>& group : groups) {
-        const auto ng = static_cast<Index>(group.size());
-#ifdef SPECKLEBEM_HAVE_OPENMP
-#pragma omp parallel for schedule(dynamic, 1)
-#endif
-        for (Index g = 0; g < ng; ++g) {
-            try {
-                const Index t = group[static_cast<std::size_t>(g)];
-                const basis::RwgSpace::Support st = space.support(t);
-                if (st.count == 0)
-                    continue;
-                PairBlocks blk;
-                for (Index s = 0; s < F; ++s) {
-                    const basis::RwgSpace::Support ss = space.support(s);
-                    if (ss.count == 0)
-                        continue;
-                    pair_blocks(space, t, s, setup, p.kernel_options, blk);
-                    for (int b = 0; b < ss.count; ++b) {
-                        // Column-major storage: columns n and N + n, rows m and N + m.
-                        Complex* col_j = data + ss.n[b] * ld;
-                        Complex* col_m = data + (N + ss.n[b]) * ld;
-                        for (int a = 0; a < st.count; ++a) {
-                            const Index m = st.n[a];
-                            const auto k = static_cast<std::size_t>(3 * a + b);
-                            col_j[m] += blk.jj[k];
-                            col_m[m] += blk.jm[k];
-                            col_j[N + m] += blk.mj[k];
-                            col_m[N + m] += blk.mm[k];
-                        }
-                    }
+    for_each_test_triangle(groups, [&](Index t) {
+        const basis::RwgSpace::Support st = space.support(t);
+        if (st.count == 0)
+            return;
+        PairBlocks blk;
+        for (Index s = 0; s < F; ++s) {
+            const basis::RwgSpace::Support ss = space.support(s);
+            if (ss.count == 0)
+                continue;
+            pair_blocks(space, t, s, setup, p.kernel_options, blk);
+            for (int b = 0; b < ss.count; ++b) {
+                // Column-major storage: columns n and N + n, rows m and N + m.
+                Complex* col_j = data + ss.n[b] * ld;
+                Complex* col_m = data + (N + ss.n[b]) * ld;
+                for (int a = 0; a < st.count; ++a) {
+                    const Index m = st.n[a];
+                    const auto k = static_cast<std::size_t>(3 * a + b);
+                    col_j[m] += blk.jj[k];
+                    col_m[m] += blk.jm[k];
+                    col_j[N + m] += blk.mj[k];
+                    col_m[N + m] += blk.mm[k];
                 }
-            } catch (...) {
-                error.capture();
             }
         }
-        error.rethrow();
-    }
+    });
     return std::make_shared<DenseOperator>(std::move(Z));
+}
+
+std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPattern& pattern) {
+    validate(p);
+    const basis::RwgSpace& space = *p.space;
+    const Index N = space.size();
+    check_pattern(pattern, N);
+    const Setup setup = make_setup(p);
+    const std::vector<std::vector<Index>> groups = test_schedule(space);
+
+    // CSR layout: row m (< N) = [cols(m), N + cols(m)], row N + m the same; the J rows first.
+    // begin[m] = offset of row m among the J rows (twice the pattern prefix sum).
+    const auto row_cols = [&](Index m) {
+        const auto g = static_cast<std::size_t>(pattern.group_of_row[static_cast<std::size_t>(m)]);
+        return std::pair<const Index*, const Index*>(pattern.cols.data() + pattern.col_ptr[g],
+                                                     pattern.cols.data() + pattern.col_ptr[g + 1]);
+    };
+    // Sizes in std::size_t from a clamped value (GCC 13 -O3 -Wnull-dereference false positive).
+    const auto rows = static_cast<std::size_t>(std::max<Index>(N, 0));
+    std::vector<Index> begin(rows + 1, 0);
+    for (Index m = 0; m < N; ++m) {
+        const auto [cb, ce] = row_cols(m);
+        begin[static_cast<std::size_t>(m) + 1] = begin[static_cast<std::size_t>(m)] + 2 * (ce - cb);
+    }
+    const Index half = begin[static_cast<std::size_t>(N)];  // nnz of the J rows
+    SparseOperator::Matrix Z(2 * N, 2 * N);
+    Z.resizeNonZeros(2 * half);
+    Index* const outer = Z.outerIndexPtr();
+    Index* const inner = Z.innerIndexPtr();
+    Complex* const val = Z.valuePtr();
+    for (Index m = 0; m < N; ++m) {
+        const auto [cb, ce] = row_cols(m);
+        const Index len = ce - cb;
+        const Index o = begin[static_cast<std::size_t>(m)];
+        outer[m] = o;
+        outer[N + m] = half + o;
+        for (Index j = 0; j < len; ++j) {
+            inner[o + j] = inner[half + o + j] = cb[j];
+            inner[o + len + j] = inner[half + o + len + j] = N + cb[j];
+        }
+    }
+    outer[2 * N] = 2 * half;
+    std::fill(val, val + 2 * half, Complex(0.0, 0.0));
+    const Real bytes =
+        static_cast<Real>(2 * half) * static_cast<Real>(sizeof(Complex) + sizeof(Index));
+    SBEM_INFO("sparse assembly: N = {}, 2N = {}, nnz = {} ({:.3g} per row), matrix {:.3f} MB", N,
+              2 * N, 2 * half, N > 0 ? static_cast<Real>(half) / static_cast<Real>(N) : 0.0,
+              bytes * 1e-6);
+    const ScopedTimer timer("sparse assembly (2N = " + std::to_string(2 * N) +
+                            ", nnz = " + std::to_string(2 * half) + ")");
+
+    for_each_test_triangle(groups, [&](Index t) {
+        const basis::RwgSpace::Support st = space.support(t);
+        if (st.count == 0)
+            return;
+        // Source triangles of the pattern pairs of t's basis functions, ascending (the dense
+        // order: every stored entry gets its contributions in the dense summation order).
+        std::vector<Index> sources;
+        for (int a = 0; a < st.count; ++a) {
+            const auto [cb, ce] = row_cols(st.n[a]);
+            for (const Index* c = cb; c != ce; ++c) {
+                sources.push_back(space.plus_triangle(*c));
+                sources.push_back(space.minus_triangle(*c));
+            }
+        }
+        std::sort(sources.begin(), sources.end());
+        sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
+        PairBlocks blk;
+        for (const Index s : sources) {
+            const basis::RwgSpace::Support ss = space.support(s);
+            pair_blocks(space, t, s, setup, p.kernel_options, blk);
+            for (int a = 0; a < st.count; ++a) {
+                const Index m = st.n[a];
+                const auto [cb, ce] = row_cols(m);
+                const Index len = ce - cb;
+                Complex* const row_j = val + begin[static_cast<std::size_t>(m)];
+                Complex* const row_m = row_j + half;
+                for (int b = 0; b < ss.count; ++b) {
+                    const Index* it = std::lower_bound(cb, ce, ss.n[b]);
+                    if (it == ce || *it != ss.n[b])
+                        continue;  // far pair
+                    const Index j = it - cb;
+                    const auto k = static_cast<std::size_t>(3 * a + b);
+                    row_j[j] += blk.jj[k];
+                    row_j[len + j] += blk.jm[k];
+                    row_m[j] += blk.mj[k];
+                    row_m[len + j] += blk.mm[k];
+                }
+            }
+        }
+    });
+    return std::make_shared<SparseOperator>(std::move(Z));
+}
+
+std::shared_ptr<RegionSparseOperator> assemble_region_sparse(const Problem& p, int region,
+                                                             std::vector<Index> row_ptr,
+                                                             std::vector<Index> cols) {
+    validate(p);
+    if (region != 0 && region != 1)
+        throw std::invalid_argument("assemble_region_sparse: region must be 0 or 1");
+    const basis::RwgSpace& space = *p.space;
+    const Index N = space.size();
+    const auto fail = [](const std::string& what) {
+        throw std::invalid_argument("assemble_region_sparse: invalid pattern: " + what);
+    };
+    const auto rows = static_cast<std::size_t>(std::max<Index>(N, 0));
+    if (row_ptr.size() != rows + 1 || row_ptr.front() != 0 ||
+        row_ptr.back() != static_cast<Index>(cols.size()))
+        fail("row_ptr must have N + 1 entries from 0 to cols.size()");
+    for (std::size_t r = 0; r < rows; ++r) {
+        if (row_ptr[r + 1] < row_ptr[r])
+            fail("row_ptr decreases");
+        for (Index k = row_ptr[r]; k < row_ptr[r + 1]; ++k) {
+            const Index c = cols[static_cast<std::size_t>(k)];
+            if (c < 0 || c >= N || (k > row_ptr[r] && c <= cols[static_cast<std::size_t>(k - 1)]))
+                fail("columns out of range or not strictly ascending");
+        }
+    }
+    const Setup setup = make_setup(p);
+    const auto ri = static_cast<std::size_t>(region);
+    std::vector<Complex> values(2 * cols.size(), Complex(0.0, 0.0));
+    SBEM_INFO("region sparse assembly: region R{}, N = {}, {} basis pairs, {:.3f} MB", region + 1,
+              N, cols.size(),
+              static_cast<Real>(cols.size() * RegionSparseOperator::kBytesPerPair) * 1e-6);
+    if (setup.active[ri] && !cols.empty()) {
+        const ScopedTimer timer("region sparse assembly (R" + std::to_string(region + 1) +
+                                ", pairs = " + std::to_string(cols.size()) + ")");
+        const std::vector<std::vector<Index>> groups = test_schedule(space);
+        const Real jump = kJumpSign[ri];
+        for_each_test_triangle(groups, [&](Index t) {
+            const basis::RwgSpace::Support st = space.support(t);
+            if (st.count == 0)
+                return;
+            std::vector<Index> sources;
+            for (int a = 0; a < st.count; ++a) {
+                const auto m = static_cast<std::size_t>(st.n[a]);
+                for (Index k = row_ptr[m]; k < row_ptr[m + 1]; ++k) {
+                    const Index c = cols[static_cast<std::size_t>(k)];
+                    sources.push_back(space.plus_triangle(c));
+                    sources.push_back(space.minus_triangle(c));
+                }
+            }
+            std::sort(sources.begin(), sources.end());
+            sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
+            Block L;
+            Block K;
+            Block I;
+            for (const Index s : sources) {
+                const basis::RwgSpace::Support ss = space.support(s);
+                kernels::element_blocks(space, t, s, setup.region[ri], p.kernel_options, L, K);
+                if (s == t) {
+                    kernels::jump_block(space, t, I);
+                    K += jump * I;
+                }
+                for (int a = 0; a < st.count; ++a) {
+                    const auto m = static_cast<std::size_t>(st.n[a]);
+                    const Index* const cb = cols.data() + row_ptr[m];
+                    const Index* const ce = cols.data() + row_ptr[m + 1];
+                    for (int b = 0; b < ss.count; ++b) {
+                        const Index* it = std::lower_bound(cb, ce, ss.n[b]);
+                        if (it == ce || *it != ss.n[b])
+                            continue;
+                        const auto k = static_cast<std::size_t>(it - cols.data());
+                        values[2 * k] += L(a, b);
+                        values[2 * k + 1] += K(a, b);
+                    }
+                }
+            }
+        });
+    }
+    return std::make_shared<RegionSparseOperator>(N, std::move(row_ptr), std::move(cols),
+                                                  std::move(values), setup.e[ri], setup.h[ri],
+                                                  setup.m[ri]);
 }
 
 VectorXc assemble_rhs(const Problem& p) {

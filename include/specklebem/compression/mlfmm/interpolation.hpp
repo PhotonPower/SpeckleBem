@@ -40,6 +40,7 @@
 #include "specklebem/compression/mlfmm/plane_wave.hpp"
 #include "specklebem/core/types.hpp"
 
+#include <cstddef>
 #include <span>
 #include <vector>
 
@@ -77,6 +78,12 @@ public:
     [[nodiscard]] Index target_size() const { return Index{nt_tgt_} * np_tgt_; }
     /// Complex scratch entries needed by interpolate / anterpolate.
     [[nodiscard]] Index workspace_size() const { return Index{nt_src_} * np_tgt_; }
+    /// Bytes of the stencil tables.
+    [[nodiscard]] std::size_t memory_bytes() const {
+        return sizeof(*this) + phi_index_.size() * sizeof(Index) +
+               phi_weight_.size() * sizeof(Real) + theta_index_.size() * sizeof(Index) +
+               theta_weight_.size() * sizeof(Real) + theta_flip_.size();
+    }
 
     /// out (target_size) = I in (source_size). Not aliasing; workspace >= workspace_size().
     /// @throws std::invalid_argument on size mismatch.

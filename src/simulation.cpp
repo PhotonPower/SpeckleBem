@@ -1,6 +1,8 @@
 #include "specklebem/simulation.hpp"
 
 #include "specklebem/basis/rwg.hpp"
+#include "specklebem/compression/mlfmm/far_operator.hpp"
+#include "specklebem/compression/mlfmm/interpolation.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/core/timer.hpp"
 #include "specklebem/kernels/operators.hpp"
@@ -12,6 +14,7 @@
 #include <cmath>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace specklebem {
@@ -24,20 +27,36 @@ bool close(Complex a, Complex b) {
     return std::abs(a - b) <= kRelTol * std::max(std::abs(a), std::abs(b));
 }
 
-/// Accepts "dense"; rejects the planned strategies and unknown names.
+/// Accepts "dense" and "mlfmm"; rejects the planned strategies and unknown names.
 void check_compression(const std::string& name) {
-    if (name == "dense")
+    if (name == "dense" || name == "mlfmm")
         return;
-    if (name == "mlfmm") {
-        throw std::invalid_argument(
-            "Simulation: compression \"mlfmm\" is not available before Phase 4; use \"dense\"");
-    }
     if (name == "aca" || name == "hmatrix") {
         throw std::invalid_argument("Simulation: compression \"" + name +
-                                    "\" is not available before Phase 8; use \"dense\"");
+                                    "\" is not available before Phase 8; use \"dense\" or "
+                                    "\"mlfmm\"");
     }
     throw std::invalid_argument("Simulation: unknown compression \"" + name +
                                 "\" (expected \"dense\", \"mlfmm\", \"aca\" or \"hmatrix\")");
+}
+
+/// Cheap checks of the MLFMM parameters (the octree and far-operator constructors repeat them at
+/// assembly), so that a bad configuration fails at construction.
+void check_mlfmm_params(const mlfmm::MlfmmParams& m) {
+    const mlfmm::OctreeParams& o = m.octree;
+    if (o.max_elements_per_leaf < 1 || o.max_levels < 1 || o.max_levels > mlfmm::kMaxOctreeLevels ||
+        !(std::isfinite(o.min_box_size_lambda) && o.min_box_size_lambda >= 0.0)) {
+        throw std::invalid_argument(
+            "Simulation: MLFMM octree parameters need max_elements_per_leaf >= 1, max_levels in "
+            "[1, " +
+            std::to_string(mlfmm::kMaxOctreeLevels) + "] and a finite min_box_size_lambda >= 0");
+    }
+    if (m.truncation_L != 0 || !m.precompute_translators || m.use_fft_interpolation) {
+        throw std::invalid_argument(
+            "Simulation: unsupported MLFMM parameters (truncation_L must be 0, "
+            "precompute_translators true, use_fft_interpolation false)");
+    }
+    (void)mlfmm::interpolation_order(m.accuracy_digits);  // d0 in (0, 5]
 }
 
 void check_gmres_params(const solver::GmresParams& g) {
@@ -165,7 +184,14 @@ Simulation::Simulation(geometry::TriangleMesh mesh,
     check_compression(config.compression);
     // Closed mesh: every edge is interior and carries one RWG function (N = num_edges()).
     const Index unknowns = 2 * mesh.num_edges();
-    if (unknowns > op::kMaxDenseUnknowns) {  // only "dense" passes check_compression
+    if (config.compression == "mlfmm")
+        check_mlfmm_params(config.mlfmm);
+    if (config.compression == "mlfmm" && config.solver == SolverKind::Direct) {
+        throw std::invalid_argument(
+            "Simulation: the direct solver needs the dense operator; use compression \"dense\" "
+            "or the GMRES solver with \"mlfmm\"");
+    }
+    if (config.compression == "dense" && unknowns > op::kMaxDenseUnknowns) {
         throw std::invalid_argument("Simulation: 2N = " + std::to_string(unknowns) +
                                     " unknowns exceed the dense limit of " +
                                     std::to_string(op::kMaxDenseUnknowns) +
@@ -225,7 +251,42 @@ void Simulation::assemble() {
         // unassembled (and a later call retries).
         std::shared_ptr<op::LinearOperator> Z;
         VectorXc b;
-        {
+        if (s.config.compression == "mlfmm") {
+            const ScopedTimer t("Simulation: MLFMM operator");
+            try {
+                Z = mlfmm::MlfmmStrategy(s.config.mlfmm).build(s.problem);
+            } catch (const mlfmm::TruncationOrderError& e) {
+                // Neither a usable expansion nor enough decay for the ADR 0008 §6 fallback: say
+                // what to change, per cause, instead of only the far operator's diagnosis.
+                std::ostringstream os;
+                os << "Simulation: compression \"mlfmm\" cannot represent region R"
+                   << e.region() + 1 << " to 10^-" << s.config.mlfmm.accuracy_digits << ": ";
+                switch (e.cause()) {
+                    case mlfmm::TruncationOrderError::Cause::mesh_or_leaf_size:
+                        os << "the mesh is too coarse for the octree leaves; refine the mesh or "
+                              "raise mlfmm.min_box_size_lambda";
+                        break;
+                    case mlfmm::TruncationOrderError::Cause::lossy_region:
+                        os << "the region is too lossy for the expansion at this box size but its "
+                              "decay is too weak for truncation; change mlfmm.min_box_size_lambda, "
+                              "lower mlfmm.accuracy_digits or use compression \"dense\"";
+                        break;
+                    case mlfmm::TruncationOrderError::Cause::digits:
+                        os << "the requested digits are not reachable at this leaf size; lower "
+                              "mlfmm.accuracy_digits or raise mlfmm.min_box_size_lambda";
+                        break;
+                    case mlfmm::TruncationOrderError::Cause::exact_part_too_large:
+                        os << "the exactly evaluated far interactions of the lossy region would "
+                              "exceed the memory budget mlfmm.max_exact_far_bytes; lower "
+                              "mlfmm.accuracy_digits, raise mlfmm.max_exact_far_bytes or use "
+                              "compression \"dense\"";
+                        break;
+                }
+                os << ". Details: " << e.what();
+                throw std::runtime_error(os.str());
+            }
+            s.assembly_s = t.elapsed_seconds();
+        } else {
             const ScopedTimer t("Simulation: dense assembly of Z");
             Z = op::DenseStrategy().build(s.problem);
             s.assembly_s = t.elapsed_seconds();
@@ -328,7 +389,16 @@ std::string Simulation::report() const {
     else
         o << "GMRES (tol " << g.tolerance << ", max_iter " << g.max_iter << ", restart "
           << g.restart << ")\n";
-    o << "  compression:    " << s.config.compression << "\n";
+    o << "  compression:    " << s.config.compression;
+    if (s.config.compression == "mlfmm") {
+        const mlfmm::MlfmmParams& m = s.config.mlfmm;
+        o << " (accuracy_digits " << m.accuracy_digits << ", max_elements_per_leaf "
+          << m.octree.max_elements_per_leaf << ", min_box_size_lambda "
+          << m.octree.min_box_size_lambda << ", max_levels " << m.octree.max_levels
+          << ", automatic_leaf_size " << (m.automatic_leaf_size ? "true" : "false")
+          << ", max_exact_far_bytes " << m.max_exact_far_bytes << ")";
+    }
+    o << "\n";
     if (s.op == nullptr) {
         o << "  operator:       not assembled\n";
         return o.str();

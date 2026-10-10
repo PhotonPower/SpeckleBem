@@ -73,10 +73,14 @@ struct SimulationConfig {
     /// recommendation's choice, formulation::recommend(object.eps_r).diagonal_preconditioner
     /// (also when the formulation is set explicitly). Ignored by the direct solver.
     std::optional<bool> diagonal_preconditioner;
-    /// "dense" (default until Phase 4). "mlfmm" (Phase 4), "aca" and "hmatrix" (Phase 8) are
-    /// rejected with std::invalid_argument until they are implemented, as is any other name.
+    /// "dense" (default) or "mlfmm" (mlfmm::MlfmmOperator with the `mlfmm` parameters; GMRES
+    /// only, the Jacobi diagonal still comes from op::assemble_diagonal, which equals the near
+    /// field's diagonal). "aca" and "hmatrix" (Phase 8) are rejected with
+    /// std::invalid_argument until they are implemented, as is any other name.
     std::string compression = "dense";
-    mlfmm::MlfmmParams mlfmm;  ///< unused until Phase 4
+    /// MLFMM parameters (compression "mlfmm" only): octree (leaf floor min_box_size_lambda in
+    /// wavelengths of the exterior), accuracy_digits d0.
+    mlfmm::MlfmmParams mlfmm;
     solver::GmresParams gmres;
     kernels::OperatorOptions kernels;
     SolverKind solver = SolverKind::Gmres;
@@ -97,7 +101,8 @@ public:
     ///         null excitation, config.wavelength not finite and > 0 or different from the
     ///         excitation's wavelength (relative 1e-12), an excitation background (eps_r or
     ///         mu_r) different from config.exterior, an unknown or unavailable compression,
-    ///         2N > op::kMaxDenseUnknowns for the dense strategy, a formulation that is not
+    ///         2N > op::kMaxDenseUnknowns for the dense strategy, compression "mlfmm" with
+    ///         SolverKind::Direct, a formulation that is not
     ///         implemented (formulation::Kind::JMCFIE), invalid kernel options or GMRES
     ///         parameters (tolerance not finite or <= 0, max_iter < 1, restart < 0), and
     ///         everything op::validate rejects.
@@ -112,6 +117,9 @@ public:
     /// Assembles the operator, the right-hand side and (GMRES with the Jacobi preconditioner
     /// only) the diagonal, and times them. Idempotent: what is already assembled is kept, so
     /// later calls do nothing (after an exception a later call retries the missing parts).
+    /// @throws std::invalid_argument / std::runtime_error from the operator construction; for
+    ///         "mlfmm" a std::runtime_error when no expansion order meets 10^-d0 (lossy
+    ///         interior such as Ag: the ADR 0008 §6 policy is WP21), with the remedies.
     void assemble();
     /// Same as solve(config().gmres, cb).
     solver::GmresResult solve(const solver::IterationCallback& cb = {});

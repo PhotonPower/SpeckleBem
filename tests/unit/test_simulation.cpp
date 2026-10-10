@@ -254,7 +254,7 @@ TEST_CASE("simulation: constructor input checks", "[simulation]") {
     // A matching background is accepted.
     CHECK_NOTHROW(Simulation(sphere_mesh(0), plane_wave(kLambdaFast, c.exterior), c));
 
-    for (const char* name : {"mlfmm", "aca", "hmatrix", "Dense", "fmm", ""}) {
+    for (const char* name : {"aca", "hmatrix", "Dense", "MLFMM", "fmm", ""}) {
         c = ok;
         c.compression = name;
         INFO("compression \"" << name << "\"");
@@ -330,8 +330,106 @@ TEST_CASE("simulation: further constructor checks", "[simulation]") {
         const geometry::TriangleMesh big = sphere_mesh(6);
         REQUIRE(2 * big.num_edges() > op::kMaxDenseUnknowns);
         CHECK_THROWS_AS(Simulation(big, wave, ok), std::invalid_argument);
+        SimulationConfig fmm = ok;  // no dense limit for the MLFMM
+        fmm.compression = "mlfmm";
+        CHECK_NOTHROW(Simulation(big, wave, fmm));
     }
 #endif
+}
+
+TEST_CASE("simulation: compression mlfmm", "[simulation]") {
+    // Icosphere n = 2 (2N = 960) at lambda = 1 um: the lambda / 4 leaf floor gives 3 levels
+    // (leaf 250 nm, r_max / a ~ 0.5). GMRES on the MLFMM operator against GMRES on the dense one,
+    // both with accurate near / far pairs (k-aware degrees for 1e-5; the cheap 1-point far rule
+    // differs from the radiation patterns by ~3 % in the K block) and cheap touching pairs.
+    // The sanitizer build keeps the cheap rule (time) and only checks the plumbing (measured
+    // difference 4e-2 with the 1-point far rule).
+    SimulationConfig cfg = pmchwt_config(SolverKind::Gmres);
+#ifdef NDEBUG
+    cfg.kernels.target_accuracy = 1e-5;
+    constexpr Real kTolerance = 1e-3;
+    cfg.gmres.tolerance = 1e-8;
+#else
+    constexpr Real kTolerance = 1e-1;
+    cfg.gmres.tolerance = 1e-4;  // fewer iterations under the sanitizers
+#endif
+    cfg.diagonal_preconditioner = true;
+    Simulation dense(sphere_mesh(2), plane_wave(), cfg);
+    cfg.compression = "mlfmm";
+    cfg.mlfmm.octree.max_elements_per_leaf = 1;
+    cfg.mlfmm.automatic_leaf_size = false;  // keep 3 levels (the rule would give 2)
+    Simulation fmm(sphere_mesh(2), plane_wave(), cfg);
+    const solver::GmresResult rd = dense.solve();
+    const solver::GmresResult rf = fmm.solve();
+    REQUIRE(rd.converged);
+    REQUIRE(rf.converged);
+    const auto* Z = dynamic_cast<const mlfmm::MlfmmOperator*>(fmm.system_operator().get());
+    REQUIRE(Z != nullptr);
+    CHECK(Z->octree().levels() == 3);
+    const Real diff = rel_diff(fmm.solution().currents, dense.solution().currents);
+    INFO("MLFMM vs dense currents: " << diff << ", " << rf.iterations << " vs " << rd.iterations
+                                     << " iterations");
+    CHECK(diff <= kTolerance);
+    const std::string rep = fmm.report();
+    INFO(rep);
+    CHECK(contains(rep, "compression:    mlfmm (accuracy_digits 3, max_elements_per_leaf 1"));
+    CHECK(contains(rep, "MlfmmOperator: 2N = 960"));
+
+    // Configuration errors at construction, the lossy-region failure at assembly.
+    SimulationConfig bad = cfg;
+    bad.solver = SolverKind::Direct;
+    CHECK_THROWS_AS(Simulation(sphere_mesh(0), plane_wave(), bad), std::invalid_argument);
+    for (int i = 0; i < 4; ++i) {
+        bad = cfg;
+        if (i == 0)
+            bad.mlfmm.accuracy_digits = 6.0;
+        if (i == 1)
+            bad.mlfmm.octree.max_elements_per_leaf = 0;
+        if (i == 2)
+            bad.mlfmm.octree.min_box_size_lambda = -1.0;
+        if (i == 3)
+            bad.mlfmm.truncation_L = 5;
+        CHECK_THROWS_AS(Simulation(sphere_mesh(0), plane_wave(), bad), std::invalid_argument);
+    }
+    // Ag interior, leaf 0.75 lambda (R = 1.5 um, 3 levels): no expansion in the metal; the
+    // ADR 0008 §6 policy truncates or evaluates its far pairs exactly (WP21).
+    bad = base_config(material::silver_500nm());
+    bad.compression = "mlfmm";
+    bad.mlfmm.octree = mlfmm::OctreeParams{1, 3, 0.0};
+    bad.mlfmm.automatic_leaf_size = false;
+    Simulation ag(geometry::make_icosphere(1.5e-6, 2), plane_wave(), bad);
+    CHECK_NOTHROW(ag.assemble());
+    CHECK(contains(ag.system_operator()->describe(), "region R2"));
+    // Exact-part budget exceeded (WP21 review): wrapped with the advice for its cause.
+    {
+        SimulationConfig tight = bad;
+        tight.mlfmm.max_exact_far_bytes = 1000;
+        Simulation t(geometry::make_icosphere(1.5e-6, 2), plane_wave(), tight);
+        try {
+            t.assemble();
+            FAIL("expected std::runtime_error");
+        } catch (const std::runtime_error& e) {
+            const std::string what = e.what();
+            INFO(what);
+            CHECK(contains(what, "exceed the memory budget mlfmm.max_exact_far_bytes"));
+            CHECK(contains(what, "region R2"));
+        }
+        CHECK(contains(t.report(), "max_exact_far_bytes 1000)"));
+    }
+    // Lossless interior at d0 = 5 with r_max / a ~ 0.5 (rule disabled): no expansion order ->
+    // TruncationOrderError, wrapped with the advice for its cause.
+    bad.object = {Complex(2.25, 0.0), Complex(1.0, 0.0)};
+    bad.mlfmm.accuracy_digits = 5.0;
+    Simulation d5(geometry::make_icosphere(1.5e-6, 2), plane_wave(), bad);
+    try {
+        d5.assemble();
+        FAIL("expected std::runtime_error");
+    } catch (const std::runtime_error& e) {
+        const std::string what = e.what();
+        INFO(what);
+        CHECK(contains(what, "mesh is too coarse"));
+        CHECK(contains(what, "region R1"));
+    }
 }
 
 TEST_CASE("simulation: per-call GMRES parameters", "[simulation]") {

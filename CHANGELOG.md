@@ -17,6 +17,156 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   0.5 % of its power past the edges; 400 nm coarse cells add 1.5–1.9 % (100 nm: 0.17 % from the
   uniform box); Si needs the fine band (0.44–0.88 % without; fine band + 400 nm cells 0.37 % from the uniform box). Proposed ADR 0006 changes: coarse
   spacing ≤ λ₁/5, w₀ ≤ L/4, z_R ≥ 8 × depth for the checks, rigorous beam.
+- mlfmm (WP21f, WP21 review follow-ups): the automatic exact-part budget is capped at the dense
+  matrix size 16 (2N)^2 (`min(max(2 x near, 1 GiB), dense)`: on small problems the 1 GiB floor
+  allowed exact parts larger than dense); budget messages print the rule with one-decimal numbers
+  instead of `std::to_string` ("2.000000"); `FarLevelInfo::search_run`, and levels after the
+  first fallback log "search not run" instead of "not achievable, error 0.00e+00" /
+  "(error 0, L = 0)"; `estimate_near_bytes()` moved from `far_operator.hpp` to `near_field.hpp`.
+  Tests: each `assemble_region_sparse` region alone (full pattern, Ag/ICTF and n = 1.5/PMCHWT)
+  against the dense matrix with the other region's weights zeroed, which sees the per-region
+  jump terms the summed test cannot (a flipped sign: error 2 for ICTF, 3e-3 ... 7e-3 for PMCHWT;
+  the summed test still passes); "search not run" on a 4-level n = 0.1 - 20j tree; budget cap.
+- tests/benchmarks (WP22a, Phase 4 DoD): Ag sphere d = 4 um with MLFMM vs Mie on the paper's
+  393 216-unknown mesh (octahedron-based sphere, 8 4^7 triangles, mean edge lambda/16.5; built by
+  `make_octasphere` in `tests/support/ag_sphere_mlfmm_support.hpp`), d0 = 3, ICTF + left Jacobi,
+  GMRES tol 1e-3: eps_rr = 0.023 % (xz) / 0.016 % (yz) (criterion <= 0.5 %, paper 0.26 % /
+  0.37 %), 442 iterations (paper 424), 15.6 min, near field 12.2 GB, Ag exact part 6.8 GB (the
+  automatic budget did not fire), peak RSS 33.8 GB; at tol 1e-4 (722 iterations) 0.0035 % /
+  0.0025 % (the tolerance dominates eps_rr at 1e-3). Study executable
+  `specklebem_ag_sphere_mlfmm` (one case per process, `--estimate-only`), validation-large cases
+  (d = 1 um icosphere n = 5 at tol 1e-5: 0.019 % / 0.013 %, below the dense lambda/13 values; the
+  4 um case guarded on the available memory), `system_memory::available_memory_bytes()`, record
+  `benchmarks/results/ag_sphere_4um_mlfmm.md` (ramp-up d = 1 / 2 / 4 um, tolerance and mesh
+  sensitivity, scaling at fixed h).
+
+- mlfmm (WP21 review): exact far part stored as the region's (L_i, K_i) per basis pair
+  (`op::RegionSparseOperator`, `op::assemble_region_sparse`; 40 instead of 96 bytes per pair,
+  weights e_i, h_i, m_i applied in `apply()`): Ag icosphere R = 0.5 um, d0 = 3: 408 -> 170 MB
+  (d0 = 5: 239 -> 100 MB); 2N = 61 440 Ag icosphere: 687 MB (four-entry storage 1.73 GB).
+  Pre-assembly estimate (sum n_A n_B over the exact box pairs, logged; per-basis-pair count when
+  the bound exceeds the budget) and budget guard `MlfmmParams::max_exact_far_bytes` (0 =
+  automatic: max(2 x the near-field bytes from the octree, 1 GiB); `estimate_near_bytes()`)
+  throwing `TruncationOrderError` with the new cause `exact_part_too_large` before any
+  allocation; `exact_info()`, `exact_budget()`. The exact fallback is allowed only if
+  x*(d0) / alpha <= 4 box edges of the first level without expansion (x* the root of
+  (1 + x) e^-x = 10^-(d0+1), `truncation_decay_exponent()`: 11.76 / 16.69 for d0 = 3 / 5),
+  replacing alpha a >= 1 (which let n = 1.5 - 0.6j make the exact part denser than the dense
+  matrix). Leaf rule ratio `max_support_ratio(d0)`: r_max / a <= 0.6 for d0 <= 3, 0.3 for
+  d0 > 3 (also the threshold of the cause mesh_or_leaf_size): 50-70 nm meshes return to lambda/4
+  leaves at d0 = 3. Block check: per box the bases nearest to the partner box; "not run"
+  instead of -1 in logs and exceptions. Python key `mlfmm.max_exact_far_bytes`; Simulation
+  advice for the new cause; `Simulation::report()` lists automatic_leaf_size and the budget.
+  Tests: RegionSparseOperator vs dense (jump terms, sparse pattern, errors), multi-level
+  complementarity (3-sphere 4-level tree in every build, 4-level icosphere in release: near +
+  exact = dense to 1e-12, pair counts = N^2), causes lossy_region / digits /
+  exact_part_too_large, budget, x*(d0); validation-large Ag icosphere 2N = 61 440 exact rows
+  (1.1e-4, setup 20 s, apply 0.23 s, peak RSS 4.9 GB).
+- mlfmm (WP21): region policy of ADR 0008 §6 in `MlfmmFarOperator`, per region and level from the
+  leaf up: expansion if the order search is achievable (lossy regions additionally: block check
+  <= 10^-d0 or <= 2 x the lossless analogue's), otherwise per box pair a documented truncation
+  when the decay bound (1 + alpha d) e^{-alpha d} (d = distance of the support bounding boxes;
+  the WP-P2 bound of |G| and |grad G| relative to their undamped bounds) is <= 10^-(d0+1), else an
+  exact region-masked sparse correction (`exact_part(i)`, `op::assemble_sparse` with the other
+  region's weights zeroed; refined per basis pair with the same bound); `FarDecision`,
+  `FarLevelInfo` (decision, search / block / reference errors, bounds, pair counts),
+  `describe()` and `SBEM_INFO` report every decision; `TruncationOrderError` (cause: mesh or
+  leaf size, lossy region, digits) when a region has neither expansion nor enough decay;
+  `MlfmmParams::exact_far_regions` forces the exact fallback (diagnostics);
+  `basis_patterns()` (patterns of any bases about any centre, for the block check on every
+  level). Leaf rule `MlfmmParams::automatic_leaf_size` / `leaf_rule_params()`: leaf edge >=
+  max(min_box_size_lambda, lambda/4 (d0 <= 3) or lambda/2 (d0 > 3), r_max / ratio); Python key
+  `automatic_leaf_size`. `mlfmm::kMaxOctreeLevels` replaces the literal 21. Tests:
+  `tests/unit/test_mlfmm_policy.cpp` (lossless expansion, very lossy truncation, Ag exact
+  fallback with per-region complementarity to 1e-12 when forced exact, leaf rule, pool failure
+  injection, basis patterns), Ag icosphere / rough box matvec vs dense and Ag GMRES through
+  `Simulation` (validation-large), 2N = 61 440 icosphere exact-rows case, memory guards.
+
+### Fixed
+- operator (WP22a): `SparseOperator` swaps the matrix in instead of `Z_(std::move(Z))`, which
+  copied it (Eigen 3.4.0's `SparseMatrix` has no move constructor): one transient copy of the
+  MLFMM near field less (peak RSS of the 393 216-unknown Ag sphere: -12 GB).
+- mlfmm (WP21, WP20b review): the apply-workspace pool builds a workspace completely before
+  counting it and reserves pool capacity in `take()`, so a failed allocation leaves the pool
+  consistent and returning a workspace cannot allocate; `describe()` states the workspace count
+  consistently with `memory_bytes()` (at least one counted); `Simulation` wraps only
+  `TruncationOrderError`, with advice per cause.
+- mlfmm (WP20b): `mlfmm::MlfmmOperator` = Z_near + Z_far (`compression/mlfmm/mlfmm_operator.hpp`):
+  owns the octree (leaf floor in wavelengths of R1), the far operator (built first, so that
+  unusable configurations fail before the near assembly) and the exact near field
+  (`assemble_near`); accessors `near_operator()`, `far_operator()`; `describe()` with octree,
+  near nnz / memory / time, far per-level data and totals; `memory_bytes()` includes the
+  interpolator tables and the pooled apply workspaces. `MlfmmStrategy::build` returns it.
+  `MlfmmFarOperator`: a mutex-guarded pool of reusable apply workspaces (one block of
+  uninitialised storage; each pass zeroes the box segments it accumulates into, by the owning
+  thread) instead of per-call allocation and zero-fill: apply of a 2N = 61 440 icosphere
+  (1 GB of fields) 1.52 s -> 0.66 s; `workspace_bytes()`, `workspaces()`; explicit
+  `std::invalid_argument` when r_max >= leaf edge (far pairs could share a triangle, whose K jump
+  term Z_far omits). `SphereInterpolator::memory_bytes()`. `Simulation`: compression "mlfmm"
+  (GMRES only; Jacobi diagonal still from `assemble_diagonal`, bitwise equal to the near field's
+  diagonal), `SimulationConfig::mlfmm` checked at construction, no dense size limit, a failed
+  order search (e.g. Ag interior) is rethrown with the remedies; Python `compression="mlfmm"`
+  and `mlfmm=dict(accuracy_digits=, max_elements_per_leaf=, min_box_size_lambda=)`. Tests:
+  `tests/unit/test_mlfmm_operator.cpp` (near/far complementarity per column, Jacobi diagonal,
+  two `std::thread`s vs serial applies, reused workspaces on 4 levels, guard, describe/memory),
+  Simulation and Python cases, `tests/validation/test_mlfmm_simulation.cpp` (GMRES MLFMM vs
+  dense: currents and RCS), `tests/validation_large/test_mlfmm_vs_dense_large.cpp` (matvec vs
+  dense, 2N = 1.5e4 ... 2.5e4, icospheres and rough boxes, n = 1.5 and Si, PMCHWT and ICTF:
+  d₀ = 3 with λ/4 leaves 4.3e-5 ... 2.1e-4, d₀ = 5 with λ/2 leaves (r_max/a ≈ 0.29) 3.7e-6 ...
+  6.7e-6 and with λ leaves 5.5e-7; 2N = 8.8e4 against 128 exact rows 2.9e-4; Simulation GMRES
+  on a 2N = 7680 rough box); slow `[mlfmm_apply_timing]`.
+- mlfmm (WP20a): `mlfmm::MlfmmFarOperator` (`compression/mlfmm/far_operator.hpp`), the
+  multilevel FMM far part Z_far of the full 2N × 2N system (both regions, all four blocks with the
+  formulation weights a_i/η_i, b_i η_i, b_i/η_i; all leaf pairs that are neither the same leaf nor
+  adjacent). Per region two aggregated vector fields (Σ x_J V, Σ x_M V), K via k̂ × at reception;
+  leaf aggregation, upward pass (Lagrange interpolation with odd pole parity, shift
+  e^{+jk k̂·(c_child − c_parent)}), translation with weighted order-truncated translators per
+  (level, region, integer offset), downward pass (shift e^{−jk k̂·(c_child − c_parent)}, then
+  anterpolation of the weighted field), unweighted leaf reception through the antipodal map.
+  Orders per region and level from `search_truncation_order` with the enlarged diagonal (leaf:
+  `leaf_sampling`, oversampled to p − 1); all searches run before any setup, and a region/level
+  without an achievable order throws `std::runtime_error` (lossy policy: WP21). OpenMP over boxes,
+  per-call buffers (concurrent `apply` safe), bitwise deterministic for any thread count;
+  `describe()` reports boxes, orders, directions, translators, field memory and setup time per
+  level. Tests (`tests/unit/test_mlfmm.cpp`): far-only and full-matvec error vs the dense matrix
+  (4-level icosphere and rough box, release), equality with the single-level `far_block` sums at
+  3 levels, complex symmetry of S Z_far (interpolation/anterpolation adjointness) and thread
+  determinism, error cases; slow sweep `[mlfmm_far_sweep]` (errors vs leaf size, d₀, interior).
+- mlfmm (WP19b): `mlfmm::RadiationPatterns` (`compression/mlfmm/patterns.hpp`): the
+  (θ̂, φ̂) components of the RWG radiation patterns V_n(k̂) = ∫ (I − k̂k̂) f_n e^{+jk k̂·(r' − c)}
+  of one region relative to the leaf-box centres, for every basis (Morton order) and direction,
+  stored contiguously as (basis, direction, component); W_n = k̂ × V_n implicit
+  (W_θ = −V_φ, W_φ = V_θ), receiving patterns R_m(k̂) = V_m(−k̂) through the antipodal index map
+  (θ → π − θ, φ → φ + π; R_θ = V_θ(q'), R_φ = −V_φ(q')), no conjugation for complex k.
+  Per-triangle Dunavant degree from |k| h (`pattern_quadrature_degree`, calibrated envelope
+  3 (|k|h/4)^{d+1}/(d+1)!), OpenMP over leaf boxes. `far_block`: single-level FMM L and K^PV
+  blocks between two interaction-list leaves, L = (ωμk/16π²) Σ w T R·V, K = (k²/16π²) Σ w T R·W
+  (derivation in `src/compression/mlfmm/patterns.cpp`); `max_support_radius` and
+  `leaf_sampling` (order search with the enlarged diagonal √3 a + 2 r_max, L_leaf =
+  max(L, p − 1)); `translator(k, r, sampling, order)` overload (truncation below the sampling
+  order). Tests: quadrature convergence (|k| h ≤ 3, real and Si-like k), antipodal map vs direct
+  evaluation (1e-13), single-level FMM vs dense `element_blocks` on icospheres and a rough box
+  (vacuum, n = 1.5, Si; d0 = 3 at a ≥ 0.75 λ; flipped K sign gives error 2), invalid input; slow
+  sweep (`[patterns_sweep]`) with the error table up to d0 = 5. Finding: at a = λ/2 the nearest
+  pairs exceed 10^-d0 (1.3e-3 at d0 = 3) although the statistical order search reports the
+  target achievable; d0 = 5 needs a ≳ 1.5 λ.
+- operator / mlfmm (WP19a): near field Z_near of the MLFMM. `op::SparseOperator` (row-major
+  CSR with `Index` indices; `apply` OpenMP over rows, bitwise identical for any thread count,
+  x and y may alias; `describe`, `memory_bytes`, `nonzeros`). `op::BasisPattern` (basis-pair
+  pattern with row groups sharing one column list) and `op::assemble_sparse(Problem, pattern)`:
+  the exact Galerkin entries of all four blocks (both regions, formulation weights, jump terms
+  of coincident triangles) of every pattern pair, from the dense assembler's colour schedule
+  (dynamic largest-first, shared helpers `test_schedule` / `for_each_test_triangle`) and pair
+  blocks, visiting only the source triangles of the pattern pairs; every stored entry is bitwise
+  equal to the `DenseStrategy` entry (same contributions, same order). `mlfmm::near_pattern`
+  (one group per leaf: the leaf and its near list, ADR 0008 §1; checks that the octree belongs
+  to the space) and `mlfmm::assemble_near`; the octree-to-pattern step lives in mlfmm because
+  mlfmm sits above the operator layer. Tests (`[near_field]`): stored entries bitwise equal to
+  the dense matrix and the stored pattern equal to the near pairs from the leaf `ijk` on an
+  icosphere and a rough box (Si, Ag, n = 1.5; PMCHWT, ICTF and a single-region system with
+  non-cancelling jump terms), `apply` against the masked dense product (1e-13) and across thread
+  counts, `DenseStrategy` bitwise equal to a serial copy of the pre-WP19a algorithm, input
+  errors.
 - mlfmm (WP17): `mlfmm::Octree` over the RWG edge midpoints: root cube from the padded mesh
   vertex bounding box, anchored at its lower corner (flat or thin geometry stays one box layer
   thick), uniform depth (all leaves on the finest level; the first level on which every box

@@ -20,6 +20,8 @@ set(SPECKLEBEM_SOURCES
     operator/dense_operator.cpp
     operator/linear_operator.cpp
     operator/assembler.cpp
+    operator/sparse_operator.cpp
+    operator/region_sparse_operator.cpp
     backend/backend.cpp
     backend/cpu/cpu_backend.cpp
     solver/direct.cpp
@@ -28,9 +30,11 @@ set(SPECKLEBEM_SOURCES
     compression/mlfmm/plane_wave.cpp
     compression/mlfmm/interpolation.cpp
     # --- to be added in the respective phase (see docs/01_project_plan.md) ---
-    # operator/sparse_operator.cpp
     compression/mlfmm/octree.cpp
-    # compression/mlfmm/mlfmm_operator.cpp
+    compression/mlfmm/patterns.cpp
+    compression/mlfmm/near_field.cpp
+    compression/mlfmm/far_operator.cpp
+    compression/mlfmm/mlfmm_operator.cpp
     solver/gmres.cpp
     solver/preconditioner.cpp
     # postprocessing/speckle_statistics.cpp

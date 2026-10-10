@@ -75,7 +75,7 @@ The plan is organised in phases. Each phase has deliverables, a *definition of d
 
 **DoD**
 - MLFMM matvec vs dense matvec: relative error < 1e-3 (default) and < 1e-5 with `accuracy_digits = 5`, on sphere and rough-surface meshes with 2·10⁴–10⁵ unknowns, for both Si and Ag.
-- Ag sphere d = 4 µm, λ/27 mesh (393 k unknowns): ε_rr ≤ 0.5 % in both scattering planes (paper: 0.26 % / 0.37 %).
+- Ag sphere d = 4 µm, the paper's "λ/27" mesh (393 216 unknowns, octahedron-based sphere, mean edge λ/16.5; docs/05): ε_rr ≤ 0.5 % in both scattering planes (paper: 0.26 % / 0.37 %).
 - Scaling exponent γ (time per solve vs N) ≤ 1.5 for Si rough surfaces, ≤ 2.0 for Ag, over N = 5·10⁴ … 10⁶.
 - Si 30×30 µm², σ = 100 nm, λ/10 mesh (≈ 2.2 M unknowns) solves on a 256 GB node.
 

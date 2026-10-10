@@ -192,6 +192,29 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
     }
 }
 
+/// mlfmm=dict(...) onto mlfmm::MlfmmParams (docs/10): accuracy_digits, max_elements_per_leaf,
+/// min_box_size_lambda (the octree keys of mlfmm::OctreeParams), automatic_leaf_size,
+/// max_exact_far_bytes.
+void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
+    for (const auto& [k, v] : d) {
+        const auto key = dict_key(k, "mlfmm");
+        if (key == "accuracy_digits") {
+            p.accuracy_digits = dict_value<Real>(v, key, "mlfmm");
+        } else if (key == "max_elements_per_leaf") {
+            p.octree.max_elements_per_leaf = dict_value<int>(v, key, "mlfmm");
+        } else if (key == "min_box_size_lambda") {
+            p.octree.min_box_size_lambda = dict_value<Real>(v, key, "mlfmm");
+        } else if (key == "automatic_leaf_size") {
+            p.automatic_leaf_size = dict_value<bool>(v, key, "mlfmm");
+        } else if (key == "max_exact_far_bytes") {
+            // Python int >= 0 (a negative value fails the unsigned cast -> ValueError).
+            p.max_exact_far_bytes = dict_value<std::size_t>(v, key, "mlfmm");
+        } else {
+            throw py::value_error("mlfmm: unknown key '" + key + "'");
+        }
+    }
+}
+
 std::optional<Kind> parse_formulation(const py::object& f) {
     if (py::isinstance<Kind>(f)) {
         return f.cast<Kind>();
@@ -219,7 +242,8 @@ std::unique_ptr<PySimulation> make_simulation(
     const material::Material& object, const std::optional<material::Material>& exterior,
     std::optional<Real> wavelength, const py::object& form, const std::string& preconditioner,
     const std::string& solver_name, const std::string& compression,
-    const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts) {
+    const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
+    const std::optional<py::dict>& mlfmm_opts) {
     if (!exc) {
         throw py::value_error("excitation: must not be None");
     }
@@ -245,6 +269,9 @@ std::unique_ptr<PySimulation> make_simulation(
     }
     if (kernel_opts) {
         apply_kernels(c.kernels, *kernel_opts);
+    }
+    if (mlfmm_opts) {
+        apply_mlfmm(c.mlfmm, *mlfmm_opts);
     }
     geometry::TriangleMesh copy = mesh;
     py::gil_scoped_release release;
@@ -478,7 +505,11 @@ preconditioner : str
 solver : str
     "gmres" or "direct" (dense LU).
 compression : str
-    "dense" (the only strategy so far; others raise ValueError).
+    "dense" or "mlfmm" (multilevel fast multipole, GMRES only); "aca" / "hmatrix" and unknown
+    names raise ValueError. With "mlfmm", lossy interiors (e.g. silver) use the ADR 0008 §6
+    policy (far pairs truncated by the decay bound or evaluated exactly); ``assemble()`` raises
+    RuntimeError when a region has neither a usable expansion nor enough decay, or when the
+    exactly evaluated far part would exceed ``max_exact_far_bytes``.
 gmres : dict, optional
     Keys ``tol`` (1e-3), ``max_iter`` (2000), ``restart`` (None = full GMRES), ``side``
     ("left" / "right") and ``verbose`` (True: progress via the C++ log).
@@ -489,6 +520,15 @@ kernels : dict, optional
     decay_aware_target (True: relaxed near/far target in lossy regions, ADR 0004),
     fast_plain_kernel (True: vectorised sin/cos/exp in near/far pairs; False reproduces the
     pre-WP-P2 C-library arithmetic bitwise).
+mlfmm : dict, optional
+    MLFMM parameters (used with compression="mlfmm"): ``accuracy_digits`` (3; d0 in (0, 5]),
+    ``max_elements_per_leaf`` (100), ``min_box_size_lambda`` (0.25; leaf-edge floor in
+    exterior wavelengths, a lower bound of the automatic leaf rule),
+    ``automatic_leaf_size`` (True: leaf edge >= max(lambda/4 for d0 <= 3, lambda/2 for d0 > 3,
+    r_max / 0.6 for d0 <= 3, r_max / 0.3 for d0 > 3); False uses min_box_size_lambda as given)
+    and ``max_exact_far_bytes`` (0 = automatic: max(2 x the near-field bytes, 1 GiB), at most
+    the dense matrix bytes 16 (2N)^2; budget of the exactly evaluated far interactions of
+    lossy regions, checked before allocation).
 
 Raises
 ------
@@ -512,7 +552,7 @@ works). A main thread waiting for the lock stays interruptible with Ctrl-C
              py::arg("wavelength") = py::none(), py::arg("formulation") = "auto",
              py::arg("preconditioner") = "auto", py::arg("solver") = "gmres",
              py::arg("compression") = "dense", py::arg("gmres") = py::none(),
-             py::arg("kernels") = py::none())
+             py::arg("kernels") = py::none(), py::arg("mlfmm") = py::none())
         .def(
             "assemble", [](PySimulation& s) { s.locked([&] { s.assemble(); }); },
             "Assemble Z, the right-hand side and (Jacobi GMRES) the diagonal; idempotent.")

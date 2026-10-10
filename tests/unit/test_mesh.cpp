@@ -17,6 +17,8 @@
 #include <utility>
 #include <vector>
 
+#include "ag_sphere_mlfmm_support.hpp"
+
 using namespace specklebem;
 using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
@@ -147,6 +149,41 @@ TEST_CASE("icosphere topology: counts, Euler characteristic, two triangles per e
     for (const int u : uses) ok = ok && u == 3;
     CHECK(ok);
     CHECK(plus_minus_convention_holds(mesh));
+}
+
+TEST_CASE("octahedron-based sphere of the WP22a study: counts, closed, outward, on the sphere",
+          "[geometry]") {
+    // tests/support/ag_sphere_mlfmm_support.hpp: the paper's mesh of the 4 um Ag sphere is
+    // make_octasphere(2 um, 7) with 131 072 triangles and 2N = 393 216 unknowns.
+    const int n = GENERATE(0, 1, 3, 5);
+    const Real radius = 2e-6;
+    const TriangleMesh mesh = ag_sphere_mlfmm::make_octasphere(radius, n);
+    const Index pow4 = Index{1} << (2 * n);
+    CHECK(mesh.num_triangles() == 8 * pow4);
+    CHECK(mesh.num_vertices() == 4 * pow4 + 2);
+    CHECK(mesh.num_edges() == 12 * pow4);
+    CHECK(mesh.num_vertices() - mesh.num_edges() + mesh.num_triangles() == 2);
+    CHECK(mesh.is_closed());
+    CHECK(mesh.is_consistently_oriented());
+    CHECK(plus_minus_convention_holds(mesh));
+    Real max_dev = 0.0;
+    for (Index v = 0; v < mesh.num_vertices(); ++v)
+        max_dev = std::max(max_dev, std::abs(mesh.vertices().row(v).norm() - radius));
+    CHECK(max_dev < 1e-12 * radius);
+    // Outward normals (docs/06); the volume approaches 4/3 pi r^3 from below.
+    const Real ball = 4.0 / 3.0 * constants::pi * radius * radius * radius;
+    CHECK(mesh.signed_volume() > 0.0);
+    CHECK(mesh.signed_volume() < ball);
+    if (n == 5) {
+        CHECK(mesh.signed_volume() > 0.99 * ball);
+        // Edge spread of the octahedral subdivision (WP22a record: mean / min / max ~ 30.25 /
+        // 24.54 / 38.27 nm at r = 2 um, n = 7, i.e. 0.81 / 1.27 x the mean).
+        const ag_sphere_mlfmm::EdgeStats e = ag_sphere_mlfmm::edge_stats(mesh);
+        CHECK(e.min > 0.75 * e.mean);
+        CHECK(e.max < 1.35 * e.mean);
+    }
+    CHECK_THROWS_AS(ag_sphere_mlfmm::make_octasphere(radius, -1), std::invalid_argument);
+    CHECK_THROWS_AS(ag_sphere_mlfmm::make_octasphere(0.0, 1), std::invalid_argument);
 }
 
 TEST_CASE("closedness: icosphere closed, open after removing a triangle", "[geometry]") {

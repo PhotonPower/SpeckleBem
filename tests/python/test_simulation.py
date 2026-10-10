@@ -80,7 +80,11 @@ def test_auto_selection_and_overrides():
         dict(formulation="JMCFIE"),  # reserved, not implemented
         dict(preconditioner="block"),
         dict(solver="lu"),
-        dict(compression="mlfmm"),
+        dict(compression="aca"),
+        dict(compression="mlfmm", solver="direct"),
+        dict(compression="mlfmm", mlfmm=dict(levels=3)),
+        dict(compression="mlfmm", mlfmm=dict(accuracy_digits=6)),
+        dict(compression="mlfmm", mlfmm=dict(max_elements_per_leaf=0)),
         dict(gmres=dict(tolerance=1e-3)),
         dict(gmres=dict(side="up")),
         dict(gmres=dict(tol=-1.0)),
@@ -95,6 +99,74 @@ def test_auto_selection_and_overrides():
         sb.Simulation(sb.make_icosphere(RADIUS, 1), None, object=N15)
     with pytest.raises(TypeError):  # object is keyword-only and required
         sb.Simulation(sb.make_icosphere(RADIUS, 1), sb.PlaneWave(1e-6, [0, 0, 1], [1, 0, 0]))
+
+
+def test_mlfmm_compression():
+    # Icosphere n = 2 (2N = 960): the lambda / 4 leaf floor gives 3 octree levels. Accurate
+    # near / far pairs (target 1e-5) so that the dense entries match the radiation patterns.
+    kernels = dict(CHEAP, target_accuracy=1e-5)
+    kw = dict(formulation="PMCHWT", subdivisions=2, kernels=kernels)
+    dense = make_sim(**kw)
+    fmm = make_sim(
+        compression="mlfmm",
+        mlfmm=dict(accuracy_digits=3, max_elements_per_leaf=1, min_box_size_lambda=0.25),
+        **kw,
+    )
+    for sim in (dense, fmm):
+        assert sim.solve(tol=1e-8).converged
+    assert rel(fmm.currents, dense.currents) < 1e-3
+    th = np.linspace(0, np.pi, 19)
+    sigma = dense.bistatic_rcs(th)  # spans 2 decades: compare relative to the forward peak
+    np.testing.assert_allclose(fmm.bistatic_rcs(th), sigma, rtol=0, atol=1e-3 * sigma.max())
+    assert "MlfmmOperator: 2N = 960" in fmm.operator().describe()
+    assert "compression:    mlfmm (accuracy_digits 3" in fmm.report()
+    # Silver interior with 0.75 lambda leaves: no expansion in the metal, the ADR 0008 §6 policy
+    # truncates or evaluates its far pairs exactly (WP21).
+    ag = sb.Simulation(
+        sb.make_icosphere(1.5e-6, 2),
+        sb.PlaneWave(LAMBDA_FAST, [0, 0, 1], [1, 0, 0]),
+        object=sb.silver_500nm(),
+        kernels=CHEAP,
+        compression="mlfmm",
+        mlfmm=dict(max_elements_per_leaf=1, min_box_size_lambda=0.7, automatic_leaf_size=False),
+    )
+    ag.assemble()
+    assert "region R2" in ag.operator().describe()
+    assert "max_exact_far_bytes 0)" in ag.report()
+    # Exact-part budget (WP21 review): a 1 kB budget is exceeded before anything is allocated.
+    tight = sb.Simulation(
+        sb.make_icosphere(1.5e-6, 2),
+        sb.PlaneWave(LAMBDA_FAST, [0, 0, 1], [1, 0, 0]),
+        object=sb.silver_500nm(),
+        kernels=CHEAP,
+        compression="mlfmm",
+        mlfmm=dict(
+            max_elements_per_leaf=1,
+            min_box_size_lambda=0.7,
+            automatic_leaf_size=False,
+            max_exact_far_bytes=1000,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="max_exact_far_bytes"):
+        tight.assemble()
+    with pytest.raises(ValueError, match="max_exact_far_bytes"):
+        make_sim(compression="mlfmm", mlfmm=dict(max_exact_far_bytes=-1))
+    # A lossless interior at d0 = 5 without the leaf rule (r_max / a ~ 0.5): no expansion order.
+    bad = sb.Simulation(
+        sb.make_icosphere(1.5e-6, 2),
+        sb.PlaneWave(LAMBDA_FAST, [0, 0, 1], [1, 0, 0]),
+        object=sb.Material(2.25),
+        kernels=CHEAP,
+        compression="mlfmm",
+        mlfmm=dict(
+            accuracy_digits=5,
+            max_elements_per_leaf=1,
+            min_box_size_lambda=0.7,
+            automatic_leaf_size=False,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="mesh is too coarse"):
+        bad.assemble()
 
 
 def test_callback_and_overrides():
