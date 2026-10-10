@@ -37,13 +37,12 @@
 ///
 /// **Home levels** (local leaf rule, ADR 0008 amendment 2026-10-11). Every basis function b has a
 /// home level h(b) <= D and a home box = the ancestor of its leaf on level h(b). Without support
-/// radii (first constructor) every home level is the leaf level D. With support radii r(b) and a
-/// largest support ratio rho (MlfmmOperator: max_support_ratio(d0)), h(b) = D if r(b) <= rho a_D,
-/// otherwise the finest level l < D with r(b) <= kElevatedSupportRatioFactor rho a_l (a_l =
-/// box_size(l), relative tolerance 1e-12; the constant explains why levels above the leaf need
-/// half the leaf ratio), or 0 if no level qualifies (the far operator rejects home levels < 2 on
-/// trees with >= 3 levels). Functions with
-/// h(b) < D are *elevated*: they take part in the expansions from their home box upwards only,
+/// radii (first constructor) every home level is the leaf level D. With support radii r(b), a leaf
+/// ratio rho and an elevated ratio rho_e (MlfmmOperator: rho = max_support_ratio(d0), rho_e =
+/// kElevatedSupportRatioFactor rho), h(b) = D if r(b) <= rho a_D, otherwise the finest level
+/// l < D with r(b) <= rho_e a_l (a_l = box_size(l), relative tolerance kHomeLevelTolerance; see
+/// kElevatedSupportRatioFactor for rho_e = rho / 2), or 0 if no level qualifies (the far operator
+/// rejects home levels < 2 on trees with >= 3 levels). Functions with h(b) < D are *elevated*: they take part in the expansions from their home box upwards only,
 /// and a pair (a, b) is near iff the ancestors on min(h(a), h(b)) coincide or touch; otherwise
 /// exactly one level l <= min(h(a), h(b)), l >= 2, holds the two ancestors in each other's
 /// interaction lists (the leaf-pair statement above, applied on level min(h(a), h(b))). The box
@@ -115,9 +114,11 @@ public:
     /// The same tree with home levels from per-basis support radii (file comment).
     /// @param support_radii r(b) per basis index (size N, finite, >= 0), e.g. support_radii()
     /// @param max_support_ratio rho > 0 (finite): the leaf ratio rho (file comment)
-    /// @throws std::invalid_argument as the first constructor, or for invalid radii / ratio.
+    /// @param elevated_support_ratio rho_e > 0 (finite): the ratio of the levels above the leaf
+    /// @throws std::invalid_argument as the first constructor, or for invalid radii / ratios.
     Octree(const basis::RwgSpace& space, Real wavelength, const OctreeParams& p,
-           std::span<const Real> support_radii, Real max_support_ratio);
+           std::span<const Real> support_radii, Real max_support_ratio,
+           Real elevated_support_ratio);
 
     /// Number of levels including the root; the leaves are on level levels() - 1.
     [[nodiscard]] int levels() const { return levels_; }
@@ -170,7 +171,7 @@ private:
     void build_lists();
     void check_level(int level) const;
     /// Home levels, elevated lists and active counts (radii empty: every function at the leaf).
-    void assign_home_levels(std::span<const Real> radii, Real ratio);
+    void assign_home_levels(std::span<const Real> radii, Real ratio, Real elevated_ratio);
 
     OctreeParams params_;
     Real wavelength_ = 0;

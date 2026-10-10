@@ -26,6 +26,8 @@
 // exact-rows cases) exceeds 60 % of the physical memory.
 #include "specklebem/compression/mlfmm/far_operator.hpp"
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
+#include "specklebem/compression/mlfmm/near_field.hpp"
+#include "specklebem/compression/mlfmm/octree.hpp"
 #include "specklebem/compression/mlfmm/patterns.hpp"
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/geometry/rough_surface.hpp"
@@ -404,4 +406,90 @@ TEST_CASE("mlfmm large: rough box 2N ~ 9e4 against exact rows", "[validation-lar
     CHECK(2 * s.space.size() > 80000);
     run_exact_rows("rough box 4 um, Si, ICTF", s, 9e9);
 #endif
+}
+
+namespace {
+
+/// Rough box with the graded walls of ADR 0006 (top 50 nm, coarse box cells 100 nm = lambda1 / 5,
+/// sigma 50 nm, Lc 500 nm, fixed seed): the coarse cells (support radii 112-141 nm) are the
+/// elevated functions of the local leaf rule, the top face has radii of ~56-70 nm.
+[[maybe_unused]] geometry::TriangleMesh graded_box(Real size, Real depth) {
+    geometry::RoughSurfaceParams p;
+    p.edge_length_L = size;
+    p.rms_roughness = 50e-9;
+    p.correlation_length = 500e-9;
+    p.mesh_size = 50e-9;
+    p.box_depth = depth;
+    p.box_mesh_size = 100e-9;
+    p.exterior_wavelength = kLambda;
+    p.seed = 1;
+    return geometry::make_rough_surface_mesh(p);
+}
+
+/// Composed near + far operator on a given octree (experiments with home-level ratios).
+class Composed final : public op::LinearOperator {
+public:
+    Composed(const op::Problem& p, const mlfmm::Octree& tree, const mlfmm::MlfmmParams& params)
+        : near_(mlfmm::assemble_near(p, tree)), far_(p, tree, params), n_(2 * p.space->size()) {}
+    [[nodiscard]] Index rows() const override { return n_; }
+    [[nodiscard]] Index cols() const override { return n_; }
+    void apply(const VectorXc& x, VectorXc& y) const override {
+        near_->apply(x, y);
+        VectorXc yf;
+        far_.apply(x, yf);
+        y += yf;
+    }
+    [[nodiscard]] std::string describe() const override { return far_.describe(); }
+    [[nodiscard]] std::size_t memory_bytes() const override {
+        return near_->memory_bytes() + far_.memory_bytes();
+    }
+
+private:
+    std::shared_ptr<op::SparseOperator> near_;
+    mlfmm::MlfmmFarOperator far_;
+    Index n_;
+};
+
+}  // namespace
+
+TEST_CASE("wp21l experiment: elevated ratio factor", "[validation-large][mlfmm]") {
+    const Setup s(graded_box(1.5e-6, 2e-6), material::silicon_500nm(), Kind::PMCHWT);
+    const Index unknowns = 2 * s.space.size();
+    WARN("2N = " << unknowns);
+    const std::shared_ptr<op::LinearOperator> built = op::DenseStrategy().build(s.problem);
+    std::vector<VectorXc> x, yd;
+    for (std::uint64_t seed = 1; seed <= 2; ++seed) {
+        x.push_back(random_vector(unknowns, 20261010 + seed));
+        yd.push_back(*built * x.back());
+    }
+    const std::vector<Real> radii = mlfmm::support_radii(s.space);
+    for (const Real digits : {3.0, 5.0}) {
+        for (const Real factor : {1.0, 0.5}) {
+            mlfmm::MlfmmParams p;
+            p.accuracy_digits = digits;
+            p.octree.max_elements_per_leaf = 4;
+            p.leaf_radius_quantile = 0.5;
+            const Real rho = mlfmm::max_support_ratio(digits);
+            try {
+                const mlfmm::Octree tree(s.space, kLambda,
+                                         mlfmm::leaf_rule_params(s.space, kLambda, p), radii,
+                                         rho, factor * rho);
+                const Composed Z(s.problem, tree, p);
+                Real err = 0.0;
+                VectorXc y;
+                for (std::size_t i = 0; i < x.size(); ++i) {
+                    Z.apply(x[i], y);
+                    err = std::max(err, (y - yd[i]).norm() / yd[i].norm());
+                }
+                std::ostringstream c;
+                for (const Index k : tree.home_level_counts()) c << k << " ";
+                WARN("d0 " << digits << " factor " << factor << ": levels " << tree.levels()
+                           << " leaf " << tree.box_size(tree.leaf_level()) << " homes " << c.str()
+                           << " err " << err << " mem " << mb(Z.memory_bytes()) << " MB\n"
+                           << Z.describe());
+            } catch (const std::exception& e) {
+                WARN("d0 " << digits << " factor " << factor << ": " << e.what());
+            }
+        }
+    }
 }

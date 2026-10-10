@@ -199,7 +199,7 @@ TEST_CASE("mlfmm local leaf: home levels of a plate with wide columns", "[octree
     // column on level 3 (a = 3 h), the 4h column on level 2 (a = 6 h) for the ratio 1.
     const mlfmm::OctreeParams op{1, 5, 0.0};
     const mlfmm::Octree plain(space, kLambda, op);
-    const mlfmm::Octree tree(space, kLambda, op, r, 1.0);
+    const mlfmm::Octree tree(space, kLambda, op, r, 1.0, 1.0);
     REQUIRE(tree.levels() == 5);
     CHECK_FALSE(plain.has_elevated());
     CHECK(plain.home_level_counts().back() == space.size());
@@ -261,11 +261,26 @@ TEST_CASE("mlfmm local leaf: home levels of a plate with wide columns", "[octree
     // Invalid radii / ratio.
     std::vector<Real> bad = r;
     bad.pop_back();
-    CHECK_THROWS_AS(mlfmm::Octree(space, kLambda, op, bad, 1.0), std::invalid_argument);
+    CHECK_THROWS_AS(mlfmm::Octree(space, kLambda, op, bad, 1.0, 1.0), std::invalid_argument);
     bad = r;
     bad[3] = -1.0;
-    CHECK_THROWS_AS(mlfmm::Octree(space, kLambda, op, bad, 1.0), std::invalid_argument);
-    CHECK_THROWS_AS(mlfmm::Octree(space, kLambda, op, r, 0.0), std::invalid_argument);
+    CHECK_THROWS_AS(mlfmm::Octree(space, kLambda, op, bad, 1.0, 1.0), std::invalid_argument);
+    CHECK_THROWS_AS(mlfmm::Octree(space, kLambda, op, r, 0.0, 1.0), std::invalid_argument);
+    CHECK_THROWS_AS(mlfmm::Octree(space, kLambda, op, r, 1.0, 0.0), std::invalid_argument);
+    // The elevated ratio applies above the leaf only: with rho_e = rho / 2 the 2h column
+    // (r ~ 2.06 h > 0.5 x 3 h) moves from level 3 to level 2, the leaf functions stay.
+    const mlfmm::Octree half(space, kLambda, op, r, 1.0, 0.5);
+    const std::vector<int> home_half = home_by_basis(half);
+    for (Index n = 0; n < space.size(); ++n) {
+        const int expect = home[sz(n)] == tree.leaf_level() ? tree.leaf_level()
+                           : r[sz(n)] <= 1.5 * 25e-9                  ? 3
+                                                                      : 2;
+        if (home_half[sz(n)] != expect)
+            FAIL("basis " << n << " (rho_e = rho / 2): home level " << home_half[sz(n)]
+                          << ", expected " << expect);
+    }
+    CHECK(half.home_level_counts()[3] == 0);
+    CHECK(half.home_level_counts()[2] == counts[2] + counts[3]);
     CHECK_THROWS_AS(tree.elevated_positions(5), std::out_of_range);
 }
 
@@ -274,7 +289,7 @@ TEST_CASE("mlfmm local leaf: near pattern and its estimate with elevated functio
     const geometry::TriangleMesh mesh = strip_plate(25e-9);
     const basis::RwgSpace space(mesh);
     const mlfmm::Octree tree(space, kLambda, mlfmm::OctreeParams{1, 5, 0.0},
-                             mlfmm::support_radii(space), 1.0);
+                             mlfmm::support_radii(space), 1.0, 1.0);
     REQUIRE(tree.has_elevated());
     const op::BasisPattern pat = mlfmm::near_pattern(tree, space);
     const auto anc = ancestors(tree);
@@ -319,7 +334,7 @@ TEST_CASE("mlfmm local leaf: every basis pair is near, expanded, exact or trunca
     s.problem.formulation = &interior;
     s.problem.kernel_options = cheap_options();
     const mlfmm::Octree tree(s.space, kLambda, mlfmm::OctreeParams{1, 5, 0.0},
-                             mlfmm::support_radii(s.space), 0.9);
+                             mlfmm::support_radii(s.space), 0.9, 0.9);
     REQUIRE(tree.has_elevated());
     mlfmm::MlfmmParams p;
     p.accuracy_digits = 3.0;
@@ -670,7 +685,7 @@ TEST_CASE("mlfmm local leaf: a function without home level >= 2 is rejected", "[
     // Ratio 0.3: the 4h column (r ~ 4.03 h) needs a >= 13.4 h, i.e. level 1 (a = 12 h is too
     // small, level 0 qualifies): no home level >= 2.
     const mlfmm::Octree tree(s.space, kLambda, mlfmm::OctreeParams{1, 5, 0.0},
-                             mlfmm::support_radii(s.space), 0.3);
+                             mlfmm::support_radii(s.space), 0.3, 0.3);
     REQUIRE(tree.home_level_counts()[0] + tree.home_level_counts()[1] > 0);
     mlfmm::MlfmmParams p;
     p.automatic_leaf_size = false;

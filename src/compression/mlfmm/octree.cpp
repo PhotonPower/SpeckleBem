@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <cstdlib>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -73,11 +72,12 @@ Octree::Octree(const basis::RwgSpace& space, Real wavelength, const OctreeParams
     }
     build(space);
     build_lists();
-    assign_home_levels({}, 0.0);
+    assign_home_levels({}, 0.0, 0.0);
 }
 
 Octree::Octree(const basis::RwgSpace& space, Real wavelength, const OctreeParams& p,
-               std::span<const Real> support_radii, Real max_support_ratio)
+               std::span<const Real> support_radii, Real max_support_ratio,
+               Real elevated_support_ratio)
     : Octree(space, wavelength, p) {
     if (static_cast<Index>(support_radii.size()) != space.size()) {
         throw std::invalid_argument("Octree: support_radii must have one entry per basis function");
@@ -86,26 +86,22 @@ Octree::Octree(const basis::RwgSpace& space, Real wavelength, const OctreeParams
         if (!std::isfinite(r) || r < 0.0)
             throw std::invalid_argument("Octree: support radii must be finite and >= 0");
     }
-    if (!std::isfinite(max_support_ratio) || !(max_support_ratio > 0.0)) {
-        throw std::invalid_argument("Octree: max_support_ratio must be positive and finite");
+    if (!std::isfinite(max_support_ratio) || !(max_support_ratio > 0.0) ||
+        !std::isfinite(elevated_support_ratio) || !(elevated_support_ratio > 0.0)) {
+        throw std::invalid_argument("Octree: the support ratios must be positive and finite");
     }
-    assign_home_levels(support_radii, max_support_ratio);
+    assign_home_levels(support_radii, max_support_ratio, elevated_support_ratio);
 }
 
-void Octree::assign_home_levels(std::span<const Real> radii, Real ratio) {
+void Octree::assign_home_levels(std::span<const Real> radii, Real ratio, Real elevated_ratio) {
     const std::size_t n = perm_.size();
     const int leaf = leaf_level();
     home_.assign(n, leaf);
     if (!radii.empty()) {
         std::vector<Real> limit(sz(levels_));
         for (int l = 0; l < levels_; ++l)
-            limit[sz(l)] =
-                (l == leaf ? ratio
-                           : (std::getenv("SBEM_DBG_FACTOR") != nullptr
-                                  ? std::atof(std::getenv("SBEM_DBG_FACTOR"))
-                                  : kElevatedSupportRatioFactor) *
-                                 ratio) *
-                box_size(l) * (1.0 + kHomeLevelTolerance);
+            limit[sz(l)] = (l == leaf ? ratio : elevated_ratio) * box_size(l) *
+                           (1.0 + kHomeLevelTolerance);
         for (std::size_t p = 0; p < n; ++p) {
             const Real r = radii[sz(perm_[p])];
             int l = leaf;

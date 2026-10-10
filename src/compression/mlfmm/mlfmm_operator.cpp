@@ -98,7 +98,8 @@ Octree make_octree(const basis::RwgSpace& space, Real wavelength, const MlfmmPar
     if (!params.automatic_leaf_size)
         return Octree(space, wavelength, o);
     const std::vector<Real> r = support_radii(space);
-    return Octree(space, wavelength, o, r, max_support_ratio(params.accuracy_digits));
+    const Real rho = max_support_ratio(params.accuracy_digits);
+    return Octree(space, wavelength, o, r, rho, kElevatedSupportRatioFactor * rho);
 }
 
 struct MlfmmOperator::Impl {
