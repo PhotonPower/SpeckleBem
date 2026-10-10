@@ -5,6 +5,26 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tooling / docs (WP-V1): box validity study `benchmarks/box_validity.cpp`
+  (`specklebem_box_validity`, `SPECKLEBEM_BUILD_BENCHMARKS`): far field |F|² of one rough-box
+  configuration (material, L with a shared cropped height map, waist, depth factor, coarse spacing,
+  fine band) in the reflection and forward hemispheres and the xz/yz cuts, dense ICTF + GMRES
+  (tol 1e-6), with a rigorous angular-spectrum Gaussian beam (or the paraxial one), `.npy` output,
+  per-part far-field shares (top, walls, bottom, rim, foot) and `--compare` (hemisphere L2 of |F|²,
+  docs/05 ε_rr); unconverged runs are neither written nor compared (exit status 1) unless
+  `--allow-unconverged`, `--eps-imag` runs are marked DIAGNOSTIC and store ε_r. Record
+  `benchmarks/results/box_validity.md`: at dense sizes (L ≤ 2.4 µm) depth ×2 (Ag 0.8–3.5 %,
+  uniform box 1.1 %; Si fine band 0.13 %, ε_rr 0.04 %) and L ×1.2 (4–6 %) fail the docs/05
+  tolerances; the patch edge is lit at the percent level (w₀ = L/3: 0.6–0.9 % of the rigorous
+  beam power crosses z = 0 outside the patch) and the depth sensitivity follows the rim
+  illumination (3× lower at w₀ = L/4), with surface plasmons carrying about half of it (lossy-Ag
+  diagnostic). 400 nm coarse cells are 1.5–1.9 % from the uniform box; 100 nm cells 0.17 %
+  (L = 1.5 µm), 0.59 % (L = 1 µm) and 1.54 % (L = 1 µm, depth ×2), so λ₁/5 is necessary but not
+  shown to suffice for the depth check (depth ×2 with 100 nm: 1.76 % at L = 1 µm, 3.49 % at
+  L = 2 µm). Si needs the fine band (0.44–0.88 % without; fine band + 400 nm cells 0.37 % from the
+  uniform box). Proposed ADR 0006 changes: coarse spacing ≤ λ₁/5 (to be re-checked against a
+  uniform box at w₀ ≤ L/4), w₀ ≤ L/4, rigorous beam; the w₀/L (and L) at which the depth check can
+  pass is open (an earlier z_R ≥ 8 × depth, L ≳ 6–11 µm, estimate is withdrawn).
 - mlfmm (WP21f, WP21 review follow-ups): the automatic exact-part budget is capped at the dense
   matrix size 16 (2N)^2 (`min(max(2 x near, 1 GiB), dense)`: on small problems the 1 GiB floor
   allowed exact parts larger than dense); budget messages print the rule with one-decimal numbers
