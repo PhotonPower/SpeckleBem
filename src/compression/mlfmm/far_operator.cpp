@@ -8,13 +8,14 @@
 #include "specklebem/core/logging.hpp"
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/kernels/operators.hpp"
-#include "specklebem/operator/sparse_operator.hpp"
+#include "specklebem/operator/region_sparse_operator.hpp"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <exception>
 #include <limits>
 #include <map>
@@ -140,38 +141,27 @@ struct Region {
     std::vector<std::size_t> antipode;  ///< leaf directions: index of -khat_q
     Real pattern_seconds = 0;
     std::vector<std::array<Index, 2>> exact_pairs;  ///< (observer box, source box), decision exact
-    std::shared_ptr<op::SparseOperator> exact;      ///< their exact region-i entries
-    Real exact_seconds = 0;
-    Real decay = 0;                   ///< alpha = -Im k
-    bool force_exact = false;         ///< MlfmmParams::exact_far_regions
-    Index truncated_basis_pairs = 0;  ///< basis pairs of exact box pairs dropped by the bound
-    Real truncated_basis_bound = 0;   ///< their largest delta
+    std::shared_ptr<op::RegionSparseOperator> exact;  ///< their exact region-i entries
+    ExactPartInfo xinfo;                              ///< estimate and result of the exact part
+    Real decay = 0;                                   ///< alpha = -Im k
+    bool force_exact = false;                         ///< MlfmmParams::exact_far_regions
 };
 
 /// Test hook: workspace allocations still to fail (testing::fail_next_workspace_allocations).
 std::atomic<int> g_failing_workspaces{0};
 
-/// The formulation with the weights of one region set to zero: assemble_sparse then yields only
-/// the other region's entries (the masked region is skipped, DenseStrategy semantics).
-class RegionMask final : public formulation::Formulation {
-public:
-    RegionMask(const formulation::Formulation& f, std::size_t keep) : f_(f), keep_(keep) {}
-    [[nodiscard]] formulation::Kind kind() const override { return f_.kind(); }
-    [[nodiscard]] std::string name() const override { return f_.name(); }
-    [[nodiscard]] formulation::Weights weights(Complex eta1, Complex eta2) const override {
-        formulation::Weights w = f_.weights(eta1, eta2);
-        const Complex zero(0.0, 0.0);
-        if (keep_ == 0)
-            w.a2 = w.b2 = zero;
-        else
-            w.a1 = w.b1 = zero;
-        return w;
-    }
+/// "1.23e-04", or "not run" for the -1 marker of FarLevelInfo::block_error.
+std::string error_text(Real e) {
+    if (e < 0.0)
+        return "not run";
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.2e", e);
+    return buf;
+}
 
-private:
-    const formulation::Formulation& f_;
-    std::size_t keep_;
-};
+Real megabytes(std::size_t b) {
+    return static_cast<Real>(b) / 1048576.0;
+}
 
 kernels::RegionParams region_params(const material::Material& m, Real omega) {
     return {m.wavenumber(omega), m.wave_impedance(omega), omega, constants::eps0 * m.eps_r,
@@ -204,6 +194,37 @@ Real block_check_tolerance(Real digits) {
     return std::pow(10.0, -digits);
 }
 
+Real truncation_decay_exponent(Real digits) {
+    if (!std::isfinite(digits) || !(digits > 0.0))
+        throw std::invalid_argument("truncation_decay_exponent: digits must be positive");
+    // (1 + x) e^-x = 10^-(d0+1)  <=>  g(x) = x - ln(1 + x) = T, g increasing on x > 0 with
+    // g'(x) = x / (1 + x); Newton from x0 = T + ln(1 + T) >= the root (g(x0) >= T).
+    const Real T = (digits + 1.0) * std::log(10.0);
+    Real x = T + std::log1p(T);
+    for (int it = 0; it < 100; ++it) {
+        const Real step = (x - std::log1p(x) - T) * (1.0 + x) / x;
+        x -= step;
+        if (std::abs(step) <= 1e-14 * x)
+            break;
+    }
+    return x;
+}
+
+std::size_t estimate_near_bytes(const Octree& tree) {
+    const auto& boxes = tree.boxes();
+    std::size_t pairs = 0;
+    for (const Index b : tree.boxes_at_level(tree.leaf_level())) {
+        const Box& box = boxes[sz(b)];
+        std::size_t cols = sz(box.num_elements);
+        for (const Index nb : box.near_list) cols += sz(boxes[sz(nb)].num_elements);
+        pairs += sz(box.num_elements) * cols;
+    }
+    // op::assemble_sparse: 4 entries per pair (JJ, JM, MJ, MM), value + column index, 2N + 1
+    // row pointers.
+    return 4 * pairs * (sizeof(Complex) + sizeof(Index)) +
+           (2 * tree.permutation().size() + 1) * sizeof(Index);
+}
+
 const char* to_string(FarDecision d) {
     switch (d) {
         case FarDecision::expansion:
@@ -231,6 +252,8 @@ struct MlfmmFarOperator::Impl {
     std::array<Region, 2> region;
     std::vector<Index> local;            ///< box -> position within its level
     std::vector<Extent> extent;          ///< box -> bounding box of its bases' supports
+    std::vector<Extent> basis_extent;    ///< basis -> bounding box of its support (exact parts)
+    std::size_t budget = 0;              ///< exact-part budget in effect [bytes]
     Real rmax = 0;                       ///< max_support_radius
     PatternOptions popt;                 ///< leaf pattern / block check pattern quadrature
     std::size_t field_entries = 0;       ///< complex entries of one workspace's fields
@@ -259,7 +282,14 @@ struct MlfmmFarOperator::Impl {
     /// search is not achievable.
     [[nodiscard]] Real reference_block_error(const basis::RwgSpace& space, int level,
                                              const kernels::RegionParams& rp) const;
-    /// Exact region-i entries of the exact box pairs (op::assemble_sparse, other region masked).
+    /// Per-basis support bounding boxes (basis_extent), once.
+    void compute_basis_extents(const basis::RwgSpace& space);
+    /// Basis pairs of the region's exact box pairs that the per-basis bound keeps (all for a
+    /// forced region); stops early once the count exceeds `limit`. No allocation.
+    [[nodiscard]] Index count_exact_pairs(const Region& r, Index limit) const;
+    /// Pre-assembly estimate of the exact parts, logged, and the budget guard (header comment).
+    void check_exact_budget(const op::Problem& problem, const MlfmmParams& params);
+    /// Exact region-i entries of the exact box pairs (op::assemble_region_sparse).
     void assemble_exact(Region& r, const op::Problem& problem, std::size_t index) const;
     /// Translators, interpolators, phase shifts and leaf patterns of the expansion levels.
     void build_region(Region& r, const basis::RwgSpace& space);
@@ -382,21 +412,25 @@ std::pair<Real, Index> MlfmmFarOperator::Impl::block_check(const basis::RwgSpace
     const geometry::TriangleMesh& mesh = space.mesh();
     const Vertices& v = mesh.vertices();
     const std::vector<Index>& perm = tree.permutation();
-    // All bases of a small box; else the half farthest from the centre (corner-near) and an
-    // evenly spaced selection of the rest.
-    const auto select = [&](const Box& box) {
+    // All bases of a small box; else the half nearest to the partner box (the facing,
+    // corner-near bases) and an evenly spaced selection of the rest.
+    const Real half_edge = 0.5 * tree.box_size(level);
+    const auto select = [&](const Box& box, const Box& partner) {
         std::vector<Index> all(perm.begin() + box.first_element,
                                perm.begin() + box.first_element + box.num_elements);
         constexpr auto kMax = static_cast<std::size_t>(kBlockCheckBases);
         if (all.size() <= kMax)
             return all;
-        const auto dist = [&](Index bn) {
+        std::vector<Real> dist(sz(space.size()), 0.0);
+        for (const Index bn : all) {
             const Vec3 mid =
                 0.5 * (v.row(mesh.edges()(bn, 0)) + v.row(mesh.edges()(bn, 1))).transpose();
-            return (mid - box.center).norm();
-        };
+            const Vec3 gap =
+                ((mid - partner.center).cwiseAbs().array() - half_edge).cwiseMax(0.0).matrix();
+            dist[sz(bn)] = gap.norm();
+        }
         std::stable_sort(all.begin(), all.end(),
-                         [&](Index a, Index b) { return dist(a) > dist(b); });
+                         [&](Index a, Index b) { return dist[sz(a)] < dist[sz(b)]; });
         std::vector<Index> out(all.begin(), all.begin() + kMax / 2);
         const std::size_t rest = all.size() - kMax / 2;
         for (std::size_t i = 0; i < kMax - kMax / 2; ++i)
@@ -424,8 +458,8 @@ std::pair<Real, Index> MlfmmFarOperator::Impl::block_check(const basis::RwgSpace
         ++used;
         const Box& A = boxes[sz(pair[0])];
         const Box& B = boxes[sz(pair[1])];
-        const std::vector<Index> ma = select(A);
-        const std::vector<Index> nb = select(B);
+        const std::vector<Index> ma = select(A, B);
+        const std::vector<Index> nb = select(B, A);
         const std::vector<Complex> pa = basis_patterns(space, ma, A.center, rp.k, s, popt);
         const std::vector<Complex> pb = basis_patterns(space, nb, B.center, rp.k, s, popt);
         const VectorXc t = translator(rp.k, A.center - B.center, s, order);
@@ -523,12 +557,15 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
     const Real lambda = 2.0 * constants::pi / r.k.real();
     const Real alpha = -r.k.imag();
     const Real trunc_tol = std::pow(10.0, -(digits + 1.0));
+    const Real x_star = truncation_decay_exponent(digits);
     const kernels::RegionParams rp =
         region_params(index == 0 ? problem.exterior : problem.object, problem.omega);
     r.info.assign(sz(leaf - 1), FarLevelInfo{});
     std::vector<Level> expansion;  // leaf first
     bool expanding = !force_exact;
     Real first_fallback_edge = 0.0;
+    if (force_exact)
+        r.xinfo.first_level = leaf;
     for (int l = leaf; l >= 2; --l) {
         const auto t0 = std::chrono::steady_clock::now();
         FarLevelInfo& f = r.info[sz(l - 2)];
@@ -589,6 +626,7 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
             }
             expanding = false;
             first_fallback_edge = a;
+            r.xinfo.first_level = l;
         }
         // Per box pair: truncation by the decay bound, else exact.
         f.decision = FarDecision::truncation;
@@ -611,15 +649,21 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
         f.setup_seconds = seconds_since(t0);
         SBEM_INFO(
             "MlfmmFarOperator: region R{} level {} (a = {:.3g} lambda_i): {} (search {} error "
-            "{:.2e}, block check {:.2e}); {} box pairs truncated (delta <= {:.2e}, bound 1e-{}), "
+            "{:.2e}, block check {}); {} box pairs truncated (delta <= {:.2e}, bound 1e-{}), "
             "{} exact (delta >= {:.2e})",
             index + 1, l, a / lambda, to_string(f.decision),
-            f.search_achievable ? "achievable," : "not achievable,", f.search_error, f.block_error,
-            f.truncated_pairs, f.decay_bound, digits + 1.0, f.exact_pairs, f.exact_bound);
-        if (f.exact_pairs > 0 && !force_exact && !(alpha * first_fallback_edge >= 1.0)) {
-            // The fallback needs decay over a box edge; otherwise it would make the region dense.
+            f.search_achievable ? "achievable," : "not achievable,", f.search_error,
+            error_text(f.block_error), f.truncated_pairs, f.decay_bound, digits + 1.0,
+            f.exact_pairs, f.exact_bound);
+        // The fallback needs strong decay: the exact pairs reach x* / alpha in support distance,
+        // which must stay within kExactFallbackBoxEdges edges of the first fallback level;
+        // otherwise the exact part grows towards the dense matrix (WP21 review).
+        const Real reach = alpha > 0.0 ? x_star / alpha : std::numeric_limits<Real>::infinity();
+        if (f.exact_pairs > 0 && !force_exact &&
+            !(reach <= kExactFallbackBoxEdges * first_fallback_edge)) {
             const Real D = std::sqrt(3.0) * a + 2.0 * rmax;
-            const auto cause = rmax / a > 0.3     ? TruncationOrderError::Cause::mesh_or_leaf_size
+            const auto cause = rmax / a > max_support_ratio(digits)
+                                   ? TruncationOrderError::Cause::mesh_or_leaf_size
                                : alpha * D >= 1.0 ? TruncationOrderError::Cause::lossy_region
                                                   : TruncationOrderError::Cause::digits;
             std::ostringstream os;
@@ -628,8 +672,12 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
                << digits << " (order search "
                << (f.search_achievable ? "achievable" : "not achievable") << ", best "
                << f.search_error << " at L = " << f.truncation_order << "; block check "
-               << f.block_error << "), and the decay is too weak for the ADR 0008 §6 fallback "
-               << "(-Im k a = " << alpha * first_fallback_edge << " < 1); ";
+               << error_text(f.block_error)
+               << "), and the decay is too weak for the ADR 0008 §6 fallback (exact pairs reach "
+                  "x*/alpha = "
+               << reach << " m = " << reach / first_fallback_edge << " box edges of level "
+               << r.xinfo.first_level << ", allowed " << kExactFallbackBoxEdges
+               << "; x* = " << x_star << " for 10^-" << digits + 1.0 << "); ";
             if (cause == TruncationOrderError::Cause::mesh_or_leaf_size)
                 os << "refine the mesh or use larger leaves";
             else if (cause == TruncationOrderError::Cause::lossy_region)
@@ -646,6 +694,148 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
     for (std::size_t li = 0; li < expansion.size(); ++li)
         expansion[li].info = r.info[sz(r.first_level - 2) + li];
     r.levels = std::move(expansion);
+}
+
+void MlfmmFarOperator::Impl::compute_basis_extents(const basis::RwgSpace& space) {
+    if (!basis_extent.empty())
+        return;
+    const geometry::TriangleMesh& mesh = space.mesh();
+    const Index nb = space.size();
+    const Real inf = std::numeric_limits<Real>::infinity();
+    basis_extent.assign(sz(nb), Extent{inf, inf, inf, -inf, -inf, -inf});
+    for (Index q = 0; q < nb; ++q) {
+        Extent& e = basis_extent[sz(q)];
+        for (const Index vi : {mesh.edges()(q, 0), mesh.edges()(q, 1), space.plus_free_vertex(q),
+                               space.minus_free_vertex(q)}) {
+            for (std::size_t c = 0; c < 3; ++c) {
+                const Real x = mesh.vertices()(vi, static_cast<Eigen::Index>(c));
+                e[c] = std::min(e[c], x);
+                e[c + 3] = std::max(e[c + 3], x);
+            }
+        }
+    }
+}
+
+Index MlfmmFarOperator::Impl::count_exact_pairs(const Region& r, Index limit) const {
+    const auto& boxes = tree.boxes();
+    const std::vector<Index>& perm = tree.permutation();
+    const Real tol = std::pow(10.0, -(digits + 1.0));
+    std::atomic<Index> total{0};
+    const auto np = static_cast<Index>(r.exact_pairs.size());
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic, 16)
+#endif
+    for (Index k = 0; k < np; ++k) {
+        if (total.load(std::memory_order_relaxed) > limit)
+            continue;  // over the limit: the caller only needs to know that
+        const Box& A = boxes[sz(r.exact_pairs[sz(k)][0])];
+        const Box& B = boxes[sz(r.exact_pairs[sz(k)][1])];
+        Index count = 0;
+        if (r.force_exact) {
+            count = A.num_elements * B.num_elements;
+        } else {
+            for (Index p = A.first_element; p < A.first_element + A.num_elements; ++p) {
+                const Extent& ep = basis_extent[sz(perm[sz(p)])];
+                for (Index q = B.first_element; q < B.first_element + B.num_elements; ++q) {
+                    if (decay_factor(r.decay, extent_distance(ep, basis_extent[sz(perm[sz(q)])])) >
+                        tol)
+                        ++count;
+                }
+            }
+        }
+        total.fetch_add(count, std::memory_order_relaxed);
+    }
+    return total.load();
+}
+
+void MlfmmFarOperator::Impl::check_exact_budget(const op::Problem& problem,
+                                                const MlfmmParams& params) {
+    const std::size_t near = estimate_near_bytes(tree);
+    budget = params.max_exact_far_bytes > 0
+                 ? params.max_exact_far_bytes
+                 : std::max(static_cast<std::size_t>(kExactFarNearFactor * static_cast<Real>(near)),
+                            kExactFarMinBytes);
+    const std::size_t per_pair = op::RegionSparseOperator::kBytesPerPair;
+    const std::size_t row_bytes = (sz(n) + 1) * sizeof(Index);
+    const auto& boxes = tree.boxes();
+    const auto bytes_of = [&](Index pairs) { return sz(pairs) * per_pair + row_bytes; };
+    std::size_t bound_bytes = 0;
+    bool any = false;
+    for (std::size_t i = 0; i < 2; ++i) {
+        Region& r = region[i];
+        if (!r.active || r.exact_pairs.empty())
+            continue;
+        any = true;
+        r.xinfo.box_pairs = static_cast<Index>(r.exact_pairs.size());
+        r.xinfo.pair_bound = 0;
+        for (const auto& [ia, ib] : r.exact_pairs)
+            r.xinfo.pair_bound += boxes[sz(ia)].num_elements * boxes[sz(ib)].num_elements;
+        bound_bytes += bytes_of(r.xinfo.pair_bound);
+        SBEM_INFO(
+            "MlfmmFarOperator: region R{} exact part estimate: {} box pairs (levels {} ... 2), <= "
+            "{} basis pairs ({:.2f} % of N^2), <= {:.1f} MB at {} bytes per pair",
+            i + 1, r.xinfo.box_pairs, r.xinfo.first_level, r.xinfo.pair_bound,
+            100.0 * static_cast<Real>(r.xinfo.pair_bound) /
+                (static_cast<Real>(n) * static_cast<Real>(n)),
+            megabytes(bytes_of(r.xinfo.pair_bound)), per_pair);
+    }
+    if (!any)
+        return;
+    SBEM_INFO(
+        "MlfmmFarOperator: exact-part budget {:.1f} MB ({}), estimate {:.1f} MB (upper bound)",
+        megabytes(budget),
+        params.max_exact_far_bytes > 0
+            ? std::string("max_exact_far_bytes")
+            : "automatic: max(" + std::to_string(kExactFarNearFactor) + " x near-field estimate " +
+                  std::to_string(megabytes(near)) + " MB, " +
+                  std::to_string(megabytes(kExactFarMinBytes)) + " MB)",
+        megabytes(bound_bytes));
+    if (bound_bytes <= budget)
+        return;
+    // The upper bound exceeds the budget: count the basis pairs the per-basis bound keeps.
+    compute_basis_extents(*problem.space);
+    const auto limit = static_cast<Index>(budget / per_pair) + 1;
+    std::size_t total = 0;
+    std::size_t worst = 0;
+    for (std::size_t i = 0; i < 2; ++i) {
+        Region& r = region[i];
+        if (!r.active || r.exact_pairs.empty())
+            continue;
+        r.xinfo.counted_pairs = count_exact_pairs(r, limit);
+        total += bytes_of(r.xinfo.counted_pairs);
+        if (r.xinfo.counted_pairs > region[worst].xinfo.counted_pairs)
+            worst = i;
+        SBEM_INFO(
+            "MlfmmFarOperator: region R{} exact part: {}{} basis pairs after the per-basis "
+            "bound ({:.1f} MB)",
+            i + 1, r.xinfo.counted_pairs > limit ? "> " : "", r.xinfo.counted_pairs,
+            megabytes(bytes_of(r.xinfo.counted_pairs)));
+    }
+    if (total <= budget)
+        return;
+    const Region& r = region[worst];
+    const Real alpha = r.decay;
+    bool r_over = false;  // some count stopped at the limit: the total is a lower bound
+    for (const Region& ri : region) r_over = r_over || ri.xinfo.counted_pairs > limit;
+    std::ostringstream os;
+    os << "MlfmmFarOperator: the exact far parts of the ADR 0008 §6 fallback would need "
+       << (r_over ? "more than " : "") << megabytes(total) << " MB, more than the budget of "
+       << megabytes(budget) << " MB (MlfmmParams::max_exact_far_bytes"
+       << (params.max_exact_far_bytes > 0
+               ? ")"
+               : "; automatic: max(" + std::to_string(kExactFarNearFactor) +
+                     " x the near-field estimate of " + std::to_string(megabytes(near)) + " MB, " +
+                     std::to_string(megabytes(kExactFarMinBytes)) + " MB))")
+       << "; region R" << worst + 1 << " (k = " << r.k << " 1/m): " << r.xinfo.box_pairs
+       << " exact box pairs from level " << r.xinfo.first_level << ", "
+       << (r.xinfo.counted_pairs > limit ? "more than " : "") << r.xinfo.counted_pairs
+       << " basis pairs (upper bound " << r.xinfo.pair_bound << ", " << per_pair << " bytes each)";
+    if (alpha > 0.0)
+        os << ", exact interactions reach x*/alpha = " << truncation_decay_exponent(digits) / alpha
+           << " m";
+    os << "; use fewer digits, raise max_exact_far_bytes or use the dense operator";
+    throw TruncationOrderError(os.str(), static_cast<int>(worst), r.xinfo.first_level,
+                               TruncationOrderError::Cause::exact_part_too_large);
 }
 
 void MlfmmFarOperator::Impl::assemble_exact(Region& r, const op::Problem& problem,
@@ -666,66 +856,79 @@ void MlfmmFarOperator::Impl::assemble_exact(Region& r, const op::Problem& proble
         const auto hi = std::lower_bound(lo, first.end(), A.first_element + A.num_elements);
         for (auto it = lo; it != hi; ++it) src[sz(it - first.begin())].push_back(ib);
     }
-    // One group per row: the basis pairs of the exact box pairs whose own bound exceeds the
-    // truncation tolerance (all of them for a forced region).
-    const basis::RwgSpace& space = *problem.space;
-    const geometry::TriangleMesh& mesh = space.mesh();
-    const Index nb = space.size();
-    std::vector<Extent> be(sz(nb));
-    for (Index q = 0; q < nb; ++q) {
-        const Real inf = std::numeric_limits<Real>::infinity();
-        Extent e{inf, inf, inf, -inf, -inf, -inf};
-        for (const Index vi : {mesh.edges()(q, 0), mesh.edges()(q, 1), space.plus_free_vertex(q),
-                               space.minus_free_vertex(q)}) {
-            for (std::size_t c = 0; c < 3; ++c) {
-                const Real x = mesh.vertices()(vi, static_cast<Eigen::Index>(c));
-                e[c] = std::min(e[c], x);
-                e[c + 3] = std::max(e[c + 3], x);
-            }
-        }
-        be[sz(q)] = e;
-    }
+    // CSR rows (basis order) of the basis pairs whose own bound exceeds the truncation tolerance
+    // (all of them for a forced region): count, prefix sum, fill; rows of different leaves are
+    // disjoint, so both passes run in parallel over the observer leaves.
     const Real tol = std::pow(10.0, -(digits + 1.0));
-    op::BasisPattern pat;
-    pat.group_of_row.assign(sz(nb), 0);
-    pat.col_ptr = {0, 0};  // group 0: rows without exact pairs
-    for (std::size_t g = 0; g < leaves.size(); ++g) {
-        if (src[g].empty())
-            continue;
-        const Box& X = boxes[sz(leaves[g])];
+    const Index nb = problem.space->size();
+    const auto keep = [&](Index row, Index col) {
+        return r.force_exact || decay_factor(r.decay, extent_distance(basis_extent[sz(row)],
+                                                                      basis_extent[sz(col)])) > tol;
+    };
+    std::vector<Index> row_ptr(sz(nb) + 1, 0);
+    Index truncated = 0;
+    Real truncated_bound = 0.0;
+    const auto nl = static_cast<Index>(leaves.size());
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) reduction(+ : truncated) reduction(max : truncated_bound)
+#endif
+    for (Index g = 0; g < nl; ++g) {
+        const Box& X = boxes[sz(leaves[sz(g)])];
         for (Index p = X.first_element; p < X.first_element + X.num_elements; ++p) {
             const Index row = perm[sz(p)];
-            const std::size_t start = pat.cols.size();
-            for (const Index b : src[g]) {
+            Index count = 0;
+            for (const Index b : src[sz(g)]) {
                 const Box& B = boxes[sz(b)];
                 for (Index q = B.first_element; q < B.first_element + B.num_elements; ++q) {
                     const Index c = perm[sz(q)];
-                    const Real delta =
-                        decay_factor(r.decay, extent_distance(be[sz(row)], be[sz(c)]));
-                    if (r.force_exact || delta > tol) {
-                        pat.cols.push_back(c);
+                    if (keep(row, c)) {
+                        ++count;
                     } else {
-                        ++r.truncated_basis_pairs;
-                        r.truncated_basis_bound = std::max(r.truncated_basis_bound, delta);
+                        ++truncated;
+                        truncated_bound =
+                            std::max(truncated_bound,
+                                     decay_factor(r.decay, extent_distance(basis_extent[sz(row)],
+                                                                           basis_extent[sz(c)])));
                     }
                 }
             }
-            std::sort(pat.cols.begin() + static_cast<std::ptrdiff_t>(start), pat.cols.end());
-            pat.group_of_row[sz(row)] = static_cast<Index>(pat.col_ptr.size() - 1);
-            pat.col_ptr.push_back(static_cast<Index>(pat.cols.size()));
+            row_ptr[sz(row) + 1] = count;
         }
     }
-    const RegionMask mask(*problem.formulation, index);
-    op::Problem masked = problem;
-    masked.formulation = &mask;
-    r.exact = op::assemble_sparse(masked, pat);
-    r.exact_seconds = seconds_since(t0);
+    for (std::size_t i = 0; i < sz(nb); ++i) row_ptr[i + 1] += row_ptr[i];
+    std::vector<Index> cols(sz(row_ptr.back()));
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for (Index g = 0; g < nl; ++g) {
+        const Box& X = boxes[sz(leaves[sz(g)])];
+        for (Index p = X.first_element; p < X.first_element + X.num_elements; ++p) {
+            const Index row = perm[sz(p)];
+            Index pos = row_ptr[sz(row)];
+            for (const Index b : src[sz(g)]) {
+                const Box& B = boxes[sz(b)];
+                for (Index q = B.first_element; q < B.first_element + B.num_elements; ++q) {
+                    const Index c = perm[sz(q)];
+                    if (keep(row, c))
+                        cols[sz(pos++)] = c;
+                }
+            }
+            std::sort(cols.begin() + row_ptr[sz(row)], cols.begin() + pos);
+        }
+    }
+    r.xinfo.truncated_pairs = truncated;
+    r.xinfo.truncated_bound = truncated_bound;
+    r.exact = op::assemble_region_sparse(problem, static_cast<int>(index), std::move(row_ptr),
+                                         std::move(cols));
+    r.xinfo.pairs = r.exact->pairs();
+    r.xinfo.bytes = r.exact->memory_bytes();
+    r.xinfo.seconds = seconds_since(t0);
     SBEM_INFO(
-        "MlfmmFarOperator: region R{} exact part: {} box pairs, nnz {} ({:.1f} MB, {:.2f} s); {} "
-        "basis pairs of them truncated (delta <= {:.2e})",
-        index + 1, r.exact_pairs.size(), r.exact->nonzeros(),
-        static_cast<Real>(r.exact->memory_bytes()) / 1048576.0, r.exact_seconds,
-        r.truncated_basis_pairs, r.truncated_basis_bound);
+        "MlfmmFarOperator: region R{} exact part: {} box pairs, {} basis pairs (estimate <= {}; "
+        "{:.1f} MB, {:.2f} s); {} basis pairs of them truncated (delta <= {:.2e})",
+        index + 1, r.exact_pairs.size(), r.xinfo.pairs, r.xinfo.pair_bound,
+        megabytes(r.xinfo.bytes), r.xinfo.seconds, r.xinfo.truncated_pairs,
+        r.xinfo.truncated_bound);
 }
 
 void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& space) {
@@ -854,6 +1057,10 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
         if (r.active)
             m.plan_region(r, problem, i, r.force_exact);
     }
+    // Estimate and budget of the exact parts before any of them is allocated.
+    m.check_exact_budget(problem, params);
+    if (!m.region[0].exact_pairs.empty() || !m.region[1].exact_pairs.empty())
+        m.compute_basis_extents(space);
     for (std::size_t i = 0; i < 2; ++i) {
         Region& r = m.region[i];
         if (!r.active)
@@ -867,6 +1074,8 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
                 m.max_ws = std::max(m.max_ws, sz(lv.interp->workspace_size()));
         }
     }
+    m.basis_extent.clear();  // only needed to build the exact parts
+    m.basis_extent.shrink_to_fit();
     SBEM_INFO(
         "MlfmmFarOperator: 2N = {}, {} octree levels, d0 = {}, {:.1f} MB (incl. one apply "
         "workspace of {:.1f} MB)",
@@ -904,9 +1113,18 @@ const RadiationPatterns& MlfmmFarOperator::patterns(int region) const {
     return *impl_->region[static_cast<std::size_t>(region)].patterns;
 }
 
-const op::SparseOperator* MlfmmFarOperator::exact_part(int region) const {
+const op::RegionSparseOperator* MlfmmFarOperator::exact_part(int region) const {
     (void)region_active(region);
     return impl_->region[static_cast<std::size_t>(region)].exact.get();
+}
+
+const ExactPartInfo& MlfmmFarOperator::exact_info(int region) const {
+    (void)region_active(region);
+    return impl_->region[static_cast<std::size_t>(region)].xinfo;
+}
+
+std::size_t MlfmmFarOperator::exact_budget() const {
+    return impl_->budget;
 }
 
 void MlfmmFarOperator::apply(const VectorXc& x, VectorXc& y) const {
@@ -1143,7 +1361,10 @@ std::string MlfmmFarOperator::describe() const {
        << "is achievable (lossy regions: and block check <= " << block_check_tolerance(m.digits)
        << " or <= " << kLossDegradationFactor
        << " x the lossless analogue), else per box pair truncation if delta <= "
-       << std::pow(10.0, -(m.digits + 1.0)) << ", exact otherwise";
+       << std::pow(10.0, -(m.digits + 1.0))
+       << ", exact otherwise (allowed if x*/alpha <= " << kExactFallbackBoxEdges
+       << " box edges, x* = " << truncation_decay_exponent(m.digits) << "; exact-part budget "
+       << megabytes(m.budget) << " MB)";
     for (std::size_t i = 0; i < 2; ++i) {
         const Region& r = m.region[i];
         os << "\n  region R" << i + 1 << ": ";
@@ -1160,11 +1381,11 @@ std::string MlfmmFarOperator::describe() const {
                << r.pattern_seconds << " s)";
         }
         if (r.exact) {
-            os << ", exact part nnz " << r.exact->nonzeros() << " ("
-               << static_cast<Real>(r.exact->memory_bytes()) / 1048576.0 << " MB, "
-               << r.exact_seconds << " s; " << r.truncated_basis_pairs
-               << " basis pairs of exact box pairs truncated, max delta " << r.truncated_basis_bound
-               << ")";
+            const ExactPartInfo& x = r.xinfo;
+            os << ", exact part " << x.pairs << " basis pairs (L, K) from " << x.box_pairs
+               << " box pairs (estimate <= " << x.pair_bound << "), " << megabytes(x.bytes)
+               << " MB, " << x.seconds << " s; " << x.truncated_pairs
+               << " basis pairs of exact box pairs truncated, max delta " << x.truncated_bound;
         }
         for (const FarLevelInfo& f : r.info) {
             os << "\n    level " << f.level << ": " << f.boxes

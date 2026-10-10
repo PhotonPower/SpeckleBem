@@ -48,9 +48,9 @@ OctreeParams leaf_rule_params(const basis::RwgSpace& space, Real wavelength,
         throw std::invalid_argument("leaf_rule_params: wavelength must be positive and finite");
     }
     const Real a_min = params.accuracy_digits <= 3.0 ? kLeafMinLambdaD3 : kLeafMinLambdaD5;
-    // r_max / a <= kLeafMaxSupportRatio also with the octree's floor tolerance.
-    const Real a_rmax = max_support_radius(space) /
-                        (kLeafMaxSupportRatio * (1.0 - kMinBoxSizeTolerance) * wavelength);
+    // r_max / a <= max_support_ratio(d0) also with the octree's floor tolerance.
+    const Real a_rmax = max_support_radius(space) / (max_support_ratio(params.accuracy_digits) *
+                                                     (1.0 - kMinBoxSizeTolerance) * wavelength);
     o.min_box_size_lambda = std::max({o.min_box_size_lambda, a_min, a_rmax});
     return o;
 }

@@ -46,31 +46,53 @@ struct MlfmmParams {
     Real accuracy_digits = 3.0;  ///< d0 in L = kD + 1.8 d0^{2/3} (kD)^{1/3}
     bool precompute_translators = true;
     bool use_fft_interpolation = false;  ///< later: FFT / Lagrange interpolation
-    /// Leaf rule of ADR 0008 (WP20b amendment), applied by MlfmmOperator: the octree's leaf edge
-    /// floor is raised to max(octree.min_box_size_lambda, a_min(d0), r_max / 0.3) with a_min =
-    /// lambda1 / 4 for d0 <= 3 and lambda1 / 2 for d0 > 3 (r_max = max_support_radius, lambda1 the
-    /// exterior wavelength); octree.min_box_size_lambda acts as a lower bound. The accuracy
-    /// statements of ADR 0008 / docs/05 assume it. false: the octree parameters are used as given
-    /// (tests and experiments with deliberately small trees).
+    /// Leaf rule of ADR 0008 (WP20b amendment, WP21 review), applied by MlfmmOperator: the
+    /// octree's leaf edge floor is raised to max(octree.min_box_size_lambda, a_min(d0), r_max /
+    /// max_support_ratio(d0)) with a_min = lambda1 / 4 for d0 <= 3 and lambda1 / 2 for d0 > 3
+    /// (r_max = max_support_radius, lambda1 the exterior wavelength); octree.min_box_size_lambda
+    /// acts as a lower bound. The accuracy statements of ADR 0008 / docs/05 assume it. false: the
+    /// octree parameters are used as given (tests and experiments with deliberately small trees).
     bool automatic_leaf_size = true;
     /// Per region (0 = R1, 1 = R2): true evaluates every far interaction of that region exactly
     /// (the near-field fallback of ADR 0008 §6 on every far level) instead of the
     /// expansion / truncation policy. Rigorous, but O(N^2) memory for that region; meant for
     /// diagnostics and the complementarity tests.
     std::array<bool, 2> exact_far_regions = {false, false};
+    /// Budget of the exact far parts of both regions (ADR 0008 §6 fallback) [bytes], checked
+    /// against the pre-assembly estimate before any allocation (far_operator.hpp); exceeding it
+    /// throws TruncationOrderError with cause exact_part_too_large. 0 = automatic:
+    /// max(kExactFarNearFactor x the near-field bytes estimated from the octree,
+    /// kExactFarMinBytes). SIZE_MAX disables the guard.
+    std::size_t max_exact_far_bytes = 0;
 };
+
+/// Automatic exact-part budget (MlfmmParams::max_exact_far_bytes = 0): this multiple of the
+/// near-field bytes (4 blocks x 24 bytes per near basis pair), at least kExactFarMinBytes. On the
+/// measured Ag cases the exact part (40 bytes per pair) is 0.2-1.3 x the near field
+/// (CHANGELOG, WP21 review); a region whose exact interactions reach far beyond the near
+/// neighbourhood (weak decay) would exceed it long before it costs more than the dense matrix.
+inline constexpr Real kExactFarNearFactor = 2.0;
+inline constexpr std::size_t kExactFarMinBytes = std::size_t{1} << 30;
 
 /// Leaf rule of ADR 0008 (MlfmmParams::automatic_leaf_size): leaf edge >= kLeafMinLambdaD3 lambda
 /// for d0 <= 3, >= kLeafMinLambdaD5 lambda for d0 > 3 (measured: d0 = 5 needs leaves >= lambda/2),
-/// and r_max / a <= kLeafMaxSupportRatio (the order search fails for larger ratios at d0 = 5).
+/// and r_max / a <= max_support_ratio(d0).
 inline constexpr Real kLeafMinLambdaD3 = 0.25;
 inline constexpr Real kLeafMinLambdaD5 = 0.5;
-inline constexpr Real kLeafMaxSupportRatio = 0.3;
+/// Largest r_max / a of the leaf rule: 0.6 for d0 <= 3 (lambda/4 leaves at r_max / a ~ 0.57 meet
+/// the docs/05 matvec criterion, ADR 0008 WP20b amendment), 0.3 for d0 > 3 (the order search
+/// fails for larger ratios at d0 = 5). Also the threshold of the cause mesh_or_leaf_size of
+/// TruncationOrderError.
+inline constexpr Real kLeafMaxSupportRatioD3 = 0.6;
+inline constexpr Real kLeafMaxSupportRatioD5 = 0.3;
+[[nodiscard]] constexpr Real max_support_ratio(Real digits) {
+    return digits <= 3.0 ? kLeafMaxSupportRatioD3 : kLeafMaxSupportRatioD5;
+}
 
 /// Octree parameters after the leaf rule: params.octree with min_box_size_lambda raised to
-/// max(given, a_min(d0), r_max / (kLeafMaxSupportRatio (1 - kMinBoxSizeTolerance) wavelength))
-/// (the tolerance factor keeps r_max / a <= 0.3 despite the octree's floor tolerance);
-/// params.octree unchanged if params.automatic_leaf_size is false.
+/// max(given, a_min(d0), r_max / (max_support_ratio(d0) (1 - kMinBoxSizeTolerance) wavelength))
+/// (the tolerance factor keeps r_max / a <= max_support_ratio(d0) despite the octree's floor
+/// tolerance); params.octree unchanged if params.automatic_leaf_size is false.
 /// @param wavelength the octree's reference wavelength lambda1 [m]
 /// @throws std::invalid_argument for an empty space, accuracy_digits <= 0 or a non-positive
 ///         wavelength.

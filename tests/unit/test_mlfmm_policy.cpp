@@ -216,9 +216,15 @@ TEST_CASE("mlfmm policy: automatic leaf rule", "[mlfmm]") {
         p.accuracy_digits = d0;
         const Real floor = mlfmm::leaf_rule_params(s.space, kLambda, p).min_box_size_lambda;
         const Real expected = std::max(
-            d0 <= 3.0 ? 0.25 : 0.5, rmax / (0.3 * (1.0 - mlfmm::kMinBoxSizeTolerance) * kLambda));
+            d0 <= 3.0 ? 0.25 : 0.5,
+            rmax / (mlfmm::max_support_ratio(d0) * (1.0 - mlfmm::kMinBoxSizeTolerance) * kLambda));
         CHECK(std::abs(floor - expected) <= 1e-12 * expected);
     }
+    // WP21 review: 0.6 for d0 <= 3 (lambda / 4 leaves at r_max / a ~ 0.57 meet docs/05), 0.3 above.
+    CHECK(mlfmm::max_support_ratio(2.0) == 0.6);
+    CHECK(mlfmm::max_support_ratio(3.0) == 0.6);
+    CHECK(mlfmm::max_support_ratio(3.5) == 0.3);
+    CHECK(mlfmm::max_support_ratio(5.0) == 0.3);
     p.octree.min_box_size_lambda = 5.0;  // the user value is a lower bound
     CHECK(mlfmm::leaf_rule_params(s.space, kLambda, p).min_box_size_lambda == 5.0);
     p.automatic_leaf_size = false;

@@ -16,6 +16,7 @@
 namespace specklebem::op {
 
 class SparseOperator;
+class RegionSparseOperator;
 
 struct Problem {
     const basis::RwgSpace* space = nullptr;
@@ -94,6 +95,23 @@ struct BasisPattern {
 /// @throws std::invalid_argument for an invalid Problem (validate) or an inconsistent pattern
 ///         (sizes, group indices, columns out of range or not strictly ascending).
 std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPattern& pattern);
+
+/// Region i's Galerkin entries L_i and K_i (K_i with its jump term on coincident triangles, as in
+/// DenseStrategy) on an N x N basis-pair pattern in CSR form, stored per pair as (L_i, K_i) with
+/// the region's weights e_i, h_i, m_i of p.formulation (op::RegionSparseOperator): the region-i
+/// part of Z on the pattern with 40 instead of 96 bytes per pair (WP21 review, MLFMM exact far
+/// part). Same test-triangle schedule as assemble_sparse (element_blocks once per triangle pair
+/// touched by the pattern; bitwise identical for any thread count). Each region-i entry of Z on
+/// the pattern equals weight x stored value up to round-off (the dense assembler applies the
+/// weights per triangle pair). Memory 40 bytes per pair + 8 (N + 1) bytes.
+/// @param region 0 = R1, 1 = R2
+/// @param row_ptr, cols the pattern, taken over: row_ptr has N + 1 entries starting with 0,
+///        cols strictly ascending per row in [0, N)
+/// @throws std::invalid_argument for an invalid Problem (validate), a region other than 0 / 1
+///         or an inconsistent pattern.
+std::shared_ptr<RegionSparseOperator> assemble_region_sparse(const Problem& p, int region,
+                                                             std::vector<Index> row_ptr,
+                                                             std::vector<Index> cols);
 
 /// Right-hand side  b = [ (a1/eta1) <f, E_inc>_tan ; b1 eta1 <f, H_inc>_tan ].
 /// <f_m, E_inc> = sum over the two support triangles of int f_m . E_inc dS with the Dunavant

@@ -275,6 +275,12 @@ void Simulation::assemble() {
                         os << "the requested digits are not reachable at this leaf size; lower "
                               "mlfmm.accuracy_digits or raise mlfmm.min_box_size_lambda";
                         break;
+                    case mlfmm::TruncationOrderError::Cause::exact_part_too_large:
+                        os << "the exactly evaluated far interactions of the lossy region would "
+                              "exceed the memory budget mlfmm.max_exact_far_bytes; lower "
+                              "mlfmm.accuracy_digits, raise mlfmm.max_exact_far_bytes or use "
+                              "compression \"dense\"";
+                        break;
                 }
                 os << ". Details: " << e.what();
                 throw std::runtime_error(os.str());
@@ -389,7 +395,8 @@ std::string Simulation::report() const {
         o << " (accuracy_digits " << m.accuracy_digits << ", max_elements_per_leaf "
           << m.octree.max_elements_per_leaf << ", min_box_size_lambda "
           << m.octree.min_box_size_lambda << ", max_levels " << m.octree.max_levels
-          << ", automatic_leaf_size " << (m.automatic_leaf_size ? "true" : "false") << ")";
+          << ", automatic_leaf_size " << (m.automatic_leaf_size ? "true" : "false")
+          << ", max_exact_far_bytes " << m.max_exact_far_bytes << ")";
     }
     o << "\n";
     if (s.op == nullptr) {

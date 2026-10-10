@@ -193,7 +193,8 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
 }
 
 /// mlfmm=dict(...) onto mlfmm::MlfmmParams (docs/10): accuracy_digits, max_elements_per_leaf,
-/// min_box_size_lambda (the octree keys of mlfmm::OctreeParams), automatic_leaf_size.
+/// min_box_size_lambda (the octree keys of mlfmm::OctreeParams), automatic_leaf_size,
+/// max_exact_far_bytes.
 void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
     for (const auto& [k, v] : d) {
         const auto key = dict_key(k, "mlfmm");
@@ -205,6 +206,9 @@ void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
             p.octree.min_box_size_lambda = dict_value<Real>(v, key, "mlfmm");
         } else if (key == "automatic_leaf_size") {
             p.automatic_leaf_size = dict_value<bool>(v, key, "mlfmm");
+        } else if (key == "max_exact_far_bytes") {
+            // Python int >= 0 (a negative value fails the unsigned cast -> ValueError).
+            p.max_exact_far_bytes = dict_value<std::size_t>(v, key, "mlfmm");
         } else {
             throw py::value_error("mlfmm: unknown key '" + key + "'");
         }
@@ -502,9 +506,10 @@ solver : str
     "gmres" or "direct" (dense LU).
 compression : str
     "dense" or "mlfmm" (multilevel fast multipole, GMRES only); "aca" / "hmatrix" and unknown
-    names raise ValueError. With "mlfmm", ``assemble()`` raises RuntimeError when no expansion
-    order meets the accuracy (e.g. a silver interior: the lossy-region policy is not
-    implemented yet).
+    names raise ValueError. With "mlfmm", lossy interiors (e.g. silver) use the ADR 0008 §6
+    policy (far pairs truncated by the decay bound or evaluated exactly); ``assemble()`` raises
+    RuntimeError when a region has neither a usable expansion nor enough decay, or when the
+    exactly evaluated far part would exceed ``max_exact_far_bytes``.
 gmres : dict, optional
     Keys ``tol`` (1e-3), ``max_iter`` (2000), ``restart`` (None = full GMRES), ``side``
     ("left" / "right") and ``verbose`` (True: progress via the C++ log).
@@ -518,9 +523,11 @@ kernels : dict, optional
 mlfmm : dict, optional
     MLFMM parameters (used with compression="mlfmm"): ``accuracy_digits`` (3; d0 in (0, 5]),
     ``max_elements_per_leaf`` (100), ``min_box_size_lambda`` (0.25; leaf-edge floor in
-    exterior wavelengths, a lower bound of the automatic leaf rule) and
+    exterior wavelengths, a lower bound of the automatic leaf rule),
     ``automatic_leaf_size`` (True: leaf edge >= max(lambda/4 for d0 <= 3, lambda/2 for d0 > 3,
-    r_max / 0.3); False uses min_box_size_lambda as given).
+    r_max / 0.6 for d0 <= 3, r_max / 0.3 for d0 > 3); False uses min_box_size_lambda as given)
+    and ``max_exact_far_bytes`` (0 = automatic: max(2 x the near-field bytes, 1 GiB); budget of
+    the exactly evaluated far interactions of lossy regions, checked before allocation).
 
 Raises
 ------
