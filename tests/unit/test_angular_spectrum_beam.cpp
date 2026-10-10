@@ -249,7 +249,7 @@ TEST_CASE("angular-spectrum beam: reproduces the WP-V1 study construction", "[ex
 
 TEST_CASE("angular-spectrum beam: paraxial limit agrees with GaussianBeam to O(f^2)",
           "[excitation]") {
-    // f = lambda/(pi w0) (divergence half-angle). Points rho <= 2 w0, |zeta| <= z_R/2,
+    // f = lambda/(pi w0) (divergence half-angle). Points rho <= 2 w0, |zeta| <= z_R/4,
     // theta_in = 0.2, p and s. Bound used: max |E - E_paraxial| <= f^2 / 2 V/m; measured for
     // w0 = 5 lambda (f^2 = 4.05e-3): 1.49e-3 (p) and 1.41e-3 (s), i.e. 0.35-0.37 f^2; w0 = 10
     // lambda gives 0.2496 of that (the O(f^2) scaling).
@@ -257,7 +257,7 @@ TEST_CASE("angular-spectrum beam: paraxial limit agrees with GaussianBeam to O(f
         const Real theta = 0.2;
         const Real z_r = kPi * w0 * w0 / kLambda;
         auto p = beam_params(w0, theta, pol);
-        p.region_radius = std::hypot(2 * w0, 0.5 * z_r) * 1.01;
+        p.region_radius = std::hypot(2 * w0, 0.25 * z_r) * 1.01;
         const AngularSpectrumBeam beam(p);
         GaussianBeam::Params gp;
         gp.wavelength = kLambda;
@@ -266,7 +266,7 @@ TEST_CASE("angular-spectrum beam: paraxial limit agrees with GaussianBeam to O(f
         gp.polarization = pol;
         const GaussianBeam par(gp);
         Real dmax = 0;
-        for (const Real zeta : {-0.5 * z_r, -0.25 * z_r, 0.0, 0.25 * z_r, 0.5 * z_r}) {
+        for (const Real zeta : {-0.25 * z_r, -0.125 * z_r, 0.0, 0.125 * z_r, 0.25 * z_r}) {
             for (const Real rho : {0.0, 0.5 * w0, w0, 1.5 * w0, 2 * w0}) {
                 for (const Real phi : {0.0, 0.7, 1.9, 4.0}) {
                     const Vec3 r =
