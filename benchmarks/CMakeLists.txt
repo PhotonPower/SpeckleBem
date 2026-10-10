@@ -23,6 +23,10 @@ add_executable(specklebem_ag_sphere_mlfmm ag_sphere_mlfmm.cpp ${PROJECT_SOURCE_D
 target_include_directories(specklebem_ag_sphere_mlfmm PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
 target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
 
-# Benchmarks reproduce Fig. 2(c) of the paper: wall time vs N for dense LU,
-# preconditioned MLFMM (Ag) and ICTF-MLFMM (Si). Added in Phase 4.
-# add_executable(bench_matvec bench_matvec.cpp)
+# MLFMM scaling study (WP22b1, Phase 4 DoD; Fig. 2(c) of the paper: wall time vs N for
+# preconditioned MLFMM (Ag) and ICTF-MLFMM (Si) rough surfaces): one case per process, run by
+# hand, see benchmarks/results/mlfmm_scaling.md. Shares the case code with the smoke test
+# (tests/support/mlfmm_scaling_support.hpp); mlfmm_scaling_fit.py fits the exponents.
+add_executable(specklebem_mlfmm_scaling mlfmm_scaling.cpp ${PROJECT_SOURCE_DIR}/tests/support/system_memory.cpp)
+target_include_directories(specklebem_mlfmm_scaling PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+target_link_libraries(specklebem_mlfmm_scaling PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
