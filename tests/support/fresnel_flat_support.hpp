@@ -235,9 +235,10 @@ struct Case {
     Real waist = 1e-6;            ///< w0 [m] (<= L / 4, check_beam_waist)
     Real theta_deg = 0.0;         ///< incidence angle about y [deg]
     excitation::Polarization pol = excitation::Polarization::P;
-    Real mesh_size = 50e-9;  ///< top-face spacing h [m]
-    Real digits = 3.0;       ///< MLFMM accuracy digits d0
-    Real tolerance = 1e-4;   ///< GMRES relative residual
+    Real mesh_size = 50e-9;             ///< top-face spacing h [m]
+    std::string compression = "mlfmm";  ///< "mlfmm" or "dense" (cross-check of small cases)
+    Real digits = 3.0;                  ///< MLFMM accuracy digits d0
+    Real tolerance = 1e-4;              ///< GMRES relative residual
     int max_iter = 6000;
     int restart = 0;  ///< 0: full GMRES
     /// Midpoint spacing in theta of the reflection-hemisphere grid [deg] (phi: twice that).
@@ -263,8 +264,8 @@ inline std::string label(const Case& c) {
     std::ostringstream os;
     os << (c.material == "ag" ? "Ag" : (c.material == "si" ? "Si" : c.material))
        << " L = " << c.L * 1e6 << " um, w0 = " << c.waist * 1e6 << " um, " << c.theta_deg
-       << " deg, " << (c.pol == excitation::Polarization::P ? "p" : "s") << ", d0 = " << c.digits
-       << ", tol = " << c.tolerance;
+       << " deg, " << (c.pol == excitation::Polarization::P ? "p" : "s") << ", " << c.compression
+       << ", d0 = " << c.digits << ", tol = " << c.tolerance;
     return os.str();
 }
 
@@ -335,7 +336,7 @@ inline SimulationConfig make_config(const Case& c) {
     cfg.wavelength = kLambda;
     cfg.exterior = material::vacuum();
     cfg.object = object_material(c.material);
-    cfg.compression = "mlfmm";
+    cfg.compression = c.compression;
     cfg.mlfmm.accuracy_digits = c.digits;
     cfg.formulation = c.formulation;
     cfg.diagonal_preconditioner = c.jacobi;

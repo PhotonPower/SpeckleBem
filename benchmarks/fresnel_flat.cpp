@@ -18,7 +18,8 @@
 // refused.
 //
 // Usage: specklebem_fresnel_flat --material ag|si [--L 4e-6] [--w0 1e-6] [--theta 0] [--pol p|s]
-//            [--mesh-size 50e-9] [--digits 3] [--tol 1e-4] [--max-iter 6000] [--restart 0]
+//            [--mesh-size 50e-9] [--compression mlfmm|dense] [--digits|--d0 3] [--tol 1e-4]
+//            [--max-iter 6000] [--restart 0]
 //            [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--estimate-only]
 //            [--force]
@@ -66,7 +67,9 @@ Options parse(int argc, char** argv) {
             if (p != "p" && p != "s")
                 throw std::invalid_argument("--pol must be p or s");
             o.c.pol = p == "p" ? excitation::Polarization::P : excitation::Polarization::S;
-        } else if (a == "--digits") {
+        } else if (a == "--compression") {
+            o.c.compression = value();
+        } else if (a == "--digits" || a == "--d0") {
             o.c.digits = std::stod(value());
         } else if (a == "--tol") {
             o.c.tolerance = std::stod(value());
