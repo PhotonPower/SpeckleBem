@@ -321,11 +321,8 @@ inline Estimate estimate(const Geometry& geo, const Case& c) {
     const Real omega = 2.0 * constants::pi * constants::c0 / kLambda;
     const std::array<Complex, 2> k = {sim.config().exterior.wavenumber(omega), k2};
     for (std::size_t i = 0; i < 2; ++i) {
-        // A region whose decay spoils the expansion over the leaf diagonal (alpha D >= 1, the
-        // Ag interior) has no leaf patterns (exact / truncated far part).
-        const Real diag = std::sqrt(3.0) * e.leaf_edge + 2.0 * e.max_support_radius;
-        if (-k[i].imag() * diag >= 1.0)
-            continue;
+        // A region whose leaf order search fails (the Ag interior: exact / truncated far part)
+        // has no leaf patterns. (Si with lambda/0.7 leaves has alpha D = 1.5 and still expands.)
         try {
             const mlfmm::LeafSampling ls = mlfmm::leaf_sampling(space, tree, k[i], c.digits);
             if (!ls.search.achievable)

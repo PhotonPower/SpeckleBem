@@ -100,7 +100,8 @@ def main(argv: list[str]) -> int:
             if len(pts) < 2:
                 continue
             g, _ = fit([p[0] for p in pts], [p[1] for p in pts])
-            print(f"- {name}: gamma = {g:.2f} (2N = {pts[0][0]} ... {pts[-1][0]}, {len(pts)} sizes)")
+            rng = f"2N = {pts[0][0]} ... {pts[-1][0]}, {len(pts)} sizes"
+            print(f"- {name}: gamma = {g:.2f} ({rng})")
     return 0
 
 
