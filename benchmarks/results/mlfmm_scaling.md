@@ -216,27 +216,34 @@ graded box with λ/4 leaves.
 
 ## Local leaf rule (WP21L, ADR 0008 amendment 2026-10-11)
 
-Proposal 1 below is implemented: `MlfmmParams::leaf_radius_quantile` q (default 0.99; 1 = the
-global WP21 rule, bitwise unchanged) takes the leaf from the radius quantile r_q, and every basis
-function with r > ratio(d₀) a_leaf lives on its home level (patterns at that level's sampling,
-near iff the ancestors on the coarser home level touch). Deviation from the amendment: above the
-leaf the ratio is **ratio(d₀)/2** (`kElevatedSupportRatioFactor`): with the leaf ratio there the
-level order exceeds k r_min and the translators amplify the interpolation error of the children's
-fields (graded box 1.5 × 2 µm, Si, d₀ = 3: matvec 5.0e-2 with the leaf ratio, 1.5e-4 with half of
-it). Hence an elevated function sits at least two levels above the leaf.
+Proposal 1 below is implemented: `MlfmmParams::leaf_radius_quantile` q takes the leaf from the
+radius quantile r_q, and every basis function with r > ratio(d₀) a_leaf lives on its home level
+(patterns at that level's sampling, near iff the ancestors on the coarser home level touch).
+
+- **Default q = 1** (the global WP21 rule, bitwise unchanged): the local rule is opt-in
+  (`mlfmm=dict(leaf_radius_quantile=0.8)`, `--leaf-radius-quantile 0.8`) until WP22b3 measures it
+  at large L; the WP22b1 Si boxes need q ≈ 0.8 (below).
+- **d₀ ≤ 3 only**: q < 1 with `accuracy_digits` > 3 raises `std::invalid_argument`
+  (`kLocalLeafRuleMaxDigits`), because the λ/2 leaves it permits at d₀ = 5 miss 1e-5 (accuracy
+  table below: 5.6e-5 Si / 6.4e-5 Ag). No fallback to the global rule.
+- **Elevated ratio ρ_e = ratio(d₀)/2** (`kElevatedSupportRatioFactor`), a deviation from the
+  amendment as written: with the leaf ratio above the leaf the level order exceeds k r_min and the
+  translators amplify the interpolation error of the children's fields (graded box 1.5 × 2 µm,
+  Si, d₀ = 3, q = 0.5: matvec **5.0e-2 with ρ, 1.5e-4 with ρ/2**). Hence an elevated function sits
+  at least two levels above the leaf (ρ_e a_{D−1} = ρ a_D).
 
 `--estimate-only` (model now with per-level radii, leaf patterns of the leaf functions and
 elevated patterns at their home level), Si, 100 nm box, fine band, d₀ = 3:
 
 | case | q | levels | leaf [nm] | elevated (home level) | near [GB] | patterns [GB] (elevated) | far tables [GB] | setup peak model [GB] |
 |---|---:|---:|---:|---|---:|---:|---:|---:|
-| Si L = 4 µm, 2N = 209 760 | 1 (global) | 5 | 362 | 0 | 14.3 | 27.9 | 2.1 | 55.4 |
-| | 0.99 (default) | 5 | 362 | 0 | 14.3 | 27.9 | 2.1 | 55.4 |
+| Si L = 4 µm, 2N = 209 760 | 1 (global, default) | 5 | 362 | 0 | 14.3 | 27.9 | 2.1 | 55.4 |
+| | 0.99 | 5 | 362 | 0 | 14.3 | 27.9 | 2.1 | 55.4 |
 | | 0.9 / 0.8 / 0.5 | 6 | 181 | 8 081 = 7.7 % (3) | 6.4 | 18.4 (5.4) | 4.1 | 35.3 |
 | Si L = 8 µm, 2N = 515 520 | 1 / 0.99 / 0.9 | 6 | 250 | 0 | 16.2 | 46.0 | 7.6 | 84.2 |
 | | 0.8 / 0.5 | 7 | 125 | 27 040 = 10.5 % (4) | 7.5 | 30.0 (11.0) | 13.5 | 60.1 |
 
-**The default q = 0.99 changes nothing for these boxes**: the coarse 100 nm cells (r = 112–117 nm)
+**q = 0.99 (the first default) changes nothing for these boxes**: the coarse 100 nm cells (r = 112–117 nm)
 are 7.7–10.5 % of the basis functions (the fine band holds most box cells), so r_q is a coarse-cell
 radius unless q is below ~0.9. With q = 0.8 the setup peak model drops by 36 % (L = 4 µm) and 29 %
 (L = 8 µm): near field −55 %, patterns −34 %, far tables ×2 (one more level). Measured (Si L = 1 µm,
@@ -254,12 +261,14 @@ global one (near 0.99 vs 0.24 GB), since every elevated function is near to the 
 box four times the leaf edge.
 
 Accuracy against the dense matrix (graded box 1 × 1 × 4 µm, 2N = 13 200, PMCHWT; tests/validation_large):
-d₀ = 3 local / global: Si 3.4e-4 / 2.1e-4, Ag 2.5e-4 / 2.0e-4. **d₀ = 5 local misses 1e-5**
+d₀ = 3 local / global: Si 3.4e-4 / 2.1e-4, Ag 2.5e-4 / 2.0e-4. **d₀ = 5 local missed 1e-5**
 (Si 5.6e-5, Ag 6.4e-5; global 4.5e-6 / 5.2e-6): the error is the leaf–leaf vacuum part at the
 λ/2 leaves of the WP21 rule a_min(5) (5.3e-5 / 6.1e-5; the part involving elevated functions is
 6.8e-7 / 1.0e-6). The global rule passes only because r_max forces λ leaves; at λ/2 the far blocks
-carry ~4e-4 (WP19b) and the far part is ~8 % of |Z x| on this box. Open: a_min(5) ≥ λ or a binding
-lossless block check at d₀ = 5, and a default q (≈ 0.8) that elevates the coarse box cells.
+carry ~4e-4 (WP19b) and the far part is ~8 % of |Z x| on this box. Therefore the local rule is
+rejected for d₀ > 3 (coordinator decision 2026-10-11; the validation-large cases check d₀ = 3 local
+and global and d₀ = 5 global, the rejection is a unit test). Open: a_min(5) ≥ λ or a binding
+lossless block check, which would allow the local rule at d₀ = 5, and the default q after WP22b3.
 
 ## Memory model (`--estimate-only`, the run guard)
 
@@ -282,8 +291,8 @@ lossless block check at d₀ = 5, and a default q (≈ 0.8) that elevates the co
 
 ## What would extend the range (proposals, not applied)
 
-1. **Local leaf rule** (implemented in WP21L, section "Local leaf rule" above; needs q ≈ 0.8 for
-   these boxes): apply r_max / a ≤ 0.6 per box, e.g. by
+1. **Local leaf rule** (implemented in WP21L, opt-in, d₀ ≤ 3, section "Local leaf rule" above;
+   needs q ≈ 0.8 for these boxes): apply r_max / a ≤ 0.6 per box, e.g. by
    letting the few coarse box cells live on a coarser level (non-uniform depth, ADR 0008 change),
    or by splitting coarse box triangles so that box supports stay ≤ the top-face supports (r_max
    ≈ 75 nm, box_mesh_size ≈ 60 nm, ~+40 % unknowns at L = 10 µm). With λ/4 leaves the Si 10⁶ case
