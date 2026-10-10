@@ -72,7 +72,7 @@
 ///     The level's decision is FarDecision::truncation if no pair is exact, else
 ///     FarDecision::exact (with the counts of both kinds).
 /// The exact fallback needs strong decay. A pair is truncated once alpha d >= x*(d0), the root of
-/// (1 + x) e^-x = 10^-(d0+1) (truncation_decay_exponent: 11.76 for d0 = 3, 16.65 for d0 = 5), so
+/// (1 + x) e^-x = 10^-(d0+1) (truncation_decay_exponent: 11.76 for d0 = 3, 16.69 for d0 = 5), so
 /// the exact pairs reach x* / alpha in support distance. The fallback is allowed only if x* /
 /// alpha <= kExactFallbackBoxEdges a_l at the first level l without expansion (the exact pairs
 /// then stay within a few boxes of that level); otherwise the constructor throws
@@ -125,7 +125,7 @@ inline constexpr int kBlockCheckPairs = 3;
 inline constexpr int kBlockCheckBases = 24;
 
 /// x*(d0): the root of (1 + x) e^-x = 10^-(d0+1), i.e. the decay exponent alpha d beyond which
-/// the region policy truncates a pair (11.76 for d0 = 3, 16.65 for d0 = 5).
+/// the region policy truncates a pair (11.76 for d0 = 3, 16.69 for d0 = 5).
 /// @throws std::invalid_argument for digits <= 0 or non-finite digits.
 [[nodiscard]] Real truncation_decay_exponent(Real digits);
 /// The exact fallback is allowed only if x*(d0) / alpha <= this many box edges of the first level

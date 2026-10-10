@@ -3,6 +3,7 @@
 /// exception safety and the error type. Icospheres at lambda0 = 500 nm.
 #include "specklebem/compression/mlfmm/far_operator.hpp"
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
+#include "specklebem/compression/mlfmm/near_field.hpp"
 #include "specklebem/compression/mlfmm/patterns.hpp"
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/geometry/rough_surface.hpp"
@@ -10,6 +11,7 @@
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/operator/dense_operator.hpp"
+#include "specklebem/operator/region_sparse_operator.hpp"
 #include "specklebem/operator/sparse_operator.hpp"
 
 #include <catch2/catch_message.hpp>
@@ -204,6 +206,196 @@ TEST_CASE("mlfmm policy: Ag falls back to exact pairs; per-region complementarit
     const Real err = (Z * x - yd).norm() / yd.norm();
     INFO("Ag R2 part, forced exact: relative matvec difference " << err);
     CHECK(err <= 1e-12);
+}
+
+namespace {
+
+/// Union of icospheres (subdivision s, radius R) centred at the given points: a closed surface of
+/// several components, so that a small N spans a 4-level octree.
+geometry::TriangleMesh spheres(Real radius, int subdivisions, const std::vector<Vec3>& centres) {
+    const geometry::TriangleMesh one = geometry::make_icosphere(radius, subdivisions);
+    const Index nv = one.num_vertices();
+    const Index nt = one.num_triangles();
+    const auto nc = static_cast<Index>(centres.size());
+    Vertices v(nv * nc, 3);
+    Triangles t(nt * nc, 3);
+    for (Index s = 0; s < nc; ++s) {
+        const Vec3& c = centres[static_cast<std::size_t>(s)];
+        for (Index i = 0; i < nv; ++i) v.row(s * nv + i) = one.vertices().row(i) + c.transpose();
+        t.middleRows(s * nt, nt) = one.triangles().array() + s * nv;
+    }
+    return {std::move(v), std::move(t)};
+}
+
+/// Both regions forced exact on a multi-level tree: near + exact parts reproduce the dense matrix
+/// (round-off) and their basis pairs partition the N^2 pairs per region.
+void check_forced_exact(const Setup& s, const mlfmm::MlfmmParams& p, int min_exact_levels) {
+    const auto dense = op::DenseStrategy().build(s.problem);
+    const mlfmm::MlfmmOperator Z(s.problem, p);
+    INFO(Z.describe());
+    const mlfmm::MlfmmFarOperator& far = Z.far_operator();
+    const Index n = s.space.size();
+    REQUIRE(Z.octree().levels() >= 4);
+    const Index near_pairs = Z.near_operator().nonzeros() / 4;
+    for (const int r : {0, 1}) {
+        REQUIRE(far.exact_part(r) != nullptr);
+        CHECK(near_pairs + far.exact_part(r)->pairs() == n * n);
+        const mlfmm::ExactPartInfo& x = far.exact_info(r);
+        CHECK(x.pairs == far.exact_part(r)->pairs());
+        CHECK(x.pair_bound == x.pairs);  // forced: no per-basis truncation
+        CHECK(x.truncated_pairs == 0);
+        CHECK(x.counted_pairs == -1);  // under the budget: no count needed
+        CHECK(x.first_level == Z.octree().leaf_level());
+        int exact_levels = 0;
+        for (const mlfmm::FarLevelInfo& f : far.levels(r)) {
+            CHECK(f.decision != mlfmm::FarDecision::expansion);
+            CHECK(f.truncated_pairs == 0);
+            exact_levels += f.exact_pairs > 0 ? 1 : 0;
+        }
+        CHECK(exact_levels >= min_exact_levels);
+    }
+    for (int seed = 0; seed < 2; ++seed) {
+        VectorXc x = random_vector(dense->cols());
+        if (seed == 1)
+            x = x.reverse().eval();
+        const VectorXc yd = *dense * x;
+        const Real err = (Z * x - yd).norm() / yd.norm();
+        INFO("near + exact vs dense: " << err);
+        CHECK(err <= 1e-12);
+    }
+}
+
+}  // namespace
+
+TEST_CASE("mlfmm policy: truncation decay exponent x*(d0)", "[mlfmm]") {
+    for (const Real d0 : {1.0, 2.0, 3.0, 4.0, 5.0, 2.5}) {
+        const Real x = mlfmm::truncation_decay_exponent(d0);
+        const Real delta = (1.0 + x) * std::exp(-x);
+        CHECK(std::abs(delta / std::pow(10.0, -(d0 + 1.0)) - 1.0) <= 1e-10);
+    }
+    CHECK(std::abs(mlfmm::truncation_decay_exponent(3.0) - 11.76) <= 0.01);
+    CHECK(std::abs(mlfmm::truncation_decay_exponent(5.0) - 16.69) <= 0.01);
+    CHECK_THROWS_AS(mlfmm::truncation_decay_exponent(0.0), std::invalid_argument);
+    CHECK_THROWS_AS(mlfmm::truncation_decay_exponent(-1.0), std::invalid_argument);
+    CHECK_THROWS_AS(mlfmm::truncation_decay_exponent(std::nan("")), std::invalid_argument);
+}
+
+TEST_CASE("mlfmm policy: multi-level complementarity of the forced exact parts", "[mlfmm]") {
+    // Three small spheres (subdivision 1, R = 50 nm, 2N = 720) spread over 1.4 um: 4 octree levels
+    // (leaf ~0.18 um) with far pairs on levels 2 and 3, cheap enough for the sanitizer build.
+    Setup s(
+        spheres(0.1 * kLambda, 1,
+                {Vec3(0, 0, 0), Vec3(0.9 * kLambda, 0, 0), Vec3(2.7 * kLambda, 0.6 * kLambda, 0)}),
+        {Complex(2.25, 0.0), Complex(1.0, 0.0)}, Kind::PMCHWT);
+    s.problem.kernel_options = cheap_options();
+    mlfmm::MlfmmParams p;
+    p.octree = mlfmm::OctreeParams{1, 4, 0.0};
+    p.automatic_leaf_size = false;
+    p.exact_far_regions = {true, true};
+    check_forced_exact(s, p, 2);
+}
+
+TEST_CASE("mlfmm policy: forced exact parts on a 4-level icosphere", "[mlfmm]") {
+#ifndef NDEBUG
+    SKIP("2N = 3840 dense oracle: optimised builds only (the three-sphere case covers debug)");
+#else
+    // Icosphere R = 1.5 lambda0, subdivision 3 (2N = 3840), n = 1.5, 4 levels (leaf 0.375
+    // lambda0, r_max / a ~ 0.5): exact pairs on levels 2 and 3.
+    Setup s(geometry::make_icosphere(1.5 * kLambda, 3), {Complex(2.25, 0.0), Complex(1.0, 0.0)},
+            Kind::PMCHWT);
+    s.problem.kernel_options = cheap_options();
+    mlfmm::MlfmmParams p;
+    p.octree = mlfmm::OctreeParams{1, 4, 0.0};
+    p.automatic_leaf_size = false;
+    p.exact_far_regions = {true, true};
+    check_forced_exact(s, p, 2);
+#endif
+}
+
+TEST_CASE("mlfmm policy: error causes lossy_region and digits", "[mlfmm]") {
+    // Icosphere subdivision 3 with 3 levels (r_max / a ~ 0.25-0.29, below max_support_ratio for
+    // both d0): R = lambda0 gives lambda / 2 leaves, R = lambda0 / 2 lambda / 4 leaves.
+    const auto geo = [](Real radius) { return geometry::make_icosphere(radius, 3); };
+    mlfmm::MlfmmParams p = three_levels(3.0);
+    const auto expect = [&](const Setup& s, mlfmm::TruncationOrderError::Cause cause, int region) {
+        const mlfmm::Octree tree(s.space, kLambda, p.octree);
+        INFO("leaf a = " << tree.box_size(tree.leaf_level()) / kLambda << " lambda0, r_max / a = "
+                         << mlfmm::max_support_radius(s.space) / tree.box_size(tree.leaf_level()));
+        try {
+            const mlfmm::MlfmmFarOperator far(s.problem, tree, p);
+            FAIL("expected TruncationOrderError\n" << far.describe());
+        } catch (const mlfmm::TruncationOrderError& e) {
+            INFO(e.what());
+            CHECK(e.cause() == cause);
+            CHECK(e.region() == region);
+            CHECK(std::string(e.what()).find("x*/alpha") != std::string::npos);
+            CHECK(std::string(e.what()).find("-1.00e+00") == std::string::npos);
+        }
+    };
+    // n = 1.5 - 0.6j (alpha = 7.5 / um) at lambda / 2 leaves: the loss spoils the expansion
+    // (alpha D ~ 4) and the exact pairs would reach x* / alpha = 1.6 um = 6.2 leaf edges > 4
+    // (before the WP21 review: accepted since alpha a = 1.9 >= 1, with most pairs exact).
+    {
+        const Complex n(1.5, -0.6);
+        Setup s(geo(kLambda), {n * n, Complex(1.0, 0.0)}, Kind::PMCHWT);
+        s.problem.kernel_options = cheap_options();
+        const InteriorOnly interior(*s.form);
+        s.problem.formulation = &interior;  // region R2 only
+        expect(s, mlfmm::TruncationOrderError::Cause::lossy_region, 1);
+    }
+    // Lossless interior at d0 = 5 with lambda / 4 leaves: no expansion order (ADR 0008: d0 = 5
+    // needs leaves >= lambda / 2) at a fine mesh, no decay: cause digits, region R1 (planned
+    // first).
+    {
+        p = three_levels(5.0);
+        Setup s(geo(0.5 * kLambda), {Complex(2.25, 0.0), Complex(1.0, 0.0)}, Kind::PMCHWT);
+        s.problem.kernel_options = cheap_options();
+        expect(s, mlfmm::TruncationOrderError::Cause::digits, 0);
+    }
+}
+
+TEST_CASE("mlfmm policy: exact-part budget", "[mlfmm]") {
+    // The Ag case of "Ag falls back to exact pairs": with a budget of 1 kB the estimate exceeds
+    // it before anything is assembled.
+    Setup s(geometry::make_icosphere(1.5 * kLambda, 2), material::silver_500nm(), Kind::PMCHWT);
+    s.problem.kernel_options = cheap_options();
+    const InteriorOnly interior(*s.form);
+    s.problem.formulation = &interior;  // region R2 only: no exterior block check
+    mlfmm::MlfmmParams p = three_levels(3.0);
+    const mlfmm::Octree tree(s.space, kLambda, p.octree);
+    {
+        const mlfmm::MlfmmFarOperator far(s.problem, tree, p);
+        INFO(far.describe());
+        const mlfmm::ExactPartInfo& x = far.exact_info(1);
+        CHECK(x.first_level == 2);
+        CHECK(x.box_pairs == far.levels(1).front().exact_pairs);
+        CHECK(x.pair_bound >= x.pairs + x.truncated_pairs);
+        REQUIRE(far.exact_part(1) != nullptr);
+        CHECK(x.pairs == far.exact_part(1)->pairs());
+        CHECK(x.bytes == far.exact_part(1)->memory_bytes());
+        CHECK(far.exact_budget() == mlfmm::kExactFarMinBytes);  // automatic, small problem
+        CHECK(static_cast<Real>(far.exact_budget()) >=
+              mlfmm::kExactFarNearFactor * static_cast<Real>(mlfmm::estimate_near_bytes(tree)));
+        // estimate_near_bytes equals the assembled near field.
+        CHECK(mlfmm::estimate_near_bytes(tree) ==
+              mlfmm::assemble_near(s.problem, tree)->memory_bytes());
+        p.max_exact_far_bytes = x.bytes;  // exactly enough
+        const mlfmm::MlfmmFarOperator fits(s.problem, tree, p);
+        CHECK(fits.exact_budget() == x.bytes);
+        CHECK(fits.exact_info(1).counted_pairs == x.pairs);  // bound > budget: counted
+        CHECK(fits.exact_info(1).pairs == x.pairs);
+    }
+    p.max_exact_far_bytes = 1000;
+    try {
+        const mlfmm::MlfmmFarOperator far(s.problem, tree, p);
+        FAIL("expected TruncationOrderError");
+    } catch (const mlfmm::TruncationOrderError& e) {
+        INFO(e.what());
+        CHECK(e.cause() == mlfmm::TruncationOrderError::Cause::exact_part_too_large);
+        CHECK(e.region() == 1);
+        CHECK(e.level() == 2);
+        CHECK(std::string(e.what()).find("max_exact_far_bytes") != std::string::npos);
+    }
 }
 
 TEST_CASE("mlfmm policy: automatic leaf rule", "[mlfmm]") {
