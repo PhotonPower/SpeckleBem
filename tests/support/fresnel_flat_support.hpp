@@ -232,8 +232,11 @@ inline PlaneFlux incident_flux_z0(const excitation::Excitation& inc, Real L, Rea
 struct Case {
     std::string material = "ag";  ///< "ag" (silver_500nm) or "si" (silicon_500nm)
     Real L = 4e-6;                ///< patch edge [m] (a multiple of mesh_size)
-    Real waist = 1e-6;            ///< w0 [m] (<= L / 4, check_beam_waist)
+    Real waist = 1e-6;            ///< w0 [m] (<= L cos(theta) / 4, check_beam_waist)
     Real theta_deg = 0.0;         ///< incidence angle about y [deg]
+    /// Accept w0 > L cos(theta) / 4 with a warning (check_beam_waist allow_wide): the recorded
+    /// 45 deg cases use w0 = L / 5 (edge loss 0.06-0.1 %, benchmarks/results/fresnel_flat.md).
+    bool allow_wide_beam = false;
     excitation::Polarization pol = excitation::Polarization::P;
     Real mesh_size = 50e-9;             ///< top-face spacing h [m]
     std::string compression = "mlfmm";  ///< "mlfmm" or "dense" (cross-check of small cases)
@@ -320,7 +323,8 @@ inline Real beam_region_radius(const Case& c, Real r_max) {
 }
 
 inline std::shared_ptr<excitation::AngularSpectrumBeam> make_beam(const Case& c, Real r_max) {
-    check_beam_waist(c.L, c.waist);
+    check_beam_waist(c.L, c.waist,
+                     {.incidence_angle = c.theta_deg * kDeg, .allow_wide = c.allow_wide_beam});
     excitation::AngularSpectrumBeam::Params bp;
     bp.wavelength = kLambda;
     bp.waist_radius = c.waist;

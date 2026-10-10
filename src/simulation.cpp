@@ -218,23 +218,31 @@ RoughBoxParams rough_surface_box_params(const material::Material& object,
     return b;
 }
 
-void check_beam_waist(Real patch_length, Real waist, bool allow_wide) {
+void check_beam_waist(Real patch_length, Real waist, const BeamWaistOptions& options) {
     if (!(std::isfinite(patch_length) && patch_length > 0.0) ||
         !(std::isfinite(waist) && waist > 0.0)) {
         throw std::invalid_argument(
             "check_beam_waist: patch_length and waist must be finite and > 0");
     }
-    const Real limit = kMaxBeamWaistFraction * patch_length;
+    const Real theta = options.incidence_angle;
+    if (!(std::isfinite(theta) && std::abs(theta) < 0.5 * constants::pi)) {
+        std::ostringstream os;
+        os << "check_beam_waist: incidence_angle must be finite with |theta_in| < pi / 2, got "
+           << theta << " rad";
+        throw std::invalid_argument(os.str());
+    }
+    const Real limit = kMaxBeamWaistFraction * patch_length * std::cos(theta);
     if (!(waist > limit * (1.0 + 1e-12)))
         return;
     std::ostringstream os;
-    os << "beam waist " << waist << " m exceeds L / 4 = " << limit
-       << " m for the patch edge L = " << patch_length
-       << " m (ADR 0006 amendment 2026-10-10: at L / 3 the beam carries 0.6-0.9 % of its "
-          "power past the patch edges)";
-    if (!allow_wide)
+    os << "beam waist " << waist << " m exceeds L cos(theta_in) / 4 = " << limit
+       << " m for the patch edge L = " << patch_length << " m and theta_in = " << theta
+       << " rad (ADR 0006 amendments 2026-10-10/11: w0 <= L cos(theta_in) / 4; past the patch "
+          "edges the beam carries 0.6-0.9 % of its power at L / 3 and 0 deg, 0.63 % at L / 4 "
+          "and 45 deg)";
+    if (!options.allow_wide)
         throw std::invalid_argument("check_beam_waist: " + os.str() +
-                                    "; pass allow_wide = true to accept it");
+                                    "; set allow_wide to accept it");
     SBEM_WARN("check_beam_waist: {} (allowed by the caller)", os.str());
 }
 

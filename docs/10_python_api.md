@@ -95,7 +95,8 @@ p.box_depth, p.box_fine_depth (None: no band), p.box_mesh_size (None: automatic,
 p.exterior_wavelength, p.uniform_fallback, p.kwargs()
 sb.default_box_depth(object, wavelength), sb.default_box_fine_depth(object, wavelength, sigma)
 sb.default_box_mesh_size(background, wavelength, mesh_size), sb.exterior_wavelength(background, wavelength)
-sb.check_beam_waist(patch_length, waist, allow_wide=False)   # ValueError if waist > L / 4
+sb.check_beam_waist(patch_length, waist, *, incidence_angle=0.0, allow_wide=False)
+                                        # ValueError if waist > L cos(incidence_angle) / 4
 sb.field_decay_length(material, wavelength) / sb.field_decay_length(eps_r, wavelength)
 sb.DispersiveMaterial(wavelengths, refractive_indices)   # n - jk; .at(wl) == .at_wavelength(wl)
 sb.PlaneWave(wavelength, direction, polarization, background=sb.vacuum())
@@ -137,9 +138,14 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
   `uniform_fallback = True`, logged as a warning. Without `exterior_wavelength` and
   `box_mesh_size` the old automatic rule (min(depth / 2, L / 8, 10 h)) is used with a warning
   (not validated under illumination). lambda_1 / 5 is necessary, not shown sufficient (WP-V2).
-- Beam waist: rough-surface drivers must call `check_beam_waist(L, waist)` (w0 <= L / 4,
-  ADR 0006 amendment); `Simulation` cannot determine the patch size from a mesh.
-  `allow_wide=True` accepts a wider waist with a warning.
+- Beam waist: rough-surface drivers must call
+  `check_beam_waist(L, waist, incidence_angle=theta_in)` (w0 <= L cos(theta_in) / 4, ADR 0006
+  amendments 2026-10-10 and 2026-10-11: the footprint on z = 0 is 1 / cos(theta_in) longer, and
+  w0 = L / 4 at 45 deg loses 0.63 % of the beam power past the patch); `Simulation` cannot
+  determine the patch size from a mesh. `incidence_angle` [rad] is that of the beam
+  (`GaussianBeam` / `AngularSpectrumBeam`), |theta_in| < pi / 2 (else `ValueError`).
+  `allow_wide=True` accepts a wider waist with a warning. Both are keyword-only (C++:
+  `check_beam_waist(L, w0, {.incidence_angle = theta, .allow_wide = false})`).
 - `PlaneWave.direction` is `k_hat` (normalised by the constructor), `polarization` the complex
   amplitude `e0` [V/m] (transverse). `GaussianBeam.waist` is `Params::waist_radius` (1/e^2
   intensity radius); `polarization` is `"p"`, `"s"` (any case) or `sb.Polarization.P/S`.

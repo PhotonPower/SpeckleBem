@@ -70,6 +70,10 @@ Case make_case(const std::string& material, Real L, Real w0, Real theta_deg,
     c.waist = w0;
     c.theta_deg = theta_deg;
     c.pol = pol;
+    // The 45 deg cases use w0 = L / 5 > L cos(45 deg) / 4 (ADR 0006 amendment 2026-10-11); their
+    // measured edge loss 0.06-0.1 % is within the error budget (benchmarks/results/
+    // fresnel_flat.md), so they keep their recorded parameters with the waist check's warning.
+    c.allow_wide_beam = theta_deg != 0.0;
     return c;
 }
 

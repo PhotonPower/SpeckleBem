@@ -134,9 +134,11 @@ Memory (Si L = 6 µm): near field 6.0 GB, far operator 30.0 GB (Si interior leaf
 
 ```
 specklebem_fresnel_flat --material ag --L 4e-6 --w0 1e-6   --theta 0  --pol p
-specklebem_fresnel_flat --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol p   (and --pol s)
+specklebem_fresnel_flat --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol p --allow-wide-beam   (and --pol s)
 specklebem_fresnel_flat --material si --L 6e-6 --w0 1.5e-6 --theta 0  --pol p   (and --pol s)
-specklebem_fresnel_flat --material si --L 6e-6 --w0 1.2e-6 --theta 45 --pol p   (and --pol s)
+specklebem_fresnel_flat --material si --L 6e-6 --w0 1.2e-6 --theta 45 --pol p --allow-wide-beam   (and --pol s)
+# --allow-wide-beam: w0 = L / 5 exceeds L cos(45 deg) / 4 (check_beam_waist since WP-B2), measured
+# edge loss 0.06-0.1 %.
 # cross-checks: --compression dense (small L), --d0 5, --tol 1e-5, --mesh-size 40e-9;
 # --estimate-only prints the mesh, octree, memory estimate and the beam reference.
 ```

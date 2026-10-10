@@ -494,11 +494,20 @@ Returns
 -------
 RoughBoxParams
 )doc");
-    m.def("check_beam_waist", &check_beam_waist, py::arg("patch_length"), py::arg("waist"),
-          py::arg("allow_wide") = false, R"doc(
-Beam-waist rule of rough patches (ADR 0006 amendment 2026-10-10): waist <= patch_length / 4.
-Raises ValueError for a wider waist unless allow_wide=True (then a warning is logged).
-Rough-surface drivers must call it: Simulation cannot determine the patch size from a mesh.
+    m.def(
+        "check_beam_waist",
+        [](Real patch_length, Real waist, Real incidence_angle, bool allow_wide) {
+            check_beam_waist(patch_length, waist,
+                             {.incidence_angle = incidence_angle, .allow_wide = allow_wide});
+        },
+        py::arg("patch_length"), py::arg("waist"), py::kw_only(), py::arg("incidence_angle") = 0.0,
+        py::arg("allow_wide") = false, R"doc(
+Beam-waist rule of rough patches (ADR 0006 amendments 2026-10-10 and 2026-10-11):
+waist <= patch_length * cos(incidence_angle) / 4, incidence_angle [rad] with
+|incidence_angle| < pi / 2 (the footprint on z = 0 is 1 / cos longer at oblique incidence).
+Raises ValueError for a wider waist unless allow_wide=True (then a warning is logged), and for
+non-positive sizes or an invalid angle. Rough-surface drivers must call it: Simulation cannot
+determine the patch size from a mesh.
 )doc");
 }
 

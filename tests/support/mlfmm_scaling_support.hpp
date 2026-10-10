@@ -94,7 +94,7 @@ struct Case {
     /// ADR 0006 fine band 3 delta + 3 sigma; empty: as rough_surface_box_params (Si yes, Ag no).
     std::optional<bool> fine_band;
     Real waist_factor = 4.0;       ///< w0 = L / waist_factor
-    bool allow_wide_beam = false;  ///< check_beam_waist(L, w0, allow_wide_beam)
+    bool allow_wide_beam = false;  ///< check_beam_waist(L, w0, {.allow_wide = allow_wide_beam})
     Beam beam = Beam::paraxial;
     Real digits = 3.0;  ///< accuracy_digits d0
     Real tolerance = 1e-3;
@@ -147,7 +147,8 @@ struct Geometry {
 };
 
 /// Builds the rough box of a case. Validates the case and the waist rule
-/// check_beam_waist(L, L / waist_factor, allow_wide_beam) (ADR 0006 amendment: w0 <= L / 4).
+/// check_beam_waist(L, L / waist_factor, {.allow_wide = allow_wide_beam}) (ADR 0006 amendment:
+/// w0 <= L / 4 at the normal incidence of the study).
 /// @throws std::invalid_argument for L, mesh_size or waist_factor not > 0, seed 0, an unknown
 ///         material, uncapped_box with an explicit box_mesh_size, or a waist above L / 4
 ///         without allow_wide_beam.
@@ -159,7 +160,7 @@ inline Geometry make_geometry(const Case& c) {
     if (c.uncapped_box && c.box_mesh_size)
         throw std::invalid_argument(
             "mlfmm_scaling: uncapped_box needs the automatic rule (box_mesh_size unset)");
-    check_beam_waist(c.L, c.L / c.waist_factor, c.allow_wide_beam);
+    check_beam_waist(c.L, c.L / c.waist_factor, {.allow_wide = c.allow_wide_beam});
     const RoughBoxParams b = box_params(c);
     geometry::RoughSurfaceParams rp;
     rp.edge_length_L = c.L;

@@ -273,3 +273,19 @@ def test_check_beam_waist():
     sb.check_beam_waist(patch_length=10e-6, waist=10e-6 / 3, allow_wide=True)
     with pytest.raises(ValueError):
         sb.check_beam_waist(0.0, 1e-6)
+
+
+def test_check_beam_waist_incidence_angle():
+    L, theta = 4e-6, np.pi / 4
+    limit = L * np.cos(theta) / 4  # 0.707 um
+    sb.check_beam_waist(L, L / 4, incidence_angle=0.0)
+    sb.check_beam_waist(L, limit, incidence_angle=theta)
+    sb.check_beam_waist(L, limit, incidence_angle=-theta)
+    with pytest.raises(ValueError, match=r"L cos\(theta_in\) / 4"):
+        sb.check_beam_waist(L, L / 4, incidence_angle=theta)
+    sb.check_beam_waist(L, L / 5, incidence_angle=theta, allow_wide=True)
+    for bad in (np.pi / 2, -np.pi / 2, np.nan, np.inf):
+        with pytest.raises(ValueError, match="incidence_angle"):
+            sb.check_beam_waist(L, 0.1e-6, incidence_angle=bad)
+    with pytest.raises(TypeError):  # keyword-only: a positional bool is not an angle
+        sb.check_beam_waist(L, L / 4, True)
