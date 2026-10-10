@@ -35,6 +35,21 @@ Real physical_memory_bytes() {
     return 0.0;
 }
 
+Real available_memory_bytes() {
+#if defined(_WIN32)
+    MEMORYSTATUSEX status{};
+    status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status) != 0)
+        return static_cast<Real>(status.ullAvailPhys);
+#elif defined(SPECKLEBEM_TEST_HAVE_POSIX_MEMORY) && defined(_SC_AVPHYS_PAGES)
+    const long pages = sysconf(_SC_AVPHYS_PAGES);
+    const long page_size = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && page_size > 0)
+        return static_cast<Real>(pages) * static_cast<Real>(page_size);
+#endif
+    return 0.0;
+}
+
 Real peak_rss_bytes() {
 #if defined(_WIN32)
     PROCESS_MEMORY_COUNTERS counters{};

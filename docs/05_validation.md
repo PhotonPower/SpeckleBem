@@ -32,7 +32,7 @@ analytic (Mie, Fresnel, static integrals)
 | Flat box, tapered beam, 0° and 45° | Fresnel r_p, r_s | rel on |r|² | < 1 % (deferred to Phase 4: dense system > 10⁵ unknowns) | 2 → 4 |
 | GMRES vs LU, 2·10⁴ unknowns | dense LU | true relative residual ≤ tol (solution difference vs LU documented, κ-limited) | < tol | 3 |
 | MLFMM matvec, Si & Ag, 2·10⁴–10⁵ unknowns | dense matvec | rel | < 1e-3 (3 digits), < 1e-5 (5 digits) | 4 |
-| Ag sphere d = 4 µm, λ/27, MLFMM | Mie | ε_rr normal/parallel planes | ≤ 0.5 % | 4 |
+| Ag sphere d = 4 µm, λ/27¹, MLFMM | Mie | ε_rr normal/parallel planes | ≤ 0.5 % | 4 |
 | Power balance, Ag and Si surfaces | — | rel | < 1 % (Ag at mesh ≤ λ/13: the surface P_abs of weakly absorbing Ag converges slowly, see benchmarks/results/mie_sphere_dense.md) | 4 |
 | Reciprocity, rough surface | — | rel | < 1 % | 4 |
 | Near field Ag sphere, xz-plane | Mie | rel per point | < 0.1 (lit), < 1 (shadow) | 5 |
@@ -43,6 +43,10 @@ analytic (Mie, Fresnel, static integrals)
 | GPU vs CPU, all kernels | CPU | rel | < 1e-4 (double), documented for single | 7 |
 | ACA / H-matrix matvec | dense | rel | < ε set | 8 |
 | Imported Gmsh closed mesh | power balance | rel | < 1 % | 8 |
+
+¹ "λ/27" is the paper's label for its 393 216-unknown mesh: an octahedron-based sphere with 8·4⁷ =
+131 072 triangles, mean edge 30.25 nm = λ/16.5, √(mean triangle area) = λ/25.5 (WP22a,
+`benchmarks/results/ag_sphere_4um_mlfmm.md`). The row means that mesh, not a mean edge of λ/27.
 
 ## Rough-surface specific checks
 

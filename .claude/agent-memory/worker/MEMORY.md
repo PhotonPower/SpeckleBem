@@ -11,3 +11,5 @@
 - [MLFMM multilevel findings](mlfmm_multilevel_findings.md) — WP20a far-only/full errors vs leaf, d0=5 needs r_max/a <~ 0.3, symmetry check, debug cost
 - [MLFMM operator findings](mlfmm_operator_findings.md) — WP20b near+far matvec errors (d0 = 3/5 achieved), timings, pool speedup, test costs
 - [MLFMM lossy policy findings](mlfmm_lossy_policy_findings.md) — block check vs 10^-d0, x*(d0), Ag exact part 40 B/pair, budget dense cap, jump-sign test, leaf ratio
+- [MLFMM lossy policy findings](mlfmm_lossy_policy_findings.md) — block check vs 10^-d0, x*(d0), Ag exact part 40 B/pair (61440: 687 MB), budget, leaf ratio 0.6/0.3
+- [Ag sphere MLFMM findings](ag_sphere_mlfmm_findings.md) — WP22a 4 um costs/accuracy, octahedral paper mesh, tol dominates eps_rr, Eigen 3.4 sparse move copies

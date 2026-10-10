@@ -15,6 +15,19 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   against the dense matrix with the other region's weights zeroed, which sees the per-region
   jump terms the summed test cannot (a flipped sign: error 2 for ICTF, 3e-3 ... 7e-3 for PMCHWT;
   the summed test still passes); "search not run" on a 4-level n = 0.1 - 20j tree; budget cap.
+- tests/benchmarks (WP22a, Phase 4 DoD): Ag sphere d = 4 um with MLFMM vs Mie on the paper's
+  393 216-unknown mesh (octahedron-based sphere, 8 4^7 triangles, mean edge lambda/16.5; built by
+  `make_octasphere` in `tests/support/ag_sphere_mlfmm_support.hpp`), d0 = 3, ICTF + left Jacobi,
+  GMRES tol 1e-3: eps_rr = 0.023 % (xz) / 0.016 % (yz) (criterion <= 0.5 %, paper 0.26 % /
+  0.37 %), 442 iterations (paper 424), 15.6 min, near field 12.2 GB, Ag exact part 6.8 GB (the
+  automatic budget did not fire), peak RSS 33.8 GB; at tol 1e-4 (722 iterations) 0.0035 % /
+  0.0025 % (the tolerance dominates eps_rr at 1e-3). Study executable
+  `specklebem_ag_sphere_mlfmm` (one case per process, `--estimate-only`), validation-large cases
+  (d = 1 um icosphere n = 5 at tol 1e-5: 0.019 % / 0.013 %, below the dense lambda/13 values; the
+  4 um case guarded on the available memory), `system_memory::available_memory_bytes()`, record
+  `benchmarks/results/ag_sphere_4um_mlfmm.md` (ramp-up d = 1 / 2 / 4 um, tolerance and mesh
+  sensitivity, scaling at fixed h).
+
 - mlfmm (WP21 review): exact far part stored as the region's (L_i, K_i) per basis pair
   (`op::RegionSparseOperator`, `op::assemble_region_sparse`; 40 instead of 96 bytes per pair,
   weights e_i, h_i, m_i applied in `apply()`): Ag icosphere R = 0.5 um, d0 = 3: 408 -> 170 MB
@@ -58,6 +71,9 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `Simulation` (validation-large), 2N = 61 440 icosphere exact-rows case, memory guards.
 
 ### Fixed
+- operator (WP22a): `SparseOperator` swaps the matrix in instead of `Z_(std::move(Z))`, which
+  copied it (Eigen 3.4.0's `SparseMatrix` has no move constructor): one transient copy of the
+  MLFMM near field less (peak RSS of the 393 216-unknown Ag sphere: -12 GB).
 - mlfmm (WP21, WP20b review): the apply-workspace pool builds a workspace completely before
   counting it and reserves pool capacity in `take()`, so a failed allocation leaves the pool
   consistent and returning a workspace cannot allocate; `describe()` states the workspace count
