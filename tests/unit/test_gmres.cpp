@@ -587,16 +587,10 @@ TEST_CASE("gmres: CGS2 and MGS on an ill-conditioned dense system (200 iteration
     CHECK(loss_m <= 1e-12);
     CHECK(max_hist <= 1e-8);
     CHECK(diff.norm() / b.norm() <= 1e-10);
+    CHECK(c.reorthogonalizations == 200);  // CGS2 always makes two passes
+    CHECK(m.reorthogonalizations <= 200);
     CHECK(c.orthogonalization_seconds > 0);
     CHECK(c.orthogonalization_seconds <= c.wall_seconds);
-
-    // Always two passes: every step counts as re-orthogonalised; the basis stays orthonormal.
-    GmresParams pa = with(p, solver::Orthogonalization::CGS2, true);
-    pa.always_reorthogonalize = true;
-    const GmresResult a = solver::gmres(Z, b, kNone, pa);
-    CHECK(a.reorthogonalizations == 200);
-    CHECK(orthogonality_loss(a.basis) <= 1e-12);
-    CHECK(rel_diff(a.x, c.x) <= 1e-6);
     CHECK(solver::gmres(Z, b, kNone, p).basis.size() == 0);  // keep_basis is off by default
 }
 

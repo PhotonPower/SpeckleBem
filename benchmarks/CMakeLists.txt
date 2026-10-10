@@ -38,6 +38,12 @@ endif()
 add_executable(specklebem_ag_sphere_mlfmm ag_sphere_mlfmm.cpp)
 target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
 
+# GMRES orthogonalisation cost (WP-G1): time per iteration vs Krylov dimension for MGS and CGS2 on
+# a synthetic operator with a cheap matvec. Run by hand (n = 2e5, 1000 iterations: ~3.2 GB), see
+# benchmarks/results/gmres_orthogonalization.md.
+add_executable(specklebem_gmres_orthogonalization gmres_orthogonalization.cpp)
+target_link_libraries(specklebem_gmres_orthogonalization PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
+
 # Benchmarks reproduce Fig. 2(c) of the paper: wall time vs N for dense LU,
 # preconditioned MLFMM (Ag) and ICTF-MLFMM (Si). Added in Phase 4.
 # add_executable(bench_matvec bench_matvec.cpp)

@@ -24,17 +24,18 @@ namespace specklebem::solver {
 /// With IdentityPreconditioner both sides are the same unpreconditioned GMRES.
 enum class PreconditionerSide { Left, Right };
 
-/// Gram-Schmidt variant of the Arnoldi step (WP-G1). Both make at most two passes over the
-/// basis: the second (re-orthogonalisation) when |w| drops below 0.7 of its norm before the
-/// first pass (Kahan-Parlett / DGKS "twice is enough"), or always with
-/// GmresParams::always_reorthogonalize.
+/// Gram-Schmidt variant of the Arnoldi step (WP-G1).
 ///
-/// - CGS2 (default): classical Gram-Schmidt, h_i = V^H w, w -= V h_i per pass i, Hessenberg
-///   column h = h_1 + h_2. Both products are OpenMP-parallel over fixed blocks of rows, and the
-///   block partial sums of V^H w are added in block order: the results are bitwise reproducible
-///   from run to run and independent of the number of threads (for deterministic A and M^{-1}).
-/// - MGS: modified Gram-Schmidt, serial, column by column (the algorithm before WP-G1), kept
-///   for comparison and as a fallback. Never chosen automatically.
+/// - CGS2 (default): classical Gram-Schmidt with re-orthogonalisation, always two passes
+///   ("twice is enough": orthogonality to working precision, Giraud et al., Numer. Math. 101,
+///   2005): h_i = V^H w, w -= V h_i for i = 1, 2, Hessenberg column h = h_1 + h_2. The products
+///   are OpenMP-parallel over fixed blocks of rows, and the update of pass 1 is fused with the
+///   projection of pass 2 (three sweeps over V per step). Block partial sums of V^H w are added
+///   in block order, so results are bitwise reproducible from run to run and independent of the
+///   number of threads (for deterministic A and M^{-1}).
+/// - MGS: modified Gram-Schmidt, serial, column by column, with a second pass when |w| drops
+///   below 0.7 of its norm before the first (the algorithm before WP-G1). Kept for comparison
+///   and as a fallback; never chosen automatically.
 ///
 /// The variants differ by rounding only: their iterates are not bitwise equal, and iteration
 /// counts can differ by one or two when the residual crosses the tolerance.
@@ -48,9 +49,6 @@ struct GmresParams {
     bool verbose = true;  ///< SBEM_INFO progress every 50 iterations and a summary line
     PreconditionerSide side = PreconditionerSide::Left;
     Orthogonalization orthogonalization = Orthogonalization::CGS2;
-    /// Make the second Gram-Schmidt pass in every step (twice the orthogonalisation cost of a
-    /// step without it); by default only when the norm criterion of Orthogonalization asks.
-    bool always_reorthogonalize = false;
     /// Test/diagnostic hook: return the Krylov basis of the last cycle in GmresResult::basis
     /// (a copy, up to (m + 1) n complex values).
     bool keep_basis = false;
@@ -70,7 +68,7 @@ struct GmresResult {
     /// Wall time of the Gram-Schmidt steps (projections, updates, norms and normalisation of
     /// the new basis vector); part of wall_seconds.
     double orthogonalization_seconds = 0;
-    /// Number of Arnoldi steps that made the second Gram-Schmidt pass.
+    /// Number of Arnoldi steps that made a second Gram-Schmidt pass (CGS2: all of them).
     int reorthogonalizations = 0;
     /// With GmresParams::keep_basis: the Krylov vectors of the last cycle as columns
     /// (orthonormal up to rounding); empty otherwise.
@@ -82,9 +80,8 @@ using IterationCallback = std::function<void(int iter, Real residual)>;
 
 /// Solve A x = b by preconditioned GMRES with the initial guess x0 = 0.
 ///
-/// - Arnoldi with classical (default) or modified Gram-Schmidt and one re-orthogonalisation
-///   pass whenever the norm of the new vector drops below 0.7 of its norm before
-///   orthogonalisation (see Orthogonalization); Givens rotations on the Hessenberg matrix; the iterate is formed at convergence, at each
+/// - Arnoldi with classical (CGS2, default) or modified Gram-Schmidt (see Orthogonalization);
+///   Givens rotations on the Hessenberg matrix; the iterate is formed at convergence, at each
 ///   restart and at max_iter. At a restart the residual is recomputed explicitly and starts
 ///   the next cycle; it is not recorded: residual_history (and the callback) always hold the
 ///   Arnoldi estimates, entry for entry identical. If the recomputed residual is exactly zero,
@@ -101,8 +98,9 @@ using IterationCallback = std::function<void(int iter, Real residual)>;
 ///   m = restart, or m = iterations for full GMRES (the basis grows on demand in contiguous
 ///   column-major panels of min(m + 1, 64) columns, so it is never copied); the Hessenberg
 ///   factor adds 16 m^2 / 2 bytes. Cost per iteration: one A and one M^{-1} application plus
-///   O(k n) for the orthogonalisation (memory-bandwidth bound: CGS2 reads the k basis vectors
-///   twice per pass, in parallel; MGS once per pass plus a cache-resident second read, serially).
+///   O(k n) for the orthogonalisation, memory-bandwidth bound: CGS2 streams the k basis vectors
+///   three times per step, in parallel; MGS once per pass (the second read of each vector
+///   mostly hits the cache), serially.
 /// - OpenMP only in the CGS2 products and in forming the iterate V y; A and M^{-1} parallelise
 ///   their own work.
 /// @throws std::invalid_argument if A is not square, b.size() != A.rows(), b has non-finite
