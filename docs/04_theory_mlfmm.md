@@ -53,6 +53,16 @@ Each of the four blocks (`L1, L2, K1, K2`, combined by the formulation weights) 
 The interior wavenumber `k_2` is complex. Consequences:
 - `h_l^{(2)}(k_2 r)` grows and the plane-wave sampling of `e^{−jk_2·r}` becomes exponentially ill-conditioned for `Im(k_2)·D` large. For Ag (`Im(n) ≈ −3.1`, skin depth ≈ 13 nm) the interior expansion is useless beyond the leaf level; for Si (`Im(n) ≈ −0.07`, absorption length ≈ 0.6 µm) it is usable for a few levels.
 - Policy: compute, per level and region, the expansion error on a test pair against direct integration; use the expansion only where the error is below the target. For deeper levels the interior interaction decays as `e^{−|Im k_2| r}`; it is retained **only if above the tolerance**, otherwise dropped *as a numerical truncation below the requested accuracy* (reported in the log). This keeps the method rigorous to the stated tolerance.
+- Implemented (WP21, `far_operator.hpp`): per region and level from the leaf up, expansion where
+  the order search is achievable (lossy regions: and the sampled block check meets `10^{-d₀}` or
+  is at most twice that of the lossless analogue `k = Re k_i`); elsewhere, per box pair with
+  `d` the distance between the bounding boxes of the two supports, the factor
+  `δ = (1 + αd) e^{−αd}` (`α = −Im k_i`) bounds `|G|` and `|∇G|` relative to their undamped values
+  `1/(4πR)` and `(1 + |Re k| R)/(4πR²)`, so dropping the pair changes each entry by at most
+  `δ` times its undamped bound: pairs with `δ ≤ 10^{−(d₀+1)}` are truncated (logged), the others
+  are evaluated exactly in a region-masked sparse correction. Ag at 500 nm (`α ≈ 39 µm⁻¹`): no
+  interior expansion at λ/4 … λ/2 leaves; exact pairs only at the leaf level (and the next one at
+  `d₀ = 5`), all coarser levels truncated.
 - Phase 8 alternative: ACA/H-matrix for the interior operator — kernel-independent, no stability issue with complex `k`.
 
 ## Complexity and memory

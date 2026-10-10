@@ -5,17 +5,21 @@
 //
 // Metric: max over 3 fixed-seed random x of |Z_dense x - Z_mlfmm x| / |Z_dense x|. One dense
 // matrix per case (geometry, interior, formulation), shared by the MLFMM configurations:
-//  * d0 = 3 with lambda / 4 leaves (the default floor; ADR 0008 WP20a amendment),
-//  * d0 = 5 with lambda / 2 leaves (r_max / a ~ 0.29 on these meshes; the WP20a amendment asks
-//    for r_max / a <= 0.3), and lambda leaves on a coarser plate.
-// Measured 2026-10-10 (win-release, 24 cores): d0 = 3: 1.7e-4 / 2.1e-4 (icosphere n = 1.5 / Si),
-// 7.2e-5 / 4.3e-5 (rough box n = 1.5 / Si), 5.4e-6 (plate, lambda leaves); d0 = 5: 3.7e-6 /
-// 6.5e-6 (icosphere), 6.7e-6 / 4.2e-6 (rough box), 5.5e-7 (plate, lambda leaves); 2N = 8.8e4
-// rows: 2.9e-4.
+//  * d0 = 3 with a lambda / 4 leaf floor (the default; ADR 0008 WP20a amendment),
+//  * d0 = 5 with a lambda / 2 floor, and lambda leaves on a coarser plate.
+// Since WP21 MlfmmOperator applies the leaf rule a >= max(a_min(d0), r_max / 0.3): on the
+// R = 1 um icosphere and the 2 um box (r_max ~ 70 / 45 nm) the d0 = 3 leaves are lambda / 2 too;
+// the R = 0.5 um icosphere and the 1.2 um box at 35 nm keep lambda / 4 leaves at d0 = 3.
+// Measured 2026-10-10 before WP21 (win-release, 24 cores, lambda / 4 leaves at r_max / a ~ 0.57
+// for d0 = 3): d0 = 3: 1.7e-4 / 2.1e-4 (icosphere n = 1.5 / Si), 7.2e-5 / 4.3e-5 (rough box
+// n = 1.5 / Si), 5.4e-6 (plate, lambda leaves); d0 = 5: 3.7e-6 / 6.5e-6 (icosphere), 6.7e-6 /
+// 4.2e-6 (rough box), 5.5e-7 (plate, lambda leaves); 2N = 8.8e4 rows: 2.9e-4. WP21 values: see
+// the Ag cases below and the WP21 report (CHANGELOG).
 // lambda = 500 nm (vacuum exterior), dense quadrature target 1e-6 (0.1 x 10^-5; the near entries
 // are identical in both operators, so only the far entries of the oracle matter).
-// The 2N ~ 9e4 case has no dense oracle: 64 exact rows (op::assemble_sparse) are compared.
-// SKIPs in unoptimised builds and when the dense matrix exceeds 60 % of the physical memory.
+// The 2N ~ 6e4 / 9e4 cases have no dense oracle: 64 exact rows (op::assemble_sparse) are
+// compared. SKIPs in unoptimised builds and when the dense matrix (or the measured peak of the
+// exact-rows cases) exceeds 60 % of the physical memory.
 #include "specklebem/compression/mlfmm/far_operator.hpp"
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
 #include "specklebem/compression/mlfmm/patterns.hpp"
@@ -247,14 +251,56 @@ TEST_CASE("mlfmm simulation large: rough box n = 1.5, ICTF + Jacobi, lambda / 4 
 #endif
 }
 
-TEST_CASE("mlfmm large: rough box 2N ~ 9e4 against exact rows", "[validation-large][mlfmm]") {
+TEST_CASE("mlfmm vs dense large: icosphere Ag, PMCHWT", "[validation-large][mlfmm]") {
 #ifndef NDEBUG
     SKIP("validation-large cases run in optimised builds only");
 #else
-    // 4 um x 4 um x 0.3 um, mesh 50 nm: 2N ~ 8.8e4 (dense 125 GB): 64 random basis rows m (J
-    // and M rows) of Z x exactly (op::assemble_sparse, all columns) against the MLFMM, d0 = 3,
-    // lambda / 4 leaves; MLFMM setup / apply time and memory for the scaling table.
-    const Setup s(rough_box(4e-6, 0.3e-6, 50e-9), material::silicon_500nm(), Kind::ICTF);
+    // R = 0.5 um, subdivision 4: 2N = 15360, r_max ~ 35 nm, so the leaf rule keeps lambda / 4
+    // leaves at d0 = 3 (lambda / 2 at d0 = 5). The Ag interior (skin depth ~13 nm) uses no
+    // expansion: its far pairs are truncated by the decay bound or evaluated exactly (WP21).
+    const Setup s(geometry::make_icosphere(kLambda, 4), material::silver_500nm(), Kind::PMCHWT);
+    run_case("icosphere R = 0.5 um, Ag, PMCHWT", s, {{3.0, 0.25}, {5.0, 0.5}});
+#endif
+}
+
+TEST_CASE("mlfmm vs dense large: rough box Ag, PMCHWT", "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    // 1.2 um x 1.2 um x 0.3 um, mesh 35 nm: 2N ~ 2e4 with r_max small enough for lambda / 4
+    // leaves at d0 = 3.
+    const Setup s(rough_box(1.2e-6, 0.3e-6, 35e-9), material::silver_500nm(), Kind::PMCHWT);
+    run_case("rough box 1.2 um, Ag, PMCHWT", s, {{3.0, 0.25}, {5.0, 0.5}});
+#endif
+}
+
+TEST_CASE("mlfmm simulation large: Ag sphere, Jacobi", "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    // GMRES through Simulation, "mlfmm" vs "dense": Ag icosphere R = 0.5 um, subdivision 3
+    // (2N = 3840; leaf rule: lambda / 2 leaves, 3 levels), automatic formulation, left Jacobi.
+    SimulationConfig cfg;
+    cfg.object = material::silver_500nm();
+    cfg.diagonal_preconditioner = true;
+    const mlfmm_simulation_test::Comparison c = mlfmm_simulation_test::compare(
+        geometry::make_icosphere(kLambda, 3), cfg, mlfmm::MlfmmParams{}, "Ag sphere");
+    CHECK(c.currents <= 1e-3);
+    CHECK(c.rcs <= 1e-3);
+#endif
+}
+
+namespace {
+
+/// 64 random basis rows m (J and M rows) of Z x exactly (op::assemble_sparse, all columns)
+/// against the MLFMM (d0 = 3, lambda / 4 floor); setup / apply time and memory for the scaling
+/// table. SKIPs if `peak_bytes` (the measured peak RSS of the case) exceeds 60 % of the memory.
+[[maybe_unused]] void run_exact_rows(const std::string& name, const Setup& s, Real peak_bytes) {
+    const Real phys = system_memory::physical_memory_bytes();
+    if (!(phys > 0.0) || peak_bytes > 0.6 * phys) {
+        SKIP(name << ": needs ~" << peak_bytes / 1e9 << " GB, more than 60 % of the " << phys / 1e9
+                  << " GB");
+    }
     const Index n = s.space.size();
     std::vector<Index> rows;
     std::mt19937_64 rng(20261010);
@@ -292,16 +338,40 @@ TEST_CASE("mlfmm large: rough box 2N ~ 9e4 against exact rows", "[validation-lar
     }
     const Real err = std::sqrt(num / den);
     const mlfmm::Octree& tree = Zm.octree();
-    WARN("rough box 4 um, Si, ICTF: "
-         << s.mesh.num_triangles() << " triangles, 2N = " << 2 * n << ", " << tree.levels()
-         << " levels, leaf a = " << tree.box_size(tree.leaf_level()) / kLambda
-         << " lambda0: error on 128 exact rows " << err << " (rows assembled in " << rows_s
-         << " s); setup " << setup_s << " s, apply " << apply_s << " s, memory "
-         << mb(Zm.memory_bytes()) << " MB (dense would need "
-         << 16.0 * 4.0 * static_cast<Real>(n * n) / 1048576.0 << " MB); peak RSS "
-         << system_memory::peak_rss_bytes() / 1e9 << " GB\n"
-         << Zm.describe());
-    CHECK(2 * n > 80000);
+    WARN(name << ": " << s.mesh.num_triangles() << " triangles, 2N = " << 2 * n << ", "
+              << tree.levels() << " levels, leaf a = " << tree.box_size(tree.leaf_level()) / kLambda
+              << " lambda0: error on 128 exact rows " << err << " (rows assembled in " << rows_s
+              << " s); setup " << setup_s << " s, apply " << apply_s << " s, memory "
+              << mb(Zm.memory_bytes()) << " MB (dense would need "
+              << 16.0 * 4.0 * static_cast<Real>(n * n) / 1048576.0 << " MB); peak RSS "
+              << system_memory::peak_rss_bytes() / 1e9 << " GB\n"
+              << Zm.describe());
     CHECK(err < 1e-3);
+}
+
+}  // namespace
+
+TEST_CASE("mlfmm large: icosphere 2N = 61440 against exact rows", "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    // R = 1 um, subdivision 5 (2N = 61440, dense 60 GB), Si, ICTF; r_max ~ 36 nm keeps
+    // lambda / 4 leaves under the leaf rule. Measured peak RSS: see PEAK below.
+    const Setup s(geometry::make_icosphere(2.0 * kLambda, 5), material::silicon_500nm(),
+                  Kind::ICTF);
+    CHECK(2 * s.space.size() == 61440);
+    run_exact_rows("icosphere R = 1 um, Si, ICTF", s, 8e9);
+#endif
+}
+
+TEST_CASE("mlfmm large: rough box 2N ~ 9e4 against exact rows", "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    // 4 um x 4 um x 0.3 um, mesh 50 nm: 2N ~ 8.8e4 (dense 125 GB), Si, ICTF; the leaf rule gives
+    // lambda / 2 leaves (r_max ~ 45 nm). Measured peak RSS: see PEAK below.
+    const Setup s(rough_box(4e-6, 0.3e-6, 50e-9), material::silicon_500nm(), Kind::ICTF);
+    CHECK(2 * s.space.size() > 80000);
+    run_exact_rows("rough box 4 um, Si, ICTF", s, 20e9);
 #endif
 }

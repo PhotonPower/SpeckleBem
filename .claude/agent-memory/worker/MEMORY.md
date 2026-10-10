@@ -10,3 +10,4 @@
 - [MLFMM single-level findings](mlfmm_single_level_findings.md) — WP19b far-field factors, block error vs a/lambda, search optimism, pattern quadrature
 - [MLFMM multilevel findings](mlfmm_multilevel_findings.md) — WP20a far-only/full errors vs leaf, d0=5 needs r_max/a <~ 0.3, symmetry check, debug cost
 - [MLFMM operator findings](mlfmm_operator_findings.md) — WP20b near+far matvec errors (d0 = 3/5 achieved), timings, pool speedup, test costs
+- [MLFMM lossy policy findings](mlfmm_lossy_policy_findings.md) — WP21 block-check errors vs 10^-d0, Ag decisions/exact-part size, leaf-rule effects
