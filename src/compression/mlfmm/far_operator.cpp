@@ -101,6 +101,12 @@ struct Level {
     /// directions, up = e^{+jk khat.(c_child - c_parent)}, down = e^{-jk khat.(...)}.
     std::unique_ptr<SphereInterpolator> interp;
     std::array<VectorXc, 8> up, down;
+    /// Levels above the leaf (local leaf rule): radiation patterns of the elevated functions of
+    /// this level about their home box centres at this sampling, (i, direction, component) with
+    /// i the index into Octree::elevated_positions(level); antipodes of the sampling for their
+    /// reception (empty without elevated functions).
+    std::vector<Complex> elevated;
+    std::vector<std::size_t> antipode;
 };
 
 /// Uninitialised storage of n complex values (std::complex<double> is an implicit-lifetime type).
@@ -266,6 +272,9 @@ struct MlfmmFarOperator::Impl {
     std::vector<Extent> basis_extent;    ///< basis -> bounding box of its support (exact parts)
     std::size_t budget = 0;              ///< exact-part budget in effect [bytes]
     Real rmax = 0;                       ///< max_support_radius
+    /// Per level: largest support radius of the functions with home level >= the level (r_max on
+    /// every level without elevated functions).
+    std::vector<Real> level_rmax;
     PatternOptions popt;                 ///< leaf pattern / block check pattern quadrature
     std::size_t field_entries = 0;       ///< complex entries of one workspace's fields
     std::size_t max_nd = 0, max_ws = 0;  ///< largest sampling / interpolator workspace
@@ -369,22 +378,29 @@ void MlfmmFarOperator::Impl::compute_extents(const basis::RwgSpace& space) {
     const geometry::TriangleMesh& mesh = space.mesh();
     const Vertices& v = mesh.vertices();
     const std::vector<Index>& perm = tree.permutation();
-    for (const Index b : tree.boxes_at_level(tree.leaf_level())) {
+    const int leaf = tree.leaf_level();
+    // Extent of a box = the supports of its functions with home level >= its level.
+    const auto add_basis = [&](Extent& e, Index p) {
+        const Index bn = perm[sz(p)];
+        for (const Index vi : {mesh.edges()(bn, 0), mesh.edges()(bn, 1), space.plus_free_vertex(bn),
+                               space.minus_free_vertex(bn)}) {
+            for (Eigen::Index c = 0; c < 3; ++c) {
+                const auto cc = static_cast<std::size_t>(c);
+                e[cc] = std::min(e[cc], v(vi, c));
+                e[cc + 3] = std::max(e[cc + 3], v(vi, c));
+            }
+        }
+    };
+    for (const Index b : tree.boxes_at_level(leaf)) {
         const Box& box = tree.boxes()[sz(b)];
         Extent& e = extent[sz(b)];
         for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p) {
-            const Index bn = perm[sz(p)];
-            for (const Index vi : {mesh.edges()(bn, 0), mesh.edges()(bn, 1),
-                                   space.plus_free_vertex(bn), space.minus_free_vertex(bn)}) {
-                for (Eigen::Index c = 0; c < 3; ++c) {
-                    const auto cc = static_cast<std::size_t>(c);
-                    e[cc] = std::min(e[cc], v(vi, c));
-                    e[cc + 3] = std::max(e[cc + 3], v(vi, c));
-                }
-            }
+            if (tree.home_level(p) == leaf)
+                add_basis(e, p);
         }
     }
-    for (int l = tree.leaf_level() - 1; l >= 0; --l) {
+    for (int l = leaf - 1; l >= 0; --l) {
+        const std::vector<Index>& pos = tree.elevated_positions(l);
         for (const Index b : tree.boxes_at_level(l)) {
             for (const Index c : tree.boxes()[sz(b)].children) {
                 if (c < 0)
@@ -394,6 +410,9 @@ void MlfmmFarOperator::Impl::compute_extents(const basis::RwgSpace& space) {
                     extent[sz(b)][j + 3] = std::max(extent[sz(b)][j + 3], extent[sz(c)][j + 3]);
                 }
             }
+            const Index first = tree.elevated_first(b);
+            for (Index i = first; i < first + tree.elevated_count(b); ++i)
+                add_basis(extent[sz(b)], pos[sz(i)]);
         }
     }
 }
@@ -414,7 +433,9 @@ std::pair<Real, Index> MlfmmFarOperator::Impl::block_check(const basis::RwgSpace
             std::sort(o.begin(), o.end());
             const std::array<Index, 4> key{o[0] * o[0] + o[1] * o[1] + o[2] * o[2], o[0], o[1],
                                            o[2]};
-            const Index count = std::min(A.num_elements, B.num_elements);
+            const Index count = std::min(tree.active_elements(ia), tree.active_elements(ib));
+            if (count == 0)
+                continue;  // no basis pair is far on this level (elevated functions only)
             auto it = classes.find(key);
             if (it == classes.end() || count > it->second[2])
                 classes[key] = {ia, ib, count};
@@ -427,8 +448,11 @@ std::pair<Real, Index> MlfmmFarOperator::Impl::block_check(const basis::RwgSpace
     // corner-near bases) and an evenly spaced selection of the rest.
     const Real half_edge = 0.5 * tree.box_size(level);
     const auto select = [&](const Box& box, const Box& partner) {
-        std::vector<Index> all(perm.begin() + box.first_element,
-                               perm.begin() + box.first_element + box.num_elements);
+        std::vector<Index> all;  // the functions with home level >= the level
+        for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p) {
+            if (tree.home_level(p) >= level)
+                all.push_back(perm[sz(p)]);
+        }
         constexpr auto kMax = static_cast<std::size_t>(kBlockCheckBases);
         if (all.size() <= kMax)
             return all;
@@ -547,12 +571,12 @@ Real MlfmmFarOperator::Impl::reference_block_error(const basis::RwgSpace& space,
     TruncationSearch search;
     int sampling_order = 0;
     if (level == tree.leaf_level()) {
-        const LeafSampling ls = leaf_sampling(space, tree, ref.k, digits);
+        const LeafSampling ls = leaf_sampling(tree, ref.k, digits, level_rmax[sz(level)]);
         search = ls.search;
         sampling_order = ls.sampling_order;
     } else {
         TruncationSearchOptions opt;
-        opt.box_diagonal = std::sqrt(3.0) * tree.box_size(level) + 2.0 * rmax;
+        opt.box_diagonal = std::sqrt(3.0) * tree.box_size(level) + 2.0 * level_rmax[sz(level)];
         search = search_truncation_order(ref.k, tree.box_size(level), digits, opt);
         sampling_order = search.order;
     }
@@ -582,21 +606,27 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
         FarLevelInfo& f = r.info[sz(l - 2)];
         const Real a = tree.box_size(l);
         const std::vector<Index>& boxes = tree.boxes_at_level(l);
+        const Real rl = level_rmax[sz(l)];
         f.level = l;
         f.boxes = static_cast<Index>(boxes.size());
         f.box_size = a;
+        f.support_radius = rl;
+        f.home_functions = l == leaf ? 0 : static_cast<Index>(tree.elevated_positions(l).size());
+        if (l == leaf) {
+            for (const int h : tree.home_levels()) f.home_functions += h == leaf ? 1 : 0;
+        }
         if (expanding) {
             TruncationSearch search;
             int sampling_order = 0;
             bool searched = true;
             try {
                 if (l == leaf) {
-                    const LeafSampling ls = leaf_sampling(space, tree, r.k, digits);
+                    const LeafSampling ls = leaf_sampling(tree, r.k, digits, rl);
                     search = ls.search;
                     sampling_order = ls.sampling_order;
                 } else {
                     TruncationSearchOptions opt;
-                    opt.box_diagonal = std::sqrt(3.0) * a + 2.0 * rmax;
+                    opt.box_diagonal = std::sqrt(3.0) * a + 2.0 * rl;
                     search = search_truncation_order(r.k, a, digits, opt);
                     sampling_order = search.order;
                 }
@@ -643,11 +673,16 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
         // Per box pair: truncation by the decay bound, else exact.
         f.decision = FarDecision::truncation;
         for (const Index ia : boxes) {
+            if (tree.active_elements(ia) == 0)
+                continue;  // only elevated functions: no pair of A is far on this level
             for (const Index ib : tree.boxes()[sz(ia)].interaction_list) {
+                if (tree.active_elements(ib) == 0)
+                    continue;
                 const Real delta =
                     decay_factor(alpha, extent_distance(extent[sz(ia)], extent[sz(ib)]));
                 if (!force_exact && delta <= trunc_tol) {
                     ++f.truncated_pairs;
+                    f.truncated_basis_pairs += tree.active_elements(ia) * tree.active_elements(ib);
                     f.decay_bound = std::max(f.decay_bound, delta);
                 } else {
                     f.exact_bound = f.exact_pairs == 0 ? delta : std::min(f.exact_bound, delta);
@@ -672,8 +707,8 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
         const Real reach = alpha > 0.0 ? x_star / alpha : std::numeric_limits<Real>::infinity();
         if (f.exact_pairs > 0 && !force_exact &&
             !(reach <= kExactFallbackBoxEdges * first_fallback_edge)) {
-            const Real D = std::sqrt(3.0) * a + 2.0 * rmax;
-            const auto cause = rmax / a > max_support_ratio(digits)
+            const Real D = std::sqrt(3.0) * a + 2.0 * rl;
+            const auto cause = rl / a > max_support_ratio(digits)
                                    ? TruncationOrderError::Cause::mesh_or_leaf_size
                                : alpha * D >= 1.0 ? TruncationOrderError::Cause::lossy_region
                                                   : TruncationOrderError::Cause::digits;
@@ -693,7 +728,7 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
                       "leaves, fewer digits or the dense operator";
             else
                 os << "use fewer digits or larger leaves";
-            os << " (r_max / a = " << rmax / a << ")";
+            os << " (r_max / a = " << rl / a << ")";
             throw TruncationOrderError(os.str(), static_cast<int>(index), l, cause);
         }
     }
@@ -740,13 +775,17 @@ Index MlfmmFarOperator::Impl::count_exact_pairs(const Region& r, Index limit) co
         const Box& B = boxes[sz(r.exact_pairs[sz(k)][1])];
         Index count = 0;
         if (r.force_exact) {
-            count = A.num_elements * B.num_elements;
+            count = tree.active_elements(r.exact_pairs[sz(k)][0]) *
+                    tree.active_elements(r.exact_pairs[sz(k)][1]);
         } else {
             for (Index p = A.first_element; p < A.first_element + A.num_elements; ++p) {
+                if (tree.home_level(p) < A.level)
+                    continue;
                 const Extent& ep = basis_extent[sz(perm[sz(p)])];
                 for (Index q = B.first_element; q < B.first_element + B.num_elements; ++q) {
-                    if (decay_factor(r.decay, extent_distance(ep, basis_extent[sz(perm[sz(q)])])) >
-                        tol)
+                    if (tree.home_level(q) >= B.level &&
+                        decay_factor(r.decay, extent_distance(ep, basis_extent[sz(perm[sz(q)])])) >
+                            tol)
                         ++count;
                 }
             }
@@ -768,7 +807,6 @@ void MlfmmFarOperator::Impl::check_exact_budget(const op::Problem& problem,
                   dense_bytes(n));
     const std::size_t per_pair = op::RegionSparseOperator::kBytesPerPair;
     const std::size_t row_bytes = (sz(n) + 1) * sizeof(Index);
-    const auto& boxes = tree.boxes();
     const auto bytes_of = [&](Index pairs) { return sz(pairs) * per_pair + row_bytes; };
     std::size_t bound_bytes = 0;
     bool any = false;
@@ -780,7 +818,7 @@ void MlfmmFarOperator::Impl::check_exact_budget(const op::Problem& problem,
         r.xinfo.box_pairs = static_cast<Index>(r.exact_pairs.size());
         r.xinfo.pair_bound = 0;
         for (const auto& [ia, ib] : r.exact_pairs)
-            r.xinfo.pair_bound += boxes[sz(ia)].num_elements * boxes[sz(ib)].num_elements;
+            r.xinfo.pair_bound += tree.active_elements(ia) * tree.active_elements(ib);
         bound_bytes += bytes_of(r.xinfo.pair_bound);
         SBEM_INFO(
             "MlfmmFarOperator: region R{} exact part estimate: {} box pairs (levels {} ... 2), <= "
@@ -883,7 +921,11 @@ void MlfmmFarOperator::Impl::assemble_exact(Region& r, const op::Problem& proble
             Index count = 0;
             for (const Index b : src[sz(g)]) {
                 const Box& B = boxes[sz(b)];
+                if (tree.home_level(p) < B.level)
+                    continue;  // the row's far level lies above this pair's level
                 for (Index q = B.first_element; q < B.first_element + B.num_elements; ++q) {
+                    if (tree.home_level(q) < B.level)
+                        continue;
                     const Index c = perm[sz(q)];
                     if (keep(row, c)) {
                         ++count;
@@ -911,7 +953,11 @@ void MlfmmFarOperator::Impl::assemble_exact(Region& r, const op::Problem& proble
             Index pos = row_ptr[sz(row)];
             for (const Index b : src[sz(g)]) {
                 const Box& B = boxes[sz(b)];
+                if (tree.home_level(p) < B.level)
+                    continue;
                 for (Index q = B.first_element; q < B.first_element + B.num_elements; ++q) {
+                    if (tree.home_level(q) < B.level)
+                        continue;
                     const Index c = perm[sz(q)];
                     if (keep(row, c))
                         cols[sz(pos++)] = c;
@@ -993,6 +1039,54 @@ void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& spac
     for (std::size_t q = 0; q < r.antipode.size(); ++q) {
         r.antipode[q] = sz(r.patterns->antipode(static_cast<Index>(q)));
     }
+    // Elevated functions (local leaf rule): patterns at their home level's sampling about the
+    // home box centre (the same quadrature as the leaf patterns, basis_patterns).
+    const std::vector<Index>& perm = tree.permutation();
+    for (std::size_t li = 0; li + 1 < r.levels.size(); ++li) {
+        Level& lv = r.levels[li];
+        const int l = lv.info.level;
+        const std::vector<Index>& pos = tree.elevated_positions(l);
+        if (pos.empty())
+            continue;
+        const auto t1 = std::chrono::steady_clock::now();
+        const SphereSampling& s = lv.sampling;
+        const std::size_t nd = sz(s.size());
+        lv.elevated.assign(pos.size() * nd * 2, Complex(0.0, 0.0));
+        lv.antipode.resize(nd);
+        for (int it = 0; it < s.num_theta(); ++it) {
+            for (int ip = 0; ip < s.num_phi(); ++ip) {
+                lv.antipode[sz(s.index(it, ip))] =
+                    sz(s.index(s.num_theta() - 1 - it, (ip + s.num_phi() / 2) % s.num_phi()));
+            }
+        }
+        const std::vector<Index>& boxes = tree.boxes_at_level(l);
+        const auto nb = static_cast<Index>(boxes.size());
+        ErrorSlot error;
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+        for (Index ib = 0; ib < nb; ++ib) {
+            try {
+                const Index b = boxes[sz(ib)];
+                const Index first = tree.elevated_first(b);
+                const Index count = tree.elevated_count(b);
+                if (count == 0)
+                    continue;
+                std::vector<Index> bases(sz(count));
+                for (Index i = 0; i < count; ++i) bases[sz(i)] = perm[sz(pos[sz(first + i)])];
+                const std::vector<Complex> v =
+                    basis_patterns(space, bases, tree.boxes()[sz(b)].center, r.k, s, popt);
+                std::copy(v.begin(), v.end(),
+                          lv.elevated.begin() + static_cast<std::ptrdiff_t>(sz(first) * nd * 2));
+            } catch (...) {
+                error.capture();
+            }
+        }
+        error.rethrow();
+        lv.info.elevated_pattern_bytes = lv.elevated.size() * sizeof(Complex);
+        lv.info.setup_seconds += seconds_since(t1);
+        r.info[sz(l - 2)] = lv.info;
+    }
 }
 
 MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tree,
@@ -1017,15 +1111,54 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
         // Z_far leaves out the jump terms of K, which only coincident triangles carry. Far pairs
         // have midpoints more than one leaf edge apart, two bases sharing a triangle at most
         // r_max (each midpoint lies in the shared triangle): r_max < a_leaf excludes them.
-        m.rmax = max_support_radius(space);
-        const Real rmax = m.rmax;
-        const Real a = tree.box_size(tree.leaf_level());
-        if (!(rmax < a)) {
+        // With elevated functions (local leaf rule) the condition is r(b) < a_h(b) per function:
+        // a pair far on level l <= min(h(a), h(b)) has midpoints more than a_l apart.
+        const std::vector<Real> radius = support_radii(space);
+        m.rmax = *std::max_element(radius.begin(), radius.end());
+        const std::vector<Index>& perm = tree.permutation();
+        m.level_rmax.assign(sz(tree.levels()), 0.0);
+        Index worst = -1;  // permuted position with the largest r / a_h
+        Real worst_ratio = 0.0;
+        bool bad = false;  // some function has r >= a_h
+        for (Index p = 0; p < m.n; ++p) {
+            const int h = tree.home_level(p);
+            const Real r = radius[sz(perm[sz(p)])];
+            if (h < 2) {
+                std::ostringstream os;
+                os << "MlfmmFarOperator: basis function " << perm[sz(p)] << " (support radius " << r
+                   << " m) has no home level >= 2 (local leaf rule: r <= "
+                   << max_support_ratio(params.accuracy_digits) << " x the box edge; level 2 edge "
+                   << tree.box_size(2) << " m); refine the mesh or use larger leaves";
+                throw TruncationOrderError(os.str(), 0, h,
+                                           TruncationOrderError::Cause::mesh_or_leaf_size);
+            }
+            m.level_rmax[sz(h)] = std::max(m.level_rmax[sz(h)], r);
+            const Real ratio = r / tree.box_size(h);
+            const bool fails = !(r < tree.box_size(h));
+            if (worst < 0 || (fails && !bad) || (fails == bad && ratio > worst_ratio)) {
+                worst = p;
+                worst_ratio = ratio;
+                bad = bad || fails;
+            }
+        }
+        for (int l = tree.leaf_level() - 1; l >= 0; --l)
+            m.level_rmax[sz(l)] = std::max(m.level_rmax[sz(l)], m.level_rmax[sz(l + 1)]);
+        if (bad) {
+            const int h = tree.home_level(worst);
             std::ostringstream os;
-            os << "MlfmmFarOperator: the largest RWG support radius (" << rmax
-               << " m) must be smaller than the leaf box edge (" << a
-               << " m), otherwise far pairs could share a triangle (jump terms); refine the "
-                  "mesh or use larger leaves";
+            if (!tree.has_elevated()) {
+                os << "MlfmmFarOperator: the largest RWG support radius (" << m.rmax
+                   << " m) must be smaller than the leaf box edge (" << tree.box_size(h)
+                   << " m), otherwise far pairs could share a triangle (jump terms); refine the "
+                      "mesh or use larger leaves";
+            } else {
+                os << "MlfmmFarOperator: the support radius of basis function " << perm[sz(worst)]
+                   << " (" << radius[sz(perm[sz(worst)])]
+                   << " m) must be smaller than the box edge of its home level " << h << " ("
+                   << tree.box_size(h)
+                   << " m), otherwise far pairs could share a triangle (jump terms); refine the "
+                      "mesh or use larger leaves";
+            }
             throw std::invalid_argument(os.str());
         }
     }
@@ -1200,10 +1333,13 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* co
             Complex* F = field(out.back(), ib, 0, nd);
             std::fill(F, F + kFields * nd, Complex(0.0, 0.0));
             for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p) {
+                const Index slot = r.patterns->slot(p);
+                if (slot < 0)
+                    continue;  // elevated: aggregated at its home level
                 const Index basis = perm[sz(p)];
                 const Complex xj = x(basis);
                 const Complex xm = x(n + basis);
-                const Complex* v = V + sz(p) * nd * 2;
+                const Complex* v = V + sz(slot) * nd * 2;
                 for (std::size_t q = 0; q < nd; ++q) {
                     F[q] += xj * v[2 * q];
                     F[nd + q] += xj * v[2 * q + 1];
@@ -1246,6 +1382,23 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* co
                         Complex* dst = field(out[li], ip, f, ndp);
                         const Complex* shift = child.up[s].data();
                         for (std::size_t q = 0; q < ndp; ++q) dst[q] += shift[q] * src[q];
+                    }
+                }
+                // Elevated functions with this home box (local leaf rule).
+                const Level& lv = r.levels[li];
+                const Index first = tree.elevated_first(parents[sz(ip)]);
+                const Index count = lv.elevated.empty() ? 0 : tree.elevated_count(parents[sz(ip)]);
+                const std::vector<Index>& pos = tree.elevated_positions(l);
+                for (Index i = first; i < first + count; ++i) {
+                    const Index basis = perm[sz(pos[sz(i)])];
+                    const Complex xj = x(basis);
+                    const Complex xm = x(n + basis);
+                    const Complex* v = lv.elevated.data() + sz(i) * ndp * 2;
+                    for (std::size_t q = 0; q < ndp; ++q) {
+                        Fp[q] += xj * v[2 * q];
+                        Fp[ndp + q] += xj * v[2 * q + 1];
+                        Fp[2 * ndp + q] += xm * v[2 * q];
+                        Fp[3 * ndp + q] += xm * v[2 * q + 1];
                     }
                 }
             } catch (...) {
@@ -1342,13 +1495,58 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* co
                 u[4 * q + 3] = -(r.gamma * jt + r.delta * mp);
             }
             for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p) {
+                const Index slot = r.patterns->slot(p);
+                if (slot < 0)
+                    continue;  // elevated: receives at its home level
                 Complex sj(0.0, 0.0), sm(0.0, 0.0);
-                const Complex* v = V + sz(p) * nd * 2;
+                const Complex* v = V + sz(slot) * nd * 2;
                 for (std::size_t q = 0; q < nd; ++q) {
                     sj += v[2 * q] * u[4 * q] + v[2 * q + 1] * u[4 * q + 1];
                     sm += v[2 * q] * u[4 * q + 2] + v[2 * q + 1] * u[4 * q + 3];
                 }
                 const Index basis = perm[sz(p)];
+                y(basis) += sj;
+                y(n + basis) += sm;
+            }
+        }
+    }
+    // 6. Reception of the elevated functions at their home levels (local leaf rule), from the
+    //    complete incoming fields of those levels; the same algebra as step 5.
+    for (std::size_t li = 0; li + 1 < nl; ++li) {
+        const Level& lv = r.levels[li];
+        if (lv.elevated.empty())
+            continue;
+        const int l = lv.info.level;
+        const std::size_t nd = sz(lv.sampling.size());
+        const std::vector<Index>& obs = tree.boxes_at_level(l);
+        const std::vector<Index>& pos = tree.elevated_positions(l);
+        const auto nb = static_cast<Index>(obs.size());
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+        for (Index ib = 0; ib < nb; ++ib) {
+            const Index first = tree.elevated_first(obs[sz(ib)]);
+            const Index count = tree.elevated_count(obs[sz(ib)]);
+            if (count == 0)
+                continue;
+            const Complex* G = field(in[li], ib, 0, nd);
+            Complex* u = thread_scratch();
+            for (std::size_t q = 0; q < nd; ++q) {
+                const std::size_t a = lv.antipode[q];
+                const Complex jt = G[a], jp = G[nd + a], mt = G[2 * nd + a], mp = G[3 * nd + a];
+                u[4 * q] = r.alpha * jt + r.beta * mp;
+                u[4 * q + 1] = -(r.alpha * jp - r.beta * mt);
+                u[4 * q + 2] = -r.gamma * jp + r.delta * mt;
+                u[4 * q + 3] = -(r.gamma * jt + r.delta * mp);
+            }
+            for (Index i = first; i < first + count; ++i) {
+                Complex sj(0.0, 0.0), sm(0.0, 0.0);
+                const Complex* v = lv.elevated.data() + sz(i) * nd * 2;
+                for (std::size_t q = 0; q < nd; ++q) {
+                    sj += v[2 * q] * u[4 * q] + v[2 * q + 1] * u[4 * q + 1];
+                    sm += v[2 * q] * u[4 * q + 2] + v[2 * q + 1] * u[4 * q + 3];
+                }
+                const Index basis = perm[sz(pos[sz(i)])];
                 y(basis) += sj;
                 y(n + basis) += sm;
             }
@@ -1407,8 +1605,15 @@ std::string MlfmmFarOperator::describe() const {
                    << static_cast<Real>(f.pattern_bytes) / 1048576.0 << " MB per apply";
             } else {
                 os << "; box pairs: " << f.truncated_pairs << " truncated (max delta "
-                   << f.decay_bound << "), " << f.exact_pairs << " exact (min delta "
-                   << f.exact_bound << ")";
+                   << f.decay_bound << ", " << f.truncated_basis_pairs << " basis pairs), "
+                   << f.exact_pairs << " exact (min delta " << f.exact_bound << ")";
+            }
+            if (m.tree.has_elevated()) {
+                os << "; home functions " << f.home_functions << ", support radius "
+                   << f.support_radius << " m";
+                if (f.elevated_pattern_bytes > 0)
+                    os << ", elevated patterns "
+                       << static_cast<Real>(f.elevated_pattern_bytes) / 1048576.0 << " MB";
             }
             os << ", setup " << f.setup_seconds << " s";
         }
@@ -1436,6 +1641,7 @@ std::size_t MlfmmFarOperator::memory_bytes() const {
                 b += 16 * sz(r.levels[li - 1].sampling.size()) * sizeof(Complex);
             if (lv.interp)
                 b += lv.interp->memory_bytes();
+            b += lv.elevated.size() * sizeof(Complex) + lv.antipode.size() * sizeof(std::size_t);
         }
     }
     // Apply workspaces: the pooled ones, at least the one a serial solve needs.

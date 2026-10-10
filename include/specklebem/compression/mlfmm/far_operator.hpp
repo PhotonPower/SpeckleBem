@@ -30,8 +30,20 @@
 ///     the parent weights are already in G (interpolation.hpp weight convention), no child weights.
 ///  5. Reception: the unweighted sum over the leaf directions above.
 ///
+/// Elevated basis functions (local leaf rule, octree.hpp "Home levels", ADR 0008 amendment
+/// 2026-10-11): a function with home level h < leaf is left out of steps 1 and 5; its radiation
+/// pattern is sampled with the level-h sampling about its home box centre (basis_patterns, the
+/// same quadrature) and added to the home box's outgoing field on level h after the children's
+/// interpolation (step 2), and it receives from the level-h incoming field of its home box after
+/// the downward pass (as in step 5, with the level-h antipodes). Only levels whose decision is
+/// expansion hold such patterns; the far interactions of an elevated function on non-expansion
+/// levels go through the truncation / exact policy below like every other pair there. Every
+/// per-level quantity counts only the functions with home level >= the level
+/// (Octree::active_elements): block-check bases, box extents, exact and truncated pairs.
+///
 /// Orders per region and level: search_truncation_order with the enlarged diagonal sqrt(3) a +
-/// 2 max_support_radius (leaf level: leaf_sampling, sampled at max(L, p - 1)); translators are the
+/// 2 r_l, r_l the largest support radius of the functions with home level >= l (= r_max without
+/// elevated functions; leaf level: leaf_sampling, sampled at max(L, p - 1)); translators are the
 /// order-truncated T_L at the level's sampling, premultiplied by the weights, one per integer
 /// offset present in the interaction lists. A region whose weights are all zero is skipped.
 ///
@@ -89,8 +101,9 @@
 /// counts: a pair is dropped only with delta <= 10^-(d0+1), never silently.
 ///
 /// Jump terms: Z_far has none (the dense K carries -/+ 1/2 on coincident triangles only), which
-/// needs r_max < a_leaf: far pairs have midpoints more than a_leaf apart, bases sharing a triangle
-/// at most r_max (checked by the constructor).
+/// needs r(b) < a_h(b) for every basis function (r_max < a_leaf without elevated functions): a
+/// pair far on level l <= min(h(a), h(b)) has midpoints more than a_l apart, bases sharing a
+/// triangle at most min(r(a), r(b)) (checked by the constructor).
 ///
 /// apply() is safe for concurrent calls (WP20b): the pass storage (outgoing and incoming fields of
 /// every level, workspace_bytes()) comes from a mutex-guarded pool of workspaces; a call takes a
@@ -179,6 +192,18 @@ struct FarLevelInfo {
     Index exact_pairs = 0;           ///< ordered box pairs evaluated exactly
     Index translators = 0;           ///< distinct interaction offsets (expansion levels)
     std::size_t pattern_bytes = 0;   ///< per-apply outgoing + incoming fields of the level
+    /// Local leaf rule: basis functions whose home level is this level (octree.hpp).
+    Index home_functions = 0;
+    /// Largest support radius of the functions with home level >= this level, the radius in the
+    /// enlarged diagonal sqrt(3) a + 2 r of the order search [m] (r_max without elevated
+    /// functions).
+    Real support_radius = 0;
+    /// Expansion levels above the leaf: stored patterns of the elevated functions of this level
+    /// (sampled with this level's sampling about their home box centres) [bytes].
+    std::size_t elevated_pattern_bytes = 0;
+    /// Non-expansion levels: basis pairs of the truncated box pairs (functions with home level
+    /// >= this level on both sides).
+    Index truncated_basis_pairs = 0;
     Real setup_seconds = 0;          ///< search, block check, decisions, translators, shifts
 };
 
@@ -220,9 +245,12 @@ public:
     ///        (per-level search), precompute_translators true, use_fft_interpolation false;
     ///        params.octree is not used (the tree is given).
     /// @throws std::invalid_argument for an invalid Problem (op::validate), unsupported params, a
-    ///         tree not built on problem.space or (trees with >= 3 levels) a largest support
-    ///         radius r_max >= the leaf edge; TruncationOrderError (file comment);
-    ///         std::overflow_error from the plane-wave functions.
+    ///         tree not built on problem.space or (trees with >= 3 levels) a basis function whose
+    ///         support radius is >= the box edge of its home level (r_max >= the leaf edge without
+    ///         elevated functions); TruncationOrderError (file comment; cause mesh_or_leaf_size,
+    ///         region 0, level = the home level, for a tree with >= 3 levels and a basis function
+    ///         with home level < 2, local leaf rule); std::overflow_error from the plane-wave
+    ///         functions.
     MlfmmFarOperator(const op::Problem& problem, const Octree& tree, const MlfmmParams& params);
     MlfmmFarOperator(const op::Problem&, const Octree&&, const MlfmmParams&) = delete;
     ~MlfmmFarOperator() override;

@@ -53,6 +53,15 @@ struct MlfmmParams {
     /// acts as a lower bound. The accuracy statements of ADR 0008 / docs/05 assume it. false: the
     /// octree parameters are used as given (tests and experiments with deliberately small trees).
     bool automatic_leaf_size = true;
+    /// Local leaf rule (ADR 0008 amendment 2026-10-11), with automatic_leaf_size: r_max in the
+    /// leaf rule above is replaced by the radius quantile r_q of the support radii (the smallest
+    /// radius such that this fraction of the basis functions has r <= r_q), and every basis
+    /// function b gets a home level: the leaf level if r(b) <= max_support_ratio(d0) a_leaf, else
+    /// the finest level l with r(b) <= max_support_ratio(d0) a_l / 2 (octree.hpp "Home levels",
+    /// kElevatedSupportRatioFactor): the few large functions (e.g. coarse cells of a graded box)
+    /// then live on a coarser level instead of enlarging every leaf. In (0, 1]; 1.0 reproduces the
+    /// WP21 rule exactly (no elevated functions, bitwise identical results).
+    Real leaf_radius_quantile = 0.99;
     /// Per region (0 = R1, 1 = R2): true evaluates every far interaction of that region exactly
     /// (the near-field fallback of ADR 0008 §6 on every far level) instead of the
     /// expansion / truncation policy. Rigorous, but O(N^2) memory for that region; meant for
@@ -93,14 +102,29 @@ inline constexpr Real kLeafMaxSupportRatioD5 = 0.3;
 }
 
 /// Octree parameters after the leaf rule: params.octree with min_box_size_lambda raised to
-/// max(given, a_min(d0), r_max / (max_support_ratio(d0) (1 - kMinBoxSizeTolerance) wavelength))
-/// (the tolerance factor keeps r_max / a <= max_support_ratio(d0) despite the octree's floor
+/// max(given, a_min(d0), r_q / (max_support_ratio(d0) (1 - kMinBoxSizeTolerance) wavelength))
+/// with r_q = support_radius_quantile(space, leaf_radius_quantile) (r_max for the quantile 1;
+/// the tolerance factor keeps r_q / a <= max_support_ratio(d0) despite the octree's floor
 /// tolerance); params.octree unchanged if params.automatic_leaf_size is false.
 /// @param wavelength the octree's reference wavelength lambda1 [m]
-/// @throws std::invalid_argument for an empty space, accuracy_digits <= 0 or a non-positive
-///         wavelength.
+/// @throws std::invalid_argument for an empty space, accuracy_digits <= 0, a non-positive
+///         wavelength or leaf_radius_quantile outside (0, 1].
 [[nodiscard]] OctreeParams leaf_rule_params(const basis::RwgSpace& space, Real wavelength,
                                             const MlfmmParams& params);
+
+/// The radius quantile of the local leaf rule: the ceil(q N)-th smallest support radius
+/// (support_radii), i.e. the smallest r with at least q N functions of radius <= r; q = 1 gives
+/// max_support_radius exactly. @throws std::invalid_argument for an empty space or q outside
+/// (0, 1].
+[[nodiscard]] Real support_radius_quantile(const basis::RwgSpace& space, Real q);
+
+/// The octree of MlfmmOperator: Octree(space, wavelength, leaf_rule_params(...)) with home levels
+/// from support_radii and max_support_ratio(d0) if params.automatic_leaf_size (octree.hpp "Home
+/// levels"; with leaf_radius_quantile = 1 every function stays on the leaf level), without home
+/// levels otherwise (every function on the leaf level).
+/// @throws as leaf_rule_params and the Octree constructor.
+[[nodiscard]] Octree make_octree(const basis::RwgSpace& space, Real wavelength,
+                                 const MlfmmParams& params);
 
 class MlfmmOperator final : public op::LinearOperator {
 public:
