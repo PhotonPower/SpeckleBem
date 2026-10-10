@@ -70,7 +70,7 @@ The interior wavenumber `k_2` is complex. Consequences:
   the first level without expansion); weaker decay throws instead of growing towards `N²`. Before
   any allocation the exact parts are estimated (`Σ n_A n_B` over the exact box pairs, refined per
   basis pair when needed) and checked against `MlfmmParams::max_exact_far_bytes` (default
-  `max(2 × near field, 1 GiB)`).
+  `min(max(2 × near field, 1 GiB), dense 16 (2N)²)`, WP21f).
 - Phase 8 alternative: ACA/H-matrix for the interior operator — kernel-independent, no stability issue with complex `k`.
 
 ## Complexity and memory
