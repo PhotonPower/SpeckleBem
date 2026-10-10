@@ -86,3 +86,24 @@ TEST_CASE("Flat interface: Si, L = 6 um, w0 = 1.5 um, normal incidence vs Fresne
         return;
     CHECK(std::abs(r.error_fresnel()) < 0.01);
 }
+
+TEST_CASE("Flat interface: Ag, L = 4 um, w0 = 0.8 um, 45 deg, p and s vs Fresnel",
+          "[validation-large][fresnel]") {
+    for (const auto pol : {excitation::Polarization::P, excitation::Polarization::S}) {
+        Result r;
+        if (!run_case(make_case("ag", 4e-6, 0.8e-6, 45.0, pol), 2000, r))
+            return;
+        CHECK(std::abs(r.error_fresnel()) < 0.01);
+    }
+}
+
+TEST_CASE("Flat interface: Si, L = 6 um, w0 = 1.2 um, 45 deg, p and s vs Fresnel",
+          "[validation-large][fresnel]") {
+    for (const auto pol : {excitation::Polarization::P, excitation::Polarization::S}) {
+        Result r;
+        if (!run_case(make_case("si", 6e-6, 1.2e-6, 45.0, pol), 300, r))
+            return;
+        // R_beam differs from the plane-wave |r|^2 by -0.45 % (p) / +0.18 % (s) at this waist.
+        CHECK(std::abs(r.error_fresnel()) < 0.01);
+    }
+}
