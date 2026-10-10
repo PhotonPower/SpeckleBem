@@ -16,7 +16,9 @@
 // Usage: specklebem_gmres_orthogonalization [--n 200000] [--iters 1000] [--radius 0.95]
 //            [--variants mgs,cgs2] [--threads 0] [--blas-reference]
 //        --threads takes a comma-separated list of OpenMP thread counts for CGS2 (0 = the
-//        default); MGS is serial and runs once.
+//        default); MGS is serial, runs once and is listed with "1 (serial)" threads. If GMRES
+//        stops early (happy breakdown before --iters), the columns past its last iteration
+//        show "-".
 #include "specklebem/core/logging.hpp"
 #include "specklebem/operator/linear_operator.hpp"
 #include "specklebem/solver/gmres.hpp"
@@ -145,8 +147,11 @@ void set_threads(int t) {
 #endif
 }
 
-/// Mean seconds per iteration over the iterations k - 9 .. k (stamps[k] = end of iteration k).
+/// Mean seconds per iteration over the iterations k - 9 .. k (stamps[k] = end of iteration k),
+/// or a negative value if GMRES stopped before iteration k (happy breakdown before --iters).
 double per_iteration(const std::vector<double>& stamps, int k) {
+    if (k < 10 || static_cast<std::size_t>(k) >= stamps.size())
+        return -1.0;
     return (stamps[static_cast<std::size_t>(k)] - stamps[static_cast<std::size_t>(k - 10)]) / 10.0;
 }
 
@@ -185,12 +190,19 @@ void run_variant(const Options& o, const op::LinearOperator& A, const VectorXc& 
     stamps.push_back(0.0);
     t0 = Clock::now();
     const solver::GmresResult r = solver::gmres(A, b, none, p, cb);
-    std::printf("| %-11s | %7d | %8.2f | %8.2f | %5.1f %% | %5d | %9.2e |", variant.c_str(),
-                threads, r.wall_seconds, r.orthogonalization_seconds,
+    // MGS is serial: its Gram-Schmidt steps do not use the OpenMP threads.
+    const std::string thread_label = variant == "mgs" ? "1 (serial)" : std::to_string(threads);
+    std::printf("| %-11s | %10s | %8.2f | %8.2f | %5.1f %% | %5d | %9.2e |", variant.c_str(),
+                thread_label.c_str(), r.wall_seconds, r.orthogonalization_seconds,
                 100.0 * r.orthogonalization_seconds / r.wall_seconds, r.reorthogonalizations,
                 r.residual_history.back());
-    for (const int k : sample_points(o.iters))
-        std::printf(" %7.2f |", 1e3 * per_iteration(stamps, k));
+    for (const int k : sample_points(o.iters)) {
+        const double t = per_iteration(stamps, k);
+        if (t < 0)
+            std::printf("       - |");  // stopped before iteration k
+        else
+            std::printf(" %7.2f |", 1e3 * t);
+    }
     std::printf(" %.2f |\n", 1e3 * matvec_s);
     std::fflush(stdout);
 }
