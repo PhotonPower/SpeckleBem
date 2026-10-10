@@ -19,6 +19,7 @@ add_executable(specklebem_unit_tests
     unit/test_mesh_io.cpp
     unit/test_singularity.cpp
     unit/test_excitation.cpp
+    unit/test_angular_spectrum_beam.cpp
     unit/test_direct.cpp
     unit/test_fields.cpp
     unit/test_operators.cpp

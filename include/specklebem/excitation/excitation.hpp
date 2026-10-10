@@ -47,9 +47,9 @@ private:
 };
 
 /// Gaussian beam propagating along k_hat = R_y(theta_in) z_hat (waist at the focus), used to
-/// illuminate rough surfaces without touching the patch edges. Phase 2 uses the paraxial
-/// model; a rigorous angular-spectrum representation that satisfies Maxwell's
-/// equations exactly is scheduled for Phase 5 (docs/01_project_plan.md).
+/// illuminate rough surfaces without touching the patch edges. Paraxial model (qualitative
+/// work); the rigorous angular-spectrum beam that satisfies Maxwell's equations exactly is
+/// excitation::AngularSpectrumBeam (angular_spectrum_beam.hpp, ADR 0006 amendment item 4).
 ///
 /// Beam frame: k_hat = R_y(theta_in) z_hat (rotation about y; theta_in = 0 gives +z) with
 /// |theta_in| < pi/2, i.e. the beam always travels towards +z (docs/06); waist plane through

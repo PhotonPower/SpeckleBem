@@ -8,6 +8,7 @@ set(SPECKLEBEM_SOURCES
     material/material.cpp
     formulation/formulation.cpp
     excitation/excitation.cpp
+    excitation/angular_spectrum_beam.cpp
     geometry/mesh.cpp
     geometry/sphere.cpp
     geometry/rough_surface.cpp
@@ -49,9 +50,10 @@ add_library(SpeckleBem::specklebem ALIAS specklebem)
 # WP-P2: the plain-kernel point loop of kernels/operators.cpp (kernels/fast_math.hpp and
 # std::sqrt) vectorises only without errno handling (sqrt) and without the trapping-math limit
 # on if-converting floating-point comparisons. Neither flag changes a computed value (no
-# reassociation, no contraction, no finite-math assumptions).
+# reassociation, no contraction, no finite-math assumptions). WP-E1: the same for the plane-wave
+# sum of excitation/angular_spectrum_beam.cpp (fast_sincos).
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set_source_files_properties(kernels/operators.cpp PROPERTIES
+    set_source_files_properties(kernels/operators.cpp excitation/angular_spectrum_beam.cpp PROPERTIES
         COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math")
 endif()
 
