@@ -56,3 +56,15 @@ Implementation notes (WP-B1): λ₁ = λ₀/|n₁| (conservative for lossy backg
 Open (WP-V2): whether λ₁/5 suffices and at which w₀/L the depth check falls below 0.1 % (hypothesis: the
 depth sensitivity follows the rim illumination, not the Rayleigh range); Ag surface plasmons carry about
 half of the Ag depth sensitivity at L ≤ 2 µm and become relevant at L ≳ 20 µm.
+
+## Amendment 2026-10-11 (WP22c: oblique incidence, solver tolerance)
+
+- **Waist at oblique incidence:** the footprint is 1/cos θ_in longer along x; w₀ = L/4 at 45° loses 0.63 % of
+  the beam power past the patch (WP22c). Rule: **w₀ ≤ L cos θ_in / 4** (equal edge loss at all angles;
+  at 45° w₀ = L/5 was measured sufficient, edge loss 0.06–0.1 %). `check_beam_waist` gets the incidence
+  angle (follow-up).
+- **Solver tolerance for quantitative Ag results:** a true relative residual of 1e-4 leaves ~0.5 % error in
+  the specular reflectance of Ag (flat, 0°); **GMRES tol ≤ 1e-5 for quantitative Ag reflectance**. Si is
+  accurate at 1e-4.
+- Open: the Ag absorbed power from the currents is ~40 % low at 45° (energy balance open by 0.3–0.7 %)
+  while R meets the criterion — investigate before absorption is used quantitatively.

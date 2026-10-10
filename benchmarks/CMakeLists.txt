@@ -38,12 +38,23 @@ endif()
 add_executable(specklebem_ag_sphere_mlfmm ag_sphere_mlfmm.cpp)
 target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
 
+# MLFMM scaling study (WP22b1, Phase 4 DoD; Fig. 2(c) of the paper: wall time vs N for
+# preconditioned MLFMM (Ag) and ICTF-MLFMM (Si) rough surfaces): one case per process, run by
+# hand, see benchmarks/results/mlfmm_scaling.md. Shares the case code with the smoke test
+# (tests/support/mlfmm_scaling_support.hpp); mlfmm_scaling_fit.py fits the exponents.
+add_executable(specklebem_mlfmm_scaling mlfmm_scaling.cpp)
+target_link_libraries(specklebem_mlfmm_scaling PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
+# Flat-interface limit vs Fresnel (WP22c, docs/05 row "Flat box, tapered beam"): flat patch closed
+# by the ADR 0006 box, rigorous beam, MLFMM; one case per process, run by hand, see
+# benchmarks/results/fresnel_flat.md. Shares the case code with the validation tests
+# (tests/support/fresnel_flat_support.hpp).
+add_executable(specklebem_fresnel_flat fresnel_flat.cpp)
+target_link_libraries(specklebem_fresnel_flat PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
 # GMRES orthogonalisation cost (WP-G1): time per iteration vs Krylov dimension for MGS and CGS2 on
 # a synthetic operator with a cheap matvec. Run by hand (n = 2e5, 1000 iterations: ~3.2 GB), see
 # benchmarks/results/gmres_orthogonalization.md.
 add_executable(specklebem_gmres_orthogonalization gmres_orthogonalization.cpp)
 target_link_libraries(specklebem_gmres_orthogonalization PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
 
-# Benchmarks reproduce Fig. 2(c) of the paper: wall time vs N for dense LU,
-# preconditioned MLFMM (Ag) and ICTF-MLFMM (Si). Added in Phase 4.
-# add_executable(bench_matvec bench_matvec.cpp)

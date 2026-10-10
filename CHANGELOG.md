@@ -5,6 +5,24 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / tooling (WP22c, former WP12): flat-interface limit vs Fresnel (docs/05 row "Flat box,
+  tapered beam, 0° and 45°", < 1 % on |r|²) — met for Ag and Si, 0° and 45°, p and s.
+  `tests/support/fresnel_flat_support.hpp`: plane-wave Fresnel coefficients (exp(+jωt)), the
+  beam reflectance R_beam of the rigorous angular-spectrum beam on an infinite interface (local
+  s/p split per plane wave, power weights of `AngularSpectrumBeam::power()`), the incident flux
+  through z = 0 (power() check, edge loss), the flat closed box from `rough_surface_box_params`,
+  MLFMM solve through `Simulation`, reflected power from the far field (Gauss–Legendre in θ),
+  absorbed power from the currents. Study `benchmarks/fresnel_flat.cpp`
+  (`specklebem_fresnel_flat`, one case per process, `--estimate-only`, memory guard, `--compression
+  dense` and `--d0` cross-checks); fast reference tests `tests/validation/test_flat_interface_fresnel.cpp`
+  (4 cases); memory-guarded `tests/validation_large/test_flat_interface_fresnel_large.cpp` (Ag L =
+  4 µm 0° and 45° p/s, Si L = 6 µm 0° and 45° p/s). Record `benchmarks/results/fresnel_flat.md`:
+  errors vs R_beam Ag −0.52 % (0°, w₀ = 1 µm) / −0.07 % / −0.09 % (45° p/s, w₀ = 0.8 µm), Si
+  +0.11 % / +0.10 % (0° p/s) / −0.14 % / −0.06 % (45° p/s); vs plane-wave Fresnel ≤ 0.59 % (Si
+  45° p, of which −0.45 % is the beam's angular spread). At 45° the waist must be ≤ L/5 (L/4
+  loses 0.6 % past the patch). The Ag 0° deficit at GMRES tolerance 1e-4 is solver error (−0.011 %
+  and a closed energy balance at 1e-5; unchanged by MLFMM d₀ = 5 and the dense operator): Ag
+  flat-surface solves need tolerance 1e-5, which the validation-large Ag cases use.
 - solver (WP-G1): parallel classical Gram-Schmidt with re-orthogonalisation (CGS2) in the GMRES
   Arnoldi step, now the default (`GmresParams::orthogonalization = Orthogonalization::CGS2`;
   `Orthogonalization::MGS` keeps the previous serial modified Gram-Schmidt with the 0.7
@@ -98,6 +116,30 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   uniform box). Proposed ADR 0006 changes: coarse spacing ≤ λ₁/5 (to be re-checked against a
   uniform box at w₀ ≤ L/4), w₀ ≤ L/4, rigorous beam; the w₀/L (and L) at which the depth check can
   pass is open (an earlier z_R ≥ 8 × depth, L ≳ 6–11 µm, estimate is withdrawn).
+- tests/benchmarks (WP22b1, Phase 4 DoD): MLFMM scaling study on Gaussian rough boxes (sigma =
+  50 nm, Lc = 500 nm, h = 50 nm, 100 nm box cells, Si fine band, paraxial beam w0 = L/4, d0 = 3,
+  `recommend` formulation, full GMRES tol 1e-3). **Phase 4 scaling DoD partially demonstrated,
+  still open** (N of the DoD read as the number of unknowns 2N). Si: time per solve gamma = 0.73
+  +- 0.07 over 2N = 4.3e4 ... 5.2e5 (~0.88 with noise-reduced times: the clean first L = 1 um run,
+  111 s; proxy iterations x (near + far) matvec), limited by memory with the 100 nm graded box
+  (79 GB at 5.2e5, measured before d00317a). Ag: gamma = 1.2 +- 0.2 over 5 solved sizes 2N = 4.3e4
+  ... 2.9e5 (1.4 from 7e4; the last interval alone 2.2, noise-sensitive; L = 3 um rerun on the
+  merged tree: 1 004 iterations, 325 s quiet, 1 145 s under a parallel validation run), setup and
+  matvec to 2N = 1.02e6 (gamma ~0.9). Not shown over 5e4 ... 1e6; remaining: the Ag solves at 4.2e5
+  ... 1.02e6 after WP-G1 (fast GMRES orthogonalisation; the serial MGS is 42-66 % of the Ag solve)
+  and Si at 2N >= 6e5 via the uniform box (`--box-mesh-size 50e-9`, estimates: Si L = 10 um 2N =
+  1.02e6 ~87 GB model / ~73 GB near + far). Analysis: the global r_max of the box cells raises the
+  leaves to 219-406 nm (the uncapped automatic 200-400 nm box rule to lambda/0.7 ... lambda/0.35,
+  near field up to 307 GB), which sets the Si memory limit with 100 nm box cells; proposals: local
+  leaf rule, on-the-fly / single-precision Si leaf patterns, CGS2 orthogonalisation (WP-G1) and a
+  stronger Ag preconditioner. Executable `specklebem_mlfmm_scaling` (one case per process, box from
+  `rough_surface_box_params` with `--box-mesh-size <m>|auto|uncapped`, `check_beam_waist` unless
+  `--allow-wide-beam`, `--beam paraxial|angular-spectrum`, `--estimate-only` with a peak model that
+  includes the far tables (far memory within 0.1 % of all 17 recorded cases; 1.5 near + 1.1 far + 2
+  exact + 1 GB, conservative by +46 ... +94 % on the merged tree at small sizes), `--no-solve`,
+  available-memory guard), fit script `benchmarks/mlfmm_scaling_fit.py` (series grouping, repeat
+  minima, converged-only solve fits, slope standard errors, DoD window), smoke test
+  `[mlfmm_scaling]`, record `benchmarks/results/mlfmm_scaling.md` with the raw rows.
 - mlfmm (WP21f, WP21 review follow-ups): the automatic exact-part budget is capped at the dense
   matrix size 16 (2N)^2 (`min(max(2 x near, 1 GiB), dense)`: on small problems the 1 GiB floor
   allowed exact parts larger than dense); budget messages print the rule with one-decimal numbers

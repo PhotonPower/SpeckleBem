@@ -38,7 +38,23 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
   iterations, setup/solve times, memory per component (near field, Ag exact part, far), ramp-up
   over d = 1 / 2 / 4 µm, tolerance and mesh sensitivity (`ag_sphere_mlfmm.cpp`).
 
+- [`results/mlfmm_scaling.md`](results/mlfmm_scaling.md) — MLFMM scaling study (WP22b1, Phase 4
+  DoD: γ of the time per solve vs N ≤ 1.5 for Si, ≤ 2.0 for Ag rough surfaces): setup, matvec,
+  iteration and solve times and memory vs 2N for Si and Ag Gaussian rough boxes (100 nm box
+  cells, Si fine band), fitted exponents, the automatic box rule at two sizes, and the analysis of
+  what limits the range (`mlfmm_scaling.cpp`, `mlfmm_scaling_fit.py`).
+
 ## Executables (`-DSPECKLEBEM_BUILD_BENCHMARKS=ON`)
+
+- `specklebem_mlfmm_scaling` (`mlfmm_scaling.cpp`): the WP22b1 study, one case per process.
+  Options `--material si|ag`, `--L <m>`, `--box-mesh-size <m>|auto` (default 100 nm),
+  `--fine-band 0|1` (default: Si on, Ag off), `--mesh-size`, `--seed`, `--waist-factor` (w₀ = L /
+  factor, default 4), `--digits`, `--tol`, `--max-iter`, `--restart`, `--matvecs` (timed applies,
+  median), `--exact-budget-gb`, `--formulation`, `--jacobi`, `--no-solve` (setup and matvec timings
+  only), `--estimate-only` (2N, octree, near-field / leaf-pattern / Ag exact-part estimates and the
+  setup peak model, no assembly), `--force` (skip the available-memory guard). Prints a `ROW`
+  line per case; `python benchmarks/mlfmm_scaling_fit.py <logs>` tabulates the rows and fits the
+  exponents.
 
 - `specklebem_ag_sphere_mlfmm` (`ag_sphere_mlfmm.cpp`): the WP22a study, one case per process.
   Options `--mesh octa|ico`, `--n <subdivisions>`, `--d <diameter m>`, `--digits <d0>`,

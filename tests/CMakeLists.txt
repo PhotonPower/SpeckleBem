@@ -37,6 +37,7 @@ add_executable(specklebem_unit_tests
     unit/test_mlfmm_operator.cpp
     unit/test_mlfmm_policy.cpp
     unit/test_system_memory.cpp
+    unit/test_mlfmm_scaling.cpp
     # unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -91,7 +92,7 @@ add_executable(specklebem_validation_tests
     validation/test_mlfmm_simulation.cpp
     # validation/test_mie_sphere_mlfmm.cpp
     # validation/test_mlfmm_vs_dense.cpp
-    # validation/test_flat_interface_fresnel.cpp
+    validation/test_flat_interface_fresnel.cpp
 )
 target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
@@ -106,6 +107,7 @@ add_executable(specklebem_validation_large_tests
     validation_large/test_gmres_vs_lu_large.cpp
     validation_large/test_mlfmm_vs_dense_large.cpp
     validation_large/test_ag_sphere_mlfmm_large.cpp
+    validation_large/test_flat_interface_fresnel_large.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_large_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)

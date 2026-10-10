@@ -195,3 +195,31 @@ Measured (Ag, vacuum exterior): icosphere 2N = 15 360 matvec 1.0e-4 (d₀ = 3, �
 1.1e-4, exact part 687 MB vs near field 1133 MB; Ag GMRES through Simulation matches dense (RCS 3.3e-6).
 WP22 projection (Ag sphere 4 µm, λ/27, N ≈ 196 k): exact part ≈ 15 GB (d₀ = 3) / 30 GB (d₀ = 5) next to a
 near field of ≈ 15 GB (d₀ = 3).
+
+## Amendment 2026-10-11 (WP22b1: local leaf rule — basis functions at their own level)
+
+Context: with the ADR 0006 box (100 nm cells, λ₁/5) the global leaf rule a ≥ r_max / ratio(d₀) is set by the
+few large box basis functions (r = 116–141 nm) and forces leaves of 220–400 nm (λ/2.3–λ/1.25) for the whole
+mesh; the Si leaf patterns and far tables then take 40–74 % of the memory and cap Si at 2N ≈ 5·10⁵ on
+128 GB (`benchmarks/results/mlfmm_scaling.md`). The uniform box avoids it at 1.4–3.5× the box unknowns.
+
+Decision (replaces item 5 of the WP21 amendment for meshes with a spread of support radii):
+1. **Leaf size** from the bulk: a_leaf = max(a_min(d₀), r_q / ratio(d₀)) with r_q the radius quantile
+   `leaf_radius_quantile` (default 0.99 of the basis functions; 1.0 reproduces the WP21 rule exactly).
+2. **Home level** of each basis function b: ℓ(b) = the finest level l ≤ D with r(b) ≤ ratio(d₀) · a_l, with
+   home box = ancestor of its leaf at ℓ(b). If no level ≥ 2 qualifies: `TruncationOrderError`
+   (cause `mesh_or_leaf_size`).
+3. **Far field:** b's radiation/receiving patterns are sampled with the level-ℓ(b) sampling (same validated
+   support ratio as a leaf function at its leaf); they enter the upward pass at ℓ(b) (added to the home
+   box's outgoing expansion after the children's interpolation) and are received at ℓ(b) in the downward
+   pass. Translations unchanged.
+4. **Near field:** a pair (a, b) is near iff the ancestors at level m = min(ℓ(a), ℓ(b)) (the coarser home
+   level) are equal or adjacent; otherwise exactly one level l ≤ m holds them in each other's interaction
+   lists (far). Elevated functions therefore interact directly with all functions in the 27 neighbour
+   boxes of their home box; the near-field estimate accounts for it.
+5. **Lossy policy (WP21):** unchanged per box pair at the interaction level; elevated functions take part
+   at their home level (expansion levels contiguous from the leaf; an elevated function whose home level
+   lies above the last expansion level of a region is handled by truncation/exact as any pair there).
+6. Results with `leaf_radius_quantile = 1` (no elevated functions) must be bitwise unchanged; the matvec
+   error criteria of docs/05 (d₀ = 3 / 5) must hold for meshes with elevated functions (box with 100 nm
+   cells, Si and Ag).
