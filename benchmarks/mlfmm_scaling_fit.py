@@ -7,8 +7,8 @@ time, the time per iteration and the memory. The exponent does not depend on whe
 used.
 
 Grouping: one series per (material, box option, fine band, restart, h, waist factor, beam, d0,
-tol); rows written before these fields existed get the study defaults (h = 50 nm, w0 = L/4,
-paraxial beam, d0 = 3, tol = 1e-3). Repeated runs of one size (same series and 2N) are merged by
+tol, leaf radius quantile lq); rows written before these fields existed get the study defaults
+(h = 50 nm, w0 = L/4, paraxial beam, d0 = 3, tol = 1e-3, lq = 1: the global leaf rule). Repeated runs of one size (same series and 2N) are merged by
 taking, per quantity, the minimum over the runs that measured it (timings on a shared machine
 carry load noise that only ever adds time; memory and iterations are deterministic).
 
@@ -60,8 +60,9 @@ DEFAULTS = {
     "d0": "3",
     "tol": "0.001",
     "fine": "0",
+    "lq": "1",  # leaf radius quantile; rows before WP21L used the global leaf rule
 }
-GROUP_KEYS = ("material", "box", "fine", "restart", "h_nm", "waist", "beam", "d0", "tol")
+GROUP_KEYS = ("material", "box", "fine", "restart", "h_nm", "waist", "beam", "d0", "tol", "lq")
 
 
 def parse_rows(paths: list[str], rows_only: bool) -> list[dict[str, str]]:
@@ -76,7 +77,7 @@ def parse_rows(paths: list[str], rows_only: bool) -> list[dict[str, str]]:
                 for k, v in DEFAULTS.items():
                     fields.setdefault(k, v)
                 # Normalise numeric group fields ("4" and "4.0" are the same series).
-                for k in ("h_nm", "waist", "d0", "tol"):
+                for k in ("h_nm", "waist", "d0", "tol", "lq"):
                     fields[k] = f"{float(fields[k]):g}"
                 it = int(fields.get("it", "0"))
                 solve = float(fields.get("solve_s", "0"))

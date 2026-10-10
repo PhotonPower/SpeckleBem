@@ -24,7 +24,7 @@
 // Usage: specklebem_mlfmm_scaling --material si|ag --L 4e-6
 //            [--box-mesh-size 100e-9|auto|uncapped] [--fine-band 0|1] [--mesh-size 50e-9]
 //            [--seed 1] [--waist-factor 4] [--allow-wide-beam] [--beam paraxial|angular-spectrum]
-//            [--digits 3] [--tol 1e-3] [--max-iter 3000] [--restart 0] [--matvecs 5]
+//            [--digits 3] [--leaf-radius-quantile 0.99] [--tol 1e-3] [--max-iter 3000] [--restart 0] [--matvecs 5]
 //            [--exact-budget-gb G] [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--no-solve]
 //            [--estimate-only] [--force]
 //
@@ -94,6 +94,8 @@ Options parse(int argc, char** argv) {
                 throw std::invalid_argument("--beam must be paraxial or angular-spectrum");
         } else if (a == "--digits") {
             o.c.digits = std::stod(value());
+        } else if (a == "--leaf-radius-quantile") {
+            o.c.leaf_radius_quantile = std::stod(value());
         } else if (a == "--tol") {
             o.c.tolerance = std::stod(value());
         } else if (a == "--max-iter") {
@@ -142,11 +144,13 @@ int main(int argc, char** argv) {
             std::printf("ESTIMATE %s\n%s\n", label(o.c).c_str(), summary(e).c_str());
             std::printf(
                 "EST material=%s L_um=%g box=%s N2=%lld levels=%d leaf_nm=%g near_gb=%g "
-                "exact_est_gb=%g pattern_gb=%g far_table_gb=%g peak_setup_est_gb=%g\n",
+                "exact_est_gb=%g pattern_gb=%g elevated_pattern_gb=%g far_table_gb=%g "
+                "peak_setup_est_gb=%g lq=%g elevated=%lld\n",
                 o.c.material.c_str(), o.c.L * 1e6, box_option(o.c).c_str(),
                 static_cast<long long>(e.unknowns), e.levels, e.leaf_edge * 1e9, gb(e.near_bytes),
-                gb(e.exact_bytes), gb(e.pattern_bytes), gb(e.far_table_bytes),
-                gb(e.peak_setup_bytes));
+                gb(e.exact_bytes), gb(e.pattern_bytes), gb(e.elevated_pattern_bytes),
+                gb(e.far_table_bytes), gb(e.peak_setup_bytes), o.c.leaf_radius_quantile,
+                static_cast<long long>(e.elevated));
             return 0;
         }
         if (!o.force && available > 0.0 && e.peak_setup_bytes + 10e9 > available) {
