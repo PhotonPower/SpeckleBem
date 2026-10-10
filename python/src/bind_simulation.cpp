@@ -409,6 +409,76 @@ std::string result_repr(const GmresResult& r) {
 
 }  // namespace
 
+namespace {
+
+/// Closing-box defaults of truncated rough patches (ADR 0006 with the 2026-10-10 amendment).
+void bind_box_defaults(py::module_& m) {
+    m.def("default_box_depth", &default_box_depth, py::arg("object"), py::arg("wavelength"),
+          "Default closing-box depth [m] max(5 delta, 2 um) below z = 0 (ADR 0006); raises "
+          "ValueError for a lossless dielectric object.");
+    m.def("default_box_fine_depth", &default_box_fine_depth, py::arg("object"),
+          py::arg("wavelength"), py::arg("sigma"),
+          "Fine band [m] 3 delta + 3 sigma of the graded closing box (ADR 0006).");
+    m.def("exterior_wavelength", &exterior_wavelength, py::arg("background"), py::arg("wavelength"),
+          "Wavelength lambda_0 / Re(n_1) [m] in the exterior medium R1.");
+    m.def("default_box_mesh_size", &default_box_mesh_size, py::arg("background"),
+          py::arg("wavelength"), py::arg("mesh_size"), R"doc(
+Default coarse spacing [m] of the graded closing box (ADR 0006 amendment 2026-10-10): the
+largest 2^M * mesh_size <= lambda_1 / 5 (M >= 0; M = 0 returns mesh_size, the uniform box).
+500 nm in vacuum with mesh_size = 50 nm gives 100 nm. Necessary under illumination, not
+shown sufficient.
+)doc");
+    py::class_<RoughBoxParams>(m, "RoughBoxParams",
+                               "Closing-box parameters chosen by rough_surface_box_params "
+                               "(lengths in metres).")
+        .def_readonly("box_depth", &RoughBoxParams::box_depth)
+        .def_readonly("box_fine_depth", &RoughBoxParams::box_fine_depth,
+                      "Fine band (None for strongly absorbing objects).")
+        .def_readonly("box_mesh_size", &RoughBoxParams::box_mesh_size)
+        .def_readonly("exterior_wavelength", &RoughBoxParams::exterior_wavelength)
+        .def(
+            "kwargs",
+            [](const RoughBoxParams& b) {
+                py::dict d;
+                d["box_depth"] = b.box_depth;
+                d["box_mesh_size"] = b.box_mesh_size;
+                d["box_fine_depth"] = b.box_fine_depth.has_value()
+                                          ? py::object(py::float_(*b.box_fine_depth))
+                                          : py::object(py::none());
+                d["exterior_wavelength"] = b.exterior_wavelength;
+                return d;
+            },
+            "The box keywords of RoughSurface / make_rough_surface_mesh / "
+            "make_mesh_from_height_map as a dict.")
+        .def("__repr__", [](const RoughBoxParams& b) {
+            return "<RoughBoxParams box_depth=" + std::to_string(b.box_depth) + " box_fine_depth=" +
+                   (b.box_fine_depth.has_value() ? std::to_string(*b.box_fine_depth) : "None") +
+                   " box_mesh_size=" + std::to_string(b.box_mesh_size) +
+                   " exterior_wavelength=" + std::to_string(b.exterior_wavelength) + ">";
+        });
+    m.def("rough_surface_box_params", &rough_surface_box_params, py::arg("object"),
+          py::arg("background"), py::arg("wavelength"), py::arg("sigma"), py::arg("mesh_size"),
+          R"doc(
+Closing-box parameters of a rough patch from the materials (ADR 0006, amendment 2026-10-10):
+box_depth = default_box_depth(object), box_mesh_size = default_box_mesh_size(background)
+(<= lambda_1 / 5), exterior_wavelength = lambda_1, and the mandatory fine band
+3 delta + 3 sigma for weakly absorbing objects (3 delta > 2 mesh_size; Si yes, Ag no at
+500 nm and 50 nm). Use as ``RoughSurface(L, sigma, Lc, mesh_size, seed, **p.kwargs())``.
+
+Returns
+-------
+RoughBoxParams
+)doc");
+    m.def("check_beam_waist", &check_beam_waist, py::arg("patch_length"), py::arg("waist"),
+          py::arg("allow_wide") = false, R"doc(
+Beam-waist rule of rough patches (ADR 0006 amendment 2026-10-10): waist <= patch_length / 4.
+Raises ValueError for a wider waist unless allow_wide=True (then a warning is logged).
+Rough-surface drivers must call it: Simulation cannot determine the patch size from a mesh.
+)doc");
+}
+
+}  // namespace
+
 void bind_simulation(py::module_& m) {
     py::class_<GmresResult>(m, "SolveResult", R"doc(
 Result of Simulation.solve() (C++ solver::GmresResult).
@@ -701,6 +771,7 @@ float or ndarray of float64, shape (n,)
         py::arg("E_cyl"), py::arg("n_theta"), py::arg("n_y"),
         "Relative DRC: mean |E|^2 [V^2/m^2] over the n_y axial samples per theta of fields on "
         "cylinder_grid (row k * n_y + l).");
+    bind_box_defaults(m);
 }
 
 }  // namespace specklebem::python
