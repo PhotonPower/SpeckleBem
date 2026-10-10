@@ -1,7 +1,7 @@
 # Handover: state of the project and how to continue
 
-Updated by the coordinator agent on 2026-10-09 during the second multi-agent session (first session on
-the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`.
+Updated by the coordinator agent at the end of the second multi-agent session (2026-10-10, first session
+on the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`.
 
 ## Where things stand
 
@@ -18,13 +18,37 @@ the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`.
 - **Kernel accuracy:** graded touching rule (WP7b), fold-adaptive rule for sharp folds and obtuse angles
   (WP7c), robust right-angle classification and box-rim rule (WP7d): touching-pair error ≤ 1e-7 for folds
   30–179°, ≤ 2e-8 on all rough-box pairs; icosphere blocks bitwise unchanged since WP7b.
-- **Phase 4 (MLFMM) in progress:** design in ADR 0008 with three amendments from measurements.
-  Done: WP17 octree, WP18 plane-wave machinery (Hankel, translators, order search, interpolation).
-  In flight at this writing: WP19b (patterns, single-level FMM), WP-P2 (dense assembly performance, fix
-  round). Next: WP19a near field (after WP-P2), WP20 multilevel operator, WP21 lossy policy, WP22
-  validation, WP-V1 box validity.
-- Test counts on `main`: ~297 ctest (`-LE "validation-large|slow"`), 81 pytest; labels `slow` and
-  `validation-large` are manual.
+- **Phase 4 (MLFMM) in progress:** design in ADR 0008 with six amendments from measurements. Merged:
+  WP17 octree, WP18 plane-wave machinery, WP19a near field (`SparseOperator`, entries bitwise equal to
+  dense), WP19b patterns and single-level FMM, WP20a multilevel far operator, WP20b full `MlfmmOperator`
+  with `Simulation`/Python `compression="mlfmm"`. docs/05 MLFMM criteria met for dielectric and Si
+  interiors (d₀ = 3 ≤ 2.9e-4 with λ/4 leaves; d₀ = 5 ≤ 6.7e-6 with λ/2 leaves; up to 2N = 8.8·10⁴). Also
+  merged: WP-P2 dense assembly performance (Ag box ×35, Si box ×6 faster), WP7d kernel polish.
+- **In flight when the session ended (branches pushed, not merged, not reviewed):**
+  - `wp/21-mlfmm-lossy` (head 60fe040, pushed; worker reported after the session end, **not yet reviewed**):
+    lossy-region policy (ADR 0008 §6) — per region and level: expansion if the order search is achievable
+    and (for lossy regions) the block check passes (≤ 10^-d₀ or ≤ 2 × the lossless analogue); otherwise per
+    box pair truncation if δ = (1 + αd)e^{−αd} ≤ 10^{−(d₀+1)} (relative to the undamped bound), else an exact
+    per-region sparse part; `TruncationOrderError` with cause; automatic leaf rule; WP20b follow-ups.
+    Worker-reported: win-debug/win-release 341/341, 11 MLFMM validation-large cases pass, pytest 83, GCC 13.3
+    clean; Ag matvec vs dense 1.0e-4 (d₀ = 3, λ/4) / 4.1e-6 (d₀ = 5, λ/2) on a 2N = 15 360 sphere, 4.8e-6 /
+    2.1e-6 on an Ag rough box; Ag GMRES through Simulation matches dense (RCS 3.3e-6). Decisions pending for
+    the coordinator/lead: (1) block check gates lossy regions only; (2) the leaf rule r_max/0.3 also at
+    d₀ = 3 moves default leaves from λ/4 to λ/2 (88 320 box: 5.5 → 12 GB) — worker proposes ratio 0.6 for
+    d₀ ≤ 3; (3) the Ag exact part can be large (408 MB of 803 MB at 2N = 1.5·10⁴, λ/4 leaves) — a WP22
+    sizing risk, possibly ACA for the interior earlier; (4) squash the WIP commit 60fe040 at merge. Next
+    step: reviewer on the branch, then merge with an ADR 0008 amendment (bound, gating, contiguous levels,
+    fallback condition, measured Ag decisions).
+  - `wp/v1-box-validity` (head a4768d0): study executable for the closing-box validity (depth ×2, graded
+    vs uniform, Si fine band, edge effect) plus diagnostics (far-field share of top/walls/bottom, a
+    diagnostic loss override). No results record yet; the long dense runs were still going. Continue
+    with a worker that re-runs the study configurations one per process (each < 2 h), writes
+    `benchmarks/results/box_validity.md` with verdicts against docs/05 and recommendations for ADR 0006
+    — this is the most important open physics question (see below).
+- Next after that: WP22 Phase 4 validation (Ag sphere 4 µm at λ/27, 393 k unknowns; scaling exponents;
+  WP12 Fresnel; MLFMM size sweep for the WP15 formulation questions).
+- Test counts on `main`: 335 ctest (`-LE "validation-large|slow"`), 83 pytest; labels `slow`, `validation`
+  (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
 
