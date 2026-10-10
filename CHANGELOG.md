@@ -5,6 +5,21 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- geometry / core / python (WP-B1): closing-box defaults of the ADR 0006 amendment 2026-10-10.
+  `RoughSurfaceParams::exterior_wavelength` (λ₁) caps the automatic coarse spacing at the largest
+  2^M h_b ≤ λ₁/5 (`geometry::box_spacing_for_exterior_wavelength`; trailing optional
+  `exterior_wavelength` parameter of `make_mesh_from_height_map`, `detail::box_grading`,
+  `detail::rough_box_arrays`); without it a graded box from the old automatic rule logs one
+  SBEM_WARN (mesh unchanged), and an explicit coarse spacing above λ₁/5 warns when λ₁ is known.
+  `simulation.hpp`: `exterior_wavelength`, `default_box_mesh_size` (500 nm vacuum, h = 50 nm →
+  100 nm, M = 1), `RoughBoxParams` / `rough_surface_box_params` (depth, coarse spacing, λ₁ and
+  the mandatory fine band 3δ + 3σ for weakly absorbing objects, 3δ > 2h: Si yes, Ag no at
+  500 nm / 50 nm; uniform box if the band would reach the bottom) and `check_beam_waist`
+  (w₀ ≤ L/4, `std::invalid_argument` unless `allow_wide`). L = 10 µm, h = 50 nm, seed 1: Ag
+  (depth 2 µm) M = 1, closing box 47.5 % of the top face (old rule 7.19 %); Si (5.65 µm, 73
+  fine rows) 195.5 % (old rule with band 153.4 %, uniform 326 %). Python: the helpers,
+  `RoughBoxParams.kwargs()`, `default_box_depth` / `default_box_fine_depth` and the
+  `exterior_wavelength` keyword of the rough-surface functions and `RoughSurface`.
 - tooling / docs (WP-V1): box validity study `benchmarks/box_validity.cpp`
   (`specklebem_box_validity`, `SPECKLEBEM_BUILD_BENCHMARKS`): far field |F|² of one rough-box
   configuration (material, L with a shared cropped height map, waist, depth factor, coarse spacing,
