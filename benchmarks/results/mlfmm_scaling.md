@@ -26,7 +26,8 @@ matvec runs, GMRES(100), automatic box — have the same format and are excluded
 - **Automatic box rule (`--box-mesh-size auto`)**: unusable with the MLFMM beyond L ≈ 1.5 µm. Its
   200–400 nm cells have support radii of 230–490 nm, the leaf rule (r_max / a ≤ 0.6) raises the
   leaves to λ/0.7 … λ/0.35 and the near field approaches the dense matrix (Si L = 4 µm: 307 GB near
-  field estimate for 2N = 1.8·10⁵). Ag also needs 2.5 × more iterations (L = 2 µm: 2 495).
+  field estimate for 2N = 1.8·10⁵). Ag L = 4 µm: 36 % fewer unknowns than the 100 nm box but
+  10 × the near field, 9 × the peak memory and 3.8 × the solve time (1 208 vs 1 386 iterations).
 
 ## Setup
 
@@ -146,10 +147,12 @@ the DoD range. The local slope rises because the orthogonalisation grows as k² 
 | Si L = 2 µm | 250 nm (M = 2) | 231 | 720 | 83 760 | 34.9 (est.) | 35.9 (est.) | 110 (est.) | not run | | memory: estimate + 10 GB > available |
 | Si L = 4 µm | 400 nm (M = 3) | 447 | 1 450 | 182 880 | 307 (est.) | | 768 (est.) | not run | | 14.3 GB near |
 | Ag L = 2 µm † | 250 nm (M = 2) | 246 | 528 | 14 640 | 1.45 | 0.41 | 3.3 | 2 495 | 662 | |
-| Ag L = 4 µm | 400 nm (M = 3) | 485 | 1 000 | 44 400 | PENDING_AGAUTO4 | | | | | 69 600 unknowns, 1.7 GB near, 1 386 it, 405 s |
+| Ag L = 4 µm | 400 nm (M = 3) | 485 | 1 000 | 44 400 | 17.2 | 3.3 | 37.8 | 1 208 | 1 547 | 69 600 unknowns, 1.7 GB near, 4.2 GB peak, 1 386 it, 405 s |
 
 The automatic rule makes the box cheap in unknowns (Ag L = 4 µm: 44 400 vs 69 600) but not in
-cost: the single largest RWG support decides the leaf edge for the whole octree.
+cost: the single largest RWG support decides the leaf edge for the whole octree. (Ag L = 2 µm has
+no 100 nm counterpart; its 2 495 iterations are not comparable. The Ag L = 4 µm auto run has a
+true residual of 1.8e-3 at the monitored 1e-3.)
 
 ## Why the leaves are large
 

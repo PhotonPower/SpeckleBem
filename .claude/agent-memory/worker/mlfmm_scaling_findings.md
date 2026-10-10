@@ -11,7 +11,7 @@ h 50 nm, d0 = 3, full GMRES tol 1e-3, record benchmarks/results/mlfmm_scaling.md
   195-235 nm, root (edge ~ max(L, depth)) halving rounds up to 219-406 nm. Leaf size jumps with
   L (Si L <= 6 um: ~360 nm, L = 7-8 um: 219-250 nm) -> non-monotone memory per unknown.
 - Automatic box rule (200-400 nm cells): r_max 230-490 nm, leaves lambda/0.7 ... lambda/0.35,
-  near field ~ dense (Si L = 4 um: 307 GB est.); Ag auto also 2.5x more iterations.
+  near field ~ dense (Si L = 4 um: 307 GB est.); Ag L = 4 um auto: 10x near, 3.8x solve time.
 - Si: iterations flat (90-154), far matvec 85-95 % (R2 leaf order 45-60), leaf patterns 60-70 %
   of peak; 2N = 5.2e5 -> 79 GB peak; 1e6 needs ~240-310 GB. gamma_solve 0.73.
 - Ag: 1000-1700 iterations (ICTF+Jacobi), serial MGS in solver::gmres = 42-66 % of solve
