@@ -10,7 +10,8 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `make_octasphere` in `tests/support/ag_sphere_mlfmm_support.hpp`), d0 = 3, ICTF + left Jacobi,
   GMRES tol 1e-3: eps_rr = 0.023 % (xz) / 0.016 % (yz) (criterion <= 0.5 %, paper 0.26 % /
   0.37 %), 442 iterations (paper 424), 15.6 min, near field 12.2 GB, Ag exact part 6.8 GB (the
-  automatic budget did not fire), peak RSS 33.8 GB. Study executable
+  automatic budget did not fire), peak RSS 33.8 GB; at tol 1e-4 (722 iterations) 0.0035 % /
+  0.0025 % (the tolerance dominates eps_rr at 1e-3). Study executable
   `specklebem_ag_sphere_mlfmm` (one case per process, `--estimate-only`), validation-large cases
   (d = 1 um icosphere n = 5 at tol 1e-5: 0.019 % / 0.013 %, below the dense lambda/13 values; the
   4 um case guarded on the available memory), `system_memory::available_memory_bytes()`, record

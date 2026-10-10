@@ -7,7 +7,8 @@ unknowns): ε_rr ≤ 0.5 % in both scattering planes (paper: 0.26 % / 0.37 %)") 
 **Verdict: met.** ε_rr = **0.023 % (xz) / 0.016 % (yz)** on the paper's 393 216-unknown mesh at
 the paper's GMRES tolerance 1e-3 (criterion ≤ 0.5 %; Fu et al. 2023: 0.26 % / 0.37 %), 442
 GMRES iterations (paper: 424), 15.6 min wall time (paper: 188 min on 12 threads), peak working
-set 33.8 GB.
+set 33.8 GB. At GMRES tolerance 1e-4 (722 iterations): 0.0035 % / 0.0025 % — the tolerance, not
+the mesh or the MLFMM (d₀ = 3), dominates ε_rr at 1e-3.
 
 ## Setup
 
@@ -60,7 +61,7 @@ stored; peak = process peak working set).
 | 2 | octa n = 6 | 32 768 | 98 304 | λ/16.5 | 1e-3 | 0.0388 | 0.0342 | 0.0384 / 0.0337 | 282 | 45.4 | 225 (0.80) | 3.07 | 1.65 | 0.70 | 11.5* |
 | 4 | ico n = 6 | 81 920 | 245 760 | λ/13.2 | 1e-3 | 0.0416 | 0.0300 | 0.0406 / 0.0283 | 332 | 51.9† | 201 (0.61)† | 4.73 | 2.91 | 1.91 | 14.0 |
 | **4** | **octa n = 7** | **131 072** | **393 216** | **λ/16.5** | **1e-3** | **0.0228** | **0.0155** | 0.0224 / 0.0148 | **442** | **91.4** | **780 (1.76)** | **12.24** | **6.76** | **2.84** | **33.8** |
-| 4 | octa n = 7 | 131 072 | 393 216 | λ/16.5 | 1e-4 | TOL4_XZ | TOL4_YZ | TOL4_FINE | TOL4_IT | TOL4_ASM† | TOL4_SOLVE† | 12.24 | 6.76 | 2.84 | TOL4_PEAK |
+| 4 | octa n = 7 | 131 072 | 393 216 | λ/16.5 | 1e-4 | 0.0035 | 0.0025 | 0.0034 / 0.0024 | 722 | 154† | 1471 (2.04)† | 12.24 | 6.76 | 2.84 | 33.8 |
 
 \* measured before the `SparseOperator` copy fix of this WP (see "Memory"): the peak contained a
 third copy of the near field; the d = 1 µm octa n = 5 case was repeated after the fix (2.84 →
@@ -113,9 +114,12 @@ x*/α = 0.30 µm, independent of the sphere size). The ADR 0008 WP21 projection 
 - **GMRES tolerance.** At d = 1 µm the tolerance 1e-3 dominates ε_rr (0.19 % vs 0.078 % at
   1e-6 on λ/13; 0.17 % vs 0.019 % at 1e-5 on λ/26.5). At d = 4 µm (ε_rr is normalised by the
   forward peak, which grows with the size) the tolerance-1e-3 value is 0.023 % / 0.016 % and
-  TOL4_SENTENCE
+  tolerance 1e-4 (722 iterations) gives 0.0035 % / 0.0025 %: the ε_rr of the DoD run is
+  dominated by the GMRES tolerance, not by the mesh or the MLFMM; the discretisation error of
+  the λ/16.5 mesh is ≤ 0.0035 %. (Left-Jacobi true residuals at stop: 1.04e-3 and 1.04e-4.)
 - **Mesh.** d = 4 µm at λ/13.2 (icosphere n = 6, 2N = 245 760): 0.042 % / 0.030 %; at λ/16.5
-  (octa n = 7): 0.023 % / 0.016 % — both an order of magnitude below the criterion.
+  (octa n = 7): 0.023 % / 0.016 % — both at tolerance 1e-3, so both contain the tolerance error
+  of the bullet above, and both an order of magnitude below the criterion.
 - **d₀ = 5** was not run: with the d₀ = 5 leaf rule (λ/2 leaves) the near-field estimate is
   48.9 GB (`--estimate-only`), plus an exact part of ~2× the d₀ = 3 one and the transient near
   copy, i.e. ≳ 110 GB peak, beyond what this shared 128 GB machine had available (≈ 55–68 GB).
