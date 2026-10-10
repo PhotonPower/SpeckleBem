@@ -52,6 +52,10 @@ analytic (Mie, Fresnel, static integrals)
 
 - **Box-depth sensitivity**: scattered far field changes by < 0.1 % when the closing box depth is doubled (Si and Ag). Documents that the artificial boundary is inert.
 - **Edge-effect sensitivity**: far field changes by < 0.5 % when L is increased by 20 % at fixed beam waist.
+- Metric of both sensitivity checks (ADR 0006 amendment): L2 difference of |F|² over the reflection
+  hemisphere, sqrt(Σ w (I_T − I_R)² / Σ w I_R²) with w = sin θ; ε_rr on the xz/yz cuts is reported
+  alongside. Beam waist w₀ ≤ L/4, rigorous (angular-spectrum) beam, box cells ≤ λ₁/5, fine band for Si.
+  Meaningful only at sizes where the rim is dark (WP-V2, MLFMM).
 - **Flat-surface limit**: σ → 0 recovers the specular Fresnel reflection of the beam.
 - **Regression**: height map for `seed = 42`, L = 10 µm is stored in `tests/data`; a change in the generator that alters it must be deliberate.
 
