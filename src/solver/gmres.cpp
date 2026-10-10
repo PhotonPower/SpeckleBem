@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -134,6 +135,97 @@ const char* side_name(PreconditionerSide side) {
     return side == PreconditionerSide::Left ? "left" : "right";
 }
 
+double seconds_since(std::chrono::steady_clock::time_point t) {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
+}
+
+/// Rows per block of the parallel CGS2 products. The block partition (and so the order of the
+/// partial sums) depends on n only, never on the thread count.
+constexpr Index kRowBlock = 4096;
+/// Columns per panel of the Krylov basis.
+constexpr Index kPanelCols = 64;
+
+/// Krylov basis V (n x size()), stored as contiguous column-major panels of equal width so
+/// that it grows without copying. Panels are kept across restarts.
+class KrylovBasis {
+public:
+    KrylovBasis(Index n, Index max_cols)
+        : n_(n), panel_cols_(std::max<Index>(1, std::min(kPanelCols, max_cols))) {}
+
+    [[nodiscard]] Index size() const { return size_; }
+    void clear() { size_ = 0; }
+
+    void append(const VectorXc& v) {
+        if (size_ == static_cast<Index>(panels_.size()) * panel_cols_)
+            panels_.emplace_back(n_, panel_cols_);
+        col(size_) = v;
+        ++size_;
+    }
+
+    /// h(0 .. k-1) = V(:, 0 .. k-1)^H w: per row block a vector of partial dot products, added
+    /// in block order.
+    void project(const VectorXc& w, Index k, VectorXc& h) {
+        const Index blocks = (n_ + kRowBlock - 1) / kRowBlock;
+        partial_.resize(k, blocks);
+#pragma omp parallel for schedule(static) if (blocks > 1)
+        for (Index b = 0; b < blocks; ++b) {
+            const Index r0 = b * kRowBlock;
+            const Index len = std::min(kRowBlock, n_ - r0);
+            const auto ws = w.segment(r0, len);
+            for (Index j = 0; j < k; ++j) partial_(j, b) = col(j).segment(r0, len).dot(ws);
+        }
+        h = partial_.col(0);
+        for (Index b = 1; b < blocks; ++b) h += partial_.col(b);
+    }
+
+    /// w -= V(:, 0 .. k-1) h(0 .. k-1), per row block (four columns per sweep over the block).
+    void subtract(VectorXc& w, Index k, const VectorXc& h) {
+        const Index blocks = (n_ + kRowBlock - 1) / kRowBlock;
+#pragma omp parallel for schedule(static) if (blocks > 1)
+        for (Index b = 0; b < blocks; ++b) {
+            const Index r0 = b * kRowBlock;
+            const Index len = std::min(kRowBlock, n_ - r0);
+            auto ws = w.segment(r0, len);
+            Index j = 0;
+            for (; j + 4 <= k; j += 4) {
+                ws -= h(j) * col(j).segment(r0, len) + h(j + 1) * col(j + 1).segment(r0, len) +
+                      h(j + 2) * col(j + 2).segment(r0, len) +
+                      h(j + 3) * col(j + 3).segment(r0, len);
+            }
+            for (; j < k; ++j) ws -= h(j) * col(j).segment(r0, len);
+        }
+    }
+
+    /// One modified Gram-Schmidt pass of w against V(:, 0 .. k-1), accumulated into h.
+    void mgs_pass(VectorXc& w, Index k, VectorXc& h) {
+        for (Index j = 0; j < k; ++j) {
+            const Complex hj = col(j).dot(w);  // v_j^H w
+            h(j) += hj;
+            w -= hj * col(j);
+        }
+    }
+
+    [[nodiscard]] MatrixXc to_matrix() const {
+        MatrixXc out(n_, size_);
+        for (Index j = 0; j < size_; ++j) out.col(j) = col(j);
+        return out;
+    }
+
+private:
+    [[nodiscard]] MatrixXc::ColXpr col(Index j) {
+        return panels_[static_cast<std::size_t>(j / panel_cols_)].col(j % panel_cols_);
+    }
+    [[nodiscard]] MatrixXc::ConstColXpr col(Index j) const {
+        return panels_[static_cast<std::size_t>(j / panel_cols_)].col(j % panel_cols_);
+    }
+
+    Index n_;
+    Index panel_cols_;
+    Index size_ = 0;
+    std::vector<MatrixXc> panels_;
+    MatrixXc partial_;
+};
+
 }  // namespace
 
 GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Preconditioner& M,
@@ -176,18 +268,24 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
 
     // Krylov basis V (grows on demand), Hessenberg columns H[k] (rotated in place, size k + 2),
     // rotations and the rotated right-hand side g of the least-squares problem.
-    std::vector<VectorXc> V;
+    KrylovBasis V(n, static_cast<Index>(m) + 1);
     std::vector<VectorXc> H;
     std::vector<Givens> rot;
     VectorXc g;
     VectorXc w;
+    VectorXc h_pass;
+    VectorXc v;
     res.residual_history.push_back(1.0);
     int total = 0;
     bool stop = false;
+    const bool cgs = p.orthogonalization == Orthogonalization::CGS2;
+    using Clock = std::chrono::steady_clock;
 
     while (true) {
-        V.resize(1);
-        V[0] = r / beta;
+        // v: the newest basis vector v_k, also stored as a plain vector for the operator.
+        v = r / beta;
+        V.clear();
+        V.append(v);
         H.clear();
         rot.clear();
         // (A scalar store into the freshly allocated g trips a GCC -Wnull-dereference false
@@ -196,24 +294,32 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
         int k = 0;  // Krylov dimension of this cycle (columns of H)
 
         while (k < m && total < p.max_iter) {
-            op.apply(V[static_cast<std::size_t>(k)], w);
+            op.apply(v, w);
+            const auto t_orth = Clock::now();
             const Real w_norm0 = w.norm();
             check_finite_norm(w_norm0, total + 1);
             VectorXc h = VectorXc::Zero(k + 2);
-            // Modified Gram-Schmidt, plus a second pass if |w| dropped by more than 0.7.
+            // Gram-Schmidt against v_0 .. v_k, plus a second pass if |w| dropped by more than
+            // 0.7 (or always). CGS2 accumulates the Hessenberg column as h = h_1 + h_2.
+            const Index kv = static_cast<Index>(k) + 1;
+            Real h_next = w_norm0;
             for (int pass = 0; pass < 2; ++pass) {
-                const Real before = w.norm();
-                for (int j = 0; j <= k; ++j) {
-                    const VectorXc& vj = V[static_cast<std::size_t>(j)];
-                    const Complex hj = vj.dot(w);  // vj^H w
-                    h(j) += hj;
-                    w -= hj * vj;
+                const Real before = h_next;
+                if (cgs) {
+                    V.project(w, kv, h_pass);
+                    V.subtract(w, kv, h_pass);
+                    h.head(kv) += h_pass;
+                } else {
+                    V.mgs_pass(w, kv, h);
                 }
-                if (w.norm() >= kReorthFactor * before)
+                h_next = w.norm();
+                if (pass == 1)
+                    ++res.reorthogonalizations;
+                else if (!p.always_reorthogonalize && h_next >= kReorthFactor * before)
                     break;
             }
-            const Real h_next = w.norm();
             h(k + 1) = h_next;
+            res.orthogonalization_seconds += seconds_since(t_orth);
             for (int j = 0; j < k; ++j) {
                 rot[static_cast<std::size_t>(j)].apply(h(j), h(j + 1));
             }
@@ -256,7 +362,10 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
                 stop = true;
                 break;
             }
-            V.push_back(w / h_next);
+            const auto t_norm = Clock::now();
+            v = w / h_next;
+            V.append(v);
+            res.orthogonalization_seconds += seconds_since(t_norm);
         }
 
         // Solve the k x k upper-triangular system R y = g(0..k-1) and update the iterate.
@@ -268,10 +377,9 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
                 }
                 y(i) /= H[static_cast<std::size_t>(i)](i);
             }
+            // u = V(:, 0 .. k-1) y, as u -= V (-y) with the parallel row-block product.
             VectorXc u = VectorXc::Zero(n);
-            for (int j = 0; j < k; ++j) {
-                u += y(j) * V[static_cast<std::size_t>(j)];
-            }
+            V.subtract(u, k, -y);
             if (p.side == PreconditionerSide::Left) {
                 res.x += u;
             } else {
@@ -298,10 +406,12 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
 
     res.iterations = total;
     res.converged = res.residual_history.back() <= p.tolerance;
+    if (p.keep_basis)
+        res.basis = V.to_matrix();
     VectorXc ax;
     A.apply(res.x, ax);
     res.true_relative_residual = (b - ax).norm() / b_norm;
-    res.wall_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    res.wall_seconds = seconds_since(t0);
 
     if (!res.converged) {
         SBEM_WARN(
@@ -310,9 +420,10 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
             res.iterations, res.residual_history.back(), p.tolerance, res.true_relative_residual);
     } else if (p.verbose) {
         SBEM_INFO(
-            "gmres: converged in {} iterations, {:.2f} s: relative residual {:.3e} "
-            "({}), true residual {:.3e}",
-            res.iterations, res.wall_seconds, res.residual_history.back(),
+            "gmres: converged in {} iterations, {:.2f} s ({} orthogonalisation {:.2f} s, {} "
+            "re-orthogonalisations): relative residual {:.3e} ({}), true residual {:.3e}",
+            res.iterations, res.wall_seconds, cgs ? "CGS2" : "MGS", res.orthogonalization_seconds,
+            res.reorthogonalizations, res.residual_history.back(),
             p.side == PreconditionerSide::Left ? "preconditioned" : "true",
             res.true_relative_residual);
     }
