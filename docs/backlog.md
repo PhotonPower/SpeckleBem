@@ -103,8 +103,8 @@ Design decisions: ADR 0008 (near/far split by leaf adjacency of RWG midpoints, s
 | WP-V2 | Closing-box validity at MLFMM sizes: w₀/L sweep at fixed w₀, depth ×2 and L ×1.2 per docs/05, graded (λ₁/5) vs uniform box, Si (fine band) and Ag, rigorous beam | 4 | WP22b1, WP-B1, WP-E1 | `benchmarks/box_validity.cpp`, `benchmarks/results/` | docs/05 rough-surface checks (L2 metric) pass, or a box rule that makes them pass | todo | `wp/v2-box-validity-mlfmm` | — |
 | WP-G1 | Fast GMRES orthogonalisation: CGS2 with contiguous Krylov basis (GEMV/BLAS or OpenMP, deterministic), MGS selectable; WP22b1 found MGS = 42–66 % of the Ag solve time | 4 | — | `src/solver/gmres.cpp`, tests, `benchmarks/results/` | same solutions, orthogonality ≤ 1e-12, measured speed-up | in progress | `wp/g1-gmres-cgs2` | — |
 | WP21L | Local leaf rule (ADR 0008 amendment 2026-10-11): leaf size from a radius quantile, basis functions with large supports at their own coarser home level (patterns at that level, near list at the coarser home level), lossy policy unchanged | 4 | WP21, WP22b1 | `src/compression/mlfmm/`, tests | quantile 1 bitwise unchanged; docs/05 matvec criteria on Si/Ag rough boxes with 100 nm cells; memory vs global rule measured | in progress | `wp/21l-local-leaf-rule` | — |
-| WP-B2 | Angle-aware beam-waist check: `check_beam_waist(L, w0, theta_in)` with w₀ ≤ L cos θ_in / 4 (ADR 0006 amendment 2026-10-11), Python | 4 | WP22c | `simulation`, `python/` | rule enforced and tested | todo | `wp/b2-waist-angle` | — |
-| WP-A1 | Ag absorbed power at oblique incidence: A_sim ≈ 0.0073 vs Fresnel 0.0127 at 45° s (flat, h = 50 nm) while R is within 0.1 %; check the absorption formula/quadrature (½Re∮(n̂×M)·J*), mesh refinement at the skin depth, formulation | 4 | WP22c | `post/`, `benchmarks/results/` | cause identified; absorption within 1 % or documented limitation | todo | `wp/a1-ag-absorption` | — |
+| WP-B2 | Angle-aware beam-waist check: `check_beam_waist(L, w0, theta_in)` with w₀ ≤ L cos θ_in / 4 (ADR 0006 amendment 2026-10-11), Python | 4 | WP22c | `simulation`, `python/` | rule enforced and tested | in progress | `wp/b2-waist-angle` | — |
+| WP-A1 | Ag absorbed power at oblique incidence: A_sim ≈ 0.0073 vs Fresnel 0.0127 at 45° s (flat, h = 50 nm) while R is within 0.1 %; check the absorption formula/quadrature (½Re∮(n̂×M)·J*), mesh refinement at the skin depth, formulation | 4 | WP22c | `post/`, `benchmarks/results/` | cause identified; absorption within 1 % or documented limitation | in progress | `wp/a1-ag-absorption` | — |
 
 ## Platform and tooling
 
@@ -114,6 +114,8 @@ Design decisions: ADR 0008 (near/far split by leaf adjacency of RWG midpoints, s
 | WP-P1 | UTF-8 file paths (ADR 0007): `core::path_from_utf8` / `path_to_utf8`, switch `geometry::mesh_io` and `io::result_writer` | tooling/core | WP16 | `include/specklebem/core/`, `src/core/`, `src/geometry/mesh_io.cpp`, `src/io/result_writer.cpp`, tests | Round trip (write → read) of a mesh and an `.npy` directory under a non-ASCII directory name (e.g. `Jürgen_µm_路径`) on Windows and Linux CI; error messages contain the UTF-8 path; no `path(std::string)` / `.string()` on user paths left (grep in review) | done (squash-merged; follow-up: wide argv in the npy test fixture) | `wp/p1-utf8-paths` | — |
 
 ## Notes for workers (lessons learned)
+
+- Workers that hit the 150-turn limit sometimes leave work uncommitted (WP21L) or a rebase half done (WP-G1): commit after every working step; never rebase a WP branch — merge `main` into it instead (the coordinator squash-merges anyway).
 
 - `tests/validation/test_assembler_mie.cpp` asserts the WP9 budget "n = 3 assembly < 30 s on 3 threads" by wall
   clock (1.1 s on an idle 24-core machine). Under heavy load (a dense study or several builds) it can exceed 30 s; a
