@@ -5,6 +5,24 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / tooling (WP22c, former WP12): flat-interface limit vs Fresnel (docs/05 row "Flat box,
+  tapered beam, 0° and 45°", < 1 % on |r|²) — met for Ag and Si, 0° and 45°, p and s.
+  `tests/support/fresnel_flat_support.hpp`: plane-wave Fresnel coefficients (exp(+jωt)), the
+  beam reflectance R_beam of the rigorous angular-spectrum beam on an infinite interface (local
+  s/p split per plane wave, power weights of `AngularSpectrumBeam::power()`), the incident flux
+  through z = 0 (power() check, edge loss), the flat closed box from `rough_surface_box_params`,
+  MLFMM solve through `Simulation`, reflected power from the far field (Gauss–Legendre in θ),
+  absorbed power from the currents. Study `benchmarks/fresnel_flat.cpp`
+  (`specklebem_fresnel_flat`, one case per process, `--estimate-only`, memory guard, `--compression
+  dense` and `--d0` cross-checks); fast reference tests `tests/validation/test_flat_interface_fresnel.cpp`
+  (4 cases); memory-guarded `tests/validation_large/test_flat_interface_fresnel_large.cpp` (Ag L =
+  4 µm 0° and 45° p/s, Si L = 6 µm 0° and 45° p/s). Record `benchmarks/results/fresnel_flat.md`:
+  errors vs R_beam Ag −0.52 % (0°, w₀ = 1 µm) / −0.07 % / −0.09 % (45° p/s, w₀ = 0.8 µm), Si
+  +0.11 % / +0.10 % (0° p/s) / −0.14 % / −0.06 % (45° p/s); vs plane-wave Fresnel ≤ 0.59 % (Si
+  45° p, of which −0.45 % is the beam's angular spread). At 45° the waist must be ≤ L/5 (L/4
+  loses 0.6 % past the patch). The Ag 0° deficit at GMRES tolerance 1e-4 is solver error (−0.011 %
+  and a closed energy balance at 1e-5; unchanged by MLFMM d₀ = 5 and the dense operator): Ag
+  flat-surface solves need tolerance 1e-5, which the validation-large Ag cases use.
 - geometry / simulation (solver) / python (WP-B1): closing-box defaults of the ADR 0006
   amendment 2026-10-10. Geometry: `RoughSurfaceParams::exterior_wavelength` (λ₁) caps the
   automatic coarse spacing at the largest 2^M h_b ≤ λ₁/5 with the actual grid spacing

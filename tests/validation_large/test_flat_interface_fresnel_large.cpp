@@ -4,12 +4,13 @@
 // "Flat interface"`). Flat patch (sigma = 0) of edge L closed by the ADR 0006 box
 // (rough_surface_box_params: lambda_1 / 5 cells, Si fine band), rigorous angular-spectrum beam
 // focused on the surface centre, Simulation with compression "mlfmm" (d0 = 3), formulation per
-// formulation::recommend, full GMRES at tolerance 1e-4. The reflected power fraction R_sim (flux of
-// the scattered far field through the reflection hemisphere over AngularSpectrumBeam::power()) is
-// compared with the beam reflectance R_beam of an infinite interface (the sharp reference) and the
-// plane-wave |r|^2 at the central angle (tests/support/fresnel_flat_support.hpp). Measured values,
-// timings and memory: benchmarks/results/fresnel_flat.md. Each case SKIPs unless its estimated
-// peak plus a 10 GB margin is available (shared machines).
+// formulation::recommend, full GMRES at tolerance 1e-4 (Si) / 1e-5 (Ag). The reflected power
+// fraction R_sim (flux of the scattered far field through the reflection hemisphere over
+// AngularSpectrumBeam::power()) is compared with the beam reflectance R_beam of an infinite
+// interface (the sharp reference) and the plane-wave |r|^2 at the central angle
+// (tests/support/fresnel_flat_support.hpp). Measured values, timings and memory:
+// benchmarks/results/fresnel_flat.md. Each case SKIPs unless its estimated peak plus a 10 GB margin
+// is available (shared machines).
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -58,9 +59,12 @@ namespace {
 #endif
 }
 
+/// Case with GMRES tolerance 1e-4 for Si and 1e-5 for Ag (at 1e-4 the Ag 0 deg case is -0.52 %
+/// off with an open energy balance, at 1e-5 -0.011 %: benchmarks/results/fresnel_flat.md).
 Case make_case(const std::string& material, Real L, Real w0, Real theta_deg,
                excitation::Polarization pol) {
     Case c;
+    c.tolerance = material == "ag" ? 1e-5 : 1e-4;
     c.material = material;
     c.L = L;
     c.waist = w0;
@@ -74,7 +78,7 @@ Case make_case(const std::string& material, Real L, Real w0, Real theta_deg,
 TEST_CASE("Flat interface: Ag, L = 4 um, w0 = 1 um, normal incidence vs Fresnel",
           "[validation-large][fresnel]") {
     Result r;
-    if (!run_case(make_case("ag", 4e-6, 1e-6, 0.0, excitation::Polarization::P), 1300, r))
+    if (!run_case(make_case("ag", 4e-6, 1e-6, 0.0, excitation::Polarization::P), 1800, r))
         return;
     CHECK(std::abs(r.error_fresnel()) < 0.01);
 }
@@ -91,7 +95,7 @@ TEST_CASE("Flat interface: Ag, L = 4 um, w0 = 0.8 um, 45 deg, p and s vs Fresnel
           "[validation-large][fresnel]") {
     for (const auto pol : {excitation::Polarization::P, excitation::Polarization::S}) {
         Result r;
-        if (!run_case(make_case("ag", 4e-6, 0.8e-6, 45.0, pol), 2000, r))
+        if (!run_case(make_case("ag", 4e-6, 0.8e-6, 45.0, pol), 3000, r))
             return;
         CHECK(std::abs(r.error_fresnel()) < 0.01);
     }
