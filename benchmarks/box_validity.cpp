@@ -33,13 +33,20 @@
 // at the focus); "paraxial" is excitation::GaussianBeam (first-order paraxial, Maxwell residual
 // O((lambda / (pi w0))^2)). Both: normal incidence, travelling +z, focus at the origin, E along x.
 //
+// Unconverged runs (GMRES stopped at --max-iter) are neither written nor compared: the process
+// prints the RESULT line ("converged no") and exits with status 1. `--allow-unconverged` writes
+// and compares them anyway (attribute "converged": "no", COMPARE lines marked UNCONVERGED). Runs
+// with `--eps-imag` are marked DIAGNOSTIC (SETUP, RESULT, COMPARE, attribute "diagnostic"), since
+// they do not use the tabulated material.
+//
 // Usage: specklebem_box_validity --material ag|si [--L 2e-6] [--L-gen 2.4e-6] [--seed 1]
 //            [--waist W | --waist-factor 3] [--depth-factor 1 | --depth D]
 //            [--box-mesh-size 400e-9|auto|uniform] [--fine-band] [--beam spectrum|paraxial]
 //            [--eps-imag X (diagnostic: Im eps_r of the object, < 0)]
 //            [--tol 1e-6] [--max-iter 6000] [--max-gb 60] [--ff-degree 10] [--tag NAME]
 //            [--out DIR] [--summary FILE] [--reference DIR]... [--mesh-only]
-//        specklebem_box_validity --compare DIR_A DIR_B [DIR_C ...]
+//            [--allow-unconverged]
+//        specklebem_box_validity --compare DIR_A DIR_B [DIR_C ...] [--allow-unconverged]
 #include "specklebem/basis/rwg.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/core/path.hpp"
@@ -56,6 +63,7 @@
 #include <Eigen/Geometry>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -115,6 +123,7 @@ struct Options {
     std::vector<std::string> references;
     std::vector<std::string> compare;
     bool mesh_only = false;
+    bool allow_unconverged = false;
 };
 
 Options parse(int argc, char** argv) {
@@ -171,6 +180,8 @@ Options parse(int argc, char** argv) {
                 o.compare.emplace_back(argv[++i]);
         } else if (a == "--mesh-only") {
             o.mesh_only = true;
+        } else if (a == "--allow-unconverged") {
+            o.allow_unconverged = true;
         } else {
             throw std::invalid_argument("unknown argument " + a);
         }
@@ -260,7 +271,10 @@ public:
             for (Real& x : *v) x /= norm;
         n_alpha_ = n_alpha;
         n_phi_ = n_phi;
-        ++generation_;
+        // Process-wide unique key: a beam rebuilt (or a new beam at the same address) never hits
+        // a stale thread_local cache entry.
+        static std::atomic<std::uint64_t> next_generation{0};
+        generation_ = ++next_generation;
     }
 
     /// Chooses the grid for points within |r| <= r_max (rho <= rho_max from the axis): estimate
@@ -459,14 +473,80 @@ MatrixXr read_npy_real(const std::filesystem::path& path) {
     return MatrixXr(m);
 }
 
-FarField load_far_field(const std::string& dir) {
-    const std::filesystem::path d = core::path_from_utf8(dir);
+/// Minimal reader for the flat attributes.json written by io::open_npy_directory (one
+/// `"key": value` pair per line, string or number values). String values are returned without
+/// the quotes (the study writes no escaped characters).
+std::vector<std::pair<std::string, std::string>> read_attributes(
+    const std::filesystem::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f)
+        throw std::runtime_error("cannot open " + core::path_to_utf8(path));
+    std::vector<std::pair<std::string, std::string>> attrs;
+    std::string line;
+    while (std::getline(f, line)) {
+        const std::size_t k0 = line.find('"');
+        if (k0 == std::string::npos)
+            continue;
+        const std::size_t k1 = line.find('"', k0 + 1);
+        const std::size_t colon = line.find(':', k1 == std::string::npos ? k0 : k1);
+        if (k1 == std::string::npos || colon == std::string::npos)
+            throw std::runtime_error("malformed line in " + core::path_to_utf8(path));
+        std::string value = line.substr(colon + 1);
+        while (!value.empty() &&
+               (value.back() == ',' || value.back() == '\r' || value.back() == ' '))
+            value.pop_back();
+        const std::size_t v0 = value.find_first_not_of(' ');
+        value = v0 == std::string::npos ? std::string() : value.substr(v0);
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+            value = value.substr(1, value.size() - 2);
+        attrs.emplace_back(line.substr(k0 + 1, k1 - k0 - 1), value);
+    }
+    return attrs;
+}
+
+/// Tolerance of the runs stored before the "converged" attribute existed (all used GMRES tol
+/// <= 1e-6 and recorded the true residual).
+constexpr Real kLegacyTolerance = 1e-6;
+
+struct StoredRun {
     FarField ff;
-    ff.refl = read_npy_real(d / "refl_intensity.npy");
-    ff.fwd = read_npy_real(d / "fwd_intensity.npy");
-    ff.cut_xz = read_npy_real(d / "cut_xz_intensity.npy");
-    ff.cut_yz = read_npy_real(d / "cut_yz_intensity.npy");
-    return ff;
+    bool converged = false;
+    bool diagnostic = false;
+    std::string residual;  // as stored, for messages
+};
+
+/// Loads a stored run. Throws unless it converged (attribute "converged" == "yes"; for runs
+/// stored before that attribute: true residual <= kLegacyTolerance), or allow_unconverged.
+StoredRun load_run(const std::string& dir, bool allow_unconverged) {
+    const std::filesystem::path d = core::path_from_utf8(dir);
+    StoredRun s;
+    std::optional<std::string> converged, residual;
+    for (const auto& [key, value] : read_attributes(d / "attributes.json")) {
+        if (key == "converged")
+            converged = value;
+        else if (key == "true_residual")
+            residual = value;
+        else if (key == "diagnostic")
+            s.diagnostic = !value.empty() && value != "no";
+    }
+    s.residual = residual.value_or("not recorded");
+    if (converged)
+        s.converged = *converged == "yes";
+    else if (residual)
+        s.converged = std::stod(*residual) <= kLegacyTolerance;
+    if (!s.converged && !allow_unconverged) {
+        const std::string why = converged
+                                    ? "did not converge (true residual " + s.residual + ")"
+                                    : "has no \"converged\" attribute and a true residual of " +
+                                          s.residual + " (legacy rule: <= 1e-6)";
+        throw std::runtime_error("stored run " + dir + " " + why +
+                                 "; pass --allow-unconverged to compare it anyway");
+    }
+    s.ff.refl = read_npy_real(d / "refl_intensity.npy");
+    s.ff.fwd = read_npy_real(d / "fwd_intensity.npy");
+    s.ff.cut_xz = read_npy_real(d / "cut_xz_intensity.npy");
+    s.ff.cut_yz = read_npy_real(d / "cut_yz_intensity.npy");
+    return s;
 }
 
 struct Metrics {
@@ -518,11 +598,19 @@ Metrics compare(const FarField& t, const FarField& r) {
     return m;
 }
 
-void print_compare(const std::string& test, const std::string& ref, const Metrics& m) {
+/// One COMPARE line; `flags` marks UNCONVERGED / DIAGNOSTIC inputs (empty for a plain comparison).
+void print_compare(const std::string& test, const std::string& ref, const Metrics& m,
+                   bool unconverged, bool diagnostic) {
+    std::string flags;
+    if (unconverged)
+        flags += " | UNCONVERGED";
+    if (diagnostic)
+        flags += " | DIAGNOSTIC";
     std::printf(
         "COMPARE | %s vs %s | l2_refl %.3e | l2_off30 %.3e | l2_fwd %.3e | dP_refl %+.3e | "
-        "eps_xz %.3e | eps_yz %.3e\n",
-        test.c_str(), ref.c_str(), m.l2_refl, m.l2_off30, m.l2_fwd, m.dP_refl, m.eps_xz, m.eps_yz);
+        "eps_xz %.3e | eps_yz %.3e%s\n",
+        test.c_str(), ref.c_str(), m.l2_refl, m.l2_off30, m.l2_fwd, m.dP_refl, m.eps_xz, m.eps_yz,
+        flags.c_str());
     std::fflush(stdout);
 }
 
@@ -612,6 +700,10 @@ int run(const Options& o) {
     const Real depth = o.depth ? *o.depth : o.depth_factor * default_box_depth(object, kLambda);
     const Real L_gen = o.L_gen ? *o.L_gen : o.L;
     const Real w0 = o.waist ? *o.waist : o.L / o.waist_factor;
+    // eps_r of the object as used (the --eps-imag override makes the run a diagnostic one).
+    char eps_buf[96];
+    std::snprintf(eps_buf, sizeof(eps_buf), "eps_r %.5g%+.5gj%s", object.eps_r.real(),
+                  object.eps_r.imag(), o.eps_imag ? " (DIAGNOSTIC: Im eps_r overridden)" : "");
 
     geometry::RoughSurfaceParams rp;
     rp.edge_length_L = L_gen;
@@ -651,7 +743,8 @@ int run(const Options& o) {
     }
     if (o.beam == "spectrum") {
         auto sb = std::make_shared<SpectrumGaussianBeam>(kLambda, w0);
-        // Probe: every 7th mesh vertex (corners and bottom included via the stride walk).
+        // Probe: about 400 mesh vertices, every (num_vertices / 400)-th in vertex order (spread
+        // over the top face, the walls and the bottom by the stride walk).
         const Index stride = std::max<Index>(1, mesh.num_vertices() / 400);
         Vertices probe((mesh.num_vertices() + stride - 1) / stride, 3);
         for (Index v = 0, k = 0; v < mesh.num_vertices(); v += stride, ++k)
@@ -689,14 +782,15 @@ int run(const Options& o) {
     if (fine_depth)
         std::snprintf(fine_buf, sizeof(fine_buf), "%.4g m", *fine_depth);
     std::printf(
-        "SETUP | %s | %s | delta %.4g m | L %.4g m (map %.4g m, seed %llu) | depth %.4g m | "
+        "SETUP | %s | %s | %s | delta %.4g m | L %.4g m (map %.4g m, seed %llu) | depth %.4g m | "
         "box_mesh_size %s | M %lld | fine band %s (%lld rows) | triangles %lld (top %lld, box %lld "
         "= %.1f %%) | 2N %lld | Z %.2f GB | w0 %.4g m (L/%.3g) | beam %s | |E_inc| bottom centre "
         "%.3e, rim x %.3e, rim y %.3e, corner %.3e, wall foot x %.3e\n",
-        tag.c_str(), o.material.c_str(), delta, o.L, L_gen, static_cast<unsigned long long>(o.seed),
-        depth, o.box_mesh_size.c_str(), static_cast<long long>(g.levels), fine_buf,
-        static_cast<long long>(g.fine_rows), static_cast<long long>(tris),
-        static_cast<long long>(top), static_cast<long long>(tris - top),
+        tag.c_str(), o.material.c_str(), eps_buf, delta, o.L, L_gen,
+        static_cast<unsigned long long>(o.seed), depth, o.box_mesh_size.c_str(),
+        static_cast<long long>(g.levels), fine_buf, static_cast<long long>(g.fine_rows),
+        static_cast<long long>(tris), static_cast<long long>(top),
+        static_cast<long long>(tris - top),
         100.0 * static_cast<double>(tris - top) / static_cast<double>(top),
         static_cast<long long>(2 * n_edges), z_gb, w0, o.L / w0, beam_info.c_str(), e_bottom, e_rim,
         e_rim_y, e_corner, e_wall_bottom);
@@ -745,19 +839,26 @@ int run(const Options& o) {
     const Real p_refl = hemi_power(ff.refl);
     const Real p_fwd = hemi_power(ff.fwd);
 
-    char line[640];
+    char line[1024];
     std::snprintf(
         line, sizeof(line),
-        "RESULT | %s | %s | L %.4g | w0 %.4g | depth %.4g | box_mesh_size %s | fine %s | beam %s | "
-        "2N %lld | iterations %d | converged %s | true residual %.3e | assembly %.1f s | solve "
+        "RESULT | %s | %s | %s | L %.4g | w0 %.4g | depth %.4g | box_mesh_size %s | fine %s | beam "
+        "%s | 2N %lld | iterations %d | converged %s | true residual %.3e | assembly %.1f s | "
+        "solve "
         "%.1f s | far field %.1f s | ff degree check %.2e | P_refl %.6e | P_fwd %.6e",
-        tag.c_str(), o.material.c_str(), o.L, w0, depth, o.box_mesh_size.c_str(), fine_buf,
+        tag.c_str(), o.material.c_str(), eps_buf, o.L, w0, depth, o.box_mesh_size.c_str(), fine_buf,
         o.beam.c_str(), static_cast<long long>(2 * n_edges), res.iterations,
         res.converged ? "yes" : "no", res.true_relative_residual, t_asm, res.wall_seconds, t_ff,
         ff_check, p_refl, p_fwd);
     std::printf("%s\n", line);
     std::fflush(stdout);
     append_summary(o.summary, line);
+    // An unconverged solution is not a result of the configuration: refuse to store or compare it.
+    if (!res.converged && !o.allow_unconverged) {
+        throw std::runtime_error(
+            "GMRES did not converge (" + std::to_string(res.iterations) +
+            " iterations); nothing written or compared (--allow-unconverged to override)");
+    }
     const std::string parts = part_shares(sim.solution(), mesh, fo, p_refl);
     std::printf("PARTS | %s | P_part / P_refl%s\n", tag.c_str(), parts.c_str());
     std::fflush(stdout);
@@ -789,7 +890,12 @@ int run(const Options& o) {
         w->write_attribute("unknowns", static_cast<Real>(2 * n_edges));
         w->write_attribute("triangles", static_cast<Real>(tris));
         w->write_attribute("top_triangles", static_cast<Real>(top));
+        w->write_attribute("eps_r_real", object.eps_r.real());
+        w->write_attribute("eps_r_imag", object.eps_r.imag());
+        w->write_attribute("diagnostic", o.eps_imag ? "eps_imag override" : "no");
         w->write_attribute("iterations", static_cast<Real>(res.iterations));
+        w->write_attribute("converged", res.converged ? "yes" : "no");
+        w->write_attribute("gmres_tolerance", o.tol);
         w->write_attribute("true_residual", res.true_relative_residual);
         w->write_attribute("assembly_seconds", t_asm);
         w->write_attribute("solve_seconds", res.wall_seconds);
@@ -798,8 +904,11 @@ int run(const Options& o) {
         w->write_attribute("hemisphere_dphi_deg", kHemiDPhi);
         w->write_attribute("cut_step_deg", kCutStep);
     }
-    for (const std::string& ref : o.references)
-        print_compare(tag, ref, compare(ff, load_far_field(ref)));
+    for (const std::string& ref : o.references) {
+        const StoredRun r = load_run(ref, o.allow_unconverged);
+        print_compare(tag, ref, compare(ff, r.ff), !res.converged || !r.converged,
+                      o.eps_imag.has_value() || r.diagnostic);
+    }
     return 0;
 }
 
@@ -809,10 +918,12 @@ int main(int argc, char** argv) {
     try {
         const Options o = parse(argc, argv);
         if (!o.compare.empty()) {
-            const FarField ref = load_far_field(o.compare[0]);
-            for (std::size_t i = 1; i < o.compare.size(); ++i)
-                print_compare(o.compare[i], o.compare[0],
-                              compare(load_far_field(o.compare[i]), ref));
+            const StoredRun ref = load_run(o.compare[0], o.allow_unconverged);
+            for (std::size_t i = 1; i < o.compare.size(); ++i) {
+                const StoredRun t = load_run(o.compare[i], o.allow_unconverged);
+                print_compare(o.compare[i], o.compare[0], compare(t.ff, ref.ff),
+                              !t.converged || !ref.converged, t.diagnostic || ref.diagnostic);
+            }
             return 0;
         }
         return run(o);
