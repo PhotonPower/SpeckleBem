@@ -28,6 +28,10 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
   profile of the WP15 rough boxes and icospheres (WP-P2): time per pair class, region and
   triangle size, near/far degrees, schedule makespan, before/after timings
   (`dense_assembly_profile.cpp`).
+- [`results/box_validity.md`](results/box_validity.md) — validity of the graded closing box under
+  beam illumination (WP-V1, ADR 0006): depth ×2, graded vs uniform box, Si fine band and L ×1.2
+  for Ag and Si, reflected far field with a rigorous angular-spectrum beam
+  (`box_validity.cpp`).
 
 ## Executables (`-DSPECKLEBEM_BUILD_BENCHMARKS=ON`)
 

@@ -5,6 +5,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tooling / docs (WP-V1): box validity study `benchmarks/box_validity.cpp`
+  (`specklebem_box_validity`, `SPECKLEBEM_BUILD_BENCHMARKS`): far field |F|² of one rough-box
+  configuration (material, L with a shared cropped height map, waist, depth factor, coarse spacing,
+  fine band) in the reflection and forward hemispheres and the xz/yz cuts, dense ICTF + GMRES
+  (tol 1e-6), with a rigorous angular-spectrum Gaussian beam (or the paraxial one), `.npy` output,
+  per-part far-field shares (top, walls, bottom, rim, foot) and `--compare` (hemisphere L2 of |F|²,
+  docs/05 ε_rr). Record `benchmarks/results/box_validity.md`: at dense sizes (L ≤ 2.4 µm) depth ×2
+  (Ag 0.8–3.5 %, uniform box 1.1 %; Si fine band 0.13 %, ε_rr 0.04 %) and L ×1.2 (4–6 %) fail the
+  docs/05 tolerances because the narrow beam (z_R ≤ 2.8 µm) reaches the walls and w₀ = L/3 loses
+  0.5 % of its power past the edges; 400 nm coarse cells add 1.5–1.9 % (100 nm: 0.17 % from the
+  uniform box); Si needs the fine band (0.44–0.88 % without). Proposed ADR 0006 changes: coarse
+  spacing ≤ λ₁/5, w₀ ≤ L/4, z_R ≥ 8 × depth for the checks, rigorous beam.
 - mlfmm (WP17): `mlfmm::Octree` over the RWG edge midpoints: root cube from the padded mesh
   vertex bounding box, anchored at its lower corner (flat or thin geometry stays one box layer
   thick), uniform depth (all leaves on the finest level; the first level on which every box
