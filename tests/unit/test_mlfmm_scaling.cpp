@@ -99,11 +99,14 @@ TEST_CASE("mlfmm_scaling: estimate respects the ADR 0008 leaf rule", "[mlfmm_sca
     std::vector<std::string> materials = {"ag"};
 #ifdef NDEBUG
     materials.emplace_back("si");  // the Si order searches (L up to ~110) are slow unoptimised
+    const Real patch = 0.8e-6;
+#else
+    const Real patch = 0.4e-6;  // sanitizer build: smaller patch, same octree depth
 #endif
     for (const std::string& m : materials) {
         Case c;
         c.material = m;
-        c.L = 0.8e-6;
+        c.L = patch;
         const Geometry geo = make_geometry(c);
         const Estimate e = estimate(geo, c);
         CHECK(e.unknowns == 2 * geo.mesh.num_edges());
