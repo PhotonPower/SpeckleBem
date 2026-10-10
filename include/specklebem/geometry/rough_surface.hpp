@@ -59,8 +59,9 @@ struct RoughSurfaceParams {
     /// necessary, but not shown sufficient: the graded box counts as validated only once the
     /// docs/05 sensitivity checks pass at MLFMM sizes (WP-V2). An explicit box_mesh_size whose
     /// coarse spacing exceeds lambda_1 / 5 is accepted with an SBEM_WARN when
-    /// exterior_wavelength is set. The simulation-layer helpers default_box_mesh_size() and
-    /// rough_surface_box_params() (simulation.hpp) apply this rule for given materials.
+    /// exterior_wavelength is set. rough_surface_box_params() (simulation.hpp) applies this
+    /// rule for given materials: it sets exterior_wavelength and leaves box_mesh_size unset,
+    /// so the cap uses the actual grid spacing.
     ///
     /// Physics contract, object side (decay-based). The coarse part does not resolve the
     /// field; it is valid only where the field transmitted into the object has decayed, i.e.
@@ -86,12 +87,13 @@ struct RoughSurfaceParams {
     /// mandatory for weakly absorbing objects (ADR 0006 amendment) and is chosen by
     /// rough_surface_box_params() in simulation.hpp.
     std::optional<Real> box_mesh_size;
-    /// Wavelength lambda_1 [m] in the exterior medium R1 (lambda_0 / Re(n_1)). Used only when
+    /// Wavelength lambda_1 [m] in the exterior medium R1 (lambda_0 / |n_1|; for a lossy
+    /// background shorter than lambda_0 / Re(n_1), i.e. conservative). Used only when
     /// box_mesh_size is unset: the automatic coarse spacing is then capped at the largest
-    /// 2^M h_b <= lambda_1 / 5 (ADR 0006 amendment); with an explicit box_mesh_size it only
-    /// enables the warning about coarse spacings above lambda_1 / 5. Unset: the automatic rule
-    /// as before (unvalidated under illumination, one SBEM_WARN per graded mesh). Must be
-    /// positive and finite.
+    /// 2^M h_b <= lambda_1 / 5 with the actual level spacing h_b = max(dx, dy) of the grid
+    /// (ADR 0006 amendment); with an explicit box_mesh_size it only enables the warning about
+    /// coarse spacings above lambda_1 / 5. Unset: the automatic rule as before (unvalidated
+    /// under illumination, one SBEM_WARN per graded mesh). Must be positive and finite.
     std::optional<Real> exterior_wavelength;
     /// Fine band of the graded box [m]: the side walls keep the top-face spacing from the
     /// rim down to z = box_fine_depth and grade only below. Unset: no fine band (the grading
@@ -134,6 +136,14 @@ struct HeightMap {
 /// @throws std::invalid_argument for non-positive / non-finite parameters, n < 2,
 ///         n > 2^20 points per axis, or correlation_length < 2 max(dx, dy) (under-resolved).
 HeightMap generate_gaussian_height_map(const RoughSurfaceParams& p);
+
+/// Depth of the first coarsened wall row of the graded box without a fine band below a
+/// smooth rim, in top-face spacings: the anchor row lies h_g below the rim and the first
+/// coarsened row about one h_g below it (2 h_g + e, see the object-side contract of
+/// RoughSurfaceParams::box_mesh_size). An object whose field has not decayed to e^-3 there,
+/// 3 delta > kNoBandCoarseningDepth * h, is weakly absorbing and needs the fine band
+/// (ADR 0006 amendment); rough_surface_box_params() (simulation.hpp) applies this rule.
+inline constexpr Real kNoBandCoarseningDepth = 2.0;
 
 /// Coarse cells per exterior wavelength of the closing box (ADR 0006 amendment 2026-10-10):
 /// the coarse spacing must not exceed lambda_1 / kBoxCellsPerExteriorWavelength.

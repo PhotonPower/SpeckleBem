@@ -128,12 +128,18 @@ Real exterior_wavelength(const material::Material& background, Real wavelength) 
             "exterior_wavelength: Im(eps_r) > 0 or Im(mu_r) > 0 is an active medium in the "
             "exp(+jwt) convention (docs/06)");
     }
-    const Real n_re = background.refractive_index().real();
-    if (!(n_re > 0.0)) {
+    if (!(background.eps_r.real() > 0.0)) {
+        throw std::invalid_argument(
+            "exterior_wavelength: a metallic background (Re(eps_r) <= 0) has no propagating "
+            "exterior and is not covered by the closing box (ADR 0006)");
+    }
+    const Complex n = background.refractive_index();
+    if (!(n.real() > 0.0)) {
         throw std::invalid_argument(
             "exterior_wavelength: the background needs Re(n) > 0 (propagating exterior)");
     }
-    return wavelength / n_re;
+    // |n_1| >= Re(n_1): conservative (shorter lambda_1) for a lossy background.
+    return wavelength / std::abs(n);
 }
 
 Real default_box_mesh_size(const material::Material& background, Real wavelength, Real mesh_size) {
@@ -154,23 +160,29 @@ void RoughBoxParams::apply_to(geometry::RoughSurfaceParams& p) const {
 RoughBoxParams rough_surface_box_params(const material::Material& object,
                                         const material::Material& background, Real wavelength,
                                         Real sigma, Real mesh_size) {
+    if (!(std::isfinite(mesh_size) && mesh_size > 0.0)) {
+        throw std::invalid_argument("rough_surface_box_params: mesh_size must be finite and > 0");
+    }
     RoughBoxParams b;
     b.box_depth = default_box_depth(object, wavelength);
     const Real fine_depth = default_box_fine_depth(object, wavelength, sigma);
-    b.box_mesh_size = default_box_mesh_size(background, wavelength, mesh_size);
+    // box_mesh_size stays unset: the generator caps its automatic rule at lambda_1 / 5 with
+    // the actual grid spacing L / round(L / h), which mesh_size does not know.
     b.exterior_wavelength = exterior_wavelength(background, wavelength);
     const Real delta = material::field_decay_length(object, wavelength);
-    const bool weakly_absorbing = 3.0 * delta > kNoBandCoarseningDepth * mesh_size;
+    const bool weakly_absorbing = 3.0 * delta > geometry::kNoBandCoarseningDepth * mesh_size;
     if (!weakly_absorbing)
         return b;
     if (fine_depth < b.box_depth) {
         b.box_fine_depth = fine_depth;
     } else {
-        SBEM_INFO(
+        SBEM_WARN(
             "rough_surface_box_params: the fine band 3 delta + 3 sigma = {:.3g} m reaches the "
-            "bottom plate at {:.3g} m; using the uniform box (box_mesh_size = mesh_size)",
+            "bottom plate at {:.3g} m; using the uniform box (box_mesh_size = mesh_size), "
+            "several times the cost of the graded box",
             fine_depth, b.box_depth);
         b.box_mesh_size = mesh_size;
+        b.uniform_fallback = true;
     }
     return b;
 }
