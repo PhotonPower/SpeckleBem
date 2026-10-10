@@ -37,10 +37,10 @@
 /// Simulation with compression "mlfmm" (d0, automatic leaf rule and exact-part budget),
 /// formulation per formulation::recommend, full GMRES.
 ///  * Reflected power: P_refl = (1 / 2 eta1) int_{k_z < 0} |F|^2 dOmega of the scattered far field
-///    (post::far_field), midpoint rule in theta (from -z) x trapezoid in phi (spectrally accurate:
-///    the phi-averaged integrand times sin(theta) is odd about the pole, and the reflected beam is
-///    negligible at grazing angles); checked on a grid with twice the spacing and Dunavant
-///    degree 8 instead of 6.
+///    (post::far_field), Gauss-Legendre in theta (from -z) x trapezoid in phi (hemisphere_grid);
+///    checked with half the nodes per direction, and there with Dunavant degree 8 instead of 6.
+///    Diagnostics: the share inside the specular cone of half-angle 3 lambda / (pi w0) and at
+///    grazing angles theta > 80 deg (edge diffraction of the box).
 ///  * Incident power: AngularSpectrumBeam::power(), checked against the numerical flux of the
 ///    incident Poynting vector through z = 0 (trapezoid over |x|, |y| <= X, X = R / sqrt(2));
 ///    the edge loss is 1 - (flux through the L x L patch) / (flux through the square).
@@ -448,48 +448,78 @@ inline Estimate estimate(const Geometry& geo, const Case& c,
     return e;
 }
 
-/// Midpoint grid on a hemisphere: theta_i = (i + 1/2) dtheta from the pole z_sign z_hat
-/// (z_sign = -1: the reflection hemisphere k_z < 0), phi_j = j dphi, solid-angle weights
-/// sin(theta) dtheta dphi.
+/// Product grid on a hemisphere: n_theta Gauss-Legendre nodes in theta in (0, pi / 2) (from the
+/// pole z_sign z_hat; z_sign = -1: the reflection hemisphere k_z < 0) x n_phi equispaced phi_j =
+/// j 2 pi / n_phi (trapezoid), solid-angle weights w_GL sin(theta) dphi. Spectrally accurate for
+/// the smooth far-field intensity (Gauss-Legendre needs no vanishing integrand at grazing
+/// theta = pi / 2, where edge diffraction of the box radiates).
 struct HemisphereGrid {
     Vertices dirs;
     VectorXr weights;
+    VectorXr theta;  ///< polar angle from the pole per row [rad]
 };
 
-inline HemisphereGrid hemisphere_grid(Real z_sign, Real dtheta_deg, Real dphi_deg) {
-    const auto nt = static_cast<Index>(std::llround(90.0 / dtheta_deg));
-    const auto np = static_cast<Index>(std::llround(360.0 / dphi_deg));
-    if (nt < 1 || np < 4)
+inline HemisphereGrid hemisphere_grid(Real z_sign, int n_theta, int n_phi) {
+    if (n_theta < 1 || n_phi < 4)
         throw std::invalid_argument("hemisphere_grid: grid too coarse");
-    const Real dt = 0.5 * constants::pi / static_cast<Real>(nt);
-    const Real dp = 2.0 * constants::pi / static_cast<Real>(np);
+    const kernels::LineRule gl = kernels::gauss_legendre(n_theta);
+    const Real dp = 2.0 * constants::pi / static_cast<Real>(n_phi);
     HemisphereGrid g;
-    g.dirs.resize(nt * np, 3);
-    g.weights.resize(nt * np);
-    for (Index i = 0; i < nt; ++i) {
-        const Real t = (static_cast<Real>(i) + 0.5) * dt;
-        for (Index j = 0; j < np; ++j) {
+    const Index rows = static_cast<Index>(n_theta) * n_phi;
+    g.dirs.resize(rows, 3);
+    g.weights.resize(rows);
+    g.theta.resize(rows);
+    for (int i = 0; i < n_theta; ++i) {
+        const auto ui = static_cast<std::size_t>(i);
+        const Real t = 0.25 * constants::pi * (gl.nodes[ui] + 1.0);
+        const Real wt = 0.25 * constants::pi * gl.weights[ui] * std::sin(t) * dp;
+        for (int j = 0; j < n_phi; ++j) {
             const Real p = static_cast<Real>(j) * dp;
-            const Index row = i * np + j;
+            const Index row = static_cast<Index>(i) * n_phi + j;
             g.dirs(row, 0) = std::sin(t) * std::cos(p);
             g.dirs(row, 1) = std::sin(t) * std::sin(p);
             g.dirs(row, 2) = z_sign * std::cos(t);
-            g.weights(row) = std::sin(t) * dt * dp;
+            g.weights(row) = wt;
+            g.theta(row) = t;
         }
     }
     return g;
 }
 
-/// (1 / 2 eta1) sum_w |F|^2 over the grid [W] (eta1 of the exterior).
-inline Real hemisphere_power(const post::SurfaceSolution& s, const HemisphereGrid& g, int degree,
-                             Real eta1) {
+/// Grid of a case: n_theta = round(90 deg / dtheta), n_phi = round(360 deg / (2 dtheta)) (scaled
+/// by 1 / coarsening).
+inline HemisphereGrid hemisphere_grid(Real z_sign, Real dtheta_deg, int coarsening = 1) {
+    const auto nt = static_cast<int>(std::llround(90.0 / (dtheta_deg * coarsening)));
+    const auto np = static_cast<int>(std::llround(180.0 / (dtheta_deg * coarsening)));
+    return hemisphere_grid(z_sign, nt, np);
+}
+
+/// Power through a hemisphere grid, (1 / 2 eta1) sum_w |F|^2 [W], with the parts in the cone of
+/// half-angle cone_angle around the specular direction and at grazing angles theta > 80 deg.
+struct HemispherePower {
+    Real total = 0;
+    Real cone = 0;
+    Real grazing = 0;
+};
+
+inline HemispherePower hemisphere_power(const post::SurfaceSolution& s, const HemisphereGrid& g,
+                                        int degree, Real eta1, const Vec3& specular,
+                                        Real cone_angle) {
     post::FieldOptions fo;
     fo.quad_degree = degree;
     Eigen::Matrix<Complex, Eigen::Dynamic, 3> F;
     post::far_field(s, g.dirs, F, fo);
-    Real sum = 0;
-    for (Index r = 0; r < F.rows(); ++r) sum += g.weights(r) * F.row(r).squaredNorm();
-    return sum / (2.0 * eta1);
+    const Real cos_cone = std::cos(cone_angle);
+    HemispherePower p;
+    for (Index r = 0; r < F.rows(); ++r) {
+        const Real dp = g.weights(r) * F.row(r).squaredNorm() / (2.0 * eta1);
+        p.total += dp;
+        if (g.dirs.row(r).dot(specular.transpose()) >= cos_cone)
+            p.cone += dp;
+        if (g.theta(r) > 80.0 * kDeg)
+            p.grazing += dp;
+    }
+    return p;
 }
 
 /// P_abs = 1/2 Re oint (n x M) . J* dS from the RWG currents (exact for the quadratic integrand
@@ -541,10 +571,13 @@ struct Result {
     Real assembly_s = 0;
     Real solve_s = 0;
     Real post_s = 0;
-    Real p_refl = 0;        ///< reflection hemisphere, primary grid [W]
-    Real p_refl_check = 0;  ///< twice the spacing, degree 8 [W]
-    Real p_fwd = 0;         ///< forward hemisphere (check grid; diagnostic) [W]
-    Real p_abs = 0;         ///< [W]
+    HemispherePower refl;  ///< reflection hemisphere, primary grid, ff_degree
+    Real p_refl = 0;       ///< refl.total [W]
+    Real p_refl_grid = 0;  ///< half the nodes per direction, ff_degree [W]
+    Real p_refl_deg = 0;   ///< half the nodes per direction, Dunavant degree 8 [W]
+    Real p_fwd = 0;        ///< forward hemisphere (half the nodes; diagnostic) [W]
+    Real cone_angle = 0;   ///< 3 lambda / (pi w0) [rad]
+    Real p_abs = 0;        ///< [W]
     Real near_bytes = 0;
     Real far_bytes = 0;  ///< far operator incl. exact parts, after the solve
     Real krylov_bytes = 0;
@@ -589,15 +622,19 @@ inline Result run(const Case& c, const Geometry& geo,
     }
     const auto t0 = Clock::now();
     const Real eta1 = material::vacuum().wave_impedance(beam->omega()).real();
-    r.p_refl = hemisphere_power(sim.solution(),
-                                hemisphere_grid(-1.0, c.ff_dtheta_deg, 2.0 * c.ff_dtheta_deg),
-                                c.ff_degree, eta1);
-    const HemisphereGrid coarse_refl =
-        hemisphere_grid(-1.0, 2.0 * c.ff_dtheta_deg, 4.0 * c.ff_dtheta_deg);
-    r.p_refl_check = hemisphere_power(sim.solution(), coarse_refl, 8, eta1);
-    r.p_fwd = hemisphere_power(sim.solution(),
-                               hemisphere_grid(+1.0, 2.0 * c.ff_dtheta_deg, 4.0 * c.ff_dtheta_deg),
-                               c.ff_degree, eta1);
+    const Real th = c.theta_deg * kDeg;
+    const Vec3 specular(std::sin(th), 0.0, -std::cos(th));
+    r.cone_angle = 3.0 * kLambda / (constants::pi * c.waist);
+    r.refl = hemisphere_power(sim.solution(), hemisphere_grid(-1.0, c.ff_dtheta_deg), c.ff_degree,
+                              eta1, specular, r.cone_angle);
+    r.p_refl = r.refl.total;
+    const HemisphereGrid coarse = hemisphere_grid(-1.0, c.ff_dtheta_deg, 2);
+    r.p_refl_grid =
+        hemisphere_power(sim.solution(), coarse, c.ff_degree, eta1, specular, r.cone_angle).total;
+    r.p_refl_deg = hemisphere_power(sim.solution(), coarse, 8, eta1, specular, r.cone_angle).total;
+    r.p_fwd = hemisphere_power(sim.solution(), hemisphere_grid(+1.0, c.ff_dtheta_deg, 2),
+                               c.ff_degree, eta1, -specular, r.cone_angle)
+                  .total;
     r.p_abs = absorbed_power(sim.solution());
     r.post_s = std::chrono::duration<Real>(Clock::now() - t0).count();
     r.report = sim.report();
@@ -655,9 +692,12 @@ inline std::string summary(const Result& r) {
        << ", true residual " << r.true_residual << "; assembly " << r.assembly_s << " s, solve "
        << r.solve_s << " s, post " << r.post_s << " s\n"
        << "R_sim " << r.r_sim() << " (vs R_beam " << r.error_beam() << ", vs Fresnel "
-       << r.error_fresnel() << "); hemisphere check (2x spacing, degree 8) "
-       << r.p_refl_check / r.p_refl - 1.0 << "; A_sim " << r.a_sim() << ", 1 - R - A "
-       << 1.0 - r.r_sim() - r.a_sim() << ", P_fwd / P_inc " << r.p_fwd / r.ref.power << "\n"
+       << r.error_fresnel() << "); hemisphere checks: half the nodes "
+       << r.p_refl_grid / r.p_refl - 1.0 << ", and degree 8 " << r.p_refl_deg / r.p_refl - 1.0
+       << "; specular cone (" << r.cone_angle / kDeg << " deg) " << r.refl.cone / r.p_refl
+       << ", theta > 80 deg " << r.refl.grazing / r.p_refl << " of P_refl\n"
+       << "A_sim " << r.a_sim() << ", 1 - R - A " << 1.0 - r.r_sim() - r.a_sim()
+       << ", P_fwd / P_inc " << r.p_fwd / r.ref.power << "\n"
        << "memory: near " << gb(r.near_bytes) << " GB, far " << gb(r.far_bytes) << " GB, Krylov "
        << gb(r.krylov_bytes) << " GB, peak RSS " << gb(r.peak_rss) << " GB";
     return os.str();

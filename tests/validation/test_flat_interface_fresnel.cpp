@@ -140,9 +140,13 @@ TEST_CASE("Beam power equals the numerical flux through z = 0; edge loss of the 
 }
 
 TEST_CASE("Hemisphere grid integrates the solid angle", "[validation][fresnel]") {
-    for (const Real d : {0.5, 1.0, 2.0}) {
-        const HemisphereGrid g = hemisphere_grid(-1.0, d, 2.0 * d);
-        CHECK_THAT(g.weights.sum(), WithinRel(2.0 * constants::pi, 2e-4 * d * d));
+    for (const Real d : {0.5, 1.0, 5.0}) {
+        const HemisphereGrid g = hemisphere_grid(-1.0, d);
+        CHECK_THAT(g.weights.sum(), WithinRel(2.0 * constants::pi, 1e-12));
         CHECK(g.dirs.col(2).maxCoeff() < 0.0);
+        // int cos^2(theta) dOmega = 2 pi / 3 (polynomial in the direction).
+        CHECK_THAT(g.weights.dot(g.dirs.col(2).cwiseAbs2()),
+                   WithinRel(2.0 * constants::pi / 3.0, 1e-12));
     }
+    CHECK(hemisphere_grid(+1.0, 1.0, 2).dirs.rows() == 45 * 90);
 }

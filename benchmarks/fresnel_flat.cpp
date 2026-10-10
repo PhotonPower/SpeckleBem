@@ -18,7 +18,8 @@
 // refused.
 //
 // Usage: specklebem_fresnel_flat --material ag|si [--L 4e-6] [--w0 1e-6] [--theta 0] [--pol p|s]
-//            [--digits 3] [--tol 1e-4] [--max-iter 6000] [--restart 0] [--ff-dtheta 0.5]
+//            [--mesh-size 50e-9] [--digits 3] [--tol 1e-4] [--max-iter 6000] [--restart 0]
+//            [--ff-dtheta 0.5]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--estimate-only]
 //            [--force]
 #include "specklebem/formulation/formulation.hpp"
@@ -73,6 +74,8 @@ Options parse(int argc, char** argv) {
             o.c.max_iter = std::stoi(value());
         } else if (a == "--restart") {
             o.c.restart = std::stoi(value());
+        } else if (a == "--mesh-size") {
+            o.c.mesh_size = std::stod(value());
         } else if (a == "--ff-dtheta") {
             o.c.ff_dtheta_deg = std::stod(value());
         } else if (a == "--formulation") {
@@ -104,12 +107,13 @@ void append_summary(const std::string& path, const std::string& line) {
 
 /// One machine-readable line of a solved case.
 std::string result_line(const Case& c, const Result& r) {
-    char buf[1400];
+    char buf[1600];
     std::snprintf(
         buf, sizeof(buf),
         "RESULT | %s | L %.4g | w0 %.4g | theta %.4g | pol %s | 2N %lld | it %d | converged %s | "
         "true_res %.3e | R_sim %.7f | R_beam %.7f | F %.7f | err_beam %+.5f %% | err_F %+.5f %% "
-        "| R_beam/F-1 %+.5f %% | edge_loss %.3e | hemi_check %.2e | A_sim %.6f | 1-R-A %+.3e | "
+        "| R_beam/F-1 %+.5f %% | edge_loss %.3e | hemi_grid %+.2e | hemi_deg8 %+.2e | cone %.6f | "
+        "grazing %.2e | A_sim %.6f | 1-R-A %+.3e | "
         "P_fwd/P_inc %.6f | flux/power-1 %+.2e | assembly %.1f s | solve %.1f s | post %.1f s | "
         "near %.2f GB | far %.2f GB | krylov %.2f GB | peak %.2f GB",
         c.material.c_str(), c.L, c.waist, c.theta_deg,
@@ -118,9 +122,10 @@ std::string result_line(const Case& c, const Result& r) {
         r.ref.beam.reflectance, r.ref.beam.fresnel_central, 100.0 * r.error_beam(),
         100.0 * r.error_fresnel(),
         100.0 * (r.ref.beam.reflectance / r.ref.beam.fresnel_central - 1.0), r.ref.edge_loss,
-        r.p_refl_check / r.p_refl - 1.0, r.a_sim(), 1.0 - r.r_sim() - r.a_sim(),
-        r.p_fwd / r.ref.power, r.ref.flux.square / r.ref.power - 1.0, r.assembly_s, r.solve_s,
-        r.post_s, gb(r.near_bytes), gb(r.far_bytes), gb(r.krylov_bytes), gb(r.peak_rss));
+        r.p_refl_grid / r.p_refl - 1.0, r.p_refl_deg / r.p_refl - 1.0, r.refl.cone / r.p_refl,
+        r.refl.grazing / r.p_refl, r.a_sim(), 1.0 - r.r_sim() - r.a_sim(), r.p_fwd / r.ref.power,
+        r.ref.flux.square / r.ref.power - 1.0, r.assembly_s, r.solve_s, r.post_s, gb(r.near_bytes),
+        gb(r.far_bytes), gb(r.krylov_bytes), gb(r.peak_rss));
     return buf;
 }
 
