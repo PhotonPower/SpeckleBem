@@ -12,8 +12,10 @@ namespace specklebem::op {
 class SparseOperator final : public LinearOperator {
 public:
     using Matrix = Eigen::SparseMatrix<Complex, Eigen::RowMajor, Index>;
-    /// Takes the matrix and compresses it (no-op if already compressed).
-    explicit SparseOperator(Matrix Z);
+    /// Takes over the storage of Z by swapping (Z is left empty) and compresses it (no-op if
+    /// already compressed). An rvalue reference, not a by-value parameter: Eigen 3.4.0's
+    /// SparseMatrix has no move constructor, so a by-value parameter would copy the near field.
+    explicit SparseOperator(Matrix&& Z);
     [[nodiscard]] Index rows() const override { return Z_.rows(); }
     [[nodiscard]] Index cols() const override { return Z_.cols(); }
     /// y = Z x: OpenMP over rows, each row summed in storage (column) order, so y is bitwise
