@@ -15,7 +15,7 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   (Ag 0.8–3.5 %, uniform box 1.1 %; Si fine band 0.13 %, ε_rr 0.04 %) and L ×1.2 (4–6 %) fail the
   docs/05 tolerances because the narrow beam (z_R ≤ 2.8 µm) reaches the walls and w₀ = L/3 loses
   0.5 % of its power past the edges; 400 nm coarse cells add 1.5–1.9 % (100 nm: 0.17 % from the
-  uniform box); Si needs the fine band (0.44–0.88 % without). Proposed ADR 0006 changes: coarse
+  uniform box); Si needs the fine band (0.44–0.88 % without; fine band + 400 nm cells 0.37 % from the uniform box). Proposed ADR 0006 changes: coarse
   spacing ≤ λ₁/5, w₀ ≤ L/4, z_R ≥ 8 × depth for the checks, rigorous beam.
 - mlfmm (WP17): `mlfmm::Octree` over the RWG edge midpoints: root cube from the padded mesh
   vertex bounding box, anchored at its lower corner (flat or thin geometry stays one box layer

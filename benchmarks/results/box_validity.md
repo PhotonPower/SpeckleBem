@@ -46,7 +46,7 @@ with the fine band: 0.13 % (ε_rr 0.04 %).
 | si1_b100 | Si 1.0 µm, 0.333 µm | 100 nm, no band | 17 280 | 4.8 | 404 | 95 | 68 |
 | si1_fine / fine_d2 / si12_fine | Si 1.0 / 1.0 / 1.2 µm, 0.333 µm | 400 nm + fine band 3.54 µm | 38 082 / 39 090 / 45 522 | 23.2 / 24.4 / 33.2 | 727 / 1 244 / 734 | 138 / 181 / 207 | 590 / 1 331 / 936 |
 | si1_uniform | Si 1.0 µm, 0.333 µm | uniform, 5.65 µm | 59 040 | 55.8 | 299 | 306 | 1 046 |
-| si15_none / si15_fine | Si 1.5 µm, 0.5 µm | 400 nm, no band / fine band | 8 544 / SI15_2N | 1.2 / | 935 / | 26 / | 49 / |
+| si15_none / si15_fine | Si 1.5 µm, 0.5 µm | 400 nm, no band / fine band | 8 544 / 59 520 | 1.2 / 56.7 | 935 / 839 | 26 / 439 | 49 / 5 672 |
 
 Dense memory 16 (2N)² bytes; GMRES Krylov storage ≤ 1.4 GB. The largest systems that fit the
 budget (2N ≤ 6·10⁴): Si with the fine band at L = 1.5 µm (2N = 59 520), Ag uniform box at
@@ -127,7 +127,7 @@ A fine band combined with 100 nm cells below (2N ≈ 4·10⁴ at L = 1 µm) was 
 |---|---:|---:|---:|---|
 | 1.0 µm, 0.333 µm | 0.88 % | 0.41 / 0.43 % | +8e-5 | 4 650 / 38 082 |
 | 1.2 µm, 0.333 µm | 0.44 % | 0.22 / 0.19 % | −1.8e-5 | 5 850 / 45 522 |
-| 1.5 µm, 0.5 µm (largest feasible) | SI15_NONE_FINE | | | 8 544 / SI15_2N |
+| 1.5 µm, 0.5 µm (largest feasible) | 0.66 % | 0.16 / 0.18 % | +2.9e-4 | 8 544 / 59 520 |
 
 Without the fine band the Si walls coarsen to 400 nm from ~100 nm below the rim, where the
 transmitted field is still e^−0.1 of its surface value and |k₂| h ≈ 30 (WP15, WP-P2). The fine band
@@ -180,7 +180,7 @@ or a 3 w₀ ≤ L patch implies; the depth sensitivity is similar with both (1.8
    λ₁/5 only within the beam footprint at the bottom (radius ~2 w(depth)) and lets the outer bottom
    coarsen is possible but untested.
 2. **Fine band mandatory for Si** (weakly absorbing objects): 0.44–0.88 % far-field change without
-   it at L = 1–1.2 µm, and 4× the depth sensitivity. Its cost (box 1 000–1 500 % of the top face at
+   it at L = 1–1.5 µm (0.66 % at the largest feasible L = 1.5 µm, 2N = 59 520), and 4× the depth sensitivity. Its cost (box 1 000–1 500 % of the top face at
    L = 1–1.5 µm, 146 % at L = 10 µm) makes dense Si studies with the ADR box infeasible beyond
    L ≈ 1.5 µm.
 3. **Waist/L ratio: w₀ ≤ L/4** (better L/5). At L/3 the beam power past the patch edges (0.53 %)
