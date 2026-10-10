@@ -171,14 +171,20 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   verified for leaves >= lambda/2 with r_max / a <= 0.3, ADR 0008), `max_elements_per_leaf`
   (100), `min_box_size_lambda` (0.25, leaf floor in exterior wavelengths), `automatic_leaf_size`
   (True: the leaf rule of ADR 0008 raises the floor to max(min_box_size_lambda, a_min(d0),
-  r_max / 0.3) with a_min = lambda/4 for d0 <= 3 and lambda/2 for d0 > 3, r_max the largest RWG
-  support radius, so `accuracy_digits=5` needs no manual leaf choice; the user value acts as a
-  lower bound; False uses `min_box_size_lambda` as given, for experiments). Lossy interiors such
-  as silver use the ADR 0008 §6 policy (WP21): no expansion where it is inaccurate, far pairs
-  truncated by the decay bound (1 + alpha d) e^{-alpha d} <= 10^-(d0+1) or evaluated exactly;
+  r_max / ratio(d0)) with a_min = lambda/4 for d0 <= 3 and lambda/2 for d0 > 3, ratio = 0.6 for
+  d0 <= 3 and 0.3 for d0 > 3 (`mlfmm::max_support_ratio`), r_max the largest RWG support radius,
+  so `accuracy_digits=5` needs no manual leaf choice; the user value acts as a lower bound; False
+  uses `min_box_size_lambda` as given, for experiments), `max_exact_far_bytes` (int, 0 =
+  automatic: max(2 x the near-field bytes, 1 GiB); WP21 review). Lossy interiors such as silver
+  use the ADR 0008 §6 policy (WP21): no expansion where it is inaccurate, far pairs truncated by
+  the decay bound (1 + alpha d) e^{-alpha d} <= 10^-(d0+1) or evaluated exactly (40 bytes per
+  basis pair; allowed only if the exact pairs stay within 4 box edges, x*(d0) / alpha <= 4 a,
+  and their estimated size, checked before allocation, fits `max_exact_far_bytes`);
   `operator().describe()` lists the decision per region and level. `assemble()` raises
-  `RuntimeError` when a region has neither a usable expansion nor enough decay (the message
-  names the region and the remedy: finer mesh / larger leaves, fewer digits, or "dense"). `gmres` keys: `tol` (`tolerance`),
+  `RuntimeError` when a region has neither a usable expansion nor enough decay, or when the
+  exact part exceeds the budget (the message names the region and the remedy: finer mesh /
+  larger leaves, fewer digits, a larger `max_exact_far_bytes`, or "dense"). `gmres` keys: `tol`
+  (`tolerance`),
   `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`. `kernels`
   keys are the `kernels::OperatorOptions` member names (`quad_degree_far`, `quad_degree_near`,
   `quad_degree_sing`, `outer_grading_levels`, `near_distance_factor`,

@@ -236,8 +236,8 @@ TEST_CASE("mlfmm simulation large: rough box n = 1.5, ICTF + Jacobi", "[validati
     // GMRES through Simulation, "mlfmm" vs "dense" (tests/support/mlfmm_simulation_support.hpp):
     // 1 um x 1 um x 0.3 um, mesh 50 nm (2N = 7680), default kernel options. Measured 2026-10-10:
     // 329 GMRES iterations each (~22 s), currents 3.2e-4, RCS 8.2e-6 with 4 levels and lambda / 4
-    // leaves; since WP21 the leaf rule gives 3 levels with lambda / 2 leaves: currents 4.6e-5,
-    // RCS 1.3e-6.
+    // leaves (again since the WP21 review: r_max ~ 45 nm <= 0.6 a); the interim r_max / 0.3 rule
+    // gave 3 levels with lambda / 2 leaves: currents 4.6e-5, RCS 1.3e-6.
     SimulationConfig cfg;
     cfg.object = {Complex(2.25, 0.0), Complex(1.0, 0.0)};
     cfg.formulation = formulation::Kind::ICTF;
@@ -369,15 +369,32 @@ TEST_CASE("mlfmm large: icosphere 2N = 61440 against exact rows", "[validation-l
 #endif
 }
 
+TEST_CASE("mlfmm large: Ag icosphere 2N = 61440 against exact rows", "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    // R = 1 um, subdivision 5 (2N = 61440), Ag, PMCHWT, d0 = 3 (lambda / 4 leaves): the Ag
+    // interior uses the ADR 0008 §6 fallback (exact pairs on levels 4 and 3, (L, K) storage); WP22
+    // projection input. Measured 2026-10-10: error 1.1e-4 on 128 rows; exact part 18.0e6 basis
+    // pairs (box-pair bound 9.3e7), 687 MB in 3.7 s (the four-entry storage would need 1.73 GB),
+    // near field 1133 MB, setup 20 s, apply 0.23 s, peak RSS 4.9 GB (guard 7 GB).
+    const Setup s(geometry::make_icosphere(2.0 * kLambda, 5), material::silver_500nm(),
+                  Kind::PMCHWT);
+    CHECK(2 * s.space.size() == 61440);
+    run_exact_rows("icosphere R = 1 um, Ag, PMCHWT", s, 7e9);
+#endif
+}
+
 TEST_CASE("mlfmm large: rough box 2N ~ 9e4 against exact rows", "[validation-large][mlfmm]") {
 #ifndef NDEBUG
     SKIP("validation-large cases run in optimised builds only");
 #else
-    // 4 um x 4 um x 0.3 um, mesh 50 nm: 2N ~ 8.8e4 (dense 125 GB), Si, ICTF; the leaf rule gives
-    // lambda / 2 leaves (r_max ~ 45 nm). Measured 2026-10-10: error 1.8e-5 (2.9e-4 with the
-    // pre-WP21 lambda / 4 leaves), setup 79 s, apply 1.2 s, 12 GB, peak RSS 23.9 GB (guard 26 GB).
+    // 4 um x 4 um x 0.3 um, mesh 50 nm: 2N ~ 8.8e4 (dense 125 GB), Si, ICTF; lambda / 4 leaves
+    // (r_max ~ 45 nm <= 0.6 a, leaf rule since the WP21 review). Measured 2026-10-10: error
+    // 2.9e-4, setup 39 s, apply 1.9 s, 5.5 GB, peak RSS 6.4 GB (guard 9 GB); with the interim
+    // r_max / 0.3 rule (lambda / 2 leaves): 1.8e-5, 12 GB, peak RSS 23.9 GB.
     const Setup s(rough_box(4e-6, 0.3e-6, 50e-9), material::silicon_500nm(), Kind::ICTF);
     CHECK(2 * s.space.size() > 80000);
-    run_exact_rows("rough box 4 um, Si, ICTF", s, 26e9);
+    run_exact_rows("rough box 4 um, Si, ICTF", s, 9e9);
 #endif
 }

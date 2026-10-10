@@ -132,6 +132,25 @@ def test_mlfmm_compression():
     )
     ag.assemble()
     assert "region R2" in ag.operator().describe()
+    assert "max_exact_far_bytes 0)" in ag.report()
+    # Exact-part budget (WP21 review): a 1 kB budget is exceeded before anything is allocated.
+    tight = sb.Simulation(
+        sb.make_icosphere(1.5e-6, 2),
+        sb.PlaneWave(LAMBDA_FAST, [0, 0, 1], [1, 0, 0]),
+        object=sb.silver_500nm(),
+        kernels=CHEAP,
+        compression="mlfmm",
+        mlfmm=dict(
+            max_elements_per_leaf=1,
+            min_box_size_lambda=0.7,
+            automatic_leaf_size=False,
+            max_exact_far_bytes=1000,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="max_exact_far_bytes"):
+        tight.assemble()
+    with pytest.raises(ValueError, match="max_exact_far_bytes"):
+        make_sim(compression="mlfmm", mlfmm=dict(max_exact_far_bytes=-1))
     # A lossless interior at d0 = 5 without the leaf rule (r_max / a ~ 0.5): no expansion order.
     bad = sb.Simulation(
         sb.make_icosphere(1.5e-6, 2),

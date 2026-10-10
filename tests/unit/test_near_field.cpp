@@ -461,7 +461,7 @@ TEST_CASE("near_field: region (L, K) storage reproduces the dense matrix", "[nea
     // block weights; R1 + R2 on the full pattern (jump terms included) equal the dense Z.
     NearCase c(geometry::make_icosphere(0.5 * kLambda, 1));
     const Index n = c.space.size();
-    for (const Kind kind : {Kind::PMCHWT, Kind::ICTF}) {
+    for (const Kind kind : {Kind::ICTF}) {  // (PMCHWT: the sparse pattern below)
         c.set(material::silver_500nm(), kind);
         const MatrixXc D = dense(c.problem);
         std::vector<Index> row_ptr(sz(n) + 1), cols;

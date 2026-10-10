@@ -400,6 +400,22 @@ TEST_CASE("simulation: compression mlfmm", "[simulation]") {
     Simulation ag(geometry::make_icosphere(1.5e-6, 2), plane_wave(), bad);
     CHECK_NOTHROW(ag.assemble());
     CHECK(contains(ag.system_operator()->describe(), "region R2"));
+    // Exact-part budget exceeded (WP21 review): wrapped with the advice for its cause.
+    {
+        SimulationConfig tight = bad;
+        tight.mlfmm.max_exact_far_bytes = 1000;
+        Simulation t(geometry::make_icosphere(1.5e-6, 2), plane_wave(), tight);
+        try {
+            t.assemble();
+            FAIL("expected std::runtime_error");
+        } catch (const std::runtime_error& e) {
+            const std::string what = e.what();
+            INFO(what);
+            CHECK(contains(what, "exceed the memory budget mlfmm.max_exact_far_bytes"));
+            CHECK(contains(what, "region R2"));
+        }
+        CHECK(contains(t.report(), "max_exact_far_bytes 1000)"));
+    }
     // Lossless interior at d0 = 5 with r_max / a ~ 0.5 (rule disabled): no expansion order ->
     // TruncationOrderError, wrapped with the advice for its cause.
     bad.object = {Complex(2.25, 0.0), Complex(1.0, 0.0)};

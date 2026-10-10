@@ -60,9 +60,17 @@ The interior wavenumber `k_2` is complex. Consequences:
   `δ = (1 + αd) e^{−αd}` (`α = −Im k_i`) bounds `|G|` and `|∇G|` relative to their undamped values
   `1/(4πR)` and `(1 + |Re k| R)/(4πR²)`, so dropping the pair changes each entry by at most
   `δ` times its undamped bound: pairs with `δ ≤ 10^{−(d₀+1)}` are truncated (logged), the others
-  are evaluated exactly in a region-masked sparse correction. Ag at 500 nm (`α ≈ 39 µm⁻¹`): no
+  are evaluated exactly in a sparse correction that stores the region's `L_i` and `K_i` per basis
+  pair (40 bytes) and applies the block weights in the matvec. Ag at 500 nm (`α ≈ 39 µm⁻¹`): no
   interior expansion at λ/4 … λ/2 leaves; exact pairs only at the leaf level (and the next one at
   `d₀ = 5`), all coarser levels truncated.
+- Exact-part size (WP21 review): truncation needs `αd ≥ x*(d₀)`, the root of
+  `(1 + x) e^{−x} = 10^{−(d₀+1)}` (11.76 at `d₀ = 3`, 16.69 at `d₀ = 5`), so the exact pairs reach
+  `x*/α` in support distance. The fallback is allowed only if `x*/α ≤ 4 a_l` (`a_l` the box edge of
+  the first level without expansion); weaker decay throws instead of growing towards `N²`. Before
+  any allocation the exact parts are estimated (`Σ n_A n_B` over the exact box pairs, refined per
+  basis pair when needed) and checked against `MlfmmParams::max_exact_far_bytes` (default
+  `max(2 × near field, 1 GiB)`).
 - Phase 8 alternative: ACA/H-matrix for the interior operator — kernel-independent, no stability issue with complex `k`.
 
 ## Complexity and memory
