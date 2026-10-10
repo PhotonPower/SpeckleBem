@@ -9,7 +9,7 @@
 //  * d0 = 5 with a lambda / 2 floor, and lambda leaves on a coarser plate.
 // Since WP21 MlfmmOperator applies the leaf rule a >= max(a_min(d0), r_max / 0.3): on the
 // R = 1 um icosphere and the 2 um box (r_max ~ 70 / 45 nm) the d0 = 3 leaves are lambda / 2 too;
-// the R = 0.5 um icosphere and the 1.2 um box at 35 nm keep lambda / 4 leaves at d0 = 3.
+// the R = 0.5 um icosphere (r_max ~ 36 nm) keeps lambda / 4 leaves at d0 = 3.
 // Measured 2026-10-10 before WP21 (win-release, 24 cores, lambda / 4 leaves at r_max / a ~ 0.57
 // for d0 = 3): d0 = 3: 1.7e-4 / 2.1e-4 (icosphere n = 1.5 / Si), 7.2e-5 / 4.3e-5 (rough box
 // n = 1.5 / Si), 5.4e-6 (plate, lambda leaves); d0 = 5: 3.7e-6 / 6.5e-6 (icosphere), 6.7e-6 /
@@ -229,15 +229,15 @@ TEST_CASE("mlfmm vs dense large: rough plate with lambda leaves, d0 = 5",
 #endif
 }
 
-TEST_CASE("mlfmm simulation large: rough box n = 1.5, ICTF + Jacobi, lambda / 4 leaves",
-          "[validation-large][mlfmm]") {
+TEST_CASE("mlfmm simulation large: rough box n = 1.5, ICTF + Jacobi", "[validation-large][mlfmm]") {
 #ifndef NDEBUG
     SKIP("validation-large cases run in optimised builds only");
 #else
     // GMRES through Simulation, "mlfmm" vs "dense" (tests/support/mlfmm_simulation_support.hpp):
-    // 1 um x 1 um x 0.3 um, mesh 50 nm (2N = 7680), 4 levels with lambda / 4 leaves, default
-    // kernel options. Measured 2026-10-10: 329 GMRES iterations each (~22 s), currents 3.2e-4,
-    // RCS 8.2e-6.
+    // 1 um x 1 um x 0.3 um, mesh 50 nm (2N = 7680), default kernel options. Measured 2026-10-10:
+    // 329 GMRES iterations each (~22 s), currents 3.2e-4, RCS 8.2e-6 with 4 levels and lambda / 4
+    // leaves; since WP21 the leaf rule gives 3 levels with lambda / 2 leaves: currents 4.6e-5,
+    // RCS 1.3e-6.
     SimulationConfig cfg;
     cfg.object = {Complex(2.25, 0.0), Complex(1.0, 0.0)};
     cfg.formulation = formulation::Kind::ICTF;
@@ -258,6 +258,7 @@ TEST_CASE("mlfmm vs dense large: icosphere Ag, PMCHWT", "[validation-large][mlfm
     // R = 0.5 um, subdivision 4: 2N = 15360, r_max ~ 35 nm, so the leaf rule keeps lambda / 4
     // leaves at d0 = 3 (lambda / 2 at d0 = 5). The Ag interior (skin depth ~13 nm) uses no
     // expansion: its far pairs are truncated by the decay bound or evaluated exactly (WP21).
+    // Measured 2026-10-10: 1.0e-4 (d0 = 3, exact part 408 MB, total 803 MB), 4.1e-6 (d0 = 5).
     const Setup s(geometry::make_icosphere(kLambda, 4), material::silver_500nm(), Kind::PMCHWT);
     run_case("icosphere R = 0.5 um, Ag, PMCHWT", s, {{3.0, 0.25}, {5.0, 0.5}});
 #endif
@@ -267,8 +268,9 @@ TEST_CASE("mlfmm vs dense large: rough box Ag, PMCHWT", "[validation-large][mlfm
 #ifndef NDEBUG
     SKIP("validation-large cases run in optimised builds only");
 #else
-    // 1.2 um x 1.2 um x 0.3 um, mesh 35 nm: 2N ~ 2e4 with r_max small enough for lambda / 4
-    // leaves at d0 = 3.
+    // 1.2 um x 1.2 um x 0.3 um, mesh 35 nm: 2N = 21216, r_max = 46 nm (rim triangles), so the
+    // leaf rule gives 0.6 lambda leaves (3 levels) for both d0. Measured 2026-10-10: 4.8e-6
+    // (d0 = 3), 2.1e-6 (d0 = 5); Ag interior exact at the leaf level (272 / 382 box pairs).
     const Setup s(rough_box(1.2e-6, 0.3e-6, 35e-9), material::silver_500nm(), Kind::PMCHWT);
     run_case("rough box 1.2 um, Ag, PMCHWT", s, {{3.0, 0.25}, {5.0, 0.5}});
 #endif
@@ -280,6 +282,8 @@ TEST_CASE("mlfmm simulation large: Ag sphere, Jacobi", "[validation-large][mlfmm
 #else
     // GMRES through Simulation, "mlfmm" vs "dense": Ag icosphere R = 0.5 um, subdivision 3
     // (2N = 3840; leaf rule: lambda / 2 leaves, 3 levels), automatic formulation, left Jacobi.
+    // Measured 2026-10-10: GMRES 186 (dense) / 210 (MLFMM) iterations, currents 1.2e-4, RCS
+    // 3.3e-6.
     SimulationConfig cfg;
     cfg.object = material::silver_500nm();
     cfg.diagonal_preconditioner = true;
@@ -356,11 +360,12 @@ TEST_CASE("mlfmm large: icosphere 2N = 61440 against exact rows", "[validation-l
     SKIP("validation-large cases run in optimised builds only");
 #else
     // R = 1 um, subdivision 5 (2N = 61440, dense 60 GB), Si, ICTF; r_max ~ 36 nm keeps
-    // lambda / 4 leaves under the leaf rule. Measured peak RSS: see PEAK below.
+    // lambda / 4 leaves under the leaf rule. Measured 2026-10-10: error 2.3e-4, setup 19 s,
+    // apply 0.52 s, 3.3 GB, peak RSS 5.6 GB (guard 7 GB).
     const Setup s(geometry::make_icosphere(2.0 * kLambda, 5), material::silicon_500nm(),
                   Kind::ICTF);
     CHECK(2 * s.space.size() == 61440);
-    run_exact_rows("icosphere R = 1 um, Si, ICTF", s, 8e9);
+    run_exact_rows("icosphere R = 1 um, Si, ICTF", s, 7e9);
 #endif
 }
 
@@ -369,9 +374,10 @@ TEST_CASE("mlfmm large: rough box 2N ~ 9e4 against exact rows", "[validation-lar
     SKIP("validation-large cases run in optimised builds only");
 #else
     // 4 um x 4 um x 0.3 um, mesh 50 nm: 2N ~ 8.8e4 (dense 125 GB), Si, ICTF; the leaf rule gives
-    // lambda / 2 leaves (r_max ~ 45 nm). Measured peak RSS: see PEAK below.
+    // lambda / 2 leaves (r_max ~ 45 nm). Measured 2026-10-10: error 1.8e-5 (2.9e-4 with the
+    // pre-WP21 lambda / 4 leaves), setup 79 s, apply 1.2 s, 12 GB, peak RSS 23.9 GB (guard 26 GB).
     const Setup s(rough_box(4e-6, 0.3e-6, 50e-9), material::silicon_500nm(), Kind::ICTF);
     CHECK(2 * s.space.size() > 80000);
-    run_exact_rows("rough box 4 um, Si, ICTF", s, 20e9);
+    run_exact_rows("rough box 4 um, Si, ICTF", s, 26e9);
 #endif
 }

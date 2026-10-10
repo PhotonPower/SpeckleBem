@@ -388,7 +388,8 @@ std::string Simulation::report() const {
         const mlfmm::MlfmmParams& m = s.config.mlfmm;
         o << " (accuracy_digits " << m.accuracy_digits << ", max_elements_per_leaf "
           << m.octree.max_elements_per_leaf << ", min_box_size_lambda "
-          << m.octree.min_box_size_lambda << ", max_levels " << m.octree.max_levels << ")";
+          << m.octree.min_box_size_lambda << ", max_levels " << m.octree.max_levels
+          << ", automatic_leaf_size " << (m.automatic_leaf_size ? "true" : "false") << ")";
     }
     o << "\n";
     if (s.op == nullptr) {
