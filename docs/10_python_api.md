@@ -23,6 +23,8 @@ au = sb.DispersiveMaterial.from_refractiveindex_info("Au_JohnsonChristy.csv").at
 # --- excitation ------------------------------------------------------------
 pw   = sb.PlaneWave(wavelength=500e-9, direction=[0, 0, 1], polarization=[1, 0, 0])
 beam = sb.GaussianBeam(wavelength=500e-9, waist=5e-6, polarization="p", incidence_angle=np.deg2rad(5))
+beam = sb.AngularSpectrumBeam(wavelength=500e-9, waist=5e-6, polarization="p",
+                              incidence_angle=np.deg2rad(5), region_radius=20e-6)  # rigorous
 
 # --- simulation ------------------------------------------------------------
 sim = sb.Simulation(mesh, beam, object=si, exterior=sb.vacuum(),
@@ -90,6 +92,12 @@ sb.DispersiveMaterial(wavelengths, refractive_indices)   # n - jk; .at(wl) == .a
 sb.PlaneWave(wavelength, direction, polarization, background=sb.vacuum())
 sb.GaussianBeam(wavelength, waist, polarization="p", incidence_angle=0.0, focus=(0, 0, 0),
                 background=sb.vacuum())
+sb.AngularSpectrumBeam(wavelength, waist, polarization="p", incidence_angle=0.0, focus=(0, 0, 0),
+                       background=sb.vacuum(), *, tolerance=1e-10, region_radius=None,
+                       polar_order=0, azimuth_order=0, max_plane_waves=2_000_000)
+beam.fields(points)                     # (E, H) in one pass; .num_plane_waves, .polar_order,
+                                        # .azimuth_order, .grid_change, .max_polar_angle,
+                                        # .region_radius, .power, .waist, .tolerance
 exc.electric_field(points), exc.magnetic_field(points), exc.omega, exc.wavelength, exc.background
 sb.Mie(radius, wavelength, material, exterior=sb.vacuum(), n_max=0)
 mie.bistatic_rcs(theta, phi)            # NumPy broadcasting; a float for scalar input
@@ -104,6 +112,17 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
 - `PlaneWave.direction` is `k_hat` (normalised by the constructor), `polarization` the complex
   amplitude `e0` [V/m] (transverse). `GaussianBeam.waist` is `Params::waist_radius` (1/e^2
   intensity radius); `polarization` is `"p"`, `"s"` (any case) or `sb.Polarization.P/S`.
+- `AngularSpectrumBeam` (WP-E1, `excitation::AngularSpectrumBeam`) is the rigorous Gaussian
+  beam required for quantitative rough-surface results (ADR 0006 amendment item 4): a finite
+  sum of exact propagating plane waves with spectrum `exp(-k_t^2 w0^2 / 4)` around
+  `R_y(theta_in) z_hat` (definition in docs/06, "Incident beams"), `E(focus) . e0 = 1 V/m`.
+  Same positional arguments as `GaussianBeam`; the keyword-only quadrature controls map to
+  `AngularSpectrumBeam::Params` (`region_radius=None` = 4 w0). Fields are controlled only in
+  the ball `|r - focus| <= region_radius`: choose it to cover the mesh and any near-field
+  observation points. Construction releases the GIL and raises `RuntimeError` when the
+  automatic grid does not converge within `max_plane_waves`. Cost: one sincos per plane wave
+  and point (about 7 ns per wave for `electric_field`, release build; `fields` gives E and H
+  for about the price of one).
 - `Mie.material` is `MieParams::sphere`, `exterior` is `MieParams::medium` (lossless).
 - Inputs: any real NumPy layout or nested list is accepted (int32/uint32 connectivity,
   Fortran order, strided views); it is converted to a C-contiguous float64 / int64 copy.

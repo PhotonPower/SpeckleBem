@@ -24,6 +24,19 @@ Consequences:
 - Spheres: centred at the origin; validation plane wave propagates in `+z`, E along `x` (p-polarisation in the xz-plane).
 - Polarisation: **p** – E in the plane of incidence (xz); **s** – E along `y`. Co-/cross-polarised intensities are taken with respect to the incident E direction.
 - Angles: incidence angle `θ_in` is a rotation about `y`; scattering angle `θ_s` is measured from `−z` in the xz-plane (rough surfaces, reflection geometry).
+- Incident beams (`excitation/`): plane wave `E = e0 exp(−j k k̂·r)`, `H = k̂ × E / η` with
+  `k`, `η` of the lossless background R1. Beam frame: `k̂0 = R_y(θ_in) ẑ`, `û = R_y(θ_in) x̂`,
+  `v̂ = ŷ`; `ê0 = û` (p) or `ŷ` (s). `GaussianBeam` is the first-order paraxial beam
+  (qualitative work). `AngularSpectrumBeam` (rigorous, ADR 0006 amendment item 4) is
+  `E(r) = C Σ_i W_i A(k_t,i) p_i exp(−j k k̂_i·(r − focus))` over propagating directions
+  `k̂ = sin α (cos φ û + sin φ v̂) + cos α k̂0`, `0 ≤ α ≤ α_max ≤ π/2`, with
+  `A(k_t) = exp(−k_t² w0²/4)` in the transverse wavenumber `k_t = k sin α` relative to `k̂0`
+  (Fourier transform of `exp(−ρ²/w0²)`), `p = ê0 − (k̂·ê0) k̂` (projection, not renormalised),
+  `W` = Gauss–Legendre × trapezoid weights of `d²k_t = k² sin α cos α dα dφ`, and `C` such that
+  `E(focus)·ê0 = 1 V/m`. Evanescent components are omitted (they grow towards the source side
+  `z < 0`). The projection makes the `ê0` spectrum `A (1 − (k̂·ê0)²)`, so the focal profile and
+  the power (`1 + (λ1/(π w0))²/2` times the paraxial `π w0²/(4η)`) deviate from the paraxial
+  Gaussian at second order in `λ1/(π w0)`.
 - Spheres and the Mie reference use ordinary spherical coordinates: polar angle `θ` from `+z` (forward scattering `θ = 0`, backscattering `θ = π`), azimuth `φ` from `+x`. In the xz-plane `θ_s = π − θ`. `reference::MieSolution::bistatic_rcs(theta, phi)` and the sphere validation tests follow this spherical convention.
 
 ## Discretisation

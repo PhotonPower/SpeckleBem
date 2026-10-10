@@ -5,6 +5,25 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- excitation / python (WP-E1): rigorous Gaussian beam `excitation::AngularSpectrumBeam`
+  (`sb.AngularSpectrumBeam`), the beam ADR 0006 (amendment item 4) requires for quantitative
+  rough-surface results: a finite sum of exact propagating plane waves around
+  `k̂0 = R_y(θ_in) ẑ` with spectrum `exp(−k_t² w0²/4)`, polarisation `ê0 − (k̂·ê0) k̂` (the WP-V1
+  study construction, generalised to oblique incidence, s polarisation, a focus and a lossless
+  background), `E(focus)·ê0 = 1 V/m`, evanescent part omitted (definition in docs/06).
+  Gauss–Legendre (polar) × trapezoid (azimuth) grid, refined per direction until a 1.5× finer
+  grid changes E by < `tolerance` (1e-10) on probe points of the ball `|r − focus| ≤ R`
+  (default 4 w0); fixed orders optional; `std::runtime_error` past `max_plane_waves`. Queries:
+  plane-wave count, orders, achieved change, `power()` (Parseval), the plane waves themselves;
+  `fields(r)` returns E and H in one pass. Immutable after construction (no caches), branch-free
+  sincos with four partial sums: ~7 ns per plane wave and point (1 500–3 600 waves for
+  w0 = 1–5 µm, R = 4 w0). Tests: each wave transverse with `H = k̂ × E / η` (div E and the curl
+  equation of the sum at round-off), finite-difference Maxwell residual 9e-11 (paraxial beam:
+  1.3e-2), focus normalisation, agreement with the study beam to 1.2e-14, paraxial limit
+  (w0 = 5λ: max |E − E_paraxial| = 0.37 (λ/(π w0))², ratio 0.2496 at 10λ), 45° p/s central
+  direction, polarisation and Gouy phase gradient `−k (1 − f²/2)`, rotation covariance, waist-plane
+  power = `power()` = `(1 + f²/2) π w0²/(4η)`, argument validation. `GaussianBeam`'s warning and
+  header now point to it; validation helpers shared via `src/excitation/excitation_detail.hpp`.
 - tooling / docs (WP-V1): box validity study `benchmarks/box_validity.cpp`
   (`specklebem_box_validity`, `SPECKLEBEM_BUILD_BENCHMARKS`): far field |F|² of one rough-box
   configuration (material, L with a shared cropped height map, waist, depth factor, coarse spacing,
