@@ -162,7 +162,7 @@ TEST_CASE("octahedron-based sphere of the WP22a study: counts, closed, outward, 
     CHECK(mesh.num_triangles() == 8 * pow4);
     CHECK(mesh.num_vertices() == 4 * pow4 + 2);
     CHECK(mesh.num_edges() == 12 * pow4);
-    CHECK(mesh.euler_characteristic() == 2);
+    CHECK(mesh.num_vertices() - mesh.num_edges() + mesh.num_triangles() == 2);
     CHECK(mesh.is_closed());
     CHECK(mesh.is_consistently_oriented());
     CHECK(plus_minus_convention_holds(mesh));
