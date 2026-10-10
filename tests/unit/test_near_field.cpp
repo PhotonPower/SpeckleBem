@@ -357,6 +357,23 @@ TEST_CASE("near_field: apply equals the masked dense product, any thread count",
     CHECK(S->describe().rfind("sparse 240x240, nnz = " + std::to_string(nnz), 0) == 0);
 }
 
+TEST_CASE("near_field: SparseOperator takes the matrix storage without a copy", "[near_field]") {
+    // WP22a-f: the constructor swaps, so the operator owns the caller's arrays (same pointers) and
+    // the caller's matrix is left empty; a copy of the near field would allocate new arrays.
+    op::SparseOperator::Matrix Z(3, 3);
+    Z.insert(0, 1) = Complex(1.0, -2.0);
+    Z.insert(2, 0) = Complex(3.0, 0.5);
+    Z.makeCompressed();
+    const Complex* const values = Z.valuePtr();
+    const Index* const inner = Z.innerIndexPtr();
+    const op::SparseOperator S(std::move(Z));
+    CHECK(S.matrix().valuePtr() == values);
+    CHECK(S.matrix().innerIndexPtr() == inner);
+    CHECK(S.nonzeros() == 2);
+    CHECK(S.matrix().coeff(2, 0) == Complex(3.0, 0.5));
+    CHECK(Z.nonZeros() == 0);  // NOLINT(bugprone-use-after-move): swapped, defined state
+}
+
 TEST_CASE("near_field: DenseStrategy matrix unchanged by the WP19a refactoring", "[near_field]") {
     // Icosphere n = 1 with PMCHWT; the serial reference is slow under the sanitizers, so MCTF
     // and the single-region system (non-cancelling jump terms) use the icosahedron.

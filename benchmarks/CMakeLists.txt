@@ -18,10 +18,13 @@ endif()
 
 # Ag sphere with MLFMM vs Mie (WP22a, Phase 4 DoD): one case per process, run by hand, see
 # benchmarks/results/ag_sphere_4um_mlfmm.md. Shares the case code with the validation-large test
-# (tests/support/ag_sphere_mlfmm_support.hpp).
-add_executable(specklebem_ag_sphere_mlfmm ag_sphere_mlfmm.cpp ${PROJECT_SOURCE_DIR}/tests/support/system_memory.cpp)
-target_include_directories(specklebem_ag_sphere_mlfmm PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
-target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
+# (tests/support/ag_sphere_mlfmm_support.hpp) and the test-support library (system_memory.cpp, the
+# include path of tests/support), which tests/CMakeLists.txt defines when the tests are built.
+if(NOT TARGET specklebem_test_support)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_BINARY_DIR}/test_support)
+endif()
+add_executable(specklebem_ag_sphere_mlfmm ag_sphere_mlfmm.cpp)
+target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
 
 # Benchmarks reproduce Fig. 2(c) of the paper: wall time vs N for dense LU,
 # preconditioned MLFMM (Ag) and ICTF-MLFMM (Si). Added in Phase 4.
