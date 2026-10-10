@@ -280,6 +280,36 @@ TEST_CASE("mlfmm policy: truncation decay exponent x*(d0)", "[mlfmm]") {
     CHECK_THROWS_AS(mlfmm::truncation_decay_exponent(std::nan("")), std::invalid_argument);
 }
 
+TEST_CASE("mlfmm policy: levels after the first fallback report no search", "[mlfmm]") {
+    // WP21f: Ag interior with 4 levels (leaf 0.375 lambda0): the order search fails on the leaf
+    // level, level 2 is not searched and says so ("search not run", not "error 0, L = 0").
+    Setup s(geometry::make_icosphere(1.5 * kLambda, 2), material::silver_500nm(), Kind::PMCHWT);
+    s.problem.kernel_options = cheap_options();
+    const InteriorOnly interior(*s.form);
+    s.problem.formulation = &interior;
+    mlfmm::MlfmmParams p;
+    p.octree = mlfmm::OctreeParams{1, 4, 0.0};
+    p.automatic_leaf_size = false;
+    const mlfmm::Octree tree(s.space, kLambda, p.octree);
+    const mlfmm::MlfmmFarOperator far(s.problem, tree, p);
+    const std::string d = far.describe();
+    INFO(d);
+    REQUIRE(far.levels(1).size() == 2);
+    const mlfmm::FarLevelInfo& coarse = far.levels(1)[0];
+    const mlfmm::FarLevelInfo& leaf = far.levels(1)[1];
+    CHECK(leaf.level == 3);
+    CHECK(leaf.search_run);
+    CHECK(!leaf.search_achievable);
+    CHECK(leaf.decision != mlfmm::FarDecision::expansion);
+    CHECK(coarse.level == 2);
+    CHECK(!coarse.search_run);
+    CHECK(!coarse.search_achievable);
+    CHECK(d.find("search not achievable, error ") != std::string::npos);
+    CHECK(d.find("search not run") != std::string::npos);
+    CHECK(d.find("L = 0)") == std::string::npos);
+    CHECK(d.find("error 0,") == std::string::npos);
+}
+
 TEST_CASE("mlfmm policy: multi-level complementarity of the forced exact parts", "[mlfmm]") {
     // Three small spheres (subdivision 1, R = 50 nm, 2N = 720) spread over 1.4 um: 4 octree levels
     // (leaf ~0.18 um) with far pairs on levels 2 and 3, cheap enough for the sanitizer build.
@@ -373,9 +403,18 @@ TEST_CASE("mlfmm policy: exact-part budget", "[mlfmm]") {
         REQUIRE(far.exact_part(1) != nullptr);
         CHECK(x.pairs == far.exact_part(1)->pairs());
         CHECK(x.bytes == far.exact_part(1)->memory_bytes());
-        CHECK(far.exact_budget() == mlfmm::kExactFarMinBytes);  // automatic, small problem
-        CHECK(static_cast<Real>(far.exact_budget()) >=
-              mlfmm::kExactFarNearFactor * static_cast<Real>(mlfmm::estimate_near_bytes(tree)));
+        // Automatic budget min(max(2 x near, 1 GiB), dense): for this small problem the dense
+        // matrix size 16 (2N)^2 (WP21f; before: the 1 GiB floor, larger than dense).
+        const auto N = static_cast<std::size_t>(s.space.size());
+        const std::size_t dense = 16 * 4 * N * N;
+        CHECK(dense < mlfmm::kExactFarMinBytes);
+        CHECK(far.exact_budget() == dense);
+        CHECK(far.exact_budget() ==
+              std::min(std::max(static_cast<std::size_t>(
+                                    mlfmm::kExactFarNearFactor *
+                                    static_cast<Real>(mlfmm::estimate_near_bytes(tree))),
+                                mlfmm::kExactFarMinBytes),
+                       dense));
         // estimate_near_bytes equals the assembled near field.
         CHECK(mlfmm::estimate_near_bytes(tree) ==
               mlfmm::assemble_near(s.problem, tree)->memory_bytes());

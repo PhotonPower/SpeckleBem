@@ -526,8 +526,9 @@ mlfmm : dict, optional
     exterior wavelengths, a lower bound of the automatic leaf rule),
     ``automatic_leaf_size`` (True: leaf edge >= max(lambda/4 for d0 <= 3, lambda/2 for d0 > 3,
     r_max / 0.6 for d0 <= 3, r_max / 0.3 for d0 > 3); False uses min_box_size_lambda as given)
-    and ``max_exact_far_bytes`` (0 = automatic: max(2 x the near-field bytes, 1 GiB); budget of
-    the exactly evaluated far interactions of lossy regions, checked before allocation).
+    and ``max_exact_far_bytes`` (0 = automatic: max(2 x the near-field bytes, 1 GiB), at most
+    the dense matrix bytes 16 (2N)^2; budget of the exactly evaluated far interactions of
+    lossy regions, checked before allocation).
 
 Raises
 ------

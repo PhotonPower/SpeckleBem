@@ -61,16 +61,19 @@ struct MlfmmParams {
     /// Budget of the exact far parts of both regions (ADR 0008 §6 fallback) [bytes], checked
     /// against the pre-assembly estimate before any allocation (far_operator.hpp); exceeding it
     /// throws TruncationOrderError with cause exact_part_too_large. 0 = automatic:
-    /// max(kExactFarNearFactor x the near-field bytes estimated from the octree,
-    /// kExactFarMinBytes). SIZE_MAX disables the guard.
+    /// min(max(kExactFarNearFactor x the near-field bytes estimated from the octree
+    /// (estimate_near_bytes), kExactFarMinBytes), dense bytes 16 (2N)^2). SIZE_MAX disables the
+    /// guard.
     std::size_t max_exact_far_bytes = 0;
 };
 
 /// Automatic exact-part budget (MlfmmParams::max_exact_far_bytes = 0): this multiple of the
-/// near-field bytes (4 blocks x 24 bytes per near basis pair), at least kExactFarMinBytes. On the
-/// measured Ag cases the exact part (40 bytes per pair) is 0.2-1.3 x the near field
-/// (CHANGELOG, WP21 review); a region whose exact interactions reach far beyond the near
-/// neighbourhood (weak decay) would exceed it long before it costs more than the dense matrix.
+/// near-field bytes (4 blocks x 24 bytes per near basis pair), at least kExactFarMinBytes, but
+/// never more than the dense matrix (16 (2N)^2 bytes; WP21f: on small problems the floor alone
+/// would allow exact parts larger than dense). On the measured Ag cases the exact part (40 bytes
+/// per pair) is 0.2-1.3 x the near field (CHANGELOG, WP21 review); a region whose exact
+/// interactions reach far beyond the near neighbourhood (weak decay) exceeds the budget before
+/// it costs more than the dense matrix.
 inline constexpr Real kExactFarNearFactor = 2.0;
 inline constexpr std::size_t kExactFarMinBytes = std::size_t{1} << 30;
 

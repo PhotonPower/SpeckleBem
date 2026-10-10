@@ -71,4 +71,19 @@ std::shared_ptr<op::SparseOperator> assemble_near(const op::Problem& p, const Oc
     return op::assemble_sparse(p, pat);
 }
 
+std::size_t estimate_near_bytes(const Octree& tree) {
+    const auto& boxes = tree.boxes();
+    std::size_t pairs = 0;
+    for (const Index b : tree.boxes_at_level(tree.leaf_level())) {
+        const Box& box = boxes[sz(b)];
+        std::size_t cols = sz(box.num_elements);
+        for (const Index nb : box.near_list) cols += sz(boxes[sz(nb)].num_elements);
+        pairs += sz(box.num_elements) * cols;
+    }
+    // op::assemble_sparse: 4 entries per pair (JJ, JM, MJ, MM), value + column index, 2N + 1
+    // row pointers.
+    return 4 * pairs * (sizeof(Complex) + sizeof(Index)) +
+           (2 * tree.permutation().size() + 1) * sizeof(Index);
+}
+
 }  // namespace specklebem::mlfmm
