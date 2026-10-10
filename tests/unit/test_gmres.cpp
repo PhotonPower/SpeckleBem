@@ -578,10 +578,10 @@ TEST_CASE("gmres: CGS2 and MGS on an ill-conditioned dense system (200 iteration
     VectorXc diff;
     Z.apply(c.x - m.x, diff);
     INFO("|I - V^H V|_F: CGS2 " << loss_c << ", MGS " << loss_m << "; re-orthogonalisations "
-                               << c.reorthogonalizations << " / " << m.reorthogonalizations
-                               << "; history rel. diff " << max_hist << "; residual "
-                               << c.residual_history.back() << "; |A (x_c - x_m)| / |b| "
-                               << diff.norm() / b.norm());
+                                << c.reorthogonalizations << " / " << m.reorthogonalizations
+                                << "; history rel. diff " << max_hist << "; residual "
+                                << c.residual_history.back() << "; |A (x_c - x_m)| / |b| "
+                                << diff.norm() / b.norm());
     CHECK_FALSE(c.converged);
     CHECK(loss_c <= 1e-12);
     CHECK(loss_m <= 1e-12);

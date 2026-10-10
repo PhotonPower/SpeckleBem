@@ -185,19 +185,21 @@ void run_variant(const Options& o, const op::LinearOperator& A, const VectorXc& 
     stamps.push_back(0.0);
     t0 = Clock::now();
     const solver::GmresResult r = solver::gmres(A, b, none, p, cb);
-    std::printf("| %-11s | %7d | %8.2f | %8.2f | %5.1f %% | %5d | %9.2e |", variant.c_str(), threads,
-                r.wall_seconds, r.orthogonalization_seconds,
+    std::printf("| %-11s | %7d | %8.2f | %8.2f | %5.1f %% | %5d | %9.2e |", variant.c_str(),
+                threads, r.wall_seconds, r.orthogonalization_seconds,
                 100.0 * r.orthogonalization_seconds / r.wall_seconds, r.reorthogonalizations,
                 r.residual_history.back());
-    for (const int k : sample_points(o.iters)) std::printf(" %7.2f |", 1e3 * per_iteration(stamps, k));
+    for (const int k : sample_points(o.iters))
+        std::printf(" %7.2f |", 1e3 * per_iteration(stamps, k));
     std::printf(" %.2f |\n", 1e3 * matvec_s);
     std::fflush(stdout);
 }
 
 /// Times one orthogonalisation pass (h = V^H w; w -= V h) with Eigen GEMV on a contiguous basis.
 void blas_reference(const Options& o, const VectorXc& w0) {
-    std::printf("\nEigen GEMV pair (h = V^H w; w -= V h) on a contiguous n x k basis, %d threads:\n",
-                default_threads());
+    std::printf(
+        "\nEigen GEMV pair (h = V^H w; w -= V h) on a contiguous n x k basis, %d threads:\n",
+        default_threads());
     std::printf("| k | seconds per pass |\n|---|---|\n");
     const MatrixXc V = random_matrix(o.n, o.iters, 4);
     for (const int k : sample_points(o.iters)) {
@@ -220,10 +222,11 @@ int main(int argc, char** argv) {
         const Options o = parse(argc, argv);
         log::set_level(log::Level::warn);
         const int t_default = default_threads();
-        std::printf("GMRES orthogonalisation benchmark: n = %lld, %d iterations, disk radius %.3f, "
-                    "default OpenMP threads %d, basis %.2f GB\n",
-                    static_cast<long long>(o.n), o.iters, o.radius, t_default,
-                    16.0 * static_cast<double>(o.n) * (o.iters + 1) / 1e9);
+        std::printf(
+            "GMRES orthogonalisation benchmark: n = %lld, %d iterations, disk radius %.3f, "
+            "default OpenMP threads %d, basis %.2f GB\n",
+            static_cast<long long>(o.n), o.iters, o.radius, t_default,
+            16.0 * static_cast<double>(o.n) * (o.iters + 1) / 1e9);
         const DiagonalPlusLowRank A(o.n, o.radius);
         const VectorXc b = random_matrix(o.n, 1, 5).col(0);
         VectorXc y;
