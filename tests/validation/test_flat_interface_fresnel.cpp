@@ -110,14 +110,16 @@ TEST_CASE("Beam power equals the numerical flux through z = 0; edge loss of the 
           "[validation][fresnel]") {
     for (const Real theta : {0.0, 45.0}) {
         // Region radius 5 w0 / cos(theta) (beam_region_radius): the flux square |x|, |y| <= R /
-        // sqrt(2) lies in the controlled ball. lambda / 4 spacing: the intensity is band-limited
-        // to 2 k sin(alpha_max) < 4 pi / (lambda / 4), so the trapezoid rule is exact up to the
-        // truncation of the square.
+        // sqrt(2) lies in the controlled ball. Spacing lambda / 2.5: the intensity (products of
+        // plane waves) is band-limited to transverse wavenumbers <= 2 k sin(alpha_max) < 2 k,
+        // below the 2 pi / h = 2.5 k of the grid, so the trapezoid rule is exact up to the
+        // truncation of the square (and the O(h^2) edge terms of the patch, where the beam is
+        // ~1e-8 of its peak).
         const Real w0 = 1e-6;
         const Real R = 5.0 * w0 / std::cos(theta * kDeg);
         const auto b = beam(w0, theta, excitation::Polarization::P, R);
         const Real L = 4.0 * w0;
-        const PlaneFlux f = incident_flux_z0(*b, L, R / std::sqrt(2.0), kLambda / 4.0);
+        const PlaneFlux f = incident_flux_z0(*b, L, R / std::sqrt(2.0), kLambda / 2.5);
         INFO("theta " << theta << ": flux / power - 1 = " << f.square / b->power() - 1.0
                       << ", edge loss " << 1.0 - f.patch / f.square);
         CHECK_THAT(f.square, WithinRel(b->power(), 1e-8));
