@@ -24,39 +24,27 @@ on the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`
   with `Simulation`/Python `compression="mlfmm"`. docs/05 MLFMM criteria met for dielectric and Si
   interiors (d₀ = 3 ≤ 2.9e-4 with λ/4 leaves; d₀ = 5 ≤ 6.7e-6 with λ/2 leaves; up to 2N = 8.8·10⁴). Also
   merged: WP-P2 dense assembly performance (Ag box ×35, Si box ×6 faster), WP7d kernel polish.
-- **In flight when the session ended (branches pushed, not merged, not reviewed):**
-  - `wp/21-mlfmm-lossy` (head 60fe040, pushed; worker reported after the session end, **not yet reviewed**):
-    lossy-region policy (ADR 0008 §6) — per region and level: expansion if the order search is achievable
-    and (for lossy regions) the block check passes (≤ 10^-d₀ or ≤ 2 × the lossless analogue); otherwise per
-    box pair truncation if δ = (1 + αd)e^{−αd} ≤ 10^{−(d₀+1)} (relative to the undamped bound), else an exact
-    per-region sparse part; `TruncationOrderError` with cause; automatic leaf rule; WP20b follow-ups.
-    Worker-reported: win-debug/win-release 341/341, 11 MLFMM validation-large cases pass, pytest 83, GCC 13.3
-    clean; Ag matvec vs dense 1.0e-4 (d₀ = 3, λ/4) / 4.1e-6 (d₀ = 5, λ/2) on a 2N = 15 360 sphere, 4.8e-6 /
-    2.1e-6 on an Ag rough box; Ag GMRES through Simulation matches dense (RCS 3.3e-6). Decisions pending for
-    the coordinator/lead: (1) block check gates lossy regions only; (2) the leaf rule r_max/0.3 also at
-    d₀ = 3 moves default leaves from λ/4 to λ/2 (88 320 box: 5.5 → 12 GB) — worker proposes ratio 0.6 for
-    d₀ ≤ 3; (3) the Ag exact part can be large (408 MB of 803 MB at 2N = 1.5·10⁴, λ/4 leaves) — a WP22
-    sizing risk, possibly ACA for the interior earlier; (4) squash the WIP commit 60fe040 at merge. Next
-    step: reviewer on the branch, then merge with an ADR 0008 amendment (bound, gating, contiguous levels,
-    fallback condition, measured Ag decisions).
-  - `wp/v1-box-validity` (head a4768d0): study executable for the closing-box validity (depth ×2, graded
-    vs uniform, Si fine band, edge effect) plus diagnostics (far-field share of top/walls/bottom, a
-    diagnostic loss override). No results record yet; the long dense runs were still going. Continue
-    with a worker that re-runs the study configurations one per process (each < 2 h), writes
-    `benchmarks/results/box_validity.md` with verdicts against docs/05 and recommendations for ADR 0006
-    — this is the most important open physics question (see below).
-- Next after that: WP22 Phase 4 validation (Ag sphere 4 µm at λ/27, 393 k unknowns; scaling exponents;
-  WP12 Fresnel; MLFMM size sweep for the WP15 formulation questions).
-- Test counts on `main`: 335 ctest (`-LE "validation-large|slow"`), 83 pytest; labels `slow`, `validation`
+- **Merged since:** WP21 (lossy-region policy, ADR 0008 WP21 amendment: Ag matvec vs dense 1.0e-4 / 4.1e-6)
+  and WP21f (per-region jump test, dense cap on the automatic exact-part budget).
+- **In flight (2026-10-10):**
+  - `wp/22a-ag-sphere-4um` (pushed, in review): Ag sphere 4 µm with MLFMM on the paper's 393 216-unknown
+    mesh (octahedron-based sphere, mean edge λ/16.5): worker-reported ε_rr 0.023 % / 0.016 % at tol 1e-3,
+    442 iterations, 15.6 min, peak 33.8 GB — Phase 4 DoD (≤ 0.5 %) met if the review confirms. Includes a
+    `SparseOperator` copy fix (−12 GB peak). Open: DoD wording "λ/27" (paper mesh is λ/27 by √area only),
+    `SparseOperator(Matrix&&)` signature, d₀ = 5 needs exclusive use of the machine.
+  - `wp/v1-box-validity` (record `benchmarks/results/box_validity.md` written; two Si L = 1.5 µm runs
+    pending): docs/05 depth and edge checks fail at dense-feasible sizes; 400 nm box cells are a 1.5–2 %
+    far-field error (100 nm: 0.17 %); Si needs the fine band; w₀ = L/3 too wide; the paraxial beam is 2.8 %
+    off. Seven proposed ADR 0006 changes **await the project lead's decision** (asked 2026-10-10).
+- Test counts on `main`: 350 ctest (`-LE "validation-large|slow"`), 83 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
 
-1. **WP-V1 (important):** the graded closing box (ADR 0006) may not be valid as used: (a) the incident
-   beam is still strong at the box bottom (z_R ≈ 7 µm), so the coarse bottom must reproduce the
-   cancellation of E_inc in the shadow; (b) for Si without the fine band, the 400 nm box cells do not
-   resolve the interior wavelength (|k₂|h ≈ 30); (c) for Ag, roughness-excited plasmons (propagation
-   ≈ 20 µm) reach the side walls. Needs the docs/05 sensitivity checks before speckle results.
+1. **WP-V1 (important, decision pending):** see `benchmarks/results/box_validity.md` (recommendations for
+   ADR 0006: box cells ≤ λ₁/5 where illuminated, Si fine band mandatory, w₀ ≤ L/4, docs/05 checks at
+   L ≥ 6–11 µm with MLFMM, rigorous angular-spectrum beam before quantitative rough-surface results,
+   state the docs/05 metric, keep default depths).
 2. **WP15 deviations from Fu et al.:** PMCHWT converges and Jacobi is slowest for Ag at 2N ≈ 3·10⁴; a
    size sweep with MLFMM is needed.
 3. **WP12 Fresnel** and the **Ag λ/20 sphere** remain deferred (size).
