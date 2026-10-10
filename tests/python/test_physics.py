@@ -136,6 +136,59 @@ def test_gaussian_beam_invalid():
         sb.GaussianBeam(LAMBDA, 5e-6, background=sb.silicon_500nm())
 
 
+@pytest.mark.parametrize("pol", ["p", "s"])
+def test_angular_spectrum_beam(pol):
+    theta = np.deg2rad(20)
+    glass = sb.Material(eps_r=2.25)
+    beam = sb.AngularSpectrumBeam(
+        LAMBDA,
+        1e-6,
+        polarization=pol,
+        incidence_angle=theta,
+        focus=(0.1e-6, 0.0, 0.2e-6),
+        background=glass,
+    )
+    assert beam.waist == 1e-6 and beam.incidence_angle == theta
+    assert beam.num_plane_waves == beam.polar_order * beam.azimuth_order > 0
+    assert beam.azimuth_order % 4 == 0
+    assert beam.grid_change < beam.tolerance == 1e-10
+    assert beam.region_radius == pytest.approx(4e-6, rel=1e-15)
+    assert 0 < beam.max_polar_angle <= np.pi / 2
+    e0 = [np.cos(theta), 0.0, -np.sin(theta)] if pol == "p" else [0.0, 1.0, 0.0]
+    assert np.abs(beam.electric_field(beam.focus) - e0).max() < 1e-14
+    pts = np.random.default_rng(7).uniform(-2e-6, 2e-6, size=(5, 3))
+    E, H = beam.fields(pts)
+    assert E.shape == H.shape == (5, 3) and E.dtype == np.complex128
+    assert np.abs(E - beam.electric_field(pts)).max() < 1e-15
+    assert np.abs(H - beam.magnetic_field(pts)).max() * ETA0 < 1e-15
+    E1, H1 = beam.fields(pts[0])
+    assert E1.shape == (3,) and np.abs(E1 - E[0]).max() == 0
+    # Paraxial power pi w0^2 / (4 eta) up to O((lambda / (pi n w0))^2).
+    eta = ETA0 / 1.5
+    assert beam.power == pytest.approx(np.pi * 1e-12 / (4 * eta), rel=0.05)
+    fixed = sb.AngularSpectrumBeam(
+        LAMBDA, 1e-6, polar_order=10, azimuth_order=13, region_radius=2e-6
+    )
+    assert (fixed.polar_order, fixed.azimuth_order, fixed.num_plane_waves) == (10, 16, 160)
+    assert fixed.region_radius == 2e-6
+
+
+def test_angular_spectrum_beam_invalid():
+    with pytest.raises(ValueError):
+        sb.AngularSpectrumBeam(LAMBDA, 1e-6, background=sb.silicon_500nm())
+    with pytest.raises(ValueError):
+        sb.AngularSpectrumBeam(LAMBDA, 0.0)
+    with pytest.raises(ValueError):
+        sb.AngularSpectrumBeam(LAMBDA, 1e-6, polarization="x")
+    with pytest.raises(ValueError):
+        sb.AngularSpectrumBeam(LAMBDA, 1e-6, region_radius=-1.0)
+    with pytest.raises(ValueError):
+        sb.AngularSpectrumBeam(LAMBDA, 1e-6, polar_order=10)
+    with pytest.raises(RuntimeError):
+        sb.AngularSpectrumBeam(LAMBDA, 1e-6, max_plane_waves=500)
+    assert "[m]" in sb.AngularSpectrumBeam.__doc__ and "exp(+jwt)" in sb.AngularSpectrumBeam.__doc__
+
+
 def test_mie_bohren_huffman():
     # BH appendix A: m = 1.55, radius 0.525 um, lambda 0.6328 um (x = 5.213), lossless.
     a, lam = 0.525e-6, 0.6328e-6

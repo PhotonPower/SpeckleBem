@@ -1,5 +1,6 @@
 /// Bindings of excitation/ (shared_ptr holders, as Simulation takes shared_ptr<Excitation>)
 /// and of the Mie reference solution.
+#include "specklebem/excitation/angular_spectrum_beam.hpp"
 #include "specklebem/excitation/excitation.hpp"
 #include "specklebem/reference/mie.hpp"
 
@@ -17,6 +18,7 @@ namespace specklebem::python {
 
 namespace {
 
+using excitation::AngularSpectrumBeam;
 using excitation::Excitation;
 using excitation::GaussianBeam;
 using excitation::PlaneWave;
@@ -201,6 +203,141 @@ ValueError
         .def_property_readonly(
             "polarization", [](const GaussianBeam& b) { return b.params().polarization; },
             "Polarization.P or Polarization.S.");
+
+    py::class_<AngularSpectrumBeam, Excitation, std::shared_ptr<AngularSpectrumBeam>>(
+        m, "AngularSpectrumBeam", R"doc(
+Rigorous Gaussian beam: a finite sum of exact propagating plane waves (exp(+jwt)).
+
+E(r) = C sum_i W_i exp(-k_t,i^2 w0^2 / 4) p_i exp(-j k k_hat_i . (r - focus)), H = sum of
+k_hat_i x E_i / eta, over directions k_hat_i in the cone k_hat . k0_hat > 0 around
+k0_hat = R_y(theta_in) z_hat (Gauss-Legendre in the polar angle x trapezoid in azimuth);
+k_t = k sin(alpha) is the transverse wavenumber relative to k0_hat and
+p_i = e0 - (k_hat_i . e0) k_hat_i the projected central polarisation (not renormalised).
+E(focus) . e0 = 1 V/m. Evanescent components are omitted. Solves Maxwell's equations exactly;
+the quadrature is refined until a 1.5x finer grid changes E by < tolerance (relative) on probe
+points in the ball |r - focus| <= region_radius, outside of which fields are not controlled.
+
+Parameters
+----------
+wavelength : float
+    Vacuum wavelength [m]; k = 2 pi n1 / wavelength of the background.
+waist : float
+    w0 [m] of the spectrum (1/e^2 intensity radius of the paraxial limit).
+polarization : {"p", "s"} or Polarization, optional
+    p: e0 = R_y(theta_in) x_hat (xz-plane of incidence); s: e0 = y_hat.
+incidence_angle : float, optional
+    theta_in [rad], rotation of +z about y; |theta_in| < pi/2.
+focus : array_like, shape (3,), optional
+    Focus (waist centre, phase reference) [m].
+background : Material, optional
+    Lossless background medium (default vacuum).
+tolerance : float, optional
+    Grid check in (0, 1e-2] (default 1e-10).
+region_radius : float, optional
+    Radius R [m] of the ball around the focus where the fields are controlled; None = 4 w0.
+polar_order, azimuth_order : int, optional
+    Fixed grid (both >= 1; azimuth rounded up to a multiple of 4); 0 = automatic (default).
+max_plane_waves : int, optional
+    Cap of the automatic refinement (default 2 000 000).
+
+Raises
+------
+ValueError
+    For waist or wavelength <= 0, a bad polarization, |theta_in| >= pi/2, a non-finite focus,
+    a lossy background or invalid quadrature controls.
+RuntimeError
+    When the automatic refinement does not converge within max_plane_waves.
+)doc")
+        .def(py::init([](Real wavelength, Real waist, const py::object& polarization,
+                         Real incidence_angle, const Vec3& focus, const Material& background,
+                         Real tolerance, const py::object& region_radius, int polar_order,
+                         int azimuth_order, Index max_plane_waves) {
+                 AngularSpectrumBeam::Params p;
+                 p.wavelength = wavelength;
+                 p.waist_radius = waist;
+                 p.polarization = parse_polarization(polarization);
+                 p.incidence_angle = incidence_angle;
+                 p.focus = focus;
+                 p.tolerance = tolerance;
+                 if (!region_radius.is_none()) {
+                     p.region_radius = region_radius.cast<Real>();
+                     if (!(p.region_radius > 0)) {
+                         throw py::value_error("region_radius must be > 0 (or None for 4 w0)");
+                     }
+                 }
+                 p.polar_order = polar_order;
+                 p.azimuth_order = azimuth_order;
+                 p.max_plane_waves = max_plane_waves;
+                 py::gil_scoped_release release;
+                 return std::make_shared<AngularSpectrumBeam>(p, background);
+             }),
+             py::arg("wavelength"), py::arg("waist"), py::arg("polarization") = "p",
+             py::arg("incidence_angle") = 0.0, py::arg("focus") = Vec3::Zero(),
+             py::arg("background") = material::vacuum(), py::kw_only(),
+             py::arg("tolerance") = 1e-10, py::arg("region_radius") = py::none(),
+             py::arg("polar_order") = 0, py::arg("azimuth_order") = 0,
+             py::arg("max_plane_waves") = Index{2'000'000})
+        .def(
+            "fields",
+            [](const AngularSpectrumBeam& b, const py::object& points) {
+                // One pass over the plane waves per point for both fields.
+                bool single = false;
+                const Vertices p = points_from_array(points, "points", &single);
+                require_all_finite(p, "points");
+                MatrixX3c e(p.rows(), 3);
+                MatrixX3c h(p.rows(), 3);
+                {
+                    py::gil_scoped_release release;
+                    for (Index i = 0; i < p.rows(); ++i) {
+                        const auto [ei, hi] = b.fields(Vec3(p.row(i).transpose()));
+                        e.row(i) = ei.transpose();
+                        h.row(i) = hi.transpose();
+                    }
+                }
+                if (single) {
+                    return py::make_tuple(Vec3c(e.row(0).transpose()), Vec3c(h.row(0).transpose()));
+                }
+                return py::make_tuple(std::move(e), std::move(h));
+            },
+            py::arg("points"),
+            R"doc(
+E [V/m] and H [A/m] at points [m], exp(+jwt) phasors (same as electric_field and
+magnetic_field).
+
+Returns
+-------
+(E, H) : tuple of ndarray of complex128, shape (n, 3) or (3,)
+)doc")
+        .def_property_readonly(
+            "waist", [](const AngularSpectrumBeam& b) { return b.params().waist_radius; },
+            "w0 [m] of the spectrum exp(-k_t^2 w0^2 / 4).")
+        .def_property_readonly(
+            "incidence_angle",
+            [](const AngularSpectrumBeam& b) { return b.params().incidence_angle; },
+            "Incidence angle theta_in [rad].")
+        .def_property_readonly(
+            "focus", [](const AngularSpectrumBeam& b) { return b.params().focus; }, "Focus [m].")
+        .def_property_readonly(
+            "polarization", [](const AngularSpectrumBeam& b) { return b.params().polarization; },
+            "Polarization.P or Polarization.S.")
+        .def_property_readonly(
+            "tolerance", [](const AngularSpectrumBeam& b) { return b.params().tolerance; },
+            "Requested grid check (relative).")
+        .def_property_readonly("num_plane_waves", &AngularSpectrumBeam::num_plane_waves,
+                               "Number of plane waves in the sum.")
+        .def_property_readonly("polar_order", &AngularSpectrumBeam::polar_order,
+                               "Gauss-Legendre nodes in the polar angle.")
+        .def_property_readonly("azimuth_order", &AngularSpectrumBeam::azimuth_order,
+                               "Trapezoid nodes in azimuth (a multiple of 4).")
+        .def_property_readonly("grid_change", &AngularSpectrumBeam::grid_change,
+                               "Achieved relative change of E against the 1.5x finer grid.")
+        .def_property_readonly("max_polar_angle", &AngularSpectrumBeam::max_polar_angle,
+                               "Spectrum truncation angle alpha_max [rad] (<= pi/2).")
+        .def_property_readonly("region_radius", &AngularSpectrumBeam::region_radius,
+                               "Radius [m] of the controlled ball around the focus.")
+        .def_property_readonly("power", &AngularSpectrumBeam::power,
+                               "Power [W] through any plane normal to k0_hat (Parseval); "
+                               "pi w0^2 / (4 eta) in the paraxial limit.");
 
     py::class_<MieSolution>(m, "Mie", R"doc(
 Mie series of a sphere at the origin under an x-polarised plane wave travelling in +z.
