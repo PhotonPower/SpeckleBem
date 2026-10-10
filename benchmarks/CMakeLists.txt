@@ -44,3 +44,11 @@ target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem 
 # (tests/support/mlfmm_scaling_support.hpp); mlfmm_scaling_fit.py fits the exponents.
 add_executable(specklebem_mlfmm_scaling mlfmm_scaling.cpp)
 target_link_libraries(specklebem_mlfmm_scaling PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
+# Flat-interface limit vs Fresnel (WP22c, docs/05 row "Flat box, tapered beam"): flat patch closed
+# by the ADR 0006 box, rigorous beam, MLFMM; one case per process, run by hand, see
+# benchmarks/results/fresnel_flat.md. Shares the case code with the validation tests
+# (tests/support/fresnel_flat_support.hpp).
+add_executable(specklebem_fresnel_flat fresnel_flat.cpp)
+target_link_libraries(specklebem_fresnel_flat PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
