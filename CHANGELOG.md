@@ -5,6 +5,21 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests/benchmarks (WP22b1, Phase 4 DoD): MLFMM scaling study on Gaussian rough boxes (sigma =
+  50 nm, Lc = 500 nm, h = 50 nm, 100 nm box cells, Si fine band, paraxial beam w0 = L/4, d0 = 3,
+  `recommend` formulation, full GMRES tol 1e-3). Si: time per solve gamma = 0.73 over 2N = 4.3e4
+  ... 5.2e5 (criterion <= 1.5; iterations flat at 90-154, far matvec dominates); larger Si sizes
+  exceed the 128 GB machine (79 GB at 5.2e5, ~240-310 GB estimated at 1e6). Ag: gamma = 1.01 over
+  2N = 4.3e4 ... 2.9e5 (1.43 from 7e4; criterion <= 2.0; 1 000-1 700 iterations, the serial
+  full-GMRES Gram-Schmidt is 42-66 % of the solve), setup and matvec measured to 2N = 1.02e6
+  (gamma 0.89 / 0.87, 77 GB); the Ag solves at 2N >= 4e5 (1.7-5 h projected) are pending. Analysis:
+  the global r_max of the box cells raises the leaves to 219-406 nm (the automatic 200-400 nm box
+  rule to lambda/0.7 ... lambda/0.35, near field up to 307 GB), which sets the Si memory limit;
+  proposals: local leaf rule, on-the-fly / single-precision Si leaf patterns, CGS2 orthogonalisation
+  and a stronger Ag preconditioner. Executable `specklebem_mlfmm_scaling` (one case per process,
+  `--estimate-only` with a calibrated peak model, `--no-solve`, available-memory guard), fit script
+  `benchmarks/mlfmm_scaling_fit.py`, smoke test `[mlfmm_scaling]`, record
+  `benchmarks/results/mlfmm_scaling.md` with the raw rows.
 - mlfmm (WP21f, WP21 review follow-ups): the automatic exact-part budget is capped at the dense
   matrix size 16 (2N)^2 (`min(max(2 x near, 1 GiB), dense)`: on small problems the 1 GiB floor
   allowed exact parts larger than dense); budget messages print the rule with one-decimal numbers
