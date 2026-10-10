@@ -6,7 +6,8 @@
 //
 // One case per process (a background command is limited in time and the peak memory of a case
 // should be its own): Ag (eps_r = -9.794 - 0.313j) or Si (18.478 - 0.606j) at lambda = 500 nm in
-// vacuum, patch edge --L (multiple of the 50 nm spacing), waist --w0 (<= L / 4), incidence --theta
+// vacuum, patch edge --L (multiple of the 50 nm spacing), waist --w0 (<= L cos(theta) / 4 unless
+// --allow-wide-beam: check_beam_waist, ADR 0006 amendment 2026-10-11), incidence --theta
 // [deg] about y from z < 0, polarisation p or s; Simulation with compression "mlfmm" (d0 =
 // --digits), formulation per formulation::recommend, full GMRES (--tol). Output (stdout): SETUP
 // (mesh, octree and memory estimate, beam reference), the solve and a RESULT line; the RESULT line
@@ -18,6 +19,7 @@
 // refused.
 //
 // Usage: specklebem_fresnel_flat --material ag|si [--L 4e-6] [--w0 1e-6] [--theta 0] [--pol p|s]
+//            [--allow-wide-beam]
 //            [--mesh-size 50e-9] [--compression mlfmm|dense] [--digits|--d0 3] [--tol 1e-4]
 //            [--max-iter 6000] [--restart 0]
 //            [--ff-dtheta 1]
@@ -62,6 +64,8 @@ Options parse(int argc, char** argv) {
             o.c.waist = std::stod(value());
         } else if (a == "--theta") {
             o.c.theta_deg = std::stod(value());
+        } else if (a == "--allow-wide-beam") {
+            o.c.allow_wide_beam = true;
         } else if (a == "--pol") {
             const std::string p = value();
             if (p != "p" && p != "s")

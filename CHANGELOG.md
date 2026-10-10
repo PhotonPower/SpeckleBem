@@ -5,6 +5,17 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver (simulation) / python (WP-B2): angle-aware beam-waist check (ADR 0006 amendment
+  2026-10-11): `check_beam_waist(L, w0, BeamWaistOptions{.incidence_angle, .allow_wide})`
+  enforces w₀ ≤ L cos θ_in / 4 (|θ_in| < π/2 validated; the exception states the rule and the
+  numbers; `allow_wide` logs one SBEM_WARN). **API change:** the third parameter is now the
+  options struct (`check_beam_waist(L, w0, true)` no longer compiles; write
+  `{.allow_wide = true}`), so a `bool` cannot silently become an angle. Python:
+  `sb.check_beam_waist(patch_length, waist, *, incidence_angle=0.0, allow_wide=False)`
+  (both keyword-only). Callers: `fresnel_flat` passes its angle; its recorded 45° cases
+  (w₀ = L/5 > L cos 45°/4, measured edge loss 0.06–0.1 %) keep their parameters via
+  `Case::allow_wide_beam` / `--allow-wide-beam`; `mlfmm_scaling` (normal incidence) unchanged
+  in behaviour.
 - tests / tooling (WP22c, former WP12): flat-interface limit vs Fresnel (docs/05 row "Flat box,
   tapered beam, 0° and 45°", < 1 % on |r|²) — met for Ag and Si, 0° and 45°, p and s.
   `tests/support/fresnel_flat_support.hpp`: plane-wave Fresnel coefficients (exp(+jωt)), the

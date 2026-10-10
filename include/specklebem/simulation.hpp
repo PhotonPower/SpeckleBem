@@ -131,19 +131,32 @@ struct RoughBoxParams {
                                                       const material::Material& background,
                                                       Real wavelength, Real sigma, Real mesh_size);
 
-/// Largest beam waist relative to the patch edge L (ADR 0006 amendment 2026-10-10:
-/// w0 <= L / 4; at L / 3 the rigorous beam carries 0.6-0.9 % of its power past the edges, at
-/// L / 4 0.02 %).
+/// Largest beam waist relative to the patch edge L at normal incidence (ADR 0006 amendment
+/// 2026-10-10: w0 <= L / 4; at L / 3 the rigorous beam carries 0.6-0.9 % of its power past the
+/// edges, at L / 4 0.02 %). At oblique incidence the limit is L cos(theta_in) / 4 (amendment
+/// 2026-10-11).
 inline constexpr Real kMaxBeamWaistFraction = 0.25;
 
-/// Beam-waist rule of truncated rough patches (ADR 0006 amendment 2026-10-10): waist <=
-/// kMaxBeamWaistFraction * patch_length (relative slack 1e-12). Simulation cannot determine
-/// L from an arbitrary mesh, so every driver that illuminates a rough patch of edge L with a
-/// Gaussian beam of waist w0 must call this. A wider waist throws unless allow_wide is true,
-/// in which case it logs one SBEM_WARN (for deliberate studies of edge effects).
-/// @throws std::invalid_argument for patch_length or waist not finite and > 0, and for
-///         waist > L / 4 without allow_wide.
-void check_beam_waist(Real patch_length, Real waist, bool allow_wide = false);
+/// Options of check_beam_waist().
+struct BeamWaistOptions {
+    /// Incidence angle theta_in [rad] of the beam axis from +z, |theta_in| < pi / 2.
+    Real incidence_angle = 0.0;
+    /// Accept a waist above the limit with one SBEM_WARN (deliberate studies of edge effects).
+    bool allow_wide = false;
+};
+
+/// Beam-waist rule of truncated rough patches (ADR 0006 amendments 2026-10-10 and 2026-10-11):
+/// waist <= kMaxBeamWaistFraction * patch_length * cos(incidence_angle) (relative slack 1e-12).
+/// The footprint on z = 0 is 1 / cos(theta_in) longer along the plane of incidence, so the
+/// limit keeps the edge loss of L / 4 at 0 deg (w0 = L / 4 at 45 deg loses 0.63 %).
+/// Simulation cannot determine L from an arbitrary mesh, so every driver that illuminates a
+/// rough patch of edge L with a Gaussian beam of waist w0 must call this, e.g.
+/// check_beam_waist(L, w0, {.incidence_angle = theta}). A wider waist throws unless
+/// options.allow_wide is true, in which case it logs one SBEM_WARN.
+/// @throws std::invalid_argument for patch_length or waist not finite and > 0, an incidence
+///         angle not finite or with |theta_in| >= pi / 2, and for a waist above the limit
+///         without allow_wide.
+void check_beam_waist(Real patch_length, Real waist, const BeamWaistOptions& options = {});
 
 /// Linear solver of Simulation::solve().
 enum class SolverKind {
