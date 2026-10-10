@@ -45,7 +45,7 @@ with the fine band: 0.13 % (ε_rr 0.04 %).
 | si1_none / none_d2 / si12_none | Si 1.0 / 1.0 / 1.2 µm, 0.333 µm | 400 nm, no band, 5.65 / 11.3 / 5.65 µm | 4 650 / 5 658 / 5 850 | ≤ 0.6 | 861 / 1 051 / 869 | 10 / 19 / 14 | 17 / 49 / 25 |
 | si1_b100 | Si 1.0 µm, 0.333 µm | 100 nm, no band | 17 280 | 4.8 | 404 | 95 | 68 |
 | si1_fine / fine_d2 / si12_fine | Si 1.0 / 1.0 / 1.2 µm, 0.333 µm | 400 nm + fine band 3.54 µm | 38 082 / 39 090 / 45 522 | 23.2 / 24.4 / 33.2 | 727 / 1 244 / 734 | 138 / 181 / 207 | 590 / 1 331 / 936 |
-| si1_uniform | Si 1.0 µm, 0.333 µm | uniform | SI1_UNI_2N | | | | |
+| si1_uniform | Si 1.0 µm, 0.333 µm | uniform, 5.65 µm | 59 040 | 55.8 | 299 | 306 | 1 046 |
 | si15_none / si15_fine | Si 1.5 µm, 0.5 µm | 400 nm, no band / fine band | 8 544 / SI15_2N | 1.2 / | 935 / | 26 / | 49 / |
 
 Dense memory 16 (2N)² bytes; GMRES Krylov storage ≤ 1.4 GB. The largest systems that fit the
@@ -94,9 +94,9 @@ surface plasmons circulating around the box (amplitude decay length 41.5 µm for
 | Ag 1.0 µm, L/3, 2 µm | 400 nm vs uniform | 1.92 % | 3.9 % | 5.8 % | 0.80 / 0.68 % | +1.1e-3 |
 | Ag 2.0 µm, L/3, 2 µm | 200 / 100 nm vs 400 nm | 2.36 / 1.44 % | 4.1 / 4.2 % | | 0.81 / 0.40 % (xz) | |
 | Si 1.0 µm, L/3, 5.65 µm | 400 nm no band vs 100 nm no band | 1.97 % | 4.5 % | 2.1 % | 0.77 / 0.65 % | +2.7e-4 |
-| Si 1.0 µm, L/3, 5.65 µm | fine band (400 nm below) vs uniform | SI_FINE_UNI | | | | |
-| Si 1.0 µm, L/3, 5.65 µm | 400 nm no band vs uniform | SI_NONE_UNI | | | | |
-| Si 1.0 µm, L/3, 5.65 µm | 100 nm no band vs uniform | SI_B100_UNI | | | | |
+| Si 1.0 µm, L/3, 5.65 µm | fine band (400 nm below) vs uniform | **0.37 %** | 0.70 % | 0.23 % | 0.13 / 0.14 % | −3.0e-4 |
+| Si 1.0 µm, L/3, 5.65 µm | 400 nm no band vs uniform | 0.98 % | 1.4 % | 2.2 % | 0.45 / 0.47 % | −2.2e-4 |
+| Si 1.0 µm, L/3, 5.65 µm | 100 nm no band vs uniform | 1.57 % | 3.8 % | 0.21 % | 0.55 / 0.39 % | −4.8e-4 |
 
 PARTS (Ag L = 1.5 µm, share of the reflected power radiated by each part alone):
 
@@ -113,6 +113,13 @@ exact bottom currents are small, but the coarse bottom cannot represent the canc
 incident beam (|E_inc| up to 0.8 V/m at the bottom centre, Ag L = 2 µm) and its error radiates
 into the reflection hemisphere. 200 nm is not better than 400 nm; 100 nm (λ/5) is within 0.17 %
 (ε_rr < 0.07 %). The grading error is in the far field, not in the reflectance (dP ≤ 1.5e-3).
+
+For Si the uniform box (2N = 59 040, the largest Si run) separates the two parts of the box: the
+fine band with 400 nm cells below it is within 0.37 % (ε_rr 0.14 %) of the uniform box, while both
+no-band boxes are 1.0 % (400 nm) and 1.6 % (100 nm) off — for Si the walls right under the rim
+(field not decayed, |k₂| h ≫ 1) matter more than the coarse cells deeper down, whose shadow-side
+bottom radiates nothing (PARTS ≤ 4e-6, the Si interior absorbs the transmitted beam over 5.65 µm).
+A fine band combined with 100 nm cells below (2N ≈ 4·10⁴ at L = 1 µm) was not run.
 
 ## 3. Si fine band vs none
 
@@ -159,7 +166,7 @@ or a 3 w₀ ≤ L patch implies; the depth sensitivity is similar with both (1.8
 |---|---|---|---|
 | Depth ×2 < 0.1 % | fail (0.8–3.5 %; 1.1 % in the uniform box) | fail, marginal with the fine band (0.13 %; ε_rr 0.04 %) | beam reaches the walls within the depth (z_R ≤ 2.8 µm), plus the grading error |
 | L ×1.2 < 0.5 % | fail (3.9–6.0 %) | fail (5.1–5.4 %) | w₀ = L/3 loses 0.5 % of the beam past the edges; divergence along the walls |
-| Grading (no tolerance in docs/05) | 400 nm: 1.5–1.9 %; 100 nm: 0.17 % vs uniform | SI_GRADING_VERDICT | coarse cells radiate on the shadow side |
+| Grading (no tolerance in docs/05) | 400 nm: 1.5–1.9 %; 100 nm: 0.17 % vs uniform | fine band + 400 nm: 0.37 %; no band: 1.0–1.6 % vs uniform | coarse cells radiate on the shadow side |
 
 ## Recommendations for ADR 0006 (proposed, not applied)
 

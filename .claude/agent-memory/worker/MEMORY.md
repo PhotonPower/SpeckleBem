@@ -6,4 +6,5 @@
 - [MLFMM plane-wave accuracy](mlfmm_plane_wave_accuracy.md) — ADR truncation vs box size, corner worst case, Lagrange p, Hankel refs, Eigen dot
 - [Assembly performance](assembly_performance.md) — box cost drivers, schedule, GCC vectorisation flags, fast-math accuracy, timing method
 - [Python bindings pitfalls](python_bindings.md) — flags order, vectorize, views, exceptions, GIL callbacks, Simulation lock design, test sensitivity
+- [Box validity findings](box_validity_findings.md) — WP-V1: 400 nm box cells 1.5-2 % error, 100 nm 0.17 %; beam-driven depth/edge sensitivity; GMRES cost
 - [MLFMM octree findings](mlfmm_octree_findings.md) — anchored vertex-bbox root, lambda/4 floor tolerance, 4 um sphere leaf sizes, plate layers, test cost
