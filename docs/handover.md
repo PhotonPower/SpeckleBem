@@ -25,7 +25,7 @@ on the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`
   interiors (d₀ = 3 ≤ 2.9e-4 with λ/4 leaves; d₀ = 5 ≤ 6.7e-6 with λ/2 leaves; up to 2N = 8.8·10⁴). Also
   merged: WP-P2 dense assembly performance (Ag box ×35, Si box ×6 faster), WP7d kernel polish.
 - **In flight when the session ended (branches pushed, not merged, not reviewed):**
-  - `wp/21-mlfmm-lossy` (head 4014306): lossy-region policy (ADR 0008 §6) for Ag, automatic leaf rule,
+  - `wp/21-mlfmm-lossy` (head: a final WIP commit with unverified changes to `src/simulation.cpp` and the large test): lossy-region policy (ADR 0008 §6) for Ag, automatic leaf rule,
     WP20b review follow-ups, Ag validation-large cases. The worker had committed implementation and
     tests but had not reported; continue with a worker that verifies (builds, tests incl. the Ag
     validation-large cases), completes the brief in the WP21 backlog row and reports; then review.
