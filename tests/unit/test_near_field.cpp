@@ -34,6 +34,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "assembler_test_support.hpp"
@@ -549,23 +550,24 @@ TEST_CASE("near_field: region (L, K) storage per region with its jump term", "[n
         for (Index k = 0; k < n; ++k) cols.push_back(k);
         row_ptr[sz(m) + 1] = static_cast<Index>(cols.size());
     }
-    const std::array<material::Material, 2> objects = {material::silver_500nm(), lossless()};
-    for (std::size_t o = 0; o < objects.size(); ++o) {
-        for (const Kind kind : {Kind::ICTF, Kind::PMCHWT}) {
-            c.set(objects[o], kind);
-            for (const int region : {0, 1}) {
-                const OneRegion only(*c.form, region);
-                op::Problem q = c.problem;
-                q.formulation = &only;
-                const MatrixXc D = dense(q);
-                const auto R = op::assemble_region_sparse(c.problem, region, row_ptr, cols);
-                const MatrixXc S = region_matrix(*R, n);
-                const Real err = (S - D).cwiseAbs().maxCoeff() / D.cwiseAbs().maxCoeff();
-                INFO((o == 0 ? "Ag, " : "n = 1.5, ") << c.form->name() << ", region R" << region + 1
-                                                     << ": max entry difference " << err);
-                // A flipped jump sign gives 2 (ICTF) and 3e-3 ... 7e-3 (PMCHWT) here (WP21f).
-                CHECK(err <= 1e-12);
-            }
+    // Ag with ICTF, n = 1.5 with PMCHWT (each full-pattern pair costs a dense assembly in the
+    // sanitizer build; with all four combinations a flipped jump sign gave 2 (ICTF) and
+    // 3e-3 ... 7e-3 (PMCHWT) for either material).
+    const std::array<std::pair<material::Material, Kind>, 2> cases = {
+        std::pair{material::silver_500nm(), Kind::ICTF}, std::pair{lossless(), Kind::PMCHWT}};
+    for (std::size_t o = 0; o < cases.size(); ++o) {
+        c.set(cases[o].first, cases[o].second);
+        for (const int region : {0, 1}) {
+            const OneRegion only(*c.form, region);
+            op::Problem q = c.problem;
+            q.formulation = &only;
+            const MatrixXc D = dense(q);
+            const auto R = op::assemble_region_sparse(c.problem, region, row_ptr, cols);
+            const MatrixXc S = region_matrix(*R, n);
+            const Real err = (S - D).cwiseAbs().maxCoeff() / D.cwiseAbs().maxCoeff();
+            INFO((o == 0 ? "Ag, " : "n = 1.5, ") << c.form->name() << ", region R" << region + 1
+                                                 << ": max entry difference " << err);
+            CHECK(err <= 1e-12);
         }
     }
 }

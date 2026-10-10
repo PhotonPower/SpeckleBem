@@ -11,9 +11,10 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   instead of `std::to_string` ("2.000000"); `FarLevelInfo::search_run`, and levels after the
   first fallback log "search not run" instead of "not achievable, error 0.00e+00" /
   "(error 0, L = 0)"; `estimate_near_bytes()` moved from `far_operator.hpp` to `near_field.hpp`.
-  Tests: each `assemble_region_sparse` region alone (full pattern, Ag and n = 1.5, ICTF and
-  PMCHWT) against the dense matrix with the other region's weights zeroed, which sees the
-  per-region jump terms the summed test cannot; "search not run" on a 4-level Ag tree; budget cap.
+  Tests: each `assemble_region_sparse` region alone (full pattern, Ag/ICTF and n = 1.5/PMCHWT)
+  against the dense matrix with the other region's weights zeroed, which sees the per-region
+  jump terms the summed test cannot (a flipped sign: error 2 for ICTF, 3e-3 ... 7e-3 for PMCHWT;
+  the summed test still passes); "search not run" on a 4-level n = 0.1 - 20j tree; budget cap.
 - mlfmm (WP21 review): exact far part stored as the region's (L_i, K_i) per basis pair
   (`op::RegionSparseOperator`, `op::assemble_region_sparse`; 40 instead of 96 bytes per pair,
   weights e_i, h_i, m_i applied in `apply()`): Ag icosphere R = 0.5 um, d0 = 3: 408 -> 170 MB
