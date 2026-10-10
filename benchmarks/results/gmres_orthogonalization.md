@@ -16,14 +16,19 @@ selectable.
   second pass, the update of pass 1 and the projection of pass 2 are fused per row sub-block
   (the sub-block's part of V, ≈ 1 MiB, is reused from cache), so a step streams V three times
   instead of four.
-- **Storage.** The Krylov basis lives in contiguous column-major panels of min(m + 1, 64) columns
-  (m = restart, or max_iter for full GMRES); it grows by whole panels without copying (a single
-  growing matrix would need a reallocation copy with 2× peak memory at 3–16 GB bases).
-- **Products.** Vᴴw and Vh are hand-written OpenMP loops over fixed 4 096-row blocks
-  (`schedule(static)`); per block, Eigen dot products / four-column AXPY sweeps on contiguous
-  column segments. The per-block partial sums of Vᴴw are added in block order. Results are
-  therefore bitwise reproducible and independent of the thread count (unit test with 1 and the
-  default number of threads). BLAS GEMV (Eigen with `EIGEN_USE_BLAS` dispatches to OpenBLAS in the
+- **Storage.** The Krylov basis lives in contiguous column-major panels of 64 columns, the last
+  one sized to the remainder of m + 1 (m = restart, or max_iter for full GMRES), so a filled basis
+  takes exactly 16 (m + 1) n bytes (GMRES(100): 64 + 37 columns); it grows by whole panels without
+  copying (a single growing matrix would need a reallocation copy with 2× peak memory at 3–16 GB
+  bases).
+- **Products.** Vᴴw and Vh are hand-written OpenMP loops over fixed 4 096-row blocks, handed to
+  the threads one block at a time (`schedule(dynamic, 1)`, so a descheduled thread does not hold
+  a fixed share of the rows while the others wait at the barrier); per block, Eigen dot products /
+  four-column AXPY sweeps on contiguous column segments. Each block's partial sums of Vᴴw depend
+  on its rows only, not on the thread that computes them, and are added in block order. Results
+  are therefore bitwise reproducible and independent of the thread count and the scheduling (unit
+  test with 1 and the default number of threads). The benchmark runs below used the earlier
+  `schedule(static)`. BLAS GEMV (Eigen with `EIGEN_USE_BLAS` dispatches to OpenBLAS in the
   win builds) was not used: threaded OpenBLAS GEMV splits the Vᴴw reduction by thread count, so its
   results depend on `OMP_NUM_THREADS`/`OPENBLAS_NUM_THREADS` (observed in the determinism test:
   a test operator using one GEMV changed bitwise with the thread count), and calling it inside the
@@ -39,7 +44,8 @@ selectable.
 
 `specklebem_gmres_orthogonalization` (configure with `-DSPECKLEBEM_BUILD_BENCHMARKS=ON`):
 operator y = d ⊙ x + U(Wᴴx), d uniform in the disk |z − 1| < 0.95, U, W random n × 2, so a
-matvec costs ~4–9 ms at n = 2·10⁵ and the orthogonalisation dominates; GMRES runs a fixed number of
+matvec costs ≈ 1 ms at n = 2·10⁵ (0.6–1.0 ms in the runs below, 0.97–1.46 ms in the review
+spot check) and the orthogonalisation dominates; GMRES runs a fixed number of
 iterations (tol 10⁻³⁰⁰, no restart); "ms/it k" is the mean wall time per iteration over the ten
 iterations ending at k (callback timestamps). Machine: AMD Ryzen 9 5900X (12 cores / 24 threads,
 dual-channel DDR4, 2 × 32 MB L3), Windows 11, win-release (UCRT64 GCC, OpenBLAS), 24 OpenMP
@@ -55,9 +61,11 @@ n = 2·10⁵, 400 iterations (basis 1.28 GB), 2026-10-10:
 | CGS2 | 24 | 67.7 | 65.6 | 96.9 % | 400 | 1.46e-11 | 34 | 116 | 207 | 243 |
 | CGS2 | 12 | 77.2 | 75.6 | 97.9 % | 400 | 1.46e-11 | 54 | 134 | 205 | 308 |
 
-Orthogonalisation speed-up 7.7× (24 threads) and 6.7× (12 threads). On a loaded machine the
-serial MGS loop competes for one time slice while the parallel products get many; the speed-up
-is larger than on an idle machine and noisy (MGS per-iteration times are not monotone in k).
+Orthogonalisation speed-up 7.7× (24 threads) and 6.7× (12 threads) in this run, but not
+reproducible: a review spot check under full contention gave only 0.65–1.5× (the parallel loops
+stall at their barriers when single threads are descheduled). Speed-ups measured on a loaded
+machine are noise in either direction (MGS per-iteration times are not even monotone in k) and
+are not used in the conclusions.
 A 1 000-iteration run was started but stopped: under this load MGS alone took 2 448 s
 (99.6 % orthogonalisation, 1 000 of 1 000 steps re-orthogonalised) and serial CGS2 more than an
 hour.
@@ -113,11 +121,12 @@ passes; a CGS2 step 1.5 parallel pairs (three sweeps). Expected idle speed-up on
 
 - CGS2 is the default; orthogonality and solutions match MGS to rounding, iteration counts are
   equal in all tests (differences of ±1–2 near the tolerance are possible by design).
-- On this machine the gain is bandwidth-limited: ≈ 2–4× on an idle machine (low-load
-  per-iteration times at k ≤ 250: 3.1–4.4×; kernel microbenchmark at k = 1 000: 1.6–3×),
-  3.7–4.7× for the whole 1 000-iteration orthogonalisation in partly loaded runs and 7–8× under
-  heavy load (the serial MGS loop suffers most from competing processes). For the WP22b1 Ag
-  solves (MGS 42–66 % of the solve time) this means roughly a 1.3–2× shorter solve. The remaining cost is three streams of V per
-  step; a single-synchronisation variant (delayed re-orthogonalisation, DCGS2, Bielich et al.
+- On this machine the gain is bandwidth-limited. Expected on an idle machine: ≈ 2–4× for the
+  orthogonalisation (low-load per-iteration times at k ≤ 250: 3.1–4.4×; kernel microbenchmark at
+  k = 1 000: 1.6–3×); measured 3.7–4.7× for the whole 1 000-iteration orthogonalisation in
+  partly loaded runs. Under heavy contention the gain is unreliable (0.65–1.5× in a review spot
+  check). For the WP22b1 Ag solves (MGS 42–66 % of the solve time) the idle estimate means
+  roughly a 1.3–2× shorter solve; the real solve gain is still to be confirmed with exclusive
+  machine time (WP22b3). The remaining cost is three streams of V per step; a single-synchronisation variant (delayed re-orthogonalisation, DCGS2, Bielich et al.
   2022) would need two and is the next step if the orthogonalisation still dominates.
 - Restarting is not affected; GMRES(m) uses the same kernels on a basis of m + 1 columns.

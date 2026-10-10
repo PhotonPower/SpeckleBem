@@ -22,4 +22,6 @@ Findings from WP-G1 (2026-10-10, branch wp/g1-gmres-cgs2):
 - Catch2 INFO only prints on failure; through ctest, temporary WARN() is the way to read
   observed values (revert before commit).
 - The machine was under load 100-200 (other worker) for hours; benchmark timings then are
-  noise-dominated -- see [[assembly-performance]] for timing method.
+  noise-dominated -- see [[assembly-performance]] for timing method. A loaded run showed 7.7x
+  CGS2/MGS, a review spot check under full contention 0.65-1.5x (barrier stalls): never quote
+  speed-ups measured under contention. Row blocks now use schedule(dynamic, 1) (WP-G1 review).

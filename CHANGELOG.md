@@ -29,18 +29,22 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   criterion, never chosen automatically). Always two passes (h = h₁ + h₂; the 0.7 criterion fired
   in 45/46 and 52/53 MGS steps of the dense Ag/Si sphere tests, so selective re-orthogonalisation
   saves nothing for these spectra); the pass-1 update is fused with the pass-2 projection (three
-  sweeps over V per step). The Krylov basis is stored in contiguous column-major panels of
-  min(m + 1, 64) columns (grows without copying); V^H w and V h are OpenMP products over fixed
-  4096-row blocks with block partial sums added in block order, so results are bitwise
-  reproducible and independent of the thread count (they differ from MGS by rounding; iteration
-  counts may differ by ±1–2). Hand-written kernels instead of BLAS GEMV: a threaded BLAS may
-  split the reductions by thread count, and nesting it inside the row-block loop would
-  oversubscribe. `GmresResult` gains `orthogonalization_seconds`, `reorthogonalizations` and,
-  with `GmresParams::keep_basis` (test hook), `basis`. Benchmark
-  `benchmarks/gmres_orthogonalization.cpp` (n = 2·10⁵, 1 000 iterations, 5900X): CGS2 with 24
-  threads ≈ 0.35 ms per basis vector and step; orthogonalisation 3–4.4× faster than MGS per
-  iteration at low load, 3.7–4.7× over partly loaded full runs; record
-  `benchmarks/results/gmres_orthogonalization.md`.
+  sweeps over V per step). The Krylov basis is stored in contiguous column-major panels of 64
+  columns, the last one sized to the remainder, so a filled basis takes exactly 16 (m + 1) n
+  bytes (grows without copying); V^H w and V h are OpenMP products over fixed 4096-row blocks
+  (`schedule(dynamic, 1)`) with thread-independent block partial sums added in block order, so
+  results are bitwise reproducible and independent of the thread count (they differ from MGS by
+  rounding; iteration counts may differ by ±1–2). Hand-written kernels instead of BLAS GEMV: a
+  threaded BLAS may split the reductions by thread count, and nesting it inside the row-block
+  loop would oversubscribe. `GmresResult` gains `orthogonalization_seconds`,
+  `reorthogonalizations` and, with `GmresParams::keep_basis` (test hook), `basis`. Python:
+  `gmres['orthogonalization']` ("cgs2" / "mgs"), read-only `SolveResult.orthogonalization_seconds`
+  and `SolveResult.reorthogonalizations`. Benchmark `benchmarks/gmres_orthogonalization.cpp`
+  (n = 2·10⁵, 1 000 iterations, 5900X): CGS2 with 24 threads ≈ 0.35 ms per basis vector and step;
+  expected orthogonalisation speed-up over MGS on an idle machine ≈ 2–4× (microbenchmark
+  1.6–3×), measured 3.7–4.7× in partly loaded 1 000-iteration runs; under heavy contention the
+  gain is unreliable (0.65–1.5× in a review spot check). The real solve gain is to be confirmed
+  with exclusive machine time (WP22b3); record `benchmarks/results/gmres_orthogonalization.md`.
 - geometry / simulation (solver) / python (WP-B1): closing-box defaults of the ADR 0006
   amendment 2026-10-10. Geometry: `RoughSurfaceParams::exterior_wavelength` (λ₁) caps the
   automatic coarse spacing at the largest 2^M h_b ≤ λ₁/5 with the actual grid spacing
