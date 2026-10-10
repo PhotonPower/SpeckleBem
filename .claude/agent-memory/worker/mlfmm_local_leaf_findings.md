@@ -17,7 +17,9 @@ Measured 2026-10-11 (WP21L, branch wp/21l-local-leaf-rule):
   ~8 % of |Zx|): local rule 5.6e-5 (Si) / 6.4e-5 (Ag), all from leaf-leaf vacuum interactions
   (elevated part 7e-7 / 1e-6); the global rule passes (4.5e-6) only because r_max forces lambda
   leaves. WP19b block error at lambda/2 is ~4e-4, so the matvec criterion holds only when far/total
-  is small. Open coordinator decision (a_min(5) or binding lossless block check).
+  is small. Coordinator decision 2026-10-11: local rule rejected for d0 > 3
+  (kLocalLeafRuleMaxDigits, std::invalid_argument); reopening needs a_min(5) >= lambda or a
+  binding lossless block check. Default leaf_radius_quantile = 1.0 (opt-in until WP22b3).
 - **Default quantile 0.99 elevates nothing in the WP22b1 Si boxes**: coarse 100 nm cells are 7.7 %
   (L = 4 um) / 10.5 % (L = 8 um) of the functions; q <= 0.9 / 0.8 needed. Estimates: Si L = 4 um
   peak 55 -> 35 GB, L = 8 um 84 -> 60 GB (near 14.3 -> 6.4 / 16.2 -> 7.5 GB).
