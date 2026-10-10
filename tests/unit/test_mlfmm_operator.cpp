@@ -70,6 +70,7 @@ mlfmm::MlfmmParams params(int levels, Real digits) {
     mlfmm::MlfmmParams p;
     p.octree = mlfmm::OctreeParams{1, levels, 0.0};
     p.accuracy_digits = digits;
+    p.automatic_leaf_size = false;  // deliberately small trees
     return p;
 }
 

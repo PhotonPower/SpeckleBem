@@ -1,6 +1,6 @@
 #pragma once
 /// @file far_operator.hpp
-/// Multilevel fast multipole far part Z_far of the combined 2N x 2N system (WP20a,
+/// Multilevel fast multipole far part Z_far of the combined 2N x 2N system (WP20a, WP21,
 /// docs/04_theory_mlfmm.md "Passes per matvec", ADR 0008 and its amendments). Z_far holds every
 /// leaf pair that is neither the same leaf nor in its near list (octree.hpp); WP20b adds the exact
 /// near part.
@@ -33,9 +33,50 @@
 /// Orders per region and level: search_truncation_order with the enlarged diagonal sqrt(3) a +
 /// 2 max_support_radius (leaf level: leaf_sampling, sampled at max(L, p - 1)); translators are the
 /// order-truncated T_L at the level's sampling, premultiplied by the weights, one per integer
-/// offset present in the interaction lists. If the order search finds no order meeting 10^-d0
-/// for an active region at some level, the constructor throws (the lossy-region policy of ADR
-/// 0008 §6 is WP21). A region whose weights are all zero is skipped.
+/// offset present in the interaction lists. A region whose weights are all zero is skipped.
+///
+/// Region policy (ADR 0008 §6 with its amendments, WP21), per active region i and level l, from
+/// the leaf upwards; once a level does not use the expansion, no coarser level does:
+///  1. expansion: the order search (statistical pre-screen) is achievable and the block check
+///     passes. Block check: sampled far blocks (basis_patterns about the level's box centres,
+///     the level's sampling and order) of up to kBlockCheckPairs box pairs of the nearest
+///     interaction offset classes against exact element_blocks entries (target 0.01 x 10^-d0,
+///     no decay-aware relaxation); error = max over the pairs of the relative Frobenius errors
+///     of the L and K blocks. It always runs and is reported; it decides only for lossy regions
+///     (Im k < 0): accepted if <= block_check_tolerance(d0) = 10^-d0, or if <=
+///     kLossDegradationFactor x the block error of the lossless analogue (k = Re k_i, its own
+///     order search, which must be achievable) — the loss must not spoil the expansion beyond
+///     what a lossless medium of the same geometry has. For lossless regions the ADR 0008
+///     WP20a/WP20b amendments make the docs/05 matvec criterion the acceptance test (the nearest
+///     corner-near blocks exceed 10^-d0 there, e.g. 9e-4 / 4e-4 at lambda/2 leaves for d0 =
+///     3 / 5, while the matvec errors are 2e-4 / 4e-6).
+///  2. otherwise, per ordered box pair (A, B in A's interaction list) of the level, with alpha =
+///     -Im k_i and d = the distance between the bounding boxes of the supports (all triangle
+///     vertices of the boxes' basis functions; a lower bound of |r - r'| over the pair):
+///       delta(A, B) = (1 + alpha d) exp(-alpha d)   (1 for d <= 0),
+///     the factor by which |G| and |grad G| of region i stay below their undamped bounds
+///     1 / (4 pi R) and (1 + |Re k| R) / (4 pi R^2) on the pair (the WP-P2 reasoning of
+///     kernels::OperatorOptions::decay_aware_target; (1 + x) e^-x is decreasing). Every region-i
+///     entry of the pair is at most delta times the undamped bound U of the same entry, so
+///     dropping the pair changes each block by at most delta ||U||:
+///       truncation if delta <= 10^-(d0+1): a documented numerical truncation one digit below the
+///         error a lossless expansion of the same geometry may have (10^-d0 ||B|| <= 10^-d0 ||U||);
+///       exact otherwise: the pair's region-i entries are assembled exactly by
+///         op::assemble_sparse with the other region's weights set to zero, into a per-region
+///         sparse correction (exact_part(i)) that apply() adds. Inside an exact box pair the same
+///         bound is applied per basis pair (d = distance of the two supports' bounding boxes):
+///         basis pairs with delta <= 10^-(d0+1) are truncated as well (counted in describe()).
+///     The level's decision is FarDecision::truncation if no pair is exact, else
+///     FarDecision::exact (with the counts of both kinds).
+/// The exact fallback needs decay: it is allowed only if alpha a_l >= 1 at the first level l
+/// without expansion (the field falls by e over one box edge, so the exact pairs stay within a
+/// few boxes and coarser levels truncate); otherwise the constructor throws TruncationOrderError.
+/// MlfmmParams::exact_far_regions forces the exact decision on every level of a region. Each
+/// leaf pair is far through exactly one level, so per region the near part, the expansion
+/// levels, the exact part and the truncated pairs partition the basis pairs. Every non-expansion
+/// decision is logged (SBEM_INFO) with its bound and counts, and describe() lists every level's
+/// decision, search error, block error, bound and counts: a pair is dropped only with
+/// delta <= 10^-(d0+1), never silently.
 ///
 /// Jump terms: Z_far has none (the dense K carries -/+ 1/2 on coincident triangles only), which
 /// needs r_max < a_leaf: far pairs have midpoints more than a_leaf apart, bases sharing a triangle
@@ -56,23 +97,78 @@
 
 #include <cstddef>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+namespace specklebem::op {
+class SparseOperator;
+}
+
 namespace specklebem::mlfmm {
+
+/// Box pairs of a level used by the block check (one per nearest offset class).
+inline constexpr int kBlockCheckPairs = 3;
+/// Basis functions per box in the block check: all if the box has at most this many, else the
+/// half farthest from the box centre (corner-near, the worst case of WP19b) and an evenly spaced
+/// selection of the rest.
+inline constexpr int kBlockCheckBases = 24;
+
+/// Acceptance threshold of the block check of lossy regions for d0 digits: 10^-d0.
+[[nodiscard]] Real block_check_tolerance(Real digits);
+/// Lossy regions: largest accepted ratio of the block error to that of the lossless analogue.
+inline constexpr Real kLossDegradationFactor = 2.0;
+
+/// Decision of the region policy for one region and level (file comment).
+enum class FarDecision { expansion, truncation, exact };
+
+/// "expansion", "truncation" or "exact".
+[[nodiscard]] const char* to_string(FarDecision d);
 
 /// Per region and level (2 ... leaf) setup data, reported by describe().
 struct FarLevelInfo {
     int level = 0;
     Index boxes = 0;
-    Real box_size = 0;              ///< box edge [m]
-    int truncation_order = 0;       ///< L of the translators
-    int sampling_order = 0;         ///< L of the sampling (leaf: max(L, p - 1))
-    Index directions = 0;           ///< 2 (sampling_order + 1)^2
-    Real search_error = 0;          ///< statistical check of search_truncation_order at L
-    Index translators = 0;          ///< distinct interaction offsets
-    std::size_t pattern_bytes = 0;  ///< per-apply outgoing + incoming fields of the level
-    Real setup_seconds = 0;         ///< order search, translators, interpolator, shifts
+    Real box_size = 0;  ///< box edge [m]
+    FarDecision decision = FarDecision::expansion;
+    int truncation_order = 0;        ///< L of the translators (expansion levels)
+    int sampling_order = 0;          ///< L of the sampling (leaf: max(L, p - 1))
+    Index directions = 0;            ///< 2 (sampling_order + 1)^2
+    bool search_achievable = false;  ///< order search result (false: failed or not run)
+    Real search_error = 0;           ///< statistical check of search_truncation_order at L
+    Real block_error = -1;           ///< block check (file comment); -1: not run
+    Real reference_error = -1;       ///< lossless analogue's block error; -1: not needed / none
+    Index block_pairs = 0;           ///< box pairs of the block check
+    Real decay_bound = 0;            ///< non-expansion levels: largest delta of a truncated pair
+    Real exact_bound = 0;            ///< non-expansion levels: smallest delta of an exact pair
+    Index truncated_pairs = 0;       ///< ordered box pairs dropped (delta <= 10^-(d0+1))
+    Index exact_pairs = 0;           ///< ordered box pairs evaluated exactly
+    Index translators = 0;           ///< distinct interaction offsets (expansion levels)
+    std::size_t pattern_bytes = 0;   ///< per-apply outgoing + incoming fields of the level
+    Real setup_seconds = 0;          ///< search, block check, decisions, translators, shifts
+};
+
+/// No expansion order meets the accuracy for a region and level and the region's decay is too
+/// weak for the truncation / exact fallback of ADR 0008 §6 (file comment). Thrown by the far
+/// operator (and MlfmmOperator) before any expensive setup; Simulation turns it into advice per
+/// cause.
+class TruncationOrderError : public std::runtime_error {
+public:
+    enum class Cause {
+        mesh_or_leaf_size,  ///< r_max / a > 0.3 at the failing level: finer mesh, larger leaves
+        lossy_region,       ///< alpha D >= 1 (D the enlarged diagonal) but alpha a < 1
+        digits              ///< otherwise: fewer digits or larger leaves
+    };
+    TruncationOrderError(const std::string& what, int region, int level, Cause cause)
+        : std::runtime_error(what), region_(region), level_(level), cause_(cause) {}
+    [[nodiscard]] int region() const { return region_; }  ///< 0 = R1, 1 = R2
+    [[nodiscard]] int level() const { return level_; }
+    [[nodiscard]] Cause cause() const { return cause_; }
+
+private:
+    int region_;
+    int level_;
+    Cause cause_;
 };
 
 class MlfmmFarOperator final : public op::LinearOperator {
@@ -83,9 +179,8 @@ public:
     ///        params.octree is not used (the tree is given).
     /// @throws std::invalid_argument for an invalid Problem (op::validate), unsupported params, a
     ///         tree not built on problem.space or (trees with >= 3 levels) a largest support
-    ///         radius r_max >= the leaf edge; std::runtime_error if no truncation order meets
-    ///         10^-d0 for an active region at some level (lossy region, WP21);
-    ///         std::underflow_error / std::overflow_error from the plane-wave functions.
+    ///         radius r_max >= the leaf edge; TruncationOrderError (file comment);
+    ///         std::overflow_error from the plane-wave functions.
     MlfmmFarOperator(const op::Problem& problem, const Octree& tree, const MlfmmParams& params);
     MlfmmFarOperator(const op::Problem&, const Octree&&, const MlfmmParams&) = delete;
     ~MlfmmFarOperator() override;
@@ -95,8 +190,8 @@ public:
     /// y = Z_far x. @throws std::invalid_argument if x has the wrong size.
     void apply(const VectorXc& x, VectorXc& y) const override;
     [[nodiscard]] std::string describe() const override;
-    /// Stored tables (leaf patterns, translators, phase shifts, interpolators) plus the pooled
-    /// apply workspaces, counted as at least one (the one a serial solve needs).
+    /// Stored tables (leaf patterns, translators, phase shifts, interpolators), the exact parts
+    /// and the pooled apply workspaces, counted as at least one (the one a serial solve needs).
     [[nodiscard]] std::size_t memory_bytes() const override;
     /// Bytes of one apply workspace (the fields of all levels and active regions; 0 without far
     /// levels), excluding the per-thread scratch.
@@ -108,15 +203,26 @@ public:
     [[nodiscard]] const Octree& octree() const;
     /// Region 0 = R1 (exterior), 1 = R2 (object). @throws std::out_of_range for other indices.
     [[nodiscard]] bool region_active(int region) const;
-    /// Levels 2 ... leaf of an active region (empty if the tree has fewer than 3 levels).
+    /// Levels 2 ... leaf of an active region with their decisions (empty if the tree has fewer
+    /// than 3 levels or the region is inactive).
     [[nodiscard]] const std::vector<FarLevelInfo>& levels(int region) const;
-    /// Leaf radiation patterns of an active region. @throws std::invalid_argument if the region is
-    /// inactive or the tree has fewer than 3 levels.
+    /// Leaf radiation patterns of a region that uses the expansion on the leaf level.
+    /// @throws std::invalid_argument otherwise (inactive region, fewer than 3 levels or no
+    ///         expansion level).
     [[nodiscard]] const RadiationPatterns& patterns(int region) const;
+    /// Exact region-i entries of the box pairs with decision exact (file comment) as a 2N x 2N
+    /// sparse operator; nullptr if the region has none.
+    [[nodiscard]] const op::SparseOperator* exact_part(int region) const;
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+namespace testing {
+/// Test hook (WP21, workspace-pool exception safety): the next `count` apply workspaces that
+/// MlfmmFarOperator::apply would allocate throw std::bad_alloc instead (process-wide counter).
+void fail_next_workspace_allocations(int count);
+}  // namespace testing
 
 }  // namespace specklebem::mlfmm

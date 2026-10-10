@@ -31,6 +31,7 @@ add_executable(specklebem_unit_tests
     unit/test_patterns.cpp
     unit/test_mlfmm.cpp
     unit/test_mlfmm_operator.cpp
+    unit/test_mlfmm_policy.cpp
     # unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -49,9 +50,11 @@ add_test(NAME "mlfmm: plane-wave accuracy sweep (slow)" COMMAND specklebem_unit_
 add_test(NAME "mlfmm: single-level FMM accuracy sweep (slow)" COMMAND specklebem_unit_tests "[patterns_sweep]")
 add_test(NAME "mlfmm: far operator accuracy sweep (slow)" COMMAND specklebem_unit_tests "[mlfmm_far_sweep]")
 add_test(NAME "mlfmm: far operator apply timing (slow)" COMMAND specklebem_unit_tests "[mlfmm_apply_timing]")
+add_test(NAME "mlfmm: region policy sweep (slow)" COMMAND specklebem_unit_tests "[mlfmm_policy_sweep]")
 set_tests_properties("kernels: fold sweep (slow)" "assembler: rhs degree study (slow)"
     "mlfmm: plane-wave accuracy sweep (slow)" "mlfmm: single-level FMM accuracy sweep (slow)"
     "mlfmm: far operator accuracy sweep (slow)" "mlfmm: far operator apply timing (slow)"
+    "mlfmm: region policy sweep (slow)"
     PROPERTIES LABELS slow SKIP_RETURN_CODE 4)
 
 # Zero-allocation check of the element kernels. Separate executable because it replaces the

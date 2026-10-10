@@ -140,6 +140,19 @@ private:
     std::vector<Index> leaf_box_;
 };
 
+/// Radiation patterns V_n of the given basis functions relative to an arbitrary `center` at the
+/// directions of `sampling`, with the quadrature of RadiationPatterns (same degree choice):
+/// entry ((i * sampling.size() + q) * 2 + c) is component c (0: theta_hat, 1: phi_hat) of
+/// V_{bases[i]}(khat_q). For the per-level block check of the far operator (ADR 0008 §6, WP21),
+/// which needs patterns of a few bases about the centres of non-leaf boxes. For a leaf box and
+/// the leaf sampling the values equal RadiationPatterns::data() of its bases bitwise.
+/// @throws std::invalid_argument for k outside Re k > 0, Im k <= 0 or invalid options;
+///         std::out_of_range for a basis index outside the space.
+[[nodiscard]] std::vector<Complex> basis_patterns(const basis::RwgSpace& space,
+                                                  std::span<const Index> bases, const Vec3& center,
+                                                  Complex k, const SphereSampling& sampling,
+                                                  const PatternOptions& opt = {});
+
 /// L and K far blocks of one region between two leaf boxes: rows = the bases of box_a
 /// (observer, permuted positions first_element ... of box_a, i.e. basis indices
 /// octree().permutation()[first_element + i]), columns = the bases of box_b (source).

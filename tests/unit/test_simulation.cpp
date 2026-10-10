@@ -357,6 +357,7 @@ TEST_CASE("simulation: compression mlfmm", "[simulation]") {
     Simulation dense(sphere_mesh(2), plane_wave(), cfg);
     cfg.compression = "mlfmm";
     cfg.mlfmm.octree.max_elements_per_leaf = 1;
+    cfg.mlfmm.automatic_leaf_size = false;  // keep 3 levels (the rule would give 2)
     Simulation fmm(sphere_mesh(2), plane_wave(), cfg);
     const solver::GmresResult rd = dense.solve();
     const solver::GmresResult rf = fmm.solve();
@@ -390,20 +391,28 @@ TEST_CASE("simulation: compression mlfmm", "[simulation]") {
             bad.mlfmm.truncation_L = 5;
         CHECK_THROWS_AS(Simulation(sphere_mesh(0), plane_wave(), bad), std::invalid_argument);
     }
-    // Ag interior, leaf 0.75 lambda (R = 1.5 um, 3 levels): no expansion order meets 10^-3 in
-    // the metal (WP21 policy missing) -> runtime_error naming the alternatives.
+    // Ag interior, leaf 0.75 lambda (R = 1.5 um, 3 levels): no expansion in the metal; the
+    // ADR 0008 §6 policy truncates or evaluates its far pairs exactly (WP21).
     bad = base_config(material::silver_500nm());
     bad.compression = "mlfmm";
     bad.mlfmm.octree = mlfmm::OctreeParams{1, 3, 0.0};
+    bad.mlfmm.automatic_leaf_size = false;
     Simulation ag(geometry::make_icosphere(1.5e-6, 2), plane_wave(), bad);
+    CHECK_NOTHROW(ag.assemble());
+    CHECK(contains(ag.system_operator()->describe(), "region R2"));
+    // Lossless interior at d0 = 5 with r_max / a ~ 0.5 (rule disabled): no expansion order ->
+    // TruncationOrderError, wrapped with the advice for its cause.
+    bad.object = {Complex(2.25, 0.0), Complex(1.0, 0.0)};
+    bad.mlfmm.accuracy_digits = 5.0;
+    Simulation d5(geometry::make_icosphere(1.5e-6, 2), plane_wave(), bad);
     try {
-        ag.assemble();
+        d5.assemble();
         FAIL("expected std::runtime_error");
     } catch (const std::runtime_error& e) {
         const std::string what = e.what();
         INFO(what);
-        CHECK(contains(what, "compression \"dense\""));
-        CHECK(contains(what, "region R2"));
+        CHECK(contains(what, "mesh is too coarse"));
+        CHECK(contains(what, "region R1"));
     }
 }
 

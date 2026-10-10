@@ -51,6 +51,10 @@ namespace specklebem::mlfmm {
 /// tolerance keeps a root that rounds to just below 2^D * floor from losing its last level.
 inline constexpr Real kMinBoxSizeTolerance = 1e-2;
 
+/// Largest OctreeParams::max_levels: the finest level 20 needs 3 x 20 bits of a 64-bit Morton
+/// code.
+inline constexpr int kMaxOctreeLevels = 21;
+
 struct Box {
     Index parent = -1;
     std::array<Index, 8> children = {-1, -1, -1, -1, -1, -1, -1, -1};  ///< by child slot
@@ -65,7 +69,7 @@ struct Box {
 
 struct OctreeParams {
     int max_elements_per_leaf = 100;  ///< >= 1
-    int max_levels = 12;              ///< number of levels incl. the root, in [1, 21]
+    int max_levels = 12;              ///< number of levels incl. the root, in [1, kMaxOctreeLevels]
     /// Leaf edge floor in wavelengths (>= 0): no level with a box edge below
     /// (1 - kMinBoxSizeTolerance) * min_box_size_lambda * lambda.
     Real min_box_size_lambda = 0.25;

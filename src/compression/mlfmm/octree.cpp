@@ -17,7 +17,7 @@ namespace specklebem::mlfmm {
 
 namespace {
 
-constexpr int kMaxLevels = 21;  // finest level 20: 3 x 20 bits of a 64-bit Morton code
+constexpr int kMaxLevels = kMaxOctreeLevels;
 /// Relative padding of the root cube on every side (fraction of the largest extent), so
 /// that no point lies on the root boundary up to rounding.
 constexpr Real kRootPadding = 1e-6;

@@ -120,17 +120,34 @@ def test_mlfmm_compression():
     np.testing.assert_allclose(fmm.bistatic_rcs(th), sigma, rtol=0, atol=1e-3 * sigma.max())
     assert "MlfmmOperator: 2N = 960" in fmm.operator().describe()
     assert "compression:    mlfmm (accuracy_digits 3" in fmm.report()
-    # Silver interior with 0.75 lambda leaves: no expansion order meets 10^-3 in the metal.
+    # Silver interior with 0.75 lambda leaves: no expansion in the metal, the ADR 0008 §6 policy
+    # truncates or evaluates its far pairs exactly (WP21).
     ag = sb.Simulation(
         sb.make_icosphere(1.5e-6, 2),
         sb.PlaneWave(LAMBDA_FAST, [0, 0, 1], [1, 0, 0]),
         object=sb.silver_500nm(),
         kernels=CHEAP,
         compression="mlfmm",
-        mlfmm=dict(max_elements_per_leaf=1, min_box_size_lambda=0.7),
+        mlfmm=dict(max_elements_per_leaf=1, min_box_size_lambda=0.7, automatic_leaf_size=False),
     )
-    with pytest.raises(RuntimeError, match='compression "dense"'):
-        ag.assemble()
+    ag.assemble()
+    assert "region R2" in ag.operator().describe()
+    # A lossless interior at d0 = 5 without the leaf rule (r_max / a ~ 0.5): no expansion order.
+    bad = sb.Simulation(
+        sb.make_icosphere(1.5e-6, 2),
+        sb.PlaneWave(LAMBDA_FAST, [0, 0, 1], [1, 0, 0]),
+        object=sb.Material(2.25),
+        kernels=CHEAP,
+        compression="mlfmm",
+        mlfmm=dict(
+            accuracy_digits=5,
+            max_elements_per_leaf=1,
+            min_box_size_lambda=0.7,
+            automatic_leaf_size=False,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="mesh is too coarse"):
+        bad.assemble()
 
 
 def test_callback_and_overrides():

@@ -193,7 +193,7 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
 }
 
 /// mlfmm=dict(...) onto mlfmm::MlfmmParams (docs/10): accuracy_digits, max_elements_per_leaf,
-/// min_box_size_lambda (the octree keys of mlfmm::OctreeParams).
+/// min_box_size_lambda (the octree keys of mlfmm::OctreeParams), automatic_leaf_size.
 void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
     for (const auto& [k, v] : d) {
         const auto key = dict_key(k, "mlfmm");
@@ -203,6 +203,8 @@ void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
             p.octree.max_elements_per_leaf = dict_value<int>(v, key, "mlfmm");
         } else if (key == "min_box_size_lambda") {
             p.octree.min_box_size_lambda = dict_value<Real>(v, key, "mlfmm");
+        } else if (key == "automatic_leaf_size") {
+            p.automatic_leaf_size = dict_value<bool>(v, key, "mlfmm");
         } else {
             throw py::value_error("mlfmm: unknown key '" + key + "'");
         }
@@ -515,8 +517,10 @@ kernels : dict, optional
     pre-WP-P2 C-library arithmetic bitwise).
 mlfmm : dict, optional
     MLFMM parameters (used with compression="mlfmm"): ``accuracy_digits`` (3; d0 in (0, 5]),
-    ``max_elements_per_leaf`` (100) and ``min_box_size_lambda`` (0.25; leaf-edge floor in
-    exterior wavelengths).
+    ``max_elements_per_leaf`` (100), ``min_box_size_lambda`` (0.25; leaf-edge floor in
+    exterior wavelengths, a lower bound of the automatic leaf rule) and
+    ``automatic_leaf_size`` (True: leaf edge >= max(lambda/4 for d0 <= 3, lambda/2 for d0 > 3,
+    r_max / 0.3); False uses min_box_size_lambda as given).
 
 Raises
 ------

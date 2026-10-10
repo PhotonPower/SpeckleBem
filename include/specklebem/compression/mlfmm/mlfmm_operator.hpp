@@ -27,6 +27,7 @@
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/operator/linear_operator.hpp"
 
+#include <array>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -45,17 +46,46 @@ struct MlfmmParams {
     Real accuracy_digits = 3.0;  ///< d0 in L = kD + 1.8 d0^{2/3} (kD)^{1/3}
     bool precompute_translators = true;
     bool use_fft_interpolation = false;  ///< later: FFT / Lagrange interpolation
+    /// Leaf rule of ADR 0008 (WP20b amendment), applied by MlfmmOperator: the octree's leaf edge
+    /// floor is raised to max(octree.min_box_size_lambda, a_min(d0), r_max / 0.3) with a_min =
+    /// lambda1 / 4 for d0 <= 3 and lambda1 / 2 for d0 > 3 (r_max = max_support_radius, lambda1 the
+    /// exterior wavelength); octree.min_box_size_lambda acts as a lower bound. The accuracy
+    /// statements of ADR 0008 / docs/05 assume it. false: the octree parameters are used as given
+    /// (tests and experiments with deliberately small trees).
+    bool automatic_leaf_size = true;
+    /// Per region (0 = R1, 1 = R2): true evaluates every far interaction of that region exactly
+    /// (the near-field fallback of ADR 0008 §6 on every far level) instead of the
+    /// expansion / truncation policy. Rigorous, but O(N^2) memory for that region; meant for
+    /// diagnostics and the complementarity tests.
+    std::array<bool, 2> exact_far_regions = {false, false};
 };
+
+/// Leaf rule of ADR 0008 (MlfmmParams::automatic_leaf_size): leaf edge >= kLeafMinLambdaD3 lambda
+/// for d0 <= 3, >= kLeafMinLambdaD5 lambda for d0 > 3 (measured: d0 = 5 needs leaves >= lambda/2),
+/// and r_max / a <= kLeafMaxSupportRatio (the order search fails for larger ratios at d0 = 5).
+inline constexpr Real kLeafMinLambdaD3 = 0.25;
+inline constexpr Real kLeafMinLambdaD5 = 0.5;
+inline constexpr Real kLeafMaxSupportRatio = 0.3;
+
+/// Octree parameters after the leaf rule: params.octree with min_box_size_lambda raised to
+/// max(given, a_min(d0), r_max / (kLeafMaxSupportRatio (1 - kMinBoxSizeTolerance) wavelength))
+/// (the tolerance factor keeps r_max / a <= 0.3 despite the octree's floor tolerance);
+/// params.octree unchanged if params.automatic_leaf_size is false.
+/// @param wavelength the octree's reference wavelength lambda1 [m]
+/// @throws std::invalid_argument for an empty space, accuracy_digits <= 0 or a non-positive
+///         wavelength.
+[[nodiscard]] OctreeParams leaf_rule_params(const basis::RwgSpace& space, Real wavelength,
+                                            const MlfmmParams& params);
 
 class MlfmmOperator final : public op::LinearOperator {
 public:
-    /// Builds the octree, then the far part (its cheap order searches reject unusable
-    /// configurations before the near-field assembly), then the near field.
+    /// Builds the octree (octree params after leaf_rule_params), then the far part (its order
+    /// searches and policy decisions reject unusable configurations before the near-field
+    /// assembly), then the near field.
     /// @throws std::invalid_argument for an invalid Problem (op::validate), invalid octree or
     ///         MLFMM params, or a mesh too coarse for the leaves (r_max >= leaf edge);
-    ///         std::runtime_error if no truncation order meets 10^-d0 for a region and level
-    ///         (e.g. a lossy metal interior: the ADR 0008 §6 policy is WP21), see
-    ///         MlfmmFarOperator.
+    ///         TruncationOrderError (a std::runtime_error) if a region has neither a usable
+    ///         expansion nor enough decay for the ADR 0008 §6 fallback, see MlfmmFarOperator.
     MlfmmOperator(const op::Problem& problem, const MlfmmParams& params);
     ~MlfmmOperator() override;
 
