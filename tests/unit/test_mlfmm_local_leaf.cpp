@@ -258,8 +258,8 @@ TEST_CASE("mlfmm local leaf: home levels of a plate with wide columns", "[octree
     const std::vector<int> home_half = home_by_basis(half);
     for (Index n = 0; n < space.size(); ++n) {
         const int expect = home[sz(n)] == tree.leaf_level() ? tree.leaf_level()
-                           : r[sz(n)] <= 3.0 * h                      ? 2
-                                                                      : 1;
+                           : r[sz(n)] <= 3.0 * h            ? 2
+                                                            : 1;
         if (home_half[sz(n)] != expect)
             FAIL("basis " << n << " (rho_e = rho / 2): home level " << home_half[sz(n)]
                           << ", expected " << expect);
@@ -286,8 +286,8 @@ TEST_CASE("mlfmm local leaf: near pattern and its estimate with elevated functio
     for (Index a = 0; a < n; ++a) {
         for (Index b = 0; b < n; ++b) {
             const int m = std::min(home[sz(a)], home[sz(b)]);
-            const bool expect = touching(tree.boxes()[sz(anc[sz(a)][sz(m)])],
-                                         tree.boxes()[sz(anc[sz(b)][sz(m)])]);
+            const bool expect =
+                touching(tree.boxes()[sz(anc[sz(a)][sz(m)])], tree.boxes()[sz(anc[sz(b)][sz(m)])]);
             near += expect ? 1 : 0;
             wrong += expect != in_pattern(pat, a, b) ? 1 : 0;
         }

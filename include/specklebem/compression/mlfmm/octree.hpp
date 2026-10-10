@@ -42,12 +42,13 @@
 /// kElevatedSupportRatioFactor rho), h(b) = D if r(b) <= rho a_D, otherwise the finest level
 /// l < D with r(b) <= rho_e a_l (a_l = box_size(l), relative tolerance kHomeLevelTolerance; see
 /// kElevatedSupportRatioFactor for rho_e = rho / 2), or 0 if no level qualifies (the far operator
-/// rejects home levels < 2 on trees with >= 3 levels). Functions with h(b) < D are *elevated*: they take part in the expansions from their home box upwards only,
-/// and a pair (a, b) is near iff the ancestors on min(h(a), h(b)) coincide or touch; otherwise
-/// exactly one level l <= min(h(a), h(b)), l >= 2, holds the two ancestors in each other's
-/// interaction lists (the leaf-pair statement above, applied on level min(h(a), h(b))). The box
-/// ranges [first_element, ...) still hold every function by its midpoint, elevated ones included;
-/// active_elements(box) counts those with h >= the box's level.
+/// rejects home levels < 2 on trees with >= 3 levels). Functions with h(b) < D are *elevated*: they
+/// take part in the expansions from their home box upwards only, and a pair (a, b) is near iff the
+/// ancestors on min(h(a), h(b)) coincide or touch; otherwise exactly one level l <= min(h(a),
+/// h(b)), l >= 2, holds the two ancestors in each other's interaction lists (the leaf-pair
+/// statement above, applied on level min(h(a), h(b))). The box ranges [first_element, ...) still
+/// hold every function by its midpoint, elevated ones included; active_elements(box) counts those
+/// with h >= the box's level.
 #include "specklebem/basis/rwg.hpp"
 #include "specklebem/core/types.hpp"
 

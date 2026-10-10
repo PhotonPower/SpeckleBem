@@ -24,7 +24,8 @@
 // Usage: specklebem_mlfmm_scaling --material si|ag --L 4e-6
 //            [--box-mesh-size 100e-9|auto|uncapped] [--fine-band 0|1] [--mesh-size 50e-9]
 //            [--seed 1] [--waist-factor 4] [--allow-wide-beam] [--beam paraxial|angular-spectrum]
-//            [--digits 3] [--leaf-radius-quantile 0.99] [--tol 1e-3] [--max-iter 3000] [--restart 0] [--matvecs 5]
+//            [--digits 3] [--leaf-radius-quantile 0.99] [--tol 1e-3] [--max-iter 3000] [--restart
+//            0] [--matvecs 5]
 //            [--exact-budget-gb G] [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--no-solve]
 //            [--estimate-only] [--force]
 //

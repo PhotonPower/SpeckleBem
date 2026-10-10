@@ -267,11 +267,11 @@ struct MlfmmFarOperator::Impl {
     Real digits = 0;
     int interp_order = 0;
     std::array<Region, 2> region;
-    std::vector<Index> local;            ///< box -> position within its level
-    std::vector<Extent> extent;          ///< box -> bounding box of its bases' supports
-    std::vector<Extent> basis_extent;    ///< basis -> bounding box of its support (exact parts)
-    std::size_t budget = 0;              ///< exact-part budget in effect [bytes]
-    Real rmax = 0;                       ///< max_support_radius
+    std::vector<Index> local;          ///< box -> position within its level
+    std::vector<Extent> extent;        ///< box -> bounding box of its bases' supports
+    std::vector<Extent> basis_extent;  ///< basis -> bounding box of its support (exact parts)
+    std::size_t budget = 0;            ///< exact-part budget in effect [bytes]
+    Real rmax = 0;                     ///< max_support_radius
     /// Per level: largest support radius of the functions with home level >= the level (r_max on
     /// every level without elevated functions).
     std::vector<Real> level_rmax;

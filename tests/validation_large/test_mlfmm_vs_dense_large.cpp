@@ -430,8 +430,8 @@ namespace {
 /// graded_box), so that every coarser box function is elevated.
 [[maybe_unused]] Real top_face_quantile(const basis::RwgSpace& space, Real digits) {
     const Real a_min = digits <= 3.0 ? mlfmm::kLeafMinLambdaD3 : mlfmm::kLeafMinLambdaD5;
-    const Real limit = mlfmm::max_support_ratio(digits) * a_min *
-                       (1.0 - mlfmm::kMinBoxSizeTolerance) * kLambda;
+    const Real limit =
+        mlfmm::max_support_ratio(digits) * a_min * (1.0 - mlfmm::kMinBoxSizeTolerance) * kLambda;
     const std::vector<Real> r = mlfmm::support_radii(space);
     const auto small = std::count_if(r.begin(), r.end(), [&](Real v) { return v <= limit; });
     return static_cast<Real>(small) / static_cast<Real>(r.size());
@@ -468,17 +468,16 @@ struct LocalLeafConfig {
         x.push_back(random_vector(unknowns, 20261011 + seed));
         yd.push_back(*Zd * x.back());
     }
-    WARN(name << ": " << s.mesh.num_triangles() << " triangles, 2N = " << unknowns
-              << ", r_max = " << mlfmm::max_support_radius(s.space) << " m; dense assembly "
-              << dense_s << " s");
+    WARN(name << ": " << s.mesh.num_triangles() << " triangles, 2N = " << unknowns << ", r_max = "
+              << mlfmm::max_support_radius(s.space) << " m; dense assembly " << dense_s << " s");
     for (const LocalLeafConfig& c : configs) {
         mlfmm::MlfmmParams p;
         p.accuracy_digits = c.digits;
         p.octree.max_elements_per_leaf = 4;  // the leaf rule decides the leaf size
         p.leaf_radius_quantile = c.local ? top_face_quantile(s.space, c.digits) : 1.0;
         std::ostringstream id;
-        id << name << ", d0 = " << c.digits << ", leaf radius quantile "
-           << p.leaf_radius_quantile << (c.local ? " (local leaf rule)" : " (global rule)");
+        id << name << ", d0 = " << c.digits << ", leaf radius quantile " << p.leaf_radius_quantile
+           << (c.local ? " (local leaf rule)" : " (global rule)");
         INFO(id.str());
         t0 = std::chrono::steady_clock::now();
         const mlfmm::MlfmmOperator Zm(s.problem, p);
@@ -500,7 +499,8 @@ struct LocalLeafConfig {
         if (c.local) {
             std::vector<bool> elevated(static_cast<std::size_t>(n));
             for (Index q = 0; q < n; ++q)
-                elevated[static_cast<std::size_t>(tree.permutation()[static_cast<std::size_t>(q)])] =
+                elevated[static_cast<std::size_t>(
+                    tree.permutation()[static_cast<std::size_t>(q)])] =
                     tree.home_level(q) != tree.leaf_level();
             VectorXc xe = x[0], xl = x[0];
             for (Index i = 0; i < unknowns; ++i)
@@ -515,13 +515,13 @@ struct LocalLeafConfig {
         }
         std::ostringstream split;
         if (c.local)
-            split << "; involving elevated functions " << err_elevated << ", leaf-leaf " << err_leaf;
-        WARN(id.str() << ": " << tree.levels() << " levels, leaf a = "
-                      << tree.box_size(tree.leaf_level()) / kLambda
+            split << "; involving elevated functions " << err_elevated << ", leaf-leaf "
+                  << err_leaf;
+        WARN(id.str() << ": " << tree.levels()
+                      << " levels, leaf a = " << tree.box_size(tree.leaf_level()) / kLambda
                       << " lambda0, functions per home level" << homes.str() << ": matvec error "
                       << err << " (target " << std::pow(10.0, -c.digits) << ")" << split.str()
-                      << "; setup "
-                      << setup_s << " s, apply " << apply_s << " s; memory "
+                      << "; setup " << setup_s << " s, apply " << apply_s << " s; memory "
                       << mb(Zm.memory_bytes()) << " MB (near "
                       << mb(Zm.near_operator().memory_bytes()) << ", far "
                       << mb(Zm.far_operator().memory_bytes()) << ")\n"
@@ -554,9 +554,9 @@ TEST_CASE("mlfmm vs dense large: graded box Si with elevated functions (local le
     SKIP("validation-large cases run in optimised builds only");
 #else
     const Setup s(graded_box(1e-6, 4e-6), material::silicon_500nm(), Kind::PMCHWT);
-    run_local_leaf_case("graded box 1 x 4 um, Si, PMCHWT", s,
-                        {{3.0, true, true}, {3.0, false, true}, {5.0, true, false},
-                         {5.0, false, true}});
+    run_local_leaf_case(
+        "graded box 1 x 4 um, Si, PMCHWT", s,
+        {{3.0, true, true}, {3.0, false, true}, {5.0, true, false}, {5.0, false, true}});
 #endif
 }
 
@@ -566,9 +566,9 @@ TEST_CASE("mlfmm vs dense large: graded box Ag with elevated functions (local le
     SKIP("validation-large cases run in optimised builds only");
 #else
     const Setup s(graded_box(1e-6, 4e-6), material::silver_500nm(), Kind::PMCHWT);
-    run_local_leaf_case("graded box 1 x 4 um, Ag, PMCHWT", s,
-                        {{3.0, true, true}, {3.0, false, true}, {5.0, true, false},
-                         {5.0, false, true}});
+    run_local_leaf_case(
+        "graded box 1 x 4 um, Ag, PMCHWT", s,
+        {{3.0, true, true}, {3.0, false, true}, {5.0, true, false}, {5.0, false, true}});
 #endif
 }
 

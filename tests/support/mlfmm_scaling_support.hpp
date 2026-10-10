@@ -307,7 +307,7 @@ struct Estimate {
     Index leaves = 0;
     /// Basis functions per home level (local leaf rule; all on the leaf without elevated ones).
     std::vector<Index> home_counts;
-    Index elevated = 0;  ///< basis functions above the leaf level
+    Index elevated = 0;           ///< basis functions above the leaf level
     std::size_t near_bytes = 0;   ///< mlfmm::estimate_near_bytes
     Index exact_pairs = 0;        ///< estimate_exact_pairs (ordered basis pairs of R2)
     std::size_t exact_bytes = 0;  ///< exact_pairs x 40 bytes
@@ -343,8 +343,8 @@ inline constexpr Real kPeakNearFactor = 1.5;
 /// search_truncation_order with the enlarged diagonal; stop at the first level whose search is
 /// not achievable or underflows), counting the translators of the distinct interaction offsets.
 struct FarTableEstimate {
-    int leaf_order = 0;  ///< leaf sampling order (0: no leaf expansion)
-    int levels = 0;      ///< expansion levels
+    int leaf_order = 0;                      ///< leaf sampling order (0: no leaf expansion)
+    int levels = 0;                          ///< expansion levels
     std::size_t pattern_bytes = 0;           ///< leaf and elevated patterns
     std::size_t elevated_pattern_bytes = 0;  ///< elevated patterns (local leaf rule)
     std::size_t table_bytes = 0;
@@ -358,7 +358,8 @@ inline std::vector<Real> level_support_radii(const basis::RwgSpace& space,
     std::vector<Real> out(static_cast<std::size_t>(tree.levels()), 0.0);
     for (Index p = 0; p < space.size(); ++p) {
         auto& v = out[static_cast<std::size_t>(tree.home_level(p))];
-        v = std::max(v, r[static_cast<std::size_t>(tree.permutation()[static_cast<std::size_t>(p)])]);
+        v = std::max(v,
+                     r[static_cast<std::size_t>(tree.permutation()[static_cast<std::size_t>(p)])]);
     }
     for (int l = tree.leaf_level() - 1; l >= 0; --l)
         out[static_cast<std::size_t>(l)] =
@@ -630,8 +631,7 @@ inline std::string label(const Case& c) {
                : box_option(c))
        << (uses_fine_band(c) ? ", fine band" : ", no fine band") << ", " << beam_name(c)
        << " beam w0 = L/" << c.waist_factor << ", seed " << c.seed << ", d0 = " << c.digits
-       << ", leaf radius quantile " << c.leaf_radius_quantile
-       << ", tol = " << c.tolerance;
+       << ", leaf radius quantile " << c.leaf_radius_quantile << ", tol = " << c.tolerance;
     return os.str();
 }
 
@@ -658,13 +658,13 @@ inline std::string summary(const Estimate& e) {
         if (e.home_counts[l] > 0)
             os << " " << l << ": " << e.home_counts[l];
     }
-    os << "); near estimate " << gb(e.near_bytes)
-       << " GB, exact R2 estimate " << gb(e.exact_bytes) << " GB (" << e.exact_pairs
-       << " pairs), budget " << gb(e.exact_budget) << " GB; leaf orders " << e.leaf_order[0]
-       << " / " << e.leaf_order[1] << " (expansion levels " << e.expansion_levels[0] << " / "
-       << e.expansion_levels[1] << "), patterns " << gb(e.pattern_bytes) << " GB (elevated "
-       << gb(e.elevated_pattern_bytes) << " GB), far tables "
-       << gb(e.far_table_bytes) << " GB; setup peak estimate " << gb(e.peak_setup_bytes) << " GB";
+    os << "); near estimate " << gb(e.near_bytes) << " GB, exact R2 estimate " << gb(e.exact_bytes)
+       << " GB (" << e.exact_pairs << " pairs), budget " << gb(e.exact_budget)
+       << " GB; leaf orders " << e.leaf_order[0] << " / " << e.leaf_order[1]
+       << " (expansion levels " << e.expansion_levels[0] << " / " << e.expansion_levels[1]
+       << "), patterns " << gb(e.pattern_bytes) << " GB (elevated " << gb(e.elevated_pattern_bytes)
+       << " GB), far tables " << gb(e.far_table_bytes) << " GB; setup peak estimate "
+       << gb(e.peak_setup_bytes) << " GB";
     return os.str();
 }
 
@@ -697,10 +697,9 @@ inline std::string row(const Case& c, const Result& r) {
        << " fine=" << (uses_fine_band(c) ? 1 : 0) << " restart=" << c.restart
        << " h_nm=" << c.mesh_size * 1e9 << " waist=" << c.waist_factor << " beam=" << beam_name(c)
        << " d0=" << c.digits << " tol=" << c.tolerance << " lq=" << c.leaf_radius_quantile
-       << " seed=" << c.seed
-       << " solved=" << (c.solve ? 1 : 0) << " N2=" << r.est.unknowns << " levels=" << r.est.levels
-       << " leaf_nm=" << r.est.leaf_edge * 1e9 << " rmax_nm=" << r.est.max_support_radius * 1e9
-       << " elevated=" << r.est.elevated
+       << " seed=" << c.seed << " solved=" << (c.solve ? 1 : 0) << " N2=" << r.est.unknowns
+       << " levels=" << r.est.levels << " leaf_nm=" << r.est.leaf_edge * 1e9
+       << " rmax_nm=" << r.est.max_support_radius * 1e9 << " elevated=" << r.est.elevated
        << " setup_s=" << r.assembly_s << " tree_s=" << r.tree_s << " far_s=" << r.far_s
        << " exact_s=" << r.exact_s << " near_s=" << r.near_s << " matvec_s=" << r.matvec_s
        << " near_mv_s=" << r.near_matvec_s << " far_mv_s=" << r.far_matvec_s

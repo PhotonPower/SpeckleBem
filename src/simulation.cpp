@@ -520,7 +520,8 @@ std::string Simulation::report() const {
           << m.octree.max_elements_per_leaf << ", min_box_size_lambda "
           << m.octree.min_box_size_lambda << ", max_levels " << m.octree.max_levels
           << ", automatic_leaf_size " << (m.automatic_leaf_size ? "true" : "false")
-          << ", leaf_radius_quantile " << m.leaf_radius_quantile << ", max_exact_far_bytes " << m.max_exact_far_bytes << ")";
+          << ", leaf_radius_quantile " << m.leaf_radius_quantile << ", max_exact_far_bytes "
+          << m.max_exact_far_bytes << ")";
     }
     o << "\n";
     if (s.op == nullptr) {

@@ -204,7 +204,7 @@ struct FarLevelInfo {
     /// Non-expansion levels: basis pairs of the truncated box pairs (functions with home level
     /// >= this level on both sides).
     Index truncated_basis_pairs = 0;
-    Real setup_seconds = 0;          ///< search, block check, decisions, translators, shifts
+    Real setup_seconds = 0;  ///< search, block check, decisions, translators, shifts
 };
 
 /// No expansion order meets the accuracy for a region and level and the region's decay is too

@@ -72,9 +72,9 @@ OctreeParams leaf_rule_params(const basis::RwgSpace& space, Real wavelength,
     }
     const Real a_min = params.accuracy_digits <= 3.0 ? kLeafMinLambdaD3 : kLeafMinLambdaD5;
     // r_q / a <= max_support_ratio(d0) also with the octree's floor tolerance.
-    const Real a_rmax = support_radius_quantile(space, params.leaf_radius_quantile) /
-                        (max_support_ratio(params.accuracy_digits) * (1.0 - kMinBoxSizeTolerance) *
-                         wavelength);
+    const Real a_rmax =
+        support_radius_quantile(space, params.leaf_radius_quantile) /
+        (max_support_ratio(params.accuracy_digits) * (1.0 - kMinBoxSizeTolerance) * wavelength);
     o.min_box_size_lambda = std::max({o.min_box_size_lambda, a_min, a_rmax});
     return o;
 }

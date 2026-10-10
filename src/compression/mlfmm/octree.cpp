@@ -100,8 +100,8 @@ void Octree::assign_home_levels(std::span<const Real> radii, Real ratio, Real el
     if (!radii.empty()) {
         std::vector<Real> limit(sz(levels_));
         for (int l = 0; l < levels_; ++l)
-            limit[sz(l)] = (l == leaf ? ratio : elevated_ratio) * box_size(l) *
-                           (1.0 + kHomeLevelTolerance);
+            limit[sz(l)] =
+                (l == leaf ? ratio : elevated_ratio) * box_size(l) * (1.0 + kHomeLevelTolerance);
         for (std::size_t p = 0; p < n; ++p) {
             const Real r = radii[sz(perm_[p])];
             int l = leaf;

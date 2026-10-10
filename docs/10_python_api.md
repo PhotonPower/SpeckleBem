@@ -228,8 +228,11 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   r_max / ratio(d0)) with a_min = lambda/4 for d0 <= 3 and lambda/2 for d0 > 3, ratio = 0.6 for
   d0 <= 3 and 0.3 for d0 > 3 (`mlfmm::max_support_ratio`), r_max the largest RWG support radius,
   so `accuracy_digits=5` needs no manual leaf choice; the user value acts as a lower bound; False
-  uses `min_box_size_lambda` as given, for experiments), `max_exact_far_bytes` (int, 0 =
-  automatic: max(2 x the near-field bytes, 1 GiB), at most 16 (2N)^2; WP21 review, WP21f).
+  uses `min_box_size_lambda` as given, for experiments), `leaf_radius_quantile` (0.99; local
+  leaf rule of ADR 0008, WP21L: r_max in the leaf rule is replaced by this quantile r_q of the
+  support radii, and the larger functions live on a coarser octree level, r <= ratio(d0) a / 2
+  there; 1.0 = the global rule), `max_exact_far_bytes` (int, 0 = automatic: max(2 x the
+  near-field bytes, 1 GiB), at most 16 (2N)^2; WP21 review, WP21f).
   Lossy interiors such as silver use the ADR 0008 §6 policy (WP21): no expansion where it is inaccurate, far pairs truncated by
   the decay bound (1 + alpha d) e^{-alpha d} <= 10^-(d0+1) or evaluated exactly (40 bytes per
   basis pair; allowed only if the exact pairs stay within 4 box edges, x*(d0) / alpha <= 4 a,
