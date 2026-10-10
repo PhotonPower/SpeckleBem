@@ -11,9 +11,14 @@ namespace system_memory {
 /// Total physical memory of the machine in bytes (0 if unknown).
 specklebem::Real physical_memory_bytes();
 
-/// Physical memory currently available to new allocations in bytes (Windows ullAvailPhys,
-/// POSIX free pages; 0 if unknown). On a shared machine this, not physical_memory_bytes(),
-/// decides whether a large case can start without swapping.
+/// Physical memory currently available to new allocations in bytes. On a shared machine this,
+/// not physical_memory_bytes(), decides whether a large case can start without swapping.
+///  * Windows: ullAvailPhys of GlobalMemoryStatusEx;
+///  * Linux: MemAvailable of /proc/meminfo (free plus reclaimable memory), falling back to the
+///    free pages sysconf(_SC_AVPHYS_PAGES) if MemAvailable is missing;
+///  * other POSIX systems with _SC_AVPHYS_PAGES: the free pages;
+///  * macOS (no _SC_AVPHYS_PAGES) and anything else: 0 (unknown), so the cases guarded by it
+///    SKIP there.
 specklebem::Real available_memory_bytes();
 
 /// Peak resident set size (peak working set on Windows) of this process in bytes (0 if

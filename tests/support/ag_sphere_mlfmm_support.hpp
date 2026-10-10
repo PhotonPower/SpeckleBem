@@ -9,8 +9,8 @@
 /// 0.313j (material::silver_500nm), plane wave k = +z, E along x (1 V/m). Meshes:
 ///  * "ico": geometry::make_icosphere (20 4^n triangles);
 ///  * "octa": the octahedron-based sphere of the paper (8 4^n triangles; n = 7 gives the paper's
-///    131 072 triangles and 2N = 393 216 unknowns), built here by the same recursive midpoint
-///    subdivision with projection as the icosphere.
+///    131 072 triangles and 2N = 393 216 unknowns), octasphere::make_octasphere
+///    (octasphere.hpp: the same recursive midpoint subdivision with projection as the icosphere).
 /// eps_rr of docs/05 (E = sqrt(sigma), RMS over the angles / max E_ref) in the xz-plane (phi = 0,
 /// bistatic_rcs plane normal +y) and the yz-plane (phi = pi / 2, plane normal -x), theta = 0 ...
 /// 180 degrees in kRcsAngles points (1 degree, as benchmarks/results/mie_sphere_dense.md) and, as a
@@ -29,96 +29,32 @@
 #include "specklebem/reference/mie.hpp"
 #include "specklebem/simulation.hpp"
 
-#include <Eigen/Geometry>
-
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "octasphere.hpp"
 #include "system_memory.hpp"
 
 namespace ag_sphere_mlfmm {
 
 using namespace specklebem;
+using octasphere::edge_stats;
+using octasphere::EdgeStats;
+using octasphere::make_octasphere;
 
 inline constexpr Real kLambda = 500e-9;
 inline constexpr Index kRcsAngles = 181;       ///< 1 degree spacing
 inline constexpr Index kRcsAnglesFine = 1801;  ///< 0.1 degree spacing (sampling check)
-
-/// Octahedron-based sphere: regular octahedron refined `subdivisions` times by midpoint
-/// subdivision with the midpoints projected onto the sphere (as geometry::make_icosphere), 8 4^n
-/// triangles, 4 4^n + 2 vertices, 12 4^n edges; counter-clockwise seen from outside (normals out
-/// of R2 into R1, docs/06).
-/// @throws std::invalid_argument for subdivisions outside [0, 9] or radius not finite and > 0.
-inline geometry::TriangleMesh make_octasphere(Real radius, int subdivisions) {
-    if (subdivisions < 0 || subdivisions > 9)
-        throw std::invalid_argument("make_octasphere: subdivisions must lie in [0, 9]");
-    if (!(radius > 0.0) || !std::isfinite(radius))
-        throw std::invalid_argument("make_octasphere: radius must be finite and > 0");
-    using Face = std::array<Index, 3>;
-    std::vector<Vec3> v = {Vec3::UnitX(),  -Vec3::UnitX(), Vec3::UnitY(),
-                           -Vec3::UnitY(), Vec3::UnitZ(),  -Vec3::UnitZ()};
-    std::vector<Face> f = {{0, 2, 4}, {2, 1, 4}, {1, 3, 4}, {3, 0, 4},
-                           {2, 0, 5}, {1, 2, 5}, {3, 1, 5}, {0, 3, 5}};
-    for (Face& t : f) {
-        const Vec3& a = v[static_cast<std::size_t>(t[0])];
-        const Vec3& b = v[static_cast<std::size_t>(t[1])];
-        const Vec3& c = v[static_cast<std::size_t>(t[2])];
-        if ((b - a).cross(c - a).dot(a + b + c) < 0.0)
-            std::swap(t[1], t[2]);
-    }
-    for (int level = 0; level < subdivisions; ++level) {
-        const std::size_t nf = f.size();
-        const auto stride = static_cast<std::uint64_t>(v.size() + 3 * nf / 2);
-        std::unordered_map<std::uint64_t, Index> cache;
-        cache.reserve(3 * nf / 2);
-        const auto midpoint = [&](Index a, Index b) -> Index {
-            if (a > b)
-                std::swap(a, b);
-            const std::uint64_t key =
-                static_cast<std::uint64_t>(a) * stride + static_cast<std::uint64_t>(b);
-            const auto [it, inserted] = cache.try_emplace(key, 0);
-            if (inserted) {
-                const Vec3 m =
-                    (v[static_cast<std::size_t>(a)] + v[static_cast<std::size_t>(b)]).normalized();
-                it->second = static_cast<Index>(v.size());
-                v.push_back(m);
-            }
-            return it->second;
-        };
-        std::vector<Face> refined;
-        refined.reserve(4 * nf);
-        for (const Face& t : f) {
-            const Index ab = midpoint(t[0], t[1]);
-            const Index bc = midpoint(t[1], t[2]);
-            const Index ca = midpoint(t[2], t[0]);
-            refined.push_back({t[0], ab, ca});
-            refined.push_back({t[1], bc, ab});
-            refined.push_back({t[2], ca, bc});
-            refined.push_back({ab, bc, ca});
-        }
-        f = std::move(refined);
-    }
-    Vertices vertices(static_cast<Index>(v.size()), 3);
-    for (std::size_t i = 0; i < v.size(); ++i)
-        vertices.row(static_cast<Index>(i)) = (radius * v[i]).transpose();
-    Triangles triangles(static_cast<Index>(f.size()), 3);
-    for (std::size_t t = 0; t < f.size(); ++t)
-        for (Index k = 0; k < 3; ++k)
-            triangles(static_cast<Index>(t), k) = f[t][static_cast<std::size_t>(k)];
-    return geometry::TriangleMesh(std::move(vertices), std::move(triangles));
-}
 
 /// Sphere mesh "ico" (icosphere) or "octa" (octahedron-based) of the given diameter.
 /// @throws std::invalid_argument for another kind.
@@ -129,27 +65,6 @@ inline geometry::TriangleMesh make_mesh(const std::string& kind, Real diameter, 
         return make_octasphere(0.5 * diameter, subdivisions);
     throw std::invalid_argument("make_mesh: mesh kind must be \"ico\" or \"octa\", got \"" + kind +
                                 "\"");
-}
-
-/// Edge statistics of a mesh [m].
-struct EdgeStats {
-    Real mean = 0, min = 0, max = 0;
-};
-
-inline EdgeStats edge_stats(const geometry::TriangleMesh& mesh) {
-    EdgeStats s;
-    s.min = 1e300;
-    Real sum = 0.0;
-    for (Index e = 0; e < mesh.num_edges(); ++e) {
-        const Vec3 a = mesh.vertices().row(mesh.edges()(e, 0)).transpose();
-        const Vec3 b = mesh.vertices().row(mesh.edges()(e, 1)).transpose();
-        const Real l = (b - a).norm();
-        sum += l;
-        s.min = std::min(s.min, l);
-        s.max = std::max(s.max, l);
-    }
-    s.mean = sum / static_cast<Real>(mesh.num_edges());
-    return s;
 }
 
 /// One case of the study.

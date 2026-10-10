@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-#include "ag_sphere_mlfmm_support.hpp"
+#include "octasphere.hpp"
 
 using namespace specklebem;
 using Catch::Matchers::ContainsSubstring;
@@ -153,11 +153,11 @@ TEST_CASE("icosphere topology: counts, Euler characteristic, two triangles per e
 
 TEST_CASE("octahedron-based sphere of the WP22a study: counts, closed, outward, on the sphere",
           "[geometry]") {
-    // tests/support/ag_sphere_mlfmm_support.hpp: the paper's mesh of the 4 um Ag sphere is
+    // tests/support/octasphere.hpp: the paper's mesh of the 4 um Ag sphere is
     // make_octasphere(2 um, 7) with 131 072 triangles and 2N = 393 216 unknowns.
     const int n = GENERATE(0, 1, 3, 5);
     const Real radius = 2e-6;
-    const TriangleMesh mesh = ag_sphere_mlfmm::make_octasphere(radius, n);
+    const TriangleMesh mesh = octasphere::make_octasphere(radius, n);
     const Index pow4 = Index{1} << (2 * n);
     CHECK(mesh.num_triangles() == 8 * pow4);
     CHECK(mesh.num_vertices() == 4 * pow4 + 2);
@@ -178,12 +178,12 @@ TEST_CASE("octahedron-based sphere of the WP22a study: counts, closed, outward, 
         CHECK(mesh.signed_volume() > 0.99 * ball);
         // Edge spread of the octahedral subdivision (WP22a record: mean / min / max ~ 30.25 /
         // 24.54 / 38.27 nm at r = 2 um, n = 7, i.e. 0.81 / 1.27 x the mean).
-        const ag_sphere_mlfmm::EdgeStats e = ag_sphere_mlfmm::edge_stats(mesh);
+        const octasphere::EdgeStats e = octasphere::edge_stats(mesh);
         CHECK(e.min > 0.75 * e.mean);
         CHECK(e.max < 1.35 * e.mean);
     }
-    CHECK_THROWS_AS(ag_sphere_mlfmm::make_octasphere(radius, -1), std::invalid_argument);
-    CHECK_THROWS_AS(ag_sphere_mlfmm::make_octasphere(0.0, 1), std::invalid_argument);
+    CHECK_THROWS_AS(octasphere::make_octasphere(radius, -1), std::invalid_argument);
+    CHECK_THROWS_AS(octasphere::make_octasphere(0.0, 1), std::invalid_argument);
 }
 
 TEST_CASE("closedness: icosphere closed, open after removing a triangle", "[geometry]") {
