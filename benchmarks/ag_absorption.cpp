@@ -18,6 +18,9 @@
 //            [--pol p|s] [--mesh-size 50e-9] [--compression mlfmm|dense] [--digits|--d0 3]
 //            [--tol 1e-5] [--max-iter 6000] [--restart 0] [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--force]
+//            [--save-currents FILE] [--load-currents FILE]
+// --save-currents writes the solved [J; M] (raw complex<double>); --load-currents evaluates the
+// diagnostics of saved currents of the same case without assembly and solve.
 #include "specklebem/formulation/formulation.hpp"
 
 #include <chrono>
@@ -39,6 +42,8 @@ struct Options {
     Case c;
     std::string summary;
     bool force = false;
+    std::string save;  ///< --save-currents FILE: raw [J; M] (complex<double>) after the solve
+    std::string load;  ///< --load-currents FILE: diagnostics of saved currents, no solve
 };
 
 Options parse(int argc, char** argv) {
@@ -86,6 +91,10 @@ Options parse(int argc, char** argv) {
             o.c.jacobi = std::stoi(value()) != 0;
         } else if (a == "--summary") {
             o.summary = value();
+        } else if (a == "--save-currents") {
+            o.save = value();
+        } else if (a == "--load-currents") {
+            o.load = value();
         } else if (a == "--force") {
             o.force = true;
         } else {
@@ -103,6 +112,26 @@ void append_summary(const std::string& path, const std::string& line) {
     if (!f)
         throw std::runtime_error("cannot open " + path);
     f << line << '\n';
+}
+
+void save_currents(const std::string& path, const VectorXc& x) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f)
+        throw std::runtime_error("cannot open " + path);
+    f.write(reinterpret_cast<const char*>(x.data()),
+            static_cast<std::streamsize>(static_cast<std::size_t>(x.size()) * sizeof(Complex)));
+}
+
+VectorXc load_currents(const std::string& path, Index n) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f)
+        throw std::runtime_error("cannot open " + path);
+    VectorXc x(n);
+    f.read(reinterpret_cast<char*>(x.data()),
+           static_cast<std::streamsize>(static_cast<std::size_t>(n) * sizeof(Complex)));
+    if (!f || f.peek() != std::ifstream::traits_type::eof())
+        throw std::runtime_error(path + ": size does not match 2N = " + std::to_string(n));
+    return x;
 }
 
 struct Diagnostics {
@@ -162,9 +191,8 @@ int main(int argc, char** argv) {
         const Complex eps2 = object_material(c.material).eps_r;
         const Real th = c.theta_deg * kDeg;
         Diagnostics d;
-        const Result r = run(c, geo, beam, build_s, [&](const Simulation& sim) {
+        const auto diagnose = [&](const post::SurfaceSolution& s) {
             const auto t0 = std::chrono::steady_clock::now();
-            const post::SurfaceSolution& s = sim.solution();
             d.deg2 = aa::absorbed_power_parts(s, geo.spacing, 2);
             d.deg6 = aa::absorbed_power_parts(s, geo.spacing, 6);
             d.p_ext = aa::extinction_power(s, *beam, 6);
@@ -192,6 +220,36 @@ int main(int argc, char** argv) {
                 4);
             d.top = aa::top_metrics(s, f, interp, geo.spacing, [](const Vec3&) { return true; }, 4);
             d.seconds = std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count();
+        };
+        if (!o.load.empty()) {
+            // Diagnostics of saved currents (no assembly, no solve).
+            const Simulation sim(geo.mesh, beam, make_config(c));
+            const post::SurfaceSolution s{&sim.problem(),
+                                          load_currents(o.load, sim.num_unknowns())};
+            const Reference ref = reference(c, *beam, build_s);
+            const Real eta1 = material::vacuum().wave_impedance(beam->omega()).real();
+            const Vec3 specular(std::sin(th), 0.0, -std::cos(th));
+            const Real p_refl = hemisphere_power(s, hemisphere_grid(-1.0, c.ff_dtheta_deg),
+                                                 c.ff_degree, eta1, specular, 0.1)
+                                    .total;
+            diagnose(s);
+            const Real P = ref.power;
+            const Real p_sca = p_refl + d.p_fwd_full;
+            std::printf(
+                "LOADED %s | R_sim %.7f | R_beam %.7f | A_sim %.6f | A_ext %.6f | A_beam "
+                "%.6f | A_patch %.6f | walls %.3e | bottom %.3e\n",
+                o.load.c_str(), p_refl / P, ref.beam.reflectance, d.deg2.total() / P,
+                (d.p_ext - p_sca) / P, d.a_beam, d.a_patch, d.deg2.walls / P, d.deg2.bottom / P);
+            const std::string mc = metrics_line("centre", d.centre, P);
+            const std::string mi = metrics_line("inner", d.inner, P);
+            const std::string mt = metrics_line("top", d.top, P);
+            std::printf("%s\n%s\n%s\n", mc.c_str(), mi.c_str(), mt.c_str());
+            return 0;
+        }
+        const Result r = run(c, geo, beam, build_s, [&](const Simulation& sim) {
+            if (!o.save.empty())
+                save_currents(o.save, sim.solution().currents);
+            diagnose(sim.solution());
         });
         const Real P = r.ref.power;
         std::printf("%s\n\n%s\n\n", summary(r).c_str(), r.report.c_str());
