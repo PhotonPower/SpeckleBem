@@ -5,6 +5,21 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver (WP-G1): parallel classical Gram-Schmidt with re-orthogonalisation (CGS2) in the GMRES
+  Arnoldi step, now the default (`GmresParams::orthogonalization = Orthogonalization::CGS2`;
+  `Orthogonalization::MGS` keeps the previous serial modified Gram-Schmidt with the 0.7
+  criterion, never chosen automatically). Always two passes (h = h₁ + h₂; the 0.7 criterion fired
+  in 45/46 and 52/53 MGS steps of the dense Ag/Si sphere tests, so selective re-orthogonalisation
+  saves nothing for these spectra); the pass-1 update is fused with the pass-2 projection (three
+  sweeps over V per step). The Krylov basis is stored in contiguous column-major panels of
+  min(m + 1, 64) columns (grows without copying); V^H w and V h are OpenMP products over fixed
+  4096-row blocks with block partial sums added in block order, so results are bitwise
+  reproducible and independent of the thread count (they differ from MGS by rounding; iteration
+  counts may differ by ±1–2). Hand-written kernels instead of BLAS GEMV: a threaded BLAS may
+  split the reductions by thread count, and nesting it inside the row-block loop would
+  oversubscribe. `GmresResult` gains `orthogonalization_seconds`, `reorthogonalizations` and,
+  with `GmresParams::keep_basis` (test hook), `basis`. Benchmark
+  `benchmarks/gmres_orthogonalization.cpp`, record `benchmarks/results/gmres_orthogonalization.md`.
 - geometry / simulation (solver) / python (WP-B1): closing-box defaults of the ADR 0006
   amendment 2026-10-10. Geometry: `RoughSurfaceParams::exterior_wavelength` (λ₁) caps the
   automatic coarse spacing at the largest 2^M h_b ≤ λ₁/5 with the actual grid spacing
