@@ -558,8 +558,8 @@ TEST_CASE("excitation fields(): one call equals the two separate fields", "[exci
     const GaussianBeam gb(gp);
     const AngularSpectrumBeam asb(beam_params(1e-6, 0.2));
     for (const Vec3& r : {Vec3(0, 0, 0), Vec3(0.4e-6, -0.7e-6, 1.1e-6), Vec3(-2e-6, 1e-6, -1e-6)}) {
-        for (const Excitation* e : {static_cast<const Excitation*>(&pw),
-                                    static_cast<const Excitation*>(&gb)}) {
+        for (const Excitation* e :
+             {static_cast<const Excitation*>(&pw), static_cast<const Excitation*>(&gb)}) {
             const auto [ef, hf] = e->fields(r);
             CHECK(ef == e->electric_field(r));
             CHECK(hf == e->magnetic_field(r));

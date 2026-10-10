@@ -5,9 +5,8 @@
 // degrees, as wp7_options() in test_assembler.cpp), so that every case stays well below a second
 // in release and a few seconds in the sanitizer build. Physics
 // (eps_rr against Mie) is in tests/validation/test_simulation_mie.cpp.
-#include "specklebem/simulation.hpp"
-
 #include "specklebem/excitation/angular_spectrum_beam.hpp"
+#include "specklebem/simulation.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

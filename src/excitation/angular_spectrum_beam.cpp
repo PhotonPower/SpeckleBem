@@ -89,8 +89,9 @@ AngularSpectrumBeam::AngularSpectrumBeam(Params p, material::Material background
             "or both 0 (automatic)");
     }
     if (p_.polar_order > kMaxOrder || p_.azimuth_order > kMaxOrder) {
-        throw std::invalid_argument("AngularSpectrumBeam: polar_order and azimuth_order must be <= " +
-                                    std::to_string(kMaxOrder));
+        throw std::invalid_argument(
+            "AngularSpectrumBeam: polar_order and azimuth_order must be <= " +
+            std::to_string(kMaxOrder));
     }
     if (p_.max_plane_waves < 1) {
         throw std::invalid_argument("AngularSpectrumBeam: max_plane_waves must be >= 1");
@@ -143,8 +144,8 @@ AngularSpectrumBeam::AngularSpectrumBeam(Params p, material::Material background
             throw std::invalid_argument(
                 "AngularSpectrumBeam: the check grid " + std::to_string(na_cmp) + " x " +
                 std::to_string(np_cmp) + " of the fixed grid " + std::to_string(na) + " x " +
-                std::to_string(np) + " exceeds max_plane_waves = " +
-                std::to_string(p_.max_plane_waves));
+                std::to_string(np) +
+                " exceeds max_plane_waves = " + std::to_string(p_.max_plane_waves));
         }
         grid_ = build(na, np);
         grid_change_ = change(evaluate_probes(grid_), evaluate_probes(build(na_cmp, np_cmp)));
@@ -179,9 +180,8 @@ AngularSpectrumBeam::AngularSpectrumBeam(Params p, material::Material background
         bool converged = false;
         for (int round = 0; round < kMaxRounds && !converged; ++round) {
             if (na > kMaxOrder || np > kMaxOrder) {
-                fail("the orders " + std::to_string(na) + " x " + std::to_string(np) +
-                     " exceed " + std::to_string(kMaxOrder) + ", last change " +
-                     sci(grid_change_));
+                fail("the orders " + std::to_string(na) + " x " + std::to_string(np) + " exceed " +
+                     std::to_string(kMaxOrder) + ", last change " + sci(grid_change_));
             }
             const int na_cmp = refine(na);
             const int np_cmp = round_up4(refine(np));
