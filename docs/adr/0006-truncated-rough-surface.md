@@ -43,6 +43,13 @@ Decisions (project lead, 2026-10-10):
    the paraxial beam is 2.8 % off in reflectance at w₀ = 0.67 µm and stays for qualitative work.
 5. **Metric of the sensitivity checks** (docs/05): the L2 difference of |F|² over the reflection
    hemisphere (sin θ weights) is the verdict metric; ε_rr on the xz/yz cuts is reported alongside.
+Implementation notes (WP-B1): λ₁ = λ₀/|n₁| (conservative for lossy backgrounds; metallic backgrounds
+   are rejected); the cap is applied by the generator with the actual grid spacing L/round(L/h) and rounded
+   down to a 2^M level, strictly (a patch whose spacing is slightly above h may fall back to M = 0, the
+   uniform box — choose L as a multiple of h to avoid it; no tolerance, the rule is already only necessary);
+   "weakly absorbing" (fine band required) means 3 δ > 2 h, i.e. the field has not decayed to e⁻³ at the
+   first coarsened wall row of a band-less box; if the band reaches the bottom the helper uses the uniform
+   box with a warning (`RoughBoxParams::uniform_fallback`).
 6. Default depths unchanged (Ag 2 µm, Si 5.65 µm): the Si bottom radiates nothing, the Ag bottom only
    through the grading error.
 

@@ -115,6 +115,98 @@ Real default_box_fine_depth(const material::Material& object, Real wavelength, R
     return 3.0 * delta + 3.0 * sigma;
 }
 
+Real exterior_wavelength(const material::Material& background, Real wavelength) {
+    if (!(std::isfinite(wavelength) && wavelength > 0.0)) {
+        throw std::invalid_argument("exterior_wavelength: the wavelength must be finite and > 0");
+    }
+    if (!(std::isfinite(background.eps_r.real()) && std::isfinite(background.eps_r.imag()) &&
+          std::isfinite(background.mu_r.real()) && std::isfinite(background.mu_r.imag()))) {
+        throw std::invalid_argument("exterior_wavelength: eps_r and mu_r must be finite");
+    }
+    if (background.eps_r.imag() > 0.0 || background.mu_r.imag() > 0.0) {
+        throw std::invalid_argument(
+            "exterior_wavelength: Im(eps_r) > 0 or Im(mu_r) > 0 is an active medium in the "
+            "exp(+jwt) convention (docs/06)");
+    }
+    if (!(background.eps_r.real() > 0.0)) {
+        throw std::invalid_argument(
+            "exterior_wavelength: a metallic background (Re(eps_r) <= 0) has no propagating "
+            "exterior and is not covered by the closing box (ADR 0006)");
+    }
+    const Complex n = background.refractive_index();
+    if (!(n.real() > 0.0)) {
+        throw std::invalid_argument(
+            "exterior_wavelength: the background needs Re(n) > 0 (propagating exterior)");
+    }
+    // |n_1| >= Re(n_1): conservative (shorter lambda_1) for a lossy background.
+    return wavelength / std::abs(n);
+}
+
+Real default_box_mesh_size(const material::Material& background, Real wavelength, Real mesh_size) {
+    if (!(std::isfinite(mesh_size) && mesh_size > 0.0)) {
+        throw std::invalid_argument("default_box_mesh_size: mesh_size must be finite and > 0");
+    }
+    return geometry::box_spacing_for_exterior_wavelength(
+        exterior_wavelength(background, wavelength), mesh_size);
+}
+
+void RoughBoxParams::apply_to(geometry::RoughSurfaceParams& p) const {
+    p.box_depth = box_depth;
+    p.box_fine_depth = box_fine_depth;
+    p.box_mesh_size = box_mesh_size;
+    p.exterior_wavelength = exterior_wavelength;
+}
+
+RoughBoxParams rough_surface_box_params(const material::Material& object,
+                                        const material::Material& background, Real wavelength,
+                                        Real sigma, Real mesh_size) {
+    if (!(std::isfinite(mesh_size) && mesh_size > 0.0)) {
+        throw std::invalid_argument("rough_surface_box_params: mesh_size must be finite and > 0");
+    }
+    RoughBoxParams b;
+    b.box_depth = default_box_depth(object, wavelength);
+    const Real fine_depth = default_box_fine_depth(object, wavelength, sigma);
+    // box_mesh_size stays unset: the generator caps its automatic rule at lambda_1 / 5 with
+    // the actual grid spacing L / round(L / h), which mesh_size does not know.
+    b.exterior_wavelength = exterior_wavelength(background, wavelength);
+    const Real delta = material::field_decay_length(object, wavelength);
+    const bool weakly_absorbing = 3.0 * delta > geometry::kNoBandCoarseningDepth * mesh_size;
+    if (!weakly_absorbing)
+        return b;
+    if (fine_depth < b.box_depth) {
+        b.box_fine_depth = fine_depth;
+    } else {
+        SBEM_WARN(
+            "rough_surface_box_params: the fine band 3 delta + 3 sigma = {:.3g} m reaches the "
+            "bottom plate at {:.3g} m; using the uniform box (box_mesh_size = mesh_size), "
+            "several times the cost of the graded box",
+            fine_depth, b.box_depth);
+        b.box_mesh_size = mesh_size;
+        b.uniform_fallback = true;
+    }
+    return b;
+}
+
+void check_beam_waist(Real patch_length, Real waist, bool allow_wide) {
+    if (!(std::isfinite(patch_length) && patch_length > 0.0) ||
+        !(std::isfinite(waist) && waist > 0.0)) {
+        throw std::invalid_argument(
+            "check_beam_waist: patch_length and waist must be finite and > 0");
+    }
+    const Real limit = kMaxBeamWaistFraction * patch_length;
+    if (!(waist > limit * (1.0 + 1e-12)))
+        return;
+    std::ostringstream os;
+    os << "beam waist " << waist << " m exceeds L / 4 = " << limit
+       << " m for the patch edge L = " << patch_length
+       << " m (ADR 0006 amendment 2026-10-10: at L / 3 the beam carries 0.6-0.9 % of its "
+          "power past the patch edges)";
+    if (!allow_wide)
+        throw std::invalid_argument("check_beam_waist: " + os.str() +
+                                    "; pass allow_wide = true to accept it");
+    SBEM_WARN("check_beam_waist: {} (allowed by the caller)", os.str());
+}
+
 struct Simulation::Impl {
     Impl(geometry::TriangleMesh m, std::shared_ptr<excitation::Excitation> exc,
          SimulationConfig cfg)
