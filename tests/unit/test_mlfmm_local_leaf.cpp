@@ -4,7 +4,6 @@
 /// of leaf_radius_quantile = 1 with the global leaf rule, and the accuracy of columns and rows of
 /// elevated functions against exact entries. lambda0 = 500 nm.
 #include "specklebem/compression/mlfmm/far_operator.hpp"
-#include "specklebem/compression/mlfmm/interpolation.hpp"
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
 #include "specklebem/compression/mlfmm/near_field.hpp"
 #include "specklebem/compression/mlfmm/octree.hpp"
@@ -24,11 +23,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <memory>
 #include <random>
 #include <set>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -80,21 +77,23 @@ geometry::TriangleMesh graded_box(Real size, Real depth) {
     return geometry::make_rough_surface_mesh(p);
 }
 
-/// Open plate in z = 0 on a tensor grid of spacing h with two wide columns (widths 2h and 4h):
-/// x = 6 cells of h, one of 2h, 6 of h, one of 4h, 6 of h (24 h); y = 24 cells of h. The long
-/// triangles of the wide columns have support radii ~2.06 h and ~4.03 h, the others <= 1.12 h.
-geometry::TriangleMesh strip_plate(Real h) {
+/// Open plate in z = 0 on a tensor grid of spacing h with two wide columns (widths w1 h and
+/// w2 h): x = `cells` cells of h, one of w1 h, `cells` of h, one of w2 h, `cells` of h; y = `rows`
+/// cells of h. The long triangles of a column of width w h have support radii ~sqrt(w^2 + 1/4) h,
+/// the others <= 1.12 h. Default: 6 / 2 / 4 / 24 rows, 24 h x 24 h.
+geometry::TriangleMesh strip_plate(Real h, int cells = 6, Real w1 = 2.0, Real w2 = 4.0,
+                                   Index rows = 24) {
     std::vector<Real> xs = {0.0};
-    const auto add = [&](int cells, Real w) {
-        for (int i = 0; i < cells; ++i) xs.push_back(xs.back() + w);
+    const auto add = [&](int count, Real w) {
+        for (int i = 0; i < count; ++i) xs.push_back(xs.back() + w);
     };
-    add(6, h);
-    add(1, 2.0 * h);
-    add(6, h);
-    add(1, 4.0 * h);
-    add(6, h);
+    add(cells, h);
+    add(1, w1 * h);
+    add(cells, h);
+    add(1, w2 * h);
+    add(cells, h);
     const auto nx = static_cast<Index>(xs.size());
-    const Index ny = 25;
+    const Index ny = rows + 1;
     Vertices v(nx * ny, 3);
     for (Index j = 0; j < ny; ++j) {
         for (Index i = 0; i < nx; ++i) {
@@ -114,22 +113,6 @@ geometry::TriangleMesh strip_plate(Real h) {
     }
     return geometry::TriangleMesh(v, t);
 }
-
-/// The formulation with the exterior weights set to zero (region R2 only).
-class InteriorOnly final : public formulation::Formulation {
-public:
-    explicit InteriorOnly(const formulation::Formulation& f) : f_(f) {}
-    [[nodiscard]] Kind kind() const override { return f_.kind(); }
-    [[nodiscard]] std::string name() const override { return f_.name(); }
-    [[nodiscard]] formulation::Weights weights(Complex eta1, Complex eta2) const override {
-        formulation::Weights w = f_.weights(eta1, eta2);
-        w.a1 = w.b1 = Complex(0.0, 0.0);
-        return w;
-    }
-
-private:
-    const formulation::Formulation& f_;
-};
 
 kernels::OperatorOptions cheap_options() {
     kernels::OperatorOptions opt;
@@ -268,19 +251,22 @@ TEST_CASE("mlfmm local leaf: home levels of a plate with wide columns", "[octree
     CHECK_THROWS_AS(mlfmm::Octree(space, kLambda, op, r, 0.0, 1.0), std::invalid_argument);
     CHECK_THROWS_AS(mlfmm::Octree(space, kLambda, op, r, 1.0, 0.0), std::invalid_argument);
     // The elevated ratio applies above the leaf only: with rho_e = rho / 2 the 2h column
-    // (r ~ 2.06 h > 0.5 x 3 h) moves from level 3 to level 2, the leaf functions stay.
+    // (r ~ 2.06 h > 0.5 x 3 h) moves from level 3 to level 2, the 4h column (r ~ 4.03 h >
+    // 0.5 x 6 h) from level 2 to level 1, the leaf functions stay. No function lives one level
+    // above the leaf (rho_e a_{D-1} = rho a_D).
     const mlfmm::Octree half(space, kLambda, op, r, 1.0, 0.5);
     const std::vector<int> home_half = home_by_basis(half);
     for (Index n = 0; n < space.size(); ++n) {
         const int expect = home[sz(n)] == tree.leaf_level() ? tree.leaf_level()
-                           : r[sz(n)] <= 1.5 * 25e-9                  ? 3
-                                                                      : 2;
+                           : r[sz(n)] <= 3.0 * h                      ? 2
+                                                                      : 1;
         if (home_half[sz(n)] != expect)
             FAIL("basis " << n << " (rho_e = rho / 2): home level " << home_half[sz(n)]
                           << ", expected " << expect);
     }
     CHECK(half.home_level_counts()[3] == 0);
-    CHECK(half.home_level_counts()[2] == counts[2] + counts[3]);
+    CHECK(half.home_level_counts()[2] == counts[3]);
+    CHECK(half.home_level_counts()[1] == counts[2]);
     CHECK_THROWS_AS(tree.elevated_positions(5), std::out_of_range);
 }
 
@@ -326,53 +312,48 @@ TEST_CASE("mlfmm local leaf: near pattern and its estimate with elevated functio
 
 TEST_CASE("mlfmm local leaf: every basis pair is near, expanded, exact or truncated once",
           "[mlfmm]") {
-    // Lossy interior only (exterior weights zero): Ag at h = 25 nm (leaf a = 37.5 nm). The
-    // interior expands on the fine levels and falls back to truncation / exact on the coarse
-    // ones, where the elevated functions of the wide columns live.
-    Setup s(strip_plate(25e-9), material::silver_500nm(), Kind::PMCHWT);
-    const InteriorOnly interior(*s.form);
-    s.problem.formulation = &interior;
+    // Plate h = 50 nm, 2.3 um x 0.6 um (5 levels, leaf a ~ 0.29 lambda, regular r / a <= 0.39;
+    // ratio 0.6 on every level: structure only, no accuracy claim): the 3h column (r ~ 151 nm)
+    // lives on level 3, the 4h column (r ~ 201 nm) on level 2. Vacuum exterior: expansion on every
+    // far level; Ag interior: no expansion, its far pairs are truncated by the decay bound or
+    // evaluated exactly (reach x* / alpha ~ 0.3 um).
+    Setup s(strip_plate(50e-9, 13, 3.0, 4.0, 12), material::silver_500nm(), Kind::PMCHWT);
     s.problem.kernel_options = cheap_options();
     const mlfmm::Octree tree(s.space, kLambda, mlfmm::OctreeParams{1, 5, 0.0},
-                             mlfmm::support_radii(s.space), 0.9, 0.9);
-    REQUIRE(tree.has_elevated());
+                             mlfmm::support_radii(s.space), 0.6, 0.6);
+    REQUIRE(tree.levels() == 5);
+    REQUIRE(tree.home_level_counts()[2] > 0);
+    REQUIRE(tree.home_level_counts()[3] > 0);
     mlfmm::MlfmmParams p;
     p.accuracy_digits = 3.0;
     p.automatic_leaf_size = false;
     const mlfmm::MlfmmFarOperator far(s.problem, tree, p);
-    REQUIRE(far.region_active(1));
-    CHECK_FALSE(far.region_active(0));
     INFO(far.describe());
+    REQUIRE(far.region_active(0));
+    REQUIRE(far.region_active(1));
     const op::BasisPattern pat = mlfmm::near_pattern(tree, s.space);
     const auto anc = ancestors(tree);
     const std::vector<int> home = home_by_basis(tree);
-    const std::vector<mlfmm::FarLevelInfo>& info = far.levels(1);
-    const op::RegionSparseOperator* exact = far.exact_part(1);
-    const auto in_exact = [&](Index a, Index b) {
-        if (exact == nullptr)
-            return false;
-        const auto& rp = exact->row_ptr();
-        const auto& cols = exact->col_indices();
-        return std::binary_search(cols.begin() + rp[sz(a)], cols.begin() + rp[sz(a) + 1], b);
-    };
+    const auto& boxes = tree.boxes();
     const Index n = s.space.size();
-    Index near = 0, expansion = 0, exact_pairs = 0, truncated = 0, errors = 0;
+    // Per pair: -1 near, else the unique far level (0 if the far level is not unique).
+    std::vector<int> far_level(sz(n * n), 0);
+    Index near = 0, errors = 0;
     std::set<int> elevated_far_levels;
     for (Index a = 0; a < n; ++a) {
         for (Index b = 0; b < n; ++b) {
             const int m = std::min(home[sz(a)], home[sz(b)]);
-            const auto& boxes = tree.boxes();
             const bool is_near =
                 touching(boxes[sz(anc[sz(a)][sz(m)])], boxes[sz(anc[sz(b)][sz(m)])]);
-            const bool stored = in_pattern(pat, a, b);
+            errors += is_near != in_pattern(pat, a, b) ? 1 : 0;
+            int& level = far_level[sz(a * n + b)];
             if (is_near) {
                 ++near;
-                errors += (!stored || in_exact(a, b)) ? 1 : 0;
+                level = -1;
                 continue;
             }
-            errors += stored ? 1 : 0;
             // Exactly one level l in [2, m] with the ancestors in each other's lists.
-            int level = -1, hits = 0;
+            int hits = 0;
             for (int l = m; l >= 2; --l) {
                 const mlfmm::Box& A = boxes[sz(anc[sz(a)][sz(l)])];
                 if (std::binary_search(A.interaction_list.begin(), A.interaction_list.end(),
@@ -383,38 +364,88 @@ TEST_CASE("mlfmm local leaf: every basis pair is near, expanded, exact or trunca
             }
             if (hits != 1) {
                 ++errors;
-                continue;
-            }
-            if (m < tree.leaf_level())
+                level = 0;
+            } else if (m < tree.leaf_level()) {
                 elevated_far_levels.insert(level);
-            if (info[sz(level - 2)].decision == mlfmm::FarDecision::expansion) {
-                ++expansion;
-                errors += in_exact(a, b) ? 1 : 0;
-            } else if (in_exact(a, b)) {
-                ++exact_pairs;
-            } else {
-                ++truncated;
             }
         }
     }
-    Index truncated_reported = far.exact_info(1).truncated_pairs;
-    for (const mlfmm::FarLevelInfo& f : info) truncated_reported += f.truncated_basis_pairs;
-    INFO("near " << near << ", expansion " << expansion << ", exact " << exact_pairs
-                 << ", truncated " << truncated << " (reported " << truncated_reported
-                 << "), elevated far levels " << elevated_far_levels.size());
     CHECK(errors == 0);
-    CHECK(near + expansion + exact_pairs + truncated == n * n);
-    CHECK(exact_pairs == (exact != nullptr ? exact->pairs() : 0));
-    CHECK(truncated == truncated_reported);
-    // The case exercises all four kinds and elevated functions on more than one far level.
-    CHECK(expansion > 0);
-    CHECK(exact_pairs > 0);
-    CHECK(truncated > 0);
-    CHECK(elevated_far_levels.size() >= 2);
+    INFO("near pairs " << near << " of " << n * n << ", elevated far levels "
+                       << elevated_far_levels.size());
+    CHECK(elevated_far_levels.size() == 2);
+    std::array<Index, 3> kinds{};  // expansion, exact, truncated over both regions
+    for (int region = 0; region < 2; ++region) {
+        const std::vector<mlfmm::FarLevelInfo>& info = far.levels(region);
+        const op::RegionSparseOperator* exact = far.exact_part(region);
+        const auto in_exact = [&](Index a, Index b) {
+            if (exact == nullptr)
+                return false;
+            const auto& rp = exact->row_ptr();
+            const auto& cols = exact->col_indices();
+            return std::binary_search(cols.begin() + rp[sz(a)], cols.begin() + rp[sz(a) + 1], b);
+        };
+        Index expansion = 0, exact_pairs = 0, truncated = 0, wrong = 0;
+        for (Index a = 0; a < n; ++a) {
+            for (Index b = 0; b < n; ++b) {
+                const int level = far_level[sz(a * n + b)];
+                if (level < 0) {
+                    wrong += in_exact(a, b) ? 1 : 0;  // near pairs are never in the exact part
+                    continue;
+                }
+                if (level == 0)
+                    continue;  // counted as an error above
+                if (info[sz(level - 2)].decision == mlfmm::FarDecision::expansion) {
+                    ++expansion;
+                    wrong += in_exact(a, b) ? 1 : 0;
+                } else if (in_exact(a, b)) {
+                    ++exact_pairs;
+                } else {
+                    ++truncated;
+                }
+            }
+        }
+        Index truncated_reported = far.exact_info(region).truncated_pairs;
+        for (const mlfmm::FarLevelInfo& f : info) truncated_reported += f.truncated_basis_pairs;
+        INFO("region " << region << ": expansion " << expansion << ", exact " << exact_pairs
+                       << ", truncated " << truncated << " (reported " << truncated_reported
+                       << ")");
+        CHECK(wrong == 0);
+        CHECK(near + expansion + exact_pairs + truncated == n * n);
+        CHECK(exact_pairs == (exact != nullptr ? exact->pairs() : 0));
+        CHECK(truncated == truncated_reported);
+        kinds[0] += expansion;
+        kinds[1] += exact_pairs;
+        kinds[2] += truncated;
+    }
+    // The case exercises all kinds: R1 expands, R2 is exact or truncated.
+    CHECK(kinds[0] > 0);
+    CHECK(kinds[1] > 0);
+    CHECK(kinds[2] > 0);
+}
+
+TEST_CASE("mlfmm local leaf: a function without home level >= 2 is rejected", "[mlfmm]") {
+    Setup s(strip_plate(25e-9), material::silicon_500nm(), Kind::PMCHWT);
+    // Ratio 0.3 on a tree with leaf a = 1.5 h: the 4h column (r ~ 4.03 h) needs a >= 13.4 h,
+    // i.e. level 0 (a = 24 h): no home level >= 2.
+    const mlfmm::Octree tree(s.space, kLambda, mlfmm::OctreeParams{1, 5, 0.0},
+                             mlfmm::support_radii(s.space), 0.3, 0.3);
+    REQUIRE(tree.home_level_counts()[0] + tree.home_level_counts()[1] > 0);
+    mlfmm::MlfmmParams p;
+    p.automatic_leaf_size = false;
+    try {
+        const mlfmm::MlfmmFarOperator far(s.problem, tree, p);
+        FAIL("expected TruncationOrderError");
+    } catch (const mlfmm::TruncationOrderError& e) {
+        INFO(e.what());
+        CHECK(e.cause() == mlfmm::TruncationOrderError::Cause::mesh_or_leaf_size);
+        CHECK(e.level() < 2);
+        CHECK(std::string(e.what()).find("home level") != std::string::npos);
+    }
 }
 
 TEST_CASE("mlfmm local leaf: quantile 1 reproduces the global leaf rule bitwise", "[mlfmm]") {
-    Setup s(graded_box(1e-6, 1e-6), material::silicon_500nm(), Kind::PMCHWT);
+    Setup s(graded_box(1e-6, 1e-6), {Complex(2.25, 0.0), Complex(1.0, 0.0)}, Kind::PMCHWT);
     s.problem.kernel_options = cheap_options();
     mlfmm::MlfmmParams p;
     p.leaf_radius_quantile = 1.0;
@@ -458,9 +489,11 @@ TEST_CASE("mlfmm local leaf: quantile 1 reproduces the global leaf rule bitwise"
 
 TEST_CASE("mlfmm local leaf: columns and rows of elevated functions match exact entries",
           "[mlfmm]") {
-    // Graded box 1 um: the global rule gives 0.53 lambda leaves (3 levels); with the quantile
-    // 0.5 the leaves are lambda / 4 (4 levels) and the coarse box functions live on level 2.
-    Setup s(graded_box(1e-6, 1e-6), material::silicon_500nm(), Kind::PMCHWT);
+    // Graded box 0.6 um x 0.6 um, depth 2 um (root ~2.07 um), n = 1.5 interior. The quantile of
+    // the top-face radii (<= 0.6 lambda / 4) gives lambda / 4 leaves (5 levels); the coarse box
+    // functions (r = 112-141 nm > 0.6 a_leaf) live on level 2 (rho_e = 0.3, 517 nm boxes), none
+    // on level 3 (rho_e a_3 = rho a_4). Si and Ag with the dense matrix: validation-large.
+    Setup s(graded_box(0.6e-6, 2e-6), {Complex(2.25, 0.0), Complex(1.0, 0.0)}, Kind::PMCHWT);
 #ifdef NDEBUG
     s.problem.kernel_options.target_accuracy = 1e-5;
     constexpr bool kAccuracy = true;
@@ -468,84 +501,43 @@ TEST_CASE("mlfmm local leaf: columns and rows of elevated functions match exact 
     s.problem.kernel_options = cheap_options();  // structure only in the sanitizer build (time)
     constexpr bool kAccuracy = false;
 #endif
+    const Index n = s.space.size();
+    const std::vector<Real> r = mlfmm::support_radii(s.space);
+    const Real top = 0.6 * 0.25 * kLambda * (1.0 - mlfmm::kMinBoxSizeTolerance);
+    const auto small = std::count_if(r.begin(), r.end(), [&](Real v) { return v <= top; });
     mlfmm::MlfmmParams p;
-    p.leaf_radius_quantile = 0.5;
-    p.octree.max_elements_per_leaf = 8;
+    p.leaf_radius_quantile = static_cast<Real>(small) / static_cast<Real>(n);
+    p.octree.max_elements_per_leaf = 4;
     const mlfmm::MlfmmOperator Z(s.problem, p);
     const mlfmm::Octree& tree = Z.octree();
-    INFO(Z.describe());
+    INFO("2N = " << 2 * n << ", quantile " << p.leaf_radius_quantile << "\n" << Z.describe());
+    REQUIRE(tree.levels() == 5);
     REQUIRE(tree.has_elevated());
-    REQUIRE(tree.levels() == 4);
+    const std::vector<Index> counts = tree.home_level_counts();
+    CHECK(counts[3] == 0);
+    REQUIRE(counts[2] > 0);
+    CHECK(counts[2] + counts[4] == n);
     CHECK(Z.describe().find("home levels") != std::string::npos);
     // Both regions expand on level 2, where the elevated functions live.
     for (int region = 0; region < 2; ++region) {
-        const mlfmm::FarLevelInfo& f = Z.far_operator().levels(region).front();
+        const std::vector<mlfmm::FarLevelInfo>& levels = Z.far_operator().levels(region);
+        const mlfmm::FarLevelInfo& f = levels.front();
         CHECK(f.level == 2);
         CHECK(f.decision == mlfmm::FarDecision::expansion);
-        CHECK(f.home_functions == tree.home_level_counts()[2]);
+        CHECK(f.home_functions == counts[2]);
         CHECK(f.elevated_pattern_bytes > 0);
-        CHECK(f.support_radius > Z.far_operator().levels(region).back().support_radius);
+        CHECK(f.support_radius > levels.back().support_radius);
+        CHECK(levels.back().home_functions == counts[4]);
     }
-    {
-        const mlfmm::RadiationPatterns& pat = Z.far_operator().patterns(0);
-        Real worst = 0;
-        Index checked = 0;
-        for (const Index lb : tree.boxes_at_level(tree.leaf_level())) {
-            const mlfmm::Box& box = tree.boxes()[sz(lb)];
-            for (Index pp = box.first_element; pp < box.first_element + box.num_elements; ++pp) {
-                if (pat.slot(pp) < 0)
-                    continue;
-                const std::vector<Index> one = {tree.permutation()[sz(pp)]};
-                const std::vector<Complex> v = mlfmm::basis_patterns(
-                    s.space, one, box.center, pat.k(), pat.sampling(),
-                    mlfmm::PatternOptions{0, 1e-5});
-                for (Index q = 0; q < pat.num_directions(); ++q)
-                    for (int c = 0; c < 2; ++c)
-                        worst = std::max(worst, std::abs(v[sz(q * 2 + c)] - pat.radiation(pp, q, c)));
-                ++checked;
-            }
-            if (checked > 200)
-                break;
-        }
-        WARN("leaf pattern check: " << checked << " functions, max diff " << worst);
-        const mlfmm::RadiationPatterns& p2 = Z.far_operator().patterns(1);
-        const mlfmm::SphereSampling ps(Z.far_operator().levels(1).front().sampling_order);
-        const mlfmm::SphereInterpolator I(p2.sampling(), ps, 14);
-        for (Index pp : {Index{0}, Index{100}, Index{1000}}) {
-            while (p2.slot(pp) < 0) ++pp;
-            const mlfmm::Box& C = tree.boxes()[sz(p2.leaf_box(pp))];
-            const mlfmm::Box& P = tree.boxes()[sz(C.parent)];
-            const auto nd = sz(p2.num_directions());
-            VectorXc vt(static_cast<Index>(nd)), vp(static_cast<Index>(nd));
-            for (std::size_t q = 0; q < nd; ++q) {
-                vt(static_cast<Index>(q)) = p2.radiation(pp, static_cast<Index>(q), 0);
-                vp(static_cast<Index>(q)) = p2.radiation(pp, static_cast<Index>(q), 1);
-            }
-            const VectorXc it = I.interpolate(vt, mlfmm::PoleParity::odd);
-            const VectorXc ip = I.interpolate(vp, mlfmm::PoleParity::odd);
-            const std::vector<Index> one = {tree.permutation()[sz(pp)]};
-            const std::vector<Complex> ref = mlfmm::basis_patterns(
-                s.space, one, P.center, p2.k(), ps, mlfmm::PatternOptions{0, 1e-5});
-            const Vec3 d = C.center - P.center;
-            Real num = 0, den = 0;
-            for (Index q = 0; q < ps.size(); ++q) {
-                const Complex sh =
-                    std::exp(Complex(0.0, 1.0) * p2.k() * Real(ps.directions().row(q) * d));
-                num += std::norm(sh * it(q) - ref[sz(2 * q)]) + std::norm(sh * ip(q) - ref[sz(2 * q + 1)]);
-                den += std::norm(ref[sz(2 * q)]) + std::norm(ref[sz(2 * q + 1)]);
-            }
-            WARN("interp check p " << pp << ": " << std::sqrt(num / den) << " (Lc "
-                                   << p2.sampling().order() << " Lp " << ps.order() << ")");
-        }
-    }
-    const Index n = s.space.size();
     const std::vector<Index>& elevated = tree.elevated_positions(2);
     REQUIRE(elevated.size() >= 4);
     std::vector<Index> probe;  // elevated and leaf functions, by basis index
     for (std::size_t i = 0; i < 4; ++i)
         probe.push_back(tree.permutation()[sz(elevated[i * (elevated.size() - 1) / 3])]);
-    probe.push_back(tree.permutation()[0]);
-    probe.push_back(tree.permutation()[tree.permutation().size() / 2]);
+    for (Index pp = 0; pp < n; pp += n / 3) {
+        if (tree.home_level(pp) == tree.leaf_level())
+            probe.push_back(tree.permutation()[sz(pp)]);
+    }
     std::sort(probe.begin(), probe.end());
     probe.erase(std::unique(probe.begin(), probe.end()), probe.end());
     // Exact columns (all rows) and exact rows (all columns) of the probes.
@@ -560,101 +552,16 @@ TEST_CASE("mlfmm local leaf: columns and rows of elevated functions match exact 
     for (Index c = 0; c < n; ++c) rows_pat.cols.push_back(c);
     rows_pat.col_ptr = {0, n, n};
     const auto exact_rows = op::assemble_sparse(s.problem, rows_pat);
-    Real worst_col = 0.0;
+    Real worst_elevated = 0.0, worst_leaf = 0.0;
     for (const Index b : probe) {
+        const bool is_elevated = tree.home_level(tree.inverse_permutation()[sz(b)]) == 2;
         for (const Index col : {b, n + b}) {
-            const VectorXc e = VectorXc::Unit(2 * n, col);
-            const VectorXc y = Z * e;
+            const VectorXc y = Z * VectorXc::Unit(2 * n, col);
             const VectorXc ex = exact_cols->matrix().col(col);
             const Real err = (y - ex).norm() / ex.norm();
-            worst_col = std::max(worst_col, err);
-            {
-                const VectorXc yn = Z.near_operator() * e;
-                Real nearerr = 0, farerr = 0, farn = 0, e2 = 0, n2 = 0, e3 = 0, n3 = 0;
-                for (Index rr = 0; rr < 2 * n; ++rr) {
-                    if (yn(rr) != Complex(0.0, 0.0)) {
-                        nearerr += std::norm(y(rr) - ex(rr));
-                    } else {
-                        farerr += std::norm(y(rr) - ex(rr));
-                        farn += std::norm(ex(rr));
-                        if (tree.home_level(tree.inverse_permutation()[sz(rr % n)]) == 2) {
-                            e2 += std::norm(y(rr) - ex(rr));
-                            n2 += std::norm(ex(rr));
-                        } else {
-                            e3 += std::norm(y(rr) - ex(rr));
-                            n3 += std::norm(ex(rr));
-                        }
-                    }
-                }
-                WARN("col " << col << " home "
-                            << tree.home_level(tree.inverse_permutation()[sz(b)]) << " err "
-                            << err << " near-row err " << std::sqrt(nearerr) / ex.norm()
-                            << " far-row err " << std::sqrt(farerr / farn) << " elevated rows "
-                            << std::sqrt(e2 / n2) << " (" << std::sqrt(n2) << ") leaf rows "
-                            << std::sqrt(e3 / n3) << " (" << std::sqrt(n3) << ")");
-            }
             CHECK(std::isfinite(err));
-        }
-    }
-    {
-        const auto anc = ancestors(tree);
-        const std::vector<int> home = home_by_basis(tree);
-        for (int reg = 0; reg < 2; ++reg)
-        for (const Index b : probe) {
-            for (const Index col : {b, n + b}) {
-                class OneRegion final : public formulation::Formulation {
-                public:
-                    OneRegion(const formulation::Formulation& f, int r) : f_(f), r_(r) {}
-                    [[nodiscard]] Kind kind() const override { return f_.kind(); }
-                    [[nodiscard]] std::string name() const override { return f_.name(); }
-                    [[nodiscard]] formulation::Weights weights(Complex e1,
-                                                               Complex e2) const override {
-                        formulation::Weights w = f_.weights(e1, e2);
-                        if (r_ == 1)
-                            w.a1 = w.b1 = Complex(0.0, 0.0);
-                        else
-                            w.a2 = w.b2 = Complex(0.0, 0.0);
-                        return w;
-                    }
-
-                private:
-                    const formulation::Formulation& f_;
-                    int r_;
-                };
-                const OneRegion one(*s.form, reg);
-                op::Problem pr = s.problem;
-                pr.formulation = &one;
-                const mlfmm::MlfmmFarOperator far(pr, tree, p);
-                const auto ec = op::assemble_sparse(pr, cols_pat);
-                const VectorXc e = VectorXc::Unit(2 * n, col);
-                const VectorXc nearpart = Z.near_operator() * e;
-                VectorXc yg = far * e;
-                const VectorXc ex = ec->matrix().col(col);
-                for (Index rr = 0; rr < 2 * n; ++rr)
-                    if (nearpart(rr) != Complex(0.0, 0.0))
-                        yg(rr) = ex(rr);
-                WARN("region " << reg);
-                std::array<Real, 4> en{}, nn{};
-                for (Index rr = 0; rr < 2 * n; ++rr) {
-                    const Index a = rr % n;
-                    const int m = std::min(home[sz(a)], home[sz(b)]);
-                    if (touching(tree.boxes()[sz(anc[sz(a)][sz(m)])],
-                                 tree.boxes()[sz(anc[sz(b)][sz(m)])]))
-                        continue;
-                    int level = -1;
-                    for (int l = m; l >= 2; --l) {
-                        const mlfmm::Box& A = tree.boxes()[sz(anc[sz(a)][sz(l)])];
-                        if (std::binary_search(A.interaction_list.begin(),
-                                               A.interaction_list.end(), anc[sz(b)][sz(l)]))
-                            level = l;
-                    }
-                    const std::size_t k = sz(level < 0 ? 0 : level);
-                    en[k] += std::norm(yg(rr) - ex(rr));
-                    nn[k] += std::norm(ex(rr));
-                }
-                WARN("col " << col << " level 2: " << std::sqrt(en[2] / nn[2]) << ", level 3: "
-                            << std::sqrt(en[3] / nn[3]) << ", none: " << nn[0]);
-            }
+            Real& worst = is_elevated ? worst_elevated : worst_leaf;
+            worst = std::max(worst, err);
         }
     }
     const VectorXc x = random_vector(2 * n, 11);
@@ -668,214 +575,14 @@ TEST_CASE("mlfmm local leaf: columns and rows of elevated functions match exact 
         }
     }
     const Real row_err = std::sqrt(num / den);
-    WARN("local leaf rule, graded box 1 um Si, d0 = 3: worst column error " << worst_col
-                                                                             << ", row error "
-                                                                             << row_err);
+    WARN("local leaf rule, graded box 0.6 x 2 um, n = 1.5, d0 = 3, 2N = "
+         << 2 * n << ", " << counts[2] << " elevated: worst column error " << worst_elevated
+         << " (elevated) / " << worst_leaf << " (leaf), row error " << row_err);
     if (kAccuracy) {
         // Single columns as in test_mlfmm_operator (<= 5e-3; K far-only error at lambda / 4
         // leaves), rows of a random x at the docs/05 tolerance.
-        CHECK(worst_col <= 5e-3);
+        CHECK(worst_elevated <= 5e-3);
+        CHECK(worst_leaf <= 5e-3);
         CHECK(row_err <= 1e-3);
-    }
-}
-
-TEST_CASE("mlfmm local leaf: a function without home level >= 2 is rejected", "[mlfmm]") {
-    const geometry::TriangleMesh mesh = strip_plate(25e-9);
-    Setup s(strip_plate(25e-9), material::silicon_500nm(), Kind::PMCHWT);
-    // Ratio 0.3: the 4h column (r ~ 4.03 h) needs a >= 13.4 h, i.e. level 1 (a = 12 h is too
-    // small, level 0 qualifies): no home level >= 2.
-    const mlfmm::Octree tree(s.space, kLambda, mlfmm::OctreeParams{1, 5, 0.0},
-                             mlfmm::support_radii(s.space), 0.3, 0.3);
-    REQUIRE(tree.home_level_counts()[0] + tree.home_level_counts()[1] > 0);
-    mlfmm::MlfmmParams p;
-    p.automatic_leaf_size = false;
-    try {
-        const mlfmm::MlfmmFarOperator far(s.problem, tree, p);
-        FAIL("expected TruncationOrderError");
-    } catch (const mlfmm::TruncationOrderError& e) {
-        INFO(e.what());
-        CHECK(e.cause() == mlfmm::TruncationOrderError::Cause::mesh_or_leaf_size);
-        CHECK(e.level() < 2);
-        CHECK(std::string(e.what()).find("home level") != std::string::npos);
-    }
-}
-
-namespace {
-void level_errors(Setup& s, const mlfmm::MlfmmParams& p) {
-    const mlfmm::Octree tree = mlfmm::make_octree(s.space, kLambda, p);
-    const Index n = s.space.size();
-    WARN("tree levels " << tree.levels() << " elevated " << tree.has_elevated());
-    std::vector<Index> probe = {tree.permutation()[0], tree.permutation()[sz(n / 2)]};
-    op::BasisPattern cols_pat;
-    cols_pat.group_of_row.assign(sz(n), 0);
-    std::sort(probe.begin(), probe.end());
-    cols_pat.cols = probe;
-    cols_pat.col_ptr = {0, static_cast<Index>(probe.size())};
-    const auto anc = ancestors(tree);
-    const std::vector<int> home = home_by_basis(tree);
-    for (int reg = 0; reg < 2; ++reg) {
-        class OneRegion final : public formulation::Formulation {
-        public:
-            OneRegion(const formulation::Formulation& f, int r) : f_(f), r_(r) {}
-            [[nodiscard]] Kind kind() const override { return f_.kind(); }
-            [[nodiscard]] std::string name() const override { return f_.name(); }
-            [[nodiscard]] formulation::Weights weights(Complex e1, Complex e2) const override {
-                formulation::Weights w = f_.weights(e1, e2);
-                if (r_ == 1)
-                    w.a1 = w.b1 = Complex(0.0, 0.0);
-                else
-                    w.a2 = w.b2 = Complex(0.0, 0.0);
-                return w;
-            }
-
-        private:
-            const formulation::Formulation& f_;
-            int r_;
-        };
-        const OneRegion one(*s.form, reg);
-        op::Problem pr = s.problem;
-        pr.formulation = &one;
-        const mlfmm::MlfmmFarOperator far(pr, tree, p);
-        const auto ec = op::assemble_sparse(pr, cols_pat);
-        if (tree.has_elevated()) {
-            // Manual elevated -> elevated and leaf -> elevated at level 2.
-            const std::vector<Index>& pos = tree.elevated_positions(2);
-            const mlfmm::FarLevelInfo& f2 = far.levels(reg).front();
-            const mlfmm::SphereSampling smp(f2.sampling_order);
-            const Complex k = (reg == 0 ? pr.exterior : pr.object).wavenumber(pr.omega);
-            const Index pb = pos[0];
-            const Index bb = tree.permutation()[sz(pb)];
-            Index box_b = -1;
-            for (const Index bx : tree.boxes_at_level(2)) {
-                const mlfmm::Box& B = tree.boxes()[sz(bx)];
-                if (pb >= B.first_element && pb < B.first_element + B.num_elements)
-                    box_b = bx;
-            }
-            const mlfmm::Box& B = tree.boxes()[sz(box_b)];
-            const VectorXc e = VectorXc::Unit(2 * n, bb);
-            const VectorXc yp = far * e;
-            op::BasisPattern cp;
-            cp.group_of_row.assign(sz(n), 0);
-            cp.cols = {bb};
-            cp.col_ptr = {0, 1};
-            const auto exb = op::assemble_sparse(pr, cp);
-            const VectorXc ex = exb->matrix().col(bb);
-            int shown = 0;
-            for (const Index ia : B.interaction_list) {
-                const mlfmm::Box& A = tree.boxes()[sz(ia)];
-                for (Index i = tree.elevated_first(ia);
-                     i < tree.elevated_first(ia) + tree.elevated_count(ia) && shown < 3; ++i) {
-                    const Index aa = tree.permutation()[sz(pos[sz(i)])];
-                    const std::vector<Index> va = {aa}, vb = {bb};
-                    const auto Pa = mlfmm::basis_patterns(s.space, va, A.center, k, smp,
-                                                          mlfmm::PatternOptions{0, 1e-5});
-                    const auto Pb = mlfmm::basis_patterns(s.space, vb, B.center, k, smp,
-                                                          mlfmm::PatternOptions{0, 1e-5});
-                    const VectorXc T =
-                        mlfmm::translator(k, A.center - B.center, smp, f2.truncation_order);
-                    Complex sum(0.0, 0.0);
-                    for (int it = 0; it < smp.num_theta(); ++it)
-                        for (int ip = 0; ip < smp.num_phi(); ++ip) {
-                            const Index q = smp.index(it, ip);
-                            const Index qa = smp.index(smp.num_theta() - 1 - it,
-                                                       (ip + smp.num_phi() / 2) % smp.num_phi());
-                            sum += smp.weights()(q) * T(q) *
-                                   (Pa[sz(2 * qa)] * Pb[sz(2 * q)] -
-                                    Pa[sz(2 * qa + 1)] * Pb[sz(2 * q + 1)]);
-                        }
-                    WARN("region " << reg << " elev->elev row " << aa << ": pass " << yp(aa)
-                                   << " exact " << ex(aa) << " manual sum " << sum
-                                   << " ratio pass/exact " << yp(aa) / ex(aa)
-                                   << " exact/sum " << ex(aa) / sum);
-                    ++shown;
-                }
-            }
-            // Leaf source -> elevated rows.
-            Index pl = 0;
-            while (tree.home_level(pl) != tree.leaf_level()) ++pl;
-            const Index bl = tree.permutation()[sz(pl)];
-            const VectorXc el = VectorXc::Unit(2 * n, bl);
-            const VectorXc ypl = far * el;
-            cp.cols = {bl};
-            const auto exl = op::assemble_sparse(pr, cp);
-            const VectorXc exlc = exl->matrix().col(bl);
-            Index leafbox = -1;
-            for (const Index bx : tree.boxes_at_level(tree.leaf_level())) {
-                const mlfmm::Box& C = tree.boxes()[sz(bx)];
-                if (pl >= C.first_element && pl < C.first_element + C.num_elements)
-                    leafbox = bx;
-            }
-            const mlfmm::Box& C = tree.boxes()[sz(leafbox)];
-            const mlfmm::Box& P = tree.boxes()[sz(C.parent)];
-            const Index pidx = C.parent;
-            shown = 0;
-            for (const Index ia : P.interaction_list) {
-                const mlfmm::Box& A = tree.boxes()[sz(ia)];
-                for (Index i = tree.elevated_first(ia);
-                     i < tree.elevated_first(ia) + tree.elevated_count(ia) && shown < 3; ++i) {
-                    const Index aa = tree.permutation()[sz(pos[sz(i)])];
-                    WARN("region " << reg << " leaf->elev row " << aa << " (P " << pidx
-                                   << "): pass " << ypl(aa) << " exact " << exlc(aa)
-                                   << " ratio " << ypl(aa) / exlc(aa));
-                    ++shown;
-                }
-            }
-        }
-        for (const Index b : probe) {
-            for (const Index col : {b, n + b}) {
-                const VectorXc e = VectorXc::Unit(2 * n, col);
-                const VectorXc yg = far * e;
-                const VectorXc ex = ec->matrix().col(col);
-                std::vector<Real> en(sz(tree.levels()), 0.0), nn(sz(tree.levels()), 0.0);
-                for (Index rr = 0; rr < 2 * n; ++rr) {
-                    const Index a = rr % n;
-                    const int m = std::min(home[sz(a)], home[sz(b)]);
-                    if (touching(tree.boxes()[sz(anc[sz(a)][sz(m)])],
-                                 tree.boxes()[sz(anc[sz(b)][sz(m)])]))
-                        continue;
-                    int level = 0;
-                    for (int l = m; l >= 2; --l) {
-                        const mlfmm::Box& A = tree.boxes()[sz(anc[sz(a)][sz(l)])];
-                        if (std::binary_search(A.interaction_list.begin(),
-                                               A.interaction_list.end(), anc[sz(b)][sz(l)]))
-                            level = l;
-                    }
-                    en[sz(level)] += std::norm(yg(rr) - ex(rr));
-                    nn[sz(level)] += std::norm(ex(rr));
-                }
-                std::ostringstream os;
-                for (int l = 2; l < tree.levels(); ++l)
-                    os << " level " << l << ": " << std::sqrt(en[sz(l)] / nn[sz(l)]);
-                WARN("region " << reg << " col " << col << os.str());
-            }
-        }
-    }
-}
-}  // namespace
-
-TEST_CASE("debug levels", "[mlfmm_dbg]") {
-    {
-        Setup s(graded_box(1.6e-6, 1e-6), material::silicon_500nm(), Kind::PMCHWT);
-        s.problem.kernel_options.target_accuracy = 1e-5;
-        mlfmm::MlfmmParams p;
-        p.leaf_radius_quantile = 0.5;
-        p.octree.max_elements_per_leaf = 8;
-        level_errors(s, p);
-    }
-    {
-        geometry::RoughSurfaceParams rp;
-        rp.edge_length_L = 1e-6;
-        rp.rms_roughness = 30e-9;
-        rp.correlation_length = 250e-9;
-        rp.mesh_size = 50e-9;
-        rp.box_depth = 0.3e-6;
-        rp.box_mesh_size = 50e-9;
-        rp.seed = 7;
-        Setup s(geometry::make_rough_surface_mesh(rp), material::silicon_500nm(), Kind::PMCHWT);
-        s.problem.kernel_options.target_accuracy = 1e-5;
-        mlfmm::MlfmmParams p;
-        p.leaf_radius_quantile = 1.0;
-        p.octree.max_elements_per_leaf = 8;
-        level_errors(s, p);
     }
 }

@@ -26,7 +26,6 @@
 // exact-rows cases) exceeds 60 % of the physical memory.
 #include "specklebem/compression/mlfmm/far_operator.hpp"
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
-#include "specklebem/compression/mlfmm/near_field.hpp"
 #include "specklebem/compression/mlfmm/octree.hpp"
 #include "specklebem/compression/mlfmm/patterns.hpp"
 #include "specklebem/formulation/formulation.hpp"
@@ -426,70 +425,105 @@ namespace {
     return geometry::make_rough_surface_mesh(p);
 }
 
-/// Composed near + far operator on a given octree (experiments with home-level ratios).
-class Composed final : public op::LinearOperator {
-public:
-    Composed(const op::Problem& p, const mlfmm::Octree& tree, const mlfmm::MlfmmParams& params)
-        : near_(mlfmm::assemble_near(p, tree)), far_(p, tree, params), n_(2 * p.space->size()) {}
-    [[nodiscard]] Index rows() const override { return n_; }
-    [[nodiscard]] Index cols() const override { return n_; }
-    void apply(const VectorXc& x, VectorXc& y) const override {
-        near_->apply(x, y);
-        VectorXc yf;
-        far_.apply(x, yf);
-        y += yf;
-    }
-    [[nodiscard]] std::string describe() const override { return far_.describe(); }
-    [[nodiscard]] std::size_t memory_bytes() const override {
-        return near_->memory_bytes() + far_.memory_bytes();
-    }
+/// Leaf radius quantile that keeps the leaf at a_min(d0): the fraction of basis functions with
+/// r <= max_support_ratio(d0) a_min(d0) (1 - kMinBoxSizeTolerance) lambda (the top face of
+/// graded_box), so that every coarser box function is elevated.
+[[maybe_unused]] Real top_face_quantile(const basis::RwgSpace& space, Real digits) {
+    const Real a_min = digits <= 3.0 ? mlfmm::kLeafMinLambdaD3 : mlfmm::kLeafMinLambdaD5;
+    const Real limit = mlfmm::max_support_ratio(digits) * a_min *
+                       (1.0 - mlfmm::kMinBoxSizeTolerance) * kLambda;
+    const std::vector<Real> r = mlfmm::support_radii(space);
+    const auto small = std::count_if(r.begin(), r.end(), [&](Real v) { return v <= limit; });
+    return static_cast<Real>(small) / static_cast<Real>(r.size());
+}
 
-private:
-    std::shared_ptr<op::SparseOperator> near_;
-    mlfmm::MlfmmFarOperator far_;
-    Index n_;
-};
+/// MLFMM with the local leaf rule (top-face quantile, elevated functions) and with the global
+/// rule (quantile 1) against one dense matrix, for d0 = 3 and 5: error over 3 random x (docs/05
+/// criterion for both), home levels, memory and timings.
+[[maybe_unused]] void run_local_leaf_case(const std::string& name, const Setup& s) {
+    const Index unknowns = 2 * s.space.size();
+    const Real dense_bytes = 16.0 * static_cast<Real>(unknowns) * static_cast<Real>(unknowns);
+    const Real phys = system_memory::physical_memory_bytes();
+    if (!(phys > 0.0) || dense_bytes + 8e9 > 0.6 * phys) {
+        SKIP(name << ": 2N = " << unknowns << " needs ~" << dense_bytes / 1e9
+                  << " GB for the dense matrix + ~8 GB, more than 60 % of the " << phys / 1e9
+                  << " GB");
+    }
+    auto t0 = std::chrono::steady_clock::now();
+    const std::shared_ptr<op::LinearOperator> Zd = op::DenseStrategy().build(s.problem);
+    const double dense_s = seconds_since(t0);
+    std::vector<VectorXc> x, yd;
+    for (std::uint64_t seed = 1; seed <= 3; ++seed) {
+        x.push_back(random_vector(unknowns, 20261011 + seed));
+        yd.push_back(*Zd * x.back());
+    }
+    WARN(name << ": " << s.mesh.num_triangles() << " triangles, 2N = " << unknowns
+              << ", r_max = " << mlfmm::max_support_radius(s.space) << " m; dense assembly "
+              << dense_s << " s");
+    for (const Real digits : {3.0, 5.0}) {
+        const Real q_local = top_face_quantile(s.space, digits);
+        for (const Real q : {q_local, 1.0}) {
+            mlfmm::MlfmmParams p;
+            p.accuracy_digits = digits;
+            p.octree.max_elements_per_leaf = 4;  // the leaf rule decides the leaf size
+            p.leaf_radius_quantile = q;
+            std::ostringstream id;
+            id << name << ", d0 = " << digits << ", leaf radius quantile " << q
+               << (q < 1.0 ? " (local leaf rule)" : " (global rule)");
+            INFO(id.str());
+            t0 = std::chrono::steady_clock::now();
+            const mlfmm::MlfmmOperator Zm(s.problem, p);
+            const double setup_s = seconds_since(t0);
+            const mlfmm::Octree& tree = Zm.octree();
+            if (q < 1.0)
+                CHECK(tree.has_elevated());
+            else
+                CHECK_FALSE(tree.has_elevated());
+            std::ostringstream homes;
+            for (const Index c : tree.home_level_counts()) homes << " " << c;
+            Real err = 0.0;
+            VectorXc y;
+            t0 = std::chrono::steady_clock::now();
+            for (std::size_t i = 0; i < x.size(); ++i) {
+                Zm.apply(x[i], y);
+                err = std::max(err, (y - yd[i]).norm() / yd[i].norm());
+            }
+            const double apply_s = seconds_since(t0) / 3.0;
+            WARN(id.str() << ": " << tree.levels() << " levels, leaf a = "
+                          << tree.box_size(tree.leaf_level()) / kLambda
+                          << " lambda0, functions per home level" << homes.str()
+                          << ": matvec error " << err << " (target "
+                          << std::pow(10.0, -digits) << "); setup " << setup_s << " s, apply "
+                          << apply_s << " s; memory " << mb(Zm.memory_bytes()) << " MB (near "
+                          << mb(Zm.near_operator().memory_bytes()) << ", far "
+                          << mb(Zm.far_operator().memory_bytes()) << ")\n"
+                          << Zm.describe());
+            CHECK(err < std::pow(10.0, -digits));
+        }
+    }
+}
 
 }  // namespace
 
-TEST_CASE("wp21l experiment: elevated ratio factor", "[validation-large][mlfmm]") {
-    const Setup s(graded_box(1.5e-6, 2e-6), material::silicon_500nm(), Kind::PMCHWT);
-    const Index unknowns = 2 * s.space.size();
-    WARN("2N = " << unknowns);
-    const std::shared_ptr<op::LinearOperator> built = op::DenseStrategy().build(s.problem);
-    std::vector<VectorXc> x, yd;
-    for (std::uint64_t seed = 1; seed <= 2; ++seed) {
-        x.push_back(random_vector(unknowns, 20261010 + seed));
-        yd.push_back(*built * x.back());
-    }
-    const std::vector<Real> radii = mlfmm::support_radii(s.space);
-    for (const Real digits : {3.0, 5.0}) {
-        for (const Real factor : {1.0, 0.5}) {
-            mlfmm::MlfmmParams p;
-            p.accuracy_digits = digits;
-            p.octree.max_elements_per_leaf = 4;
-            p.leaf_radius_quantile = 0.5;
-            const Real rho = mlfmm::max_support_ratio(digits);
-            try {
-                const mlfmm::Octree tree(s.space, kLambda,
-                                         mlfmm::leaf_rule_params(s.space, kLambda, p), radii,
-                                         rho, factor * rho);
-                const Composed Z(s.problem, tree, p);
-                Real err = 0.0;
-                VectorXc y;
-                for (std::size_t i = 0; i < x.size(); ++i) {
-                    Z.apply(x[i], y);
-                    err = std::max(err, (y - yd[i]).norm() / yd[i].norm());
-                }
-                std::ostringstream c;
-                for (const Index k : tree.home_level_counts()) c << k << " ";
-                WARN("d0 " << digits << " factor " << factor << ": levels " << tree.levels()
-                           << " leaf " << tree.box_size(tree.leaf_level()) << " homes " << c.str()
-                           << " err " << err << " mem " << mb(Z.memory_bytes()) << " MB\n"
-                           << Z.describe());
-            } catch (const std::exception& e) {
-                WARN("d0 " << digits << " factor " << factor << ": " << e.what());
-            }
-        }
-    }
+TEST_CASE("mlfmm vs dense large: graded box Si with elevated functions (local leaf rule)",
+          "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    // ADR 0008 amendment 2026-10-11 item 6: 1 um x 1 um graded box (top 50 nm, box cells 100 nm),
+    // depth 4 um (root ~4 um: 6 levels with lambda / 4 leaves at d0 = 3, 5 levels with lambda / 2
+    // leaves at d0 = 5, so that the coarse box functions have a home level >= 2 at both d0).
+    const Setup s(graded_box(1e-6, 4e-6), material::silicon_500nm(), Kind::PMCHWT);
+    run_local_leaf_case("graded box 1 x 4 um, Si, PMCHWT", s);
+#endif
+}
+
+TEST_CASE("mlfmm vs dense large: graded box Ag with elevated functions (local leaf rule)",
+          "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    const Setup s(graded_box(1e-6, 4e-6), material::silver_500nm(), Kind::PMCHWT);
+    run_local_leaf_case("graded box 1 x 4 um, Ag, PMCHWT", s);
+#endif
 }
