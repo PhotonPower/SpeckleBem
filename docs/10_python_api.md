@@ -23,6 +23,8 @@ au = sb.DispersiveMaterial.from_refractiveindex_info("Au_JohnsonChristy.csv").at
 # --- excitation ------------------------------------------------------------
 pw   = sb.PlaneWave(wavelength=500e-9, direction=[0, 0, 1], polarization=[1, 0, 0])
 beam = sb.GaussianBeam(wavelength=500e-9, waist=5e-6, polarization="p", incidence_angle=np.deg2rad(5))
+beam = sb.AngularSpectrumBeam(wavelength=500e-9, waist=5e-6, polarization="p",
+                              incidence_angle=np.deg2rad(5), region_radius=20e-6)  # rigorous
 
 # --- simulation ------------------------------------------------------------
 sim = sb.Simulation(mesh, beam, object=si, exterior=sb.vacuum(),
@@ -80,17 +82,33 @@ sb.make_icosphere(radius, subdivisions, center=(0, 0, 0))
 sb.make_sphere(radius, target_edge_length, center=(0, 0, 0))
 sb.generate_gaussian_height_map(*, L, sigma, Lc, mesh_size, seed=0, use_fft=True)  # sb.HeightMap
 sb.HeightMap(z, dx, dy)                 # z: (n_x, n_y) heights at (x_i, y_j); .z (copy), .rms()
-sb.make_mesh_from_height_map(height_map, *, box_depth=None, box_mesh_size=None, box_fine_depth=None)
+sb.make_mesh_from_height_map(height_map, *, box_depth=None, box_mesh_size=None, box_fine_depth=None,
+                             exterior_wavelength=None)
 sb.make_rough_surface_mesh(*, L, sigma, Lc, mesh_size, seed=0, box_depth=None,
-                           box_mesh_size=None, box_fine_depth=None, use_fft=True)
+                           box_mesh_size=None, box_fine_depth=None, exterior_wavelength=None,
+                           use_fft=True)
 sb.RoughSurface(L, sigma, Lc, mesh_size, seed=0, *, box_depth=None, box_mesh_size=None,
-                box_fine_depth=None, use_fft=True)  # .mesh (lazy), .height_map, .heights, .dx, .dy
+                box_fine_depth=None, exterior_wavelength=None, use_fft=True)
+                                        # .mesh (lazy), .height_map, .heights, .dx, .dy
+sb.rough_surface_box_params(object, background, wavelength, sigma, mesh_size)  # sb.RoughBoxParams
+p.box_depth, p.box_fine_depth (None: no band), p.box_mesh_size (None: automatic, capped),
+p.exterior_wavelength, p.uniform_fallback, p.kwargs()
+sb.default_box_depth(object, wavelength), sb.default_box_fine_depth(object, wavelength, sigma)
+sb.default_box_mesh_size(background, wavelength, mesh_size), sb.exterior_wavelength(background, wavelength)
+sb.check_beam_waist(patch_length, waist, allow_wide=False)   # ValueError if waist > L / 4
 sb.field_decay_length(material, wavelength) / sb.field_decay_length(eps_r, wavelength)
 sb.DispersiveMaterial(wavelengths, refractive_indices)   # n - jk; .at(wl) == .at_wavelength(wl)
 sb.PlaneWave(wavelength, direction, polarization, background=sb.vacuum())
 sb.GaussianBeam(wavelength, waist, polarization="p", incidence_angle=0.0, focus=(0, 0, 0),
                 background=sb.vacuum())
+sb.AngularSpectrumBeam(wavelength, waist, polarization="p", incidence_angle=0.0, focus=(0, 0, 0),
+                       background=sb.vacuum(), *, tolerance=1e-10, region_radius=None,
+                       polar_order=0, azimuth_order=0, max_plane_waves=2_000_000)
+beam.num_plane_waves, beam.polar_order, beam.azimuth_order, beam.grid_change,
+beam.max_polar_angle, beam.region_radius, beam.power, beam.waist, beam.tolerance
 exc.electric_field(points), exc.magnetic_field(points), exc.omega, exc.wavelength, exc.background
+exc.fields(points)                      # (E, H); one pass for AngularSpectrumBeam
+exc.controlled_radius, exc.controlled_center   # inf / origin except AngularSpectrumBeam
 sb.Mie(radius, wavelength, material, exterior=sb.vacuum(), n_max=0)
 mie.bistatic_rcs(theta, phi)            # NumPy broadcasting; a float for scalar input
 mie.scattered_E(points), mie.scattered_H(points), mie.internal_E(points)
@@ -101,9 +119,45 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
   (`L` = `edge_length_L`, `sigma` = `rms_roughness`, `Lc` = `correlation_length`); `seed=0`
   draws a non-deterministic seed. `RoughSurface` validates the box keywords when `.mesh` is
   first built.
+- Closing box (ADR 0006 with the 2026-10-10 amendment): `rough_surface_box_params` chooses the
+  box from the materials and is the recommended way to build a rough patch for a simulation:
+  `sb.RoughSurface(L, sigma, Lc, h, seed, **sb.rough_surface_box_params(obj, bg, wl, sigma, h).kwargs())`.
+  It sets the depth (`default_box_depth`), `exterior_wavelength` (lambda_1 = wavelength /
+  |n_1|, conservative for a lossy background; a metallic background, Re(eps_r) <= 0, raises
+  `ValueError`) and, for weakly absorbing objects, the mandatory fine band 3 delta + 3 sigma.
+  "Weakly absorbing" is 3 delta > 2 h: it mirrors the grading contract (the walls without a
+  band start to coarsen 2 top-face spacings below a smooth rim); Si yes, Ag no at 500 nm and
+  h = 50 nm. `box_mesh_size` stays `None`: with `exterior_wavelength` the generator caps its
+  automatic coarse spacing at the largest 2^M h <= lambda_1 / 5 with the actual grid spacing
+  h = L / round(L / mesh_size) (100 nm at 500 nm in vacuum with h = 50 nm), so the coarse
+  spacing never exceeds lambda_1 / 5 and no warning is logged. `default_box_mesh_size` gives
+  the nominal value for `mesh_size`; do not pass it as `box_mesh_size` (for L not a multiple
+  of h it can exceed lambda_1 / 5 slightly, which warns). If the band would reach the bottom
+  plate (very rough surfaces), the uniform box is chosen: `box_mesh_size = mesh_size`,
+  `uniform_fallback = True`, logged as a warning. Without `exterior_wavelength` and
+  `box_mesh_size` the old automatic rule (min(depth / 2, L / 8, 10 h)) is used with a warning
+  (not validated under illumination). lambda_1 / 5 is necessary, not shown sufficient (WP-V2).
+- Beam waist: rough-surface drivers must call `check_beam_waist(L, waist)` (w0 <= L / 4,
+  ADR 0006 amendment); `Simulation` cannot determine the patch size from a mesh.
+  `allow_wide=True` accepts a wider waist with a warning.
 - `PlaneWave.direction` is `k_hat` (normalised by the constructor), `polarization` the complex
   amplitude `e0` [V/m] (transverse). `GaussianBeam.waist` is `Params::waist_radius` (1/e^2
   intensity radius); `polarization` is `"p"`, `"s"` (any case) or `sb.Polarization.P/S`.
+- `AngularSpectrumBeam` (WP-E1, `excitation::AngularSpectrumBeam`) is the rigorous Gaussian
+  beam required for quantitative rough-surface results (ADR 0006 amendment item 4): a finite
+  sum of exact propagating plane waves with spectrum `exp(-k_t^2 w0^2 / 4)` around
+  `R_y(theta_in) z_hat` (definition in docs/06, "Incident beams"), `E(focus) . e0 = 1 V/m`.
+  Same positional arguments as `GaussianBeam`; the keyword-only quadrature controls map to
+  `AngularSpectrumBeam::Params` (`region_radius=None` = 4 w0). Fields are controlled only in
+  the ball `|r - focus| <= region_radius` (`controlled_radius`): choose it to cover the mesh
+  and any near-field observation points. `Simulation` raises `ValueError` when a mesh vertex
+  lies outside the ball, and an evaluation beyond 1.2 `region_radius` logs one warning per beam.
+  Construction releases the GIL and raises `RuntimeError` when the automatic grid does not
+  converge within `max_plane_waves`, `ValueError` for orders above 10^6 or a fixed grid whose
+  check grid exceeds `max_plane_waves`; a fixed grid that misses `tolerance` is kept with a
+  warning. Cost: one sincos per plane wave and point (indicatively ~7 ns per wave for
+  `electric_field` in a release build, timed on a shared machine; `fields` gives E and H for
+  little more than the price of one).
 - `Mie.material` is `MieParams::sphere`, `exterior` is `MieParams::medium` (lossless).
 - Inputs: any real NumPy layout or nested list is accepted (int32/uint32 connectivity,
   Fortran order, strided views); it is converted to a C-contiguous float64 / int64 copy.

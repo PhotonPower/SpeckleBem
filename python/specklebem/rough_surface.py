@@ -14,8 +14,11 @@ class RoughSurface:
     """Gaussian random rough surface on an L x L patch, closed by a box below it.
 
     All lengths in metres. ``L``, ``sigma``, ``Lc``, ``mesh_size``, ``seed`` and ``use_fft``
-    select the height map (``generate_gaussian_height_map``); ``box_depth``, ``box_mesh_size``
-    and ``box_fine_depth`` the closing box (``make_mesh_from_height_map``, None = automatic).
+    select the height map (``generate_gaussian_height_map``); ``box_depth``, ``box_mesh_size``,
+    ``box_fine_depth`` and ``exterior_wavelength`` the closing box
+    (``make_mesh_from_height_map``, None = automatic). ``rough_surface_box_params(...).kwargs()``
+    gives all four for the materials (ADR 0006 amendment: coarse spacing <= lambda_1 / 5,
+    mandatory fine band for weakly absorbing objects).
     ``seed=0`` draws a random seed that is only logged by the C++ core (reproducible only via
     the logged seed); pass a non-zero seed for reproducible surfaces.
     """
@@ -31,13 +34,17 @@ class RoughSurface:
         box_depth: float | None = None,
         box_mesh_size: float | None = None,
         box_fine_depth: float | None = None,
+        exterior_wavelength: float | None = None,
         use_fft: bool = True,
     ) -> None:
         self._heights = _core.generate_gaussian_height_map(
             L=L, sigma=sigma, Lc=Lc, mesh_size=mesh_size, seed=seed, use_fft=use_fft
         )
         self._box = dict(
-            box_depth=box_depth, box_mesh_size=box_mesh_size, box_fine_depth=box_fine_depth
+            box_depth=box_depth,
+            box_mesh_size=box_mesh_size,
+            box_fine_depth=box_fine_depth,
+            exterior_wavelength=exterior_wavelength,
         )
         self._mesh: _core.TriangleMesh | None = None
         self._z: np.ndarray | None = None

@@ -247,6 +247,10 @@ private:
     spdlog::level::level_enum saved_level_;
 };
 
+/// Text of the warning of a graded box from the automatic rule without exterior_wavelength
+/// (ADR 0006 amendment 2026-10-10).
+const std::string kUnvalidatedRule = "not validated under illumination";
+
 /// Height map with exactly representable inputs: heights a * ((7 i + 13 j) mod 41 - 20)
 /// (pre-WP2b checksums below were computed on this map).
 HeightMap pattern_map(Index nx, Index ny, Real dx, Real dy, Real a = 1e-9) {
@@ -1154,7 +1158,9 @@ TEST_CASE("rough surface mesh: rim pits are absorbed by the relaxation band", "[
         const auto [v, f] = geometry::detail::rough_box_arrays(h, 2e-6);
         CHECK(vertical_wall_edges(v, f, h, g.anchor_z, std::nullopt).above_anchor <=
               2.0 * h.dx * (1.0 + 1e-9));
-        CHECK(warnings.count() == 0);
+        // Only the warning of the automatic rule without exterior_wavelength.
+        CHECK(warnings.count() == 1);
+        CHECK(warnings.count(kUnvalidatedRule) == 1);
     }
     SECTION("deep pits, two levels requested: both levels kept") {
         // M = 2 (400 nm). WP2b: a pit at i = 1 gave M = 0, a pit at i = 2 gave M = 1.
@@ -1185,7 +1191,8 @@ TEST_CASE("rough surface mesh: rim pits are absorbed by the relaxation band", "[
         CHECK(closed_and_consistent(f));
         CHECK(warnings.count() == 0);  // detail:: inspection functions are silent
         const TriangleMesh mesh = make_mesh_from_height_map(h, 2e-6);
-        CHECK(warnings.count() == 1);  // one warning per mesh built
+        CHECK(warnings.count() == 1);                  // one warning per mesh built
+        CHECK(warnings.count(kUnvalidatedRule) == 0);  // uniform box: no rule warning
         CHECK(mesh.triangles() == f);
         CHECK(mesh.is_closed());
     }
@@ -1226,7 +1233,8 @@ TEST_CASE("rough surface mesh: generated rough rims keep M = 3 (WP2c acceptance)
             // Smooth rims: the explicit bound 4; rough rims: the safety-net bound.
             check_graded_box(h, depth, std::nullopt, 3,
                              sigma < 100e-9 ? 4.0 : std::max(4.0, 2.0 * uniform));
-            CHECK(warnings.count() == 0);
+            CHECK(warnings.count() == 1);
+            CHECK(warnings.count(kUnvalidatedRule) == 1);
 #endif
         }
     }
@@ -1310,7 +1318,8 @@ TEST_CASE("rough surface mesh: very rough rims and the shape safety net", "[geom
         CHECK(g.levels == 2);
         WarningCounter warnings;
         check_graded_box(h, 1e-6, std::nullopt, 2, rough_rim_aspect_bound(h, 1e-6));
-        CHECK(warnings.count() == 0);
+        CHECK(warnings.count() == 1);
+        CHECK(warnings.count(kUnvalidatedRule) == 1);
     }
     SECTION("an unlucky seed falls back to fewer levels with one warning") {
         // sigma = 250 nm, Lc = 500 nm, L = 4 um, depth 2 um, seed 9: with M = 3 the anchor
@@ -1326,8 +1335,9 @@ TEST_CASE("rough surface mesh: very rough rims and the shape safety net", "[geom
         CHECK(g.wall_aspect <= std::max(4.0, 2.0 * g.uniform_wall_aspect));
         WarningCounter warnings;
         const TriangleMesh mesh = make_mesh_from_height_map(h, 2e-6);
-        CHECK(warnings.count() == 1);
+        CHECK(warnings.count() == 2);
         CHECK(warnings.count("using 2 levels") == 1);
+        CHECK(warnings.count(kUnvalidatedRule) == 1);
         CHECK(mesh.is_closed());
         CHECK(mesh.num_triangles() == graded_triangle_count(81, 81, g));
     }
@@ -1525,6 +1535,114 @@ TEST_CASE("rough surface mesh: invalid box_mesh_size throws", "[geometry]") {
         RoughSurfaceParams p = make_params(1e-6, 100e-9, 20e-9, 200e-9, 5);
         p.box_mesh_size = bad;
         CHECK_THROWS_AS(make_rough_surface_mesh(p), std::invalid_argument);
+    }
+}
+
+// ---- Exterior resolution of the closing box (ADR 0006 amendment 2026-10-10, WP-B1) ----
+
+TEST_CASE("rough surface mesh: box spacing for the exterior wavelength", "[geometry]") {
+    using geometry::box_spacing_for_exterior_wavelength;
+    // Largest 2^M h <= lambda_1 / 5: exact power-of-two multiples of h.
+    CHECK(box_spacing_for_exterior_wavelength(500e-9, 50e-9) == 2.0 * 50e-9);  // M = 1
+    CHECK(box_spacing_for_exterior_wavelength(500e-9, 20e-9) == 4.0 * 20e-9);  // M = 2
+    CHECK(box_spacing_for_exterior_wavelength(500e-9, 100e-9) == 100e-9);      // M = 0
+    CHECK(box_spacing_for_exterior_wavelength(500e-9, 60e-9) == 60e-9);        // M = 0
+    CHECK(box_spacing_for_exterior_wavelength(500e-9, 300e-9) == 300e-9);      // coarse top
+    CHECK(box_spacing_for_exterior_wavelength(750e-9, 50e-9) == 2.0 * 50e-9);  // 150 nm -> 100
+    CHECK(box_spacing_for_exterior_wavelength(2e-6, 50e-9) == 8.0 * 50e-9);    // 400 nm
+    for (const Real bad : {0.0, -1e-7, std::numeric_limits<Real>::quiet_NaN(),
+                           std::numeric_limits<Real>::infinity()}) {
+        CAPTURE(bad);
+        CHECK_THROWS_AS(box_spacing_for_exterior_wavelength(bad, 50e-9), std::invalid_argument);
+        CHECK_THROWS_AS(box_spacing_for_exterior_wavelength(500e-9, bad), std::invalid_argument);
+    }
+}
+
+TEST_CASE("rough surface mesh: exterior_wavelength caps the automatic coarse spacing",
+          "[geometry]") {
+    // 41 x 41, h = 50 nm, depth 2 um: automatic h_c = min(1 um, 2 um / 8, 500 nm) = 250 nm,
+    // M = round(log2 5) = 2. lambda_1 = 500 nm caps it at 100 nm (M = 1); lambda_1 = 750 nm
+    // (150 nm, rounded to the nearest level M = 2 = 200 nm) is rounded down to 100 nm too.
+    const HeightMap h = pattern_map(41, 41, 50e-9, 50e-9);
+    const Real depth = 2e-6;
+    CHECK(geometry::detail::box_grading(h, depth).levels == 2);
+    for (const Real lambda1 : {500e-9, 750e-9}) {
+        CAPTURE(lambda1);
+        const geometry::detail::BoxGrading g =
+            geometry::detail::box_grading(h, depth, std::nullopt, std::nullopt, lambda1);
+        CHECK(g.levels == 1);
+        CHECK(g.target_spacing == 2.0 * h.dx);
+        // Same layout and arrays as the explicit coarse spacing 100 nm.
+        const auto [v, f] = geometry::detail::rough_box_arrays(h, depth, 100e-9);
+        const auto [vl, fl] =
+            geometry::detail::rough_box_arrays(h, depth, std::nullopt, std::nullopt, lambda1);
+        CHECK(vl == v);
+        CHECK(fl == f);
+        WarningCounter warnings;
+        const TriangleMesh mesh =
+            make_mesh_from_height_map(h, depth, std::nullopt, std::nullopt, lambda1);
+        CHECK(mesh.triangles() == f);
+        CHECK(warnings.count() == 0);
+    }
+    // lambda_1 / 5 above the automatic rule: the automatic rule stays (M = 2).
+    CHECK(geometry::detail::box_grading(h, depth, std::nullopt, std::nullopt, 2e-6).levels == 2);
+    // lambda_1 / 5 below 2 h: the uniform box.
+    CHECK(geometry::detail::box_grading(h, depth, std::nullopt, std::nullopt, 400e-9).levels == 0);
+    // With a fine band the cap applies as well.
+    CHECK(geometry::detail::box_grading(h, depth, std::nullopt, 1e-6, 500e-9).levels == 1);
+    // make_rough_surface_mesh passes RoughSurfaceParams::exterior_wavelength through.
+    RoughSurfaceParams p = make_params(2e-6, 50e-9, 20e-9, 200e-9, 3);
+    p.exterior_wavelength = 500e-9;
+    const TriangleMesh generated = make_rough_surface_mesh(p);
+    const auto [vg, fg] =
+        geometry::detail::rough_box_arrays(generate_gaussian_height_map(p), depth, 100e-9);
+    CHECK(generated.triangles() == fg);
+    CHECK(generated.vertices() == vg);
+}
+
+TEST_CASE("rough surface mesh: warnings of the exterior resolution rule", "[geometry]") {
+    const HeightMap h = pattern_map(41, 41, 50e-9, 50e-9);
+    const Real depth = 2e-6;
+    SECTION("automatic rule without exterior_wavelength: same mesh, one warning") {
+        WarningCounter warnings;
+        const auto [v, f] = geometry::detail::rough_box_arrays(h, depth, 250e-9);
+        CHECK(warnings.count() == 0);
+        const TriangleMesh mesh = make_mesh_from_height_map(h, depth);
+        CHECK(mesh.triangles() == f);  // unchanged: the warning only
+        CHECK(mesh.vertices() == v);
+        CHECK(warnings.count() == 1);
+        CHECK(warnings.count(kUnvalidatedRule) == 1);
+        RoughSurfaceParams p = make_params(2e-6, 50e-9, 20e-9, 200e-9, 3);
+        (void)make_rough_surface_mesh(p);
+        CHECK(warnings.count(kUnvalidatedRule) == 2);
+    }
+    SECTION("explicit spacings and the uniform box do not warn about the rule") {
+        WarningCounter warnings;
+        (void)make_mesh_from_height_map(h, depth, 400e-9);  // explicit, lambda_1 unknown
+        (void)make_mesh_from_height_map(h, depth, 100e-9, std::nullopt, 500e-9);
+        (void)make_mesh_from_height_map(pattern_map(6, 4, 100e-9, 150e-9), depth);  // M = 0
+        CHECK(warnings.count() == 0);
+    }
+    SECTION("explicit coarse spacing above lambda_1 / 5: one warning") {
+        WarningCounter warnings;
+        const TriangleMesh mesh = make_mesh_from_height_map(h, depth, 400e-9, std::nullopt, 500e-9);
+        CHECK(warnings.count() == 1);
+        CHECK(warnings.count("exceeds lambda_1 / 5") == 1);
+        CHECK(mesh.triangles() == make_mesh_from_height_map(h, depth, 400e-9).triangles());
+    }
+    SECTION("invalid exterior_wavelength throws") {
+        for (const Real bad : {0.0, -500e-9, std::numeric_limits<Real>::quiet_NaN(),
+                               std::numeric_limits<Real>::infinity()}) {
+            CAPTURE(bad);
+            CHECK_THROWS_AS(
+                geometry::detail::box_grading(h, depth, std::nullopt, std::nullopt, bad),
+                std::invalid_argument);
+            CHECK_THROWS_AS(make_mesh_from_height_map(h, depth, 100e-9, std::nullopt, bad),
+                            std::invalid_argument);
+            RoughSurfaceParams p = make_params(1e-6, 100e-9, 20e-9, 200e-9, 5);
+            p.exterior_wavelength = bad;
+            CHECK_THROWS_AS(make_rough_surface_mesh(p), std::invalid_argument);
+        }
     }
 }
 

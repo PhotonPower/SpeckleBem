@@ -522,20 +522,22 @@ std::vector<GridNode> level_ring(const std::vector<Index>& px, const std::vector
 /// affine shear of the flat one (it cannot invert); the stitch triangles of the relaxation
 /// band have one edge on a vertical column, so they cannot invert either.
 struct BoxPlan {
-    Index levels = 0;                    ///< M (0 = uniform WP2 box)
-    Index levels_unreduced = 0;          ///< M before the rim checks
-    Index levels_without_fine_band = 0;  ///< M the depth would allow without the fine band
-    Real target = 0.0;                   ///< requested / automatic coarse spacing h_c [m]
-    bool target_below_top = false;       ///< requested h_c < h / sqrt(2) (warned once)
-    Real h = 0.0;                        ///< top-face spacing min(dx, dy) [m]
-    Real hb = 0.0;                       ///< level spacing max(dx, dy) [m] (sets M)
-    Real hg = 0.0;                       ///< band spacing sqrt(dx dy) [m] (row heights)
-    Real height = 0.0;                   ///< wall height H = depth - mean rim height [m]
-    Real depth = 0.0;                    ///< bottom plate z [m]
-    std::optional<Real> fine_depth;      ///< box_fine_depth z_f [m] (unset: no fine band)
-    std::vector<std::vector<Index>> px;  ///< node levels along x (axis_levels)
-    std::vector<std::vector<Index>> py;  ///< node levels along y
-    std::vector<Index> row_level;        ///< level of wall row k = 0 .. K
+    Index levels = 0;                         ///< M (0 = uniform WP2 box)
+    Index levels_unreduced = 0;               ///< M before the rim checks
+    Index levels_without_fine_band = 0;       ///< M the depth would allow without the fine band
+    Real target = 0.0;                        ///< requested / automatic coarse spacing h_c [m]
+    bool target_below_top = false;            ///< requested h_c < h / sqrt(2) (warned once)
+    bool automatic = false;                   ///< h_c from the automatic rule (box_mesh_size unset)
+    std::optional<Real> exterior_wavelength;  ///< lambda_1 [m] (unset: not known)
+    Real h = 0.0;                             ///< top-face spacing min(dx, dy) [m]
+    Real hb = 0.0;                            ///< level spacing max(dx, dy) [m] (sets M)
+    Real hg = 0.0;                            ///< band spacing sqrt(dx dy) [m] (row heights)
+    Real height = 0.0;                        ///< wall height H = depth - mean rim height [m]
+    Real depth = 0.0;                         ///< bottom plate z [m]
+    std::optional<Real> fine_depth;           ///< box_fine_depth z_f [m] (unset: no fine band)
+    std::vector<std::vector<Index>> px;       ///< node levels along x (axis_levels)
+    std::vector<std::vector<Index>> py;       ///< node levels along y
+    std::vector<Index> row_level;             ///< level of wall row k = 0 .. K
     /// M = 0: height fraction of wall row k (0 rim, 1 bottom). M >= 1: tau_k for the rows
     /// k >= 1 (see above; row 0 is the rim).
     std::vector<Real> row_fraction;
@@ -915,8 +917,10 @@ Real wall_rows_aspect(const BoxPlan& plan, const HeightMap& h) {
 /// rough_surface.hpp). Logs nothing: the warnings of the plan are emitted once per mesh by
 /// box_mesh() (warn_plan()), not by the detail:: inspection functions.
 BoxPlan make_box_plan(const HeightMap& h, Real depth, std::optional<Real> box_mesh_size,
-                      std::optional<Real> box_fine_depth) {
+                      std::optional<Real> box_fine_depth, std::optional<Real> exterior_wavelength) {
     validate_height_map(h, depth);
+    if (exterior_wavelength.has_value())
+        require_positive_finite(*exterior_wavelength, "exterior_wavelength");
     if (box_fine_depth.has_value()) {
         require_positive_finite(*box_fine_depth, "box_fine_depth");
         if (!(*box_fine_depth < depth)) {
@@ -932,6 +936,7 @@ BoxPlan make_box_plan(const HeightMap& h, Real depth, std::optional<Real> box_me
     BoxPlan plan;
     plan.depth = depth;
     plan.fine_depth = box_fine_depth;
+    plan.exterior_wavelength = exterior_wavelength;
     plan.h = std::min(h.dx, h.dy);
     plan.hb = std::max(h.dx, h.dy);
     plan.hg = std::sqrt(h.dx * h.dy);
@@ -943,6 +948,13 @@ BoxPlan make_box_plan(const HeightMap& h, Real depth, std::optional<Real> box_me
     } else {
         const Real side = std::min(static_cast<Real>(cx) * h.dx, static_cast<Real>(cy) * h.dy);
         plan.target = std::min({0.5 * depth, 0.125 * side, 10.0 * plan.h});
+        plan.automatic = true;
+        // ADR 0006 amendment: coarse spacing <= lambda_1 / 5, as an exact power-of-two
+        // multiple of h_b so that the level rounding below cannot exceed it.
+        if (exterior_wavelength.has_value()) {
+            plan.target = std::min(
+                plan.target, box_spacing_for_exterior_wavelength(*exterior_wavelength, plan.hb));
+        }
     }
     plan.height = depth - mean_rim_height(h);
 
@@ -1005,6 +1017,26 @@ void warn_plan(const BoxPlan& plan) {
             "rough box mesh: {} coarsening levels do not fit between the anchor row (rim "
             "or fine band) and the bottom plate; using {} levels{}",
             plan.levels_unreduced, plan.levels, plan.levels == 0 ? " (uniform box)" : "");
+    }
+    if (plan.levels == 0)
+        return;  // the uniform box resolves what the top face resolves
+    if (!plan.exterior_wavelength.has_value()) {
+        if (plan.automatic) {
+            SBEM_WARN(
+                "rough box mesh: automatic coarse spacing {} m without exterior_wavelength is "
+                "not validated under illumination (ADR 0006 amendment 2026-10-10: coarse "
+                "spacing <= lambda_1 / 5); pass exterior_wavelength or box_mesh_size",
+                plan.target);
+        }
+        return;
+    }
+    const Real coarse = pow2r(plan.levels) * plan.hb;
+    const Real limit = *plan.exterior_wavelength / kBoxCellsPerExteriorWavelength;
+    if (coarse > limit * (1.0 + kRoundingSlack)) {
+        SBEM_WARN(
+            "rough box mesh: coarse spacing {} m exceeds lambda_1 / 5 = {} m (ADR 0006 "
+            "amendment 2026-10-10: not validated under illumination)",
+            coarse, limit);
     }
 }
 
@@ -1224,8 +1256,9 @@ std::pair<Vertices, Triangles> box_arrays(const HeightMap& h, Real depth, const 
 
 /// Builds the TriangleMesh and logs one line with the top / wall / bottom counts.
 TriangleMesh box_mesh(const HeightMap& h, Real depth, std::optional<Real> box_mesh_size,
-                      std::optional<Real> box_fine_depth) {
-    const BoxPlan plan = make_box_plan(h, depth, box_mesh_size, box_fine_depth);
+                      std::optional<Real> box_fine_depth, std::optional<Real> exterior_wavelength) {
+    const BoxPlan plan =
+        make_box_plan(h, depth, box_mesh_size, box_fine_depth, exterior_wavelength);
     warn_plan(plan);
     auto [vertices, triangles] = box_arrays(h, depth, plan);
     const Index ncx = plan.cells_x(plan.levels);
@@ -1255,8 +1288,10 @@ std::string grid_label(const char* what, Index nx, Index ny, Real depth) {
 namespace detail {
 
 BoxGrading box_grading(const HeightMap& h, Real depth, std::optional<Real> box_mesh_size,
-                       std::optional<Real> box_fine_depth) {
-    const BoxPlan plan = make_box_plan(h, depth, box_mesh_size, box_fine_depth);
+                       std::optional<Real> box_fine_depth,
+                       std::optional<Real> exterior_wavelength) {
+    const BoxPlan plan =
+        make_box_plan(h, depth, box_mesh_size, box_fine_depth, exterior_wavelength);
     BoxGrading g;
     g.levels = plan.levels;
     g.levels_unreduced = plan.levels_unreduced;
@@ -1275,8 +1310,10 @@ BoxGrading box_grading(const HeightMap& h, Real depth, std::optional<Real> box_m
 
 std::pair<Vertices, Triangles> rough_box_arrays(const HeightMap& h, Real depth,
                                                 std::optional<Real> box_mesh_size,
-                                                std::optional<Real> box_fine_depth) {
-    return box_arrays(h, depth, make_box_plan(h, depth, box_mesh_size, box_fine_depth));
+                                                std::optional<Real> box_fine_depth,
+                                                std::optional<Real> exterior_wavelength) {
+    return box_arrays(h, depth,
+                      make_box_plan(h, depth, box_mesh_size, box_fine_depth, exterior_wavelength));
 }
 
 }  // namespace detail
@@ -1335,17 +1372,29 @@ HeightMap generate_gaussian_height_map(const RoughSurfaceParams& p) {
 
 TriangleMesh make_mesh_from_height_map(const HeightMap& h, std::optional<Real> box_depth,
                                        std::optional<Real> box_mesh_size,
-                                       std::optional<Real> box_fine_depth) {
+                                       std::optional<Real> box_fine_depth,
+                                       std::optional<Real> exterior_wavelength) {
     const Real depth = default_or(box_depth);
     const ScopedTimer timer(grid_label("make_mesh_from_height_map", h.z.rows(), h.z.cols(), depth));
-    return box_mesh(h, depth, box_mesh_size, box_fine_depth);
+    return box_mesh(h, depth, box_mesh_size, box_fine_depth, exterior_wavelength);
 }
 
 TriangleMesh make_rough_surface_mesh(const RoughSurfaceParams& p) {
     const Index n = grid_points(p);
     const Real depth = default_or(p.box_depth);
     const ScopedTimer timer(grid_label("make_rough_surface_mesh", n, n, depth));
-    return box_mesh(generate_gaussian_height_map(p), depth, p.box_mesh_size, p.box_fine_depth);
+    return box_mesh(generate_gaussian_height_map(p), depth, p.box_mesh_size, p.box_fine_depth,
+                    p.exterior_wavelength);
+}
+
+Real box_spacing_for_exterior_wavelength(Real exterior_wavelength, Real spacing) {
+    require_positive_finite(exterior_wavelength, "exterior_wavelength");
+    require_positive_finite(spacing, "spacing");
+    const Real limit =
+        exterior_wavelength / kBoxCellsPerExteriorWavelength * (1.0 + kRoundingSlack);
+    Real s = spacing;
+    while (2.0 * s <= limit) s *= 2.0;
+    return s;
 }
 
 }  // namespace specklebem::geometry

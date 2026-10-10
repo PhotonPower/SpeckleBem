@@ -2,10 +2,11 @@
 - [Windows build pitfalls](build_pitfalls_windows.md) — GCC null-deref false positives (GCC 13 CI repro via winlibs), debug -O0 timings, WP7b quadrature cost, ctest -R case
 - [GMRES observations](gmres_observations.md) — measured iteration counts/residuals (sphere, 2e4 rough box) for test budgets
 - [Touching-pair quadrature findings](touching_quadrature_findings.md) — Duffy error sources (rays, obtuse apex, radial), reference n at sharp folds
-- [Rough box grading facts](rough_box_grading.md) — anchor row, stitched relaxation band (edges <= 2 h_g), safety net, measured box % and aspects
+- [Rough box grading facts](rough_box_grading.md) — anchor row, relaxation band, safety net, box %, WP-B1 lambda_1/5 defaults (M rounding, Ag/Si %)
 - [MLFMM plane-wave accuracy](mlfmm_plane_wave_accuracy.md) — ADR truncation vs box size, corner worst case, Lagrange p, Hankel refs, Eigen dot
 - [Assembly performance](assembly_performance.md) — box cost drivers, schedule, GCC vectorisation flags, fast-math accuracy, timing method
 - [Python bindings pitfalls](python_bindings.md) — flags order, vectorize, views, exceptions, GIL callbacks, Simulation lock design, test sensitivity
+- [Box validity findings](box_validity_findings.md) — WP-V1: 400 nm cells 1.5-2 %, 100 nm 0.17-1.5 % (grows with depth); rim-driven depth sensitivity, SPP half
 - [MLFMM octree findings](mlfmm_octree_findings.md) — anchored vertex-bbox root, lambda/4 floor tolerance, 4 um sphere leaf sizes, plate layers, test cost
 - [MLFMM single-level findings](mlfmm_single_level_findings.md) — WP19b far-field factors, block error vs a/lambda, search optimism, pattern quadrature
 - [MLFMM multilevel findings](mlfmm_multilevel_findings.md) — WP20a far-only/full errors vs leaf, d0=5 needs r_max/a <~ 0.3, symmetry check, debug cost
@@ -13,4 +14,5 @@
 - [MLFMM lossy policy findings](mlfmm_lossy_policy_findings.md) — block check vs 10^-d0, x*(d0), Ag exact part 40 B/pair, budget dense cap, jump-sign test, leaf ratio
 - [MLFMM lossy policy findings](mlfmm_lossy_policy_findings.md) — block check vs 10^-d0, x*(d0), Ag exact part 40 B/pair (61440: 687 MB), budget, leaf ratio 0.6/0.3
 - [Ag sphere MLFMM findings](ag_sphere_mlfmm_findings.md) — WP22a 4 um costs/accuracy, octahedral paper mesh, tol dominates eps_rr, Eigen 3.4 sparse move copies
+- [Angular-spectrum beam findings](angular_spectrum_beam_findings.md) — WP-E1 wave counts, aliasing beyond R (controlled ball), grid convergence, CODATA 3e-11 floor, f^2 coefficients
 - [MLFMM scaling findings](mlfmm_scaling_findings.md) — WP22b1 rough boxes: box r_max sets leaves, Si 5e5 memory limit, Ag MGS share, peak model

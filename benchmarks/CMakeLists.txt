@@ -16,17 +16,31 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math")
 endif()
 
+# Validity of the graded closing box under beam illumination (WP-V1, ADR 0006): far field in the
+# reflection hemisphere of one rough-box configuration (depth, grading, fine band, L), dense
+# operator + GMRES; --compare evaluates the differences. Run by hand (one configuration per
+# process, up to ~60 GB), see benchmarks/results/box_validity.md.
+add_executable(specklebem_box_validity box_validity.cpp)
+target_link_libraries(specklebem_box_validity PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # Vectorised plane-wave sum of the angular-spectrum beam (kernels::fast_sincos).
+    set_source_files_properties(box_validity.cpp PROPERTIES
+        COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math")
+endif()
+
 # Ag sphere with MLFMM vs Mie (WP22a, Phase 4 DoD): one case per process, run by hand, see
 # benchmarks/results/ag_sphere_4um_mlfmm.md. Shares the case code with the validation-large test
-# (tests/support/ag_sphere_mlfmm_support.hpp).
-add_executable(specklebem_ag_sphere_mlfmm ag_sphere_mlfmm.cpp ${PROJECT_SOURCE_DIR}/tests/support/system_memory.cpp)
-target_include_directories(specklebem_ag_sphere_mlfmm PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
-target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
+# (tests/support/ag_sphere_mlfmm_support.hpp) and the test-support library (system_memory.cpp, the
+# include path of tests/support), which tests/CMakeLists.txt defines when the tests are built.
+if(NOT TARGET specklebem_test_support)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_BINARY_DIR}/test_support)
+endif()
+add_executable(specklebem_ag_sphere_mlfmm ag_sphere_mlfmm.cpp)
+target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
 
 # MLFMM scaling study (WP22b1, Phase 4 DoD; Fig. 2(c) of the paper: wall time vs N for
 # preconditioned MLFMM (Ag) and ICTF-MLFMM (Si) rough surfaces): one case per process, run by
 # hand, see benchmarks/results/mlfmm_scaling.md. Shares the case code with the smoke test
 # (tests/support/mlfmm_scaling_support.hpp); mlfmm_scaling_fit.py fits the exponents.
-add_executable(specklebem_mlfmm_scaling mlfmm_scaling.cpp ${PROJECT_SOURCE_DIR}/tests/support/system_memory.cpp)
-target_include_directories(specklebem_mlfmm_scaling PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
-target_link_libraries(specklebem_mlfmm_scaling PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
+add_executable(specklebem_mlfmm_scaling mlfmm_scaling.cpp)
+target_link_libraries(specklebem_mlfmm_scaling PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)

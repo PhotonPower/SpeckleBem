@@ -212,36 +212,47 @@ HeightMap
     m.def(
         "make_rough_surface_mesh",
         [](Real L, Real sigma, Real Lc, Real mesh_size, std::uint64_t seed, OptReal box_depth,
-           OptReal box_mesh_size, OptReal box_fine_depth, bool use_fft) {
+           OptReal box_mesh_size, OptReal box_fine_depth, OptReal exterior_wavelength,
+           bool use_fft) {
             RoughSurfaceParams p = rough_params(L, sigma, Lc, mesh_size, seed, use_fft);
             p.box_depth = box_depth;
             p.box_mesh_size = box_mesh_size;
             p.box_fine_depth = box_fine_depth;
+            p.exterior_wavelength = exterior_wavelength;
             return geometry::make_rough_surface_mesh(p);
         },
         py::kw_only(), py::arg("L") = d.edge_length_L, py::arg("sigma") = d.rms_roughness,
         py::arg("Lc") = d.correlation_length, py::arg("mesh_size") = d.mesh_size,
         py::arg("seed") = d.seed, py::arg("box_depth") = py::none(),
         py::arg("box_mesh_size") = py::none(), py::arg("box_fine_depth") = py::none(),
-        py::arg("use_fft") = d.use_fft, py::call_guard<py::gil_scoped_release>(), R"doc(
+        py::arg("exterior_wavelength") = py::none(), py::arg("use_fft") = d.use_fft,
+        py::call_guard<py::gil_scoped_release>(), R"doc(
 Closed rough-surface mesh: a Gaussian height map (see generate_gaussian_height_map, same
 L, sigma, Lc, mesh_size, seed, use_fft) closed by a box below it.
 
 The object occupies z > xi(x, y); light comes from z < 0. box_depth [m] (bottom plate at
 z = +box_depth), box_mesh_size [m] (coarse box spacing) and box_fine_depth [m] (fine band
-below z = 0) default to the automatic rules of make_mesh_from_height_map. seed=0 draws a
-random seed that is only logged.
+below z = 0) default to the automatic rules of make_mesh_from_height_map, and
+exterior_wavelength [m] (lambda_1 in R1) caps the automatic coarse spacing at lambda_1 / 5
+(ADR 0006 amendment; rough_surface_box_params chooses all four from the materials). seed=0
+draws a random seed that is only logged.
 )doc");
     m.def("make_mesh_from_height_map", &geometry::make_mesh_from_height_map, py::arg("height_map"),
           py::kw_only(), py::arg("box_depth") = py::none(), py::arg("box_mesh_size") = py::none(),
-          py::arg("box_fine_depth") = py::none(), py::call_guard<py::gil_scoped_release>(),
+          py::arg("box_fine_depth") = py::none(), py::arg("exterior_wavelength") = py::none(),
+          py::call_guard<py::gil_scoped_release>(),
           R"doc(
 Closed mesh of a HeightMap: top face from the heights plus side walls and a bottom plate.
 
 box_depth [m]: bottom plate at z = +box_depth (None: 2e-6 m, ADR 0006). box_mesh_size [m]:
 coarse spacing of the lower walls and the bottom (None: min(depth / 2, L / 8,
-10 h, h = min(dx, dy))). box_fine_depth [m]: the walls keep the top-face spacing down to this z
-(None: no fine band); size it as 3 delta + 3 sigma with delta = field_decay_length.
+10 h, h = min(dx, dy)), capped at the largest 2^M h_b <= exterior_wavelength / 5 when
+exterior_wavelength is given; without it a graded box logs a warning: the old rule is not
+validated under illumination, ADR 0006 amendment). box_fine_depth [m]: the walls keep the
+top-face spacing down to this z (None: no fine band); size it as 3 delta + 3 sigma with
+delta = field_decay_length (mandatory for weakly absorbing objects such as Si).
+exterior_wavelength [m]: lambda_1 = lambda_0 / |n_1| in R1 (sb.exterior_wavelength).
+rough_surface_box_params chooses all four from the materials.
 )doc");
 }
 

@@ -14,9 +14,12 @@ Measured 2026-10-10 (win-release, 24 cores, shared machine), d0 = 3, ICTF + left
   2.8 GB, peak RSS 33.8 GB. Near/exact per row constant at fixed h (linear in N).
 - GMRES tol 1e-3 dominates eps_rr for d = 1 um (0.19 % vs 0.078 % at 1e-6, which equals dense
   LU); MLFMM d0 = 3 error invisible in eps_rr.
-- Peak RSS ~2.5 x near field (after the fix below) + Krylov basis.
-- Eigen 3.4.0 (FetchContent) SparseMatrix has NO move ctor: `std::move` of a SparseMatrix copies.
-  SparseOperator now swaps; the by-value parameter copy remains (signature).
+- Peak RSS after WP22a-f (SparseOperator(Matrix&&) + swap, no copy): 1.80 x near on d = 2 um
+  octa n = 6 (8.47 -> 5.54 GB; far incl. exact 2.25 GB is the rest) + Krylov basis.
+- Eigen 3.4.0 (FetchContent) SparseMatrix has NO move ctor: `std::move` of a SparseMatrix copies,
+  and so does passing it by value; take `Matrix&&` and swap. Test: compare valuePtr() before/after.
+- Cheap peak measurement: specklebem_ag_sphere_mlfmm --mesh octa --n 6 --d 2e-6 --max-iter 5
+  (~26 s, peak happens in assembly). Cygwin /proc/meminfo on Windows has no MemAvailable.
 
 **Why:** sizing of WP22b/22c and later large Ag runs; avoid hidden sparse copies.
 **How to apply:** use as memory/time baseline; swap Eigen sparse matrices instead of moving.

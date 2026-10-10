@@ -1,5 +1,8 @@
 include(Catch)
 
+# Shared compiled helpers (tests/support/system_memory.cpp): target specklebem_test_support.
+add_subdirectory(support)
+
 # Catch2 returns 4 when every test case of an invocation was skipped (SKIP()). Catch2 >= 3.5 sets
 # SKIP_RETURN_CODE itself; Ubuntu 24.04 ships 3.4.0, whose Catch.cmake does not, so set it here.
 
@@ -16,6 +19,7 @@ add_executable(specklebem_unit_tests
     unit/test_mesh_io.cpp
     unit/test_singularity.cpp
     unit/test_excitation.cpp
+    unit/test_angular_spectrum_beam.cpp
     unit/test_direct.cpp
     unit/test_fields.cpp
     unit/test_operators.cpp
@@ -32,11 +36,11 @@ add_executable(specklebem_unit_tests
     unit/test_mlfmm.cpp
     unit/test_mlfmm_operator.cpp
     unit/test_mlfmm_policy.cpp
+    unit/test_system_memory.cpp
     unit/test_mlfmm_scaling.cpp
-    support/system_memory.cpp
     # unit/test_speckle_statistics.cpp
 )
-target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
+target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 # Shared test helpers (tests/support), included without relative paths.
 target_include_directories(specklebem_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 # Reference data and fixtures (tests/data) read by regression and I/O tests.
@@ -86,12 +90,11 @@ add_executable(specklebem_validation_tests
     validation/test_mie_sphere_dense.cpp
     validation/test_simulation_mie.cpp
     validation/test_mlfmm_simulation.cpp
-    support/system_memory.cpp
     # validation/test_mie_sphere_mlfmm.cpp
     # validation/test_mlfmm_vs_dense.cpp
     # validation/test_flat_interface_fresnel.cpp
 )
-target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
+target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 catch_discover_tests(specklebem_validation_tests PROPERTIES SKIP_RETURN_CODE 4 LABELS validation)
 
@@ -104,9 +107,8 @@ add_executable(specklebem_validation_large_tests
     validation_large/test_gmres_vs_lu_large.cpp
     validation_large/test_mlfmm_vs_dense_large.cpp
     validation_large/test_ag_sphere_mlfmm_large.cpp
-    support/system_memory.cpp
 )
-target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem Catch2::Catch2WithMain SpeckleBem::warnings)
+target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_large_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 # RUN_SERIAL: each n = 4 dense case needs ~4 GB; running two at once was OOM-killed on a 15 GB machine.
 catch_discover_tests(specklebem_validation_large_tests PROPERTIES SKIP_RETURN_CODE 4 LABELS validation-large TIMEOUT 21600 RUN_SERIAL TRUE)

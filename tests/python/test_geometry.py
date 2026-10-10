@@ -201,3 +201,75 @@ def test_rough_surface_mesh():
 def test_rough_surface_invalid(bad):
     with pytest.raises(ValueError):
         sb.make_rough_surface_mesh(**{**ROUGH, **bad})
+
+
+def test_rough_surface_invalid_exterior_wavelength():
+    for bad in (0.0, -500e-9, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            sb.make_rough_surface_mesh(**ROUGH, exterior_wavelength=bad)
+
+
+def test_box_defaults_adr0006_amendment():
+    """Closing-box defaults of the ADR 0006 amendment 2026-10-10 (WP-B1)."""
+    lam = 500e-9
+    si, ag, vac = sb.silicon_500nm(), sb.silver_500nm(), sb.vacuum()
+    assert sb.exterior_wavelength(vac, lam) == lam
+    assert sb.exterior_wavelength(sb.Material(eps_r=2.25), lam) == pytest.approx(lam / 1.5)
+    # Lossy background: lambda_0 / |n_1| (conservative); metallic background: rejected.
+    lossy = sb.Material(eps_r=2.25 - 0.3j)
+    assert sb.exterior_wavelength(lossy, lam) == pytest.approx(lam / abs(2.25 - 0.3j) ** 0.5)
+    for metal in (sb.Material(eps_r=-4.0), sb.Material(eps_r=-1.0 - 0.5j), ag):
+        with pytest.raises(ValueError):
+            sb.exterior_wavelength(metal, lam)
+        with pytest.raises(ValueError):
+            sb.rough_surface_box_params(si, metal, lam, 50e-9, 50e-9)
+    # Largest 2^M h <= lambda_1 / 5: 100 nm for 50 nm, uniform (h) for 60 nm.
+    assert sb.default_box_mesh_size(vac, lam, 50e-9) == 2 * 50e-9
+    assert sb.default_box_mesh_size(background=vac, wavelength=lam, mesh_size=60e-9) == 60e-9
+    with pytest.raises(ValueError):
+        sb.default_box_mesh_size(vac, lam, 0.0)
+    # Si: mandatory fine band 3 delta + 3 sigma; Ag: none.
+    p_si = sb.rough_surface_box_params(si, vac, lam, 50e-9, 50e-9)
+    assert p_si.box_depth == sb.default_box_depth(si, lam)
+    assert p_si.box_fine_depth == sb.default_box_fine_depth(si, lam, 50e-9)
+    assert p_si.box_fine_depth == pytest.approx(3.54e-6, abs=0.01e-6)
+    # box_mesh_size None: the generator caps the coarse spacing with the actual grid spacing.
+    assert p_si.box_mesh_size is None and p_si.exterior_wavelength == lam
+    assert p_si.uniform_fallback is False
+    p_ag = sb.rough_surface_box_params(
+        object=ag, background=vac, wavelength=lam, sigma=50e-9, mesh_size=50e-9
+    )
+    assert p_ag.box_depth == 2e-6 and p_ag.box_fine_depth is None
+    assert p_ag.kwargs() == dict(
+        box_depth=2e-6, box_mesh_size=None, box_fine_depth=None, exterior_wavelength=lam
+    )
+    r = repr(p_ag)
+    assert r.startswith("<RoughBoxParams")
+    assert "box_depth=2e-06" in r and "exterior_wavelength=5e-07" in r, r
+    assert "box_mesh_size=None" in r and "uniform_fallback=False" in r, r
+    assert f"box_fine_depth={p_si.box_fine_depth:.6g}" in repr(p_si), repr(p_si)  # 6 digits
+    # Very rough Si: the band would reach the bottom plate -> uniform box (warned).
+    p_fb = sb.rough_surface_box_params(si, vac, lam, 1e-6, 50e-9)
+    assert p_fb.uniform_fallback is True and p_fb.box_fine_depth is None
+    assert p_fb.box_mesh_size == 50e-9 and p_fb.kwargs()["box_mesh_size"] == 50e-9
+    assert "box_mesh_size=5e-08" in repr(p_fb) and "uniform_fallback=True" in repr(p_fb)
+    with pytest.raises(ValueError):
+        sb.rough_surface_box_params(sb.Material(eps_r=2.25), vac, lam, 50e-9, 50e-9)
+    # The keywords build the mesh; the automatic rule with exterior_wavelength gives the same.
+    surf = sb.RoughSurface(**ROUGH, **p_ag.kwargs())
+    auto = sb.make_rough_surface_mesh(**ROUGH, box_depth=2e-6, exterior_wavelength=lam)
+    np.testing.assert_array_equal(auto.triangles, surf.mesh.triangles)
+    old = sb.make_rough_surface_mesh(**ROUGH, box_depth=2e-6)  # 250 nm cells, M = 2
+    assert old.num_triangles < surf.mesh.num_triangles
+    hm = surf.heights
+    from_map = sb.make_mesh_from_height_map(hm, box_depth=2e-6, exterior_wavelength=lam)
+    np.testing.assert_array_equal(from_map.triangles, surf.mesh.triangles)
+
+
+def test_check_beam_waist():
+    sb.check_beam_waist(10e-6, 2.5e-6)
+    with pytest.raises(ValueError, match="L / 4"):
+        sb.check_beam_waist(10e-6, 10e-6 / 3)
+    sb.check_beam_waist(patch_length=10e-6, waist=10e-6 / 3, allow_wide=True)
+    with pytest.raises(ValueError):
+        sb.check_beam_waist(0.0, 1e-6)

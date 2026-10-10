@@ -7,6 +7,7 @@
 #include "specklebem/excitation/excitation.hpp"
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/geometry/mesh.hpp"
+#include "specklebem/geometry/rough_surface.hpp"
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/postprocessing/fields.hpp"
@@ -49,11 +50,100 @@ inline constexpr Real kLargeBoxDepthWarning = 50e-6;
 /// Si at 500 nm with sigma = 50 nm: 3.54 um. The fine band matters for weakly absorbing
 /// objects (Si); for strongly absorbing ones (Ag: 0.23 um) the graded box without a fine band
 /// already starts coarsening at about 4 delta. The generator requires the result to lie below
-/// the box depth (check against default_box_depth() or the depth actually used).
+/// the box depth (check against default_box_depth() or the depth actually used). Since the
+/// ADR 0006 amendment (2026-10-10) the fine band is mandatory for weakly absorbing objects;
+/// rough_surface_box_params() decides when it is needed.
 /// @throws std::invalid_argument for sigma not finite or < 0, a lossless dielectric object
 ///         (delta = +infinity) and what material::field_decay_length rejects.
 [[nodiscard]] Real default_box_fine_depth(const material::Material& object, Real wavelength,
                                           Real sigma);
+
+/// Wavelength lambda_1 = lambda_0 / |n_1| [m] in the exterior medium R1 (background),
+/// n_1 = sqrt(eps_r mu_r). For a lossless background this is the wavelength in R1; for a
+/// lossy one it is shorter than lambda_0 / Re(n_1), so the box resolution derived from it
+/// (lambda_1 / 5) is conservative.
+/// @throws std::invalid_argument for a wavelength not finite and > 0, non-finite eps_r or
+///         mu_r, an active background (Im(eps_r) > 0 or Im(mu_r) > 0, docs/06), a metallic
+///         background (Re(eps_r) <= 0: no propagating exterior, not covered by ADR 0006) or
+///         Re(n_1) <= 0.
+[[nodiscard]] Real exterior_wavelength(const material::Material& background, Real wavelength);
+
+/// Nominal coarse spacing [m] of the graded closing box (ADR 0006 amendment 2026-10-10) for
+/// the nominal top-face spacing h = mesh_size: the largest 2^M h <= lambda_1 / 5 (M >= 0,
+/// lambda_1 = exterior_wavelength(background, wavelength); computed by
+/// geometry::box_spacing_for_exterior_wavelength()). M = 0 (lambda_1 / 5 < 2 h) returns h:
+/// the uniform box. Examples: 500 nm in vacuum, h = 50 nm -> 100 nm (M = 1); h = 20 nm ->
+/// 80 nm (M = 2); h = 60 nm -> 60 nm (uniform). This is informational: the generator's grid
+/// spacing L / round(L / h) differs from mesh_size for most L (and the box levels use
+/// max(dx, dy)), so passing this value as an explicit box_mesh_size can give a coarse
+/// spacing slightly above lambda_1 / 5 (e.g. L = 1.07 um, h = 50 nm: 101.9 nm). To build a
+/// box, set geometry::RoughSurfaceParams::exterior_wavelength and leave box_mesh_size unset
+/// (as rough_surface_box_params() does): the generator then applies the same rule with the
+/// actual spacing. lambda_1 / 5 is necessary under illumination, not shown sufficient
+/// (WP-V2).
+/// @throws std::invalid_argument for mesh_size not finite and > 0 and what
+///         exterior_wavelength() rejects.
+[[nodiscard]] Real default_box_mesh_size(const material::Material& background, Real wavelength,
+                                         Real mesh_size);
+
+/// Closing-box parameters of a truncated rough patch chosen from the materials (ADR 0006 with
+/// the 2026-10-10 amendment); see rough_surface_box_params().
+struct RoughBoxParams {
+    Real box_depth = 0.0;                ///< default_box_depth(object, wavelength) [m]
+    std::optional<Real> box_fine_depth;  ///< 3 delta + 3 sigma for weakly absorbing objects [m]
+    /// Explicit coarse spacing [m]: unset (the generator caps its automatic rule at
+    /// lambda_1 / 5 with the actual grid spacing), mesh_size for the uniform-box fallback.
+    std::optional<Real> box_mesh_size;
+    Real exterior_wavelength = 0.0;  ///< lambda_1 = lambda_0 / |n_1| [m]
+    /// The fine band would reach the bottom plate (3 delta + 3 sigma >= box_depth): uniform
+    /// box (box_mesh_size = mesh_size, no band) chosen instead, logged with SBEM_WARN.
+    bool uniform_fallback = false;
+    /// Sets the four box fields of p (box_depth, box_fine_depth, box_mesh_size,
+    /// exterior_wavelength); the other fields are left as they are.
+    void apply_to(geometry::RoughSurfaceParams& p) const;
+};
+
+/// Closing-box parameters for an object (R2) under a background (R1) at the vacuum wavelength
+/// `wavelength`, rms roughness sigma and top-face spacing mesh_size [m]:
+///  * box_depth = default_box_depth(object, wavelength) (unchanged by the amendment);
+///  * exterior_wavelength = lambda_1 = exterior_wavelength(background, wavelength);
+///  * box_mesh_size unset: the generator caps its automatic coarse spacing at the largest
+///    2^M h_b <= lambda_1 / 5 with the actual level spacing h_b = max(dx, dy) of the grid
+///    (geometry::RoughSurfaceParams::exterior_wavelength), so the coarse spacing never
+///    exceeds lambda_1 / 5 (up to a relative 1e-9) and no exterior-resolution warning is
+///    logged;
+///  * box_fine_depth = default_box_fine_depth(object, wavelength, sigma) = 3 delta + 3 sigma
+///    for weakly absorbing objects, unset otherwise. "Weakly absorbing" mirrors the grading
+///    contract (geometry::kNoBandCoarseningDepth): the graded walls without a fine band
+///    start to coarsen 2 top-face spacings below a smooth rim, so an object is weakly
+///    absorbing if 3 delta > 2 mesh_size, i.e. if its field has not decayed to e^-3 there.
+///    At 500 nm and h = 50 nm (threshold delta > 33 nm): Si (delta = 1.13 um) gets the band
+///    3.54 um (sigma = 50 nm), Ag (delta = 25 nm, first coarse row at ~4 delta) none. The
+///    band is mandatory where it applies (ADR 0006 amendment).
+///  * Uniform-box fallback: if the band would reach the bottom plate (3 delta + 3 sigma >=
+///    box_depth, very rough surfaces), the uniform box is chosen instead (box_mesh_size =
+///    mesh_size, no band, uniform_fallback = true; logged with SBEM_WARN since it costs
+///    several times the graded box).
+/// The beam waist is not part of the box: rough-surface drivers call check_beam_waist().
+/// @throws std::invalid_argument for what default_box_depth(), default_box_fine_depth(),
+///         exterior_wavelength() reject and for mesh_size not finite and > 0.
+[[nodiscard]] RoughBoxParams rough_surface_box_params(const material::Material& object,
+                                                      const material::Material& background,
+                                                      Real wavelength, Real sigma, Real mesh_size);
+
+/// Largest beam waist relative to the patch edge L (ADR 0006 amendment 2026-10-10:
+/// w0 <= L / 4; at L / 3 the rigorous beam carries 0.6-0.9 % of its power past the edges, at
+/// L / 4 0.02 %).
+inline constexpr Real kMaxBeamWaistFraction = 0.25;
+
+/// Beam-waist rule of truncated rough patches (ADR 0006 amendment 2026-10-10): waist <=
+/// kMaxBeamWaistFraction * patch_length (relative slack 1e-12). Simulation cannot determine
+/// L from an arbitrary mesh, so every driver that illuminates a rough patch of edge L with a
+/// Gaussian beam of waist w0 must call this. A wider waist throws unless allow_wide is true,
+/// in which case it logs one SBEM_WARN (for deliberate studies of edge effects).
+/// @throws std::invalid_argument for patch_length or waist not finite and > 0, and for
+///         waist > L / 4 without allow_wide.
+void check_beam_waist(Real patch_length, Real waist, bool allow_wide = false);
 
 /// Linear solver of Simulation::solve().
 enum class SolverKind {
@@ -100,7 +190,10 @@ public:
     ///         inward (signed_volume() <= 0; they must point out of R2 into R1, docs/06), a
     ///         null excitation, config.wavelength not finite and > 0 or different from the
     ///         excitation's wavelength (relative 1e-12), an excitation background (eps_r or
-    ///         mu_r) different from config.exterior, an unknown or unavailable compression,
+    ///         mu_r) different from config.exterior, a mesh vertex farther than the
+    ///         excitation's controlled_radius() from its controlled_center()
+    ///         (AngularSpectrumBeam: region_radius around the focus), an unknown or unavailable
+    ///         compression,
     ///         2N > op::kMaxDenseUnknowns for the dense strategy, compression "mlfmm" with
     ///         SolverKind::Direct, a formulation that is not
     ///         implemented (formulation::Kind::JMCFIE), invalid kernel options or GMRES

@@ -36,7 +36,7 @@ analytic (Mie, Fresnel, static integrals)
 | Power balance, Ag and Si surfaces | — | rel | < 1 % (Ag at mesh ≤ λ/13: the surface P_abs of weakly absorbing Ag converges slowly, see benchmarks/results/mie_sphere_dense.md) | 4 |
 | Reciprocity, rough surface | — | rel | < 1 % | 4 |
 | Near field Ag sphere, xz-plane | Mie | rel per point | < 0.1 (lit), < 1 (shadow) | 5 |
-| Rigorous beam Maxwell check | — | ‖∇×E + jωμH‖ / ‖ωμH‖ | < 1e-8 | 5 |
+| Rigorous beam Maxwell check (`AngularSpectrumBeam`; unit test "angular-spectrum beam: finite-difference Maxwell residual at round-off level", tests/unit/test_angular_spectrum_beam.cpp, asserts < 1e-9, measured ≤ 9e-11) | finite differences (O(h⁴), h = λ/400) | ‖∇×E + jωμH‖ / ‖ωμH‖ | < 1e-8 | 5 |
 | Speckle PDF at z = −1 mm | Eq. 10 | KS test | p > 0.05 | 6 |
 | Contrast, γ₁₂ vs σ | monotone decrease | — | — | 6 |
 | Speckle size | λz/D | rel | < 10 % | 6 |
@@ -52,6 +52,10 @@ analytic (Mie, Fresnel, static integrals)
 
 - **Box-depth sensitivity**: scattered far field changes by < 0.1 % when the closing box depth is doubled (Si and Ag). Documents that the artificial boundary is inert.
 - **Edge-effect sensitivity**: far field changes by < 0.5 % when L is increased by 20 % at fixed beam waist.
+- Metric of both sensitivity checks (ADR 0006 amendment): L2 difference of |F|² over the reflection
+  hemisphere, sqrt(Σ w (I_T − I_R)² / Σ w I_R²) with w = sin θ; ε_rr on the xz/yz cuts is reported
+  alongside. Beam waist w₀ ≤ L/4, rigorous (angular-spectrum) beam, box cells ≤ λ₁/5, fine band for Si.
+  Meaningful only at sizes where the rim is dark (WP-V2, MLFMM).
 - **Flat-surface limit**: σ → 0 recovers the specular Fresnel reflection of the beam.
 - **Regression**: height map for `seed = 42`, L = 10 µm is stored in `tests/data`; a change in the generator that alters it must be deliberate.
 

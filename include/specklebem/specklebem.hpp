@@ -3,6 +3,7 @@
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
 #include "specklebem/core/config.hpp"
 #include "specklebem/core/types.hpp"
+#include "specklebem/excitation/angular_spectrum_beam.hpp"
 #include "specklebem/excitation/excitation.hpp"
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/geometry/mesh.hpp"

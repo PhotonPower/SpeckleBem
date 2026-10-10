@@ -30,8 +30,8 @@ on the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`
   - `wp/22a-ag-sphere-4um` (pushed, in review): Ag sphere 4 µm with MLFMM on the paper's 393 216-unknown
     mesh (octahedron-based sphere, mean edge λ/16.5): worker-reported ε_rr 0.023 % / 0.016 % at tol 1e-3,
     442 iterations, 15.6 min, peak 33.8 GB — Phase 4 DoD (≤ 0.5 %) met if the review confirms. Includes a
-    `SparseOperator` copy fix (−12 GB peak). Open: DoD wording "λ/27" (paper mesh is λ/27 by √area only),
-    `SparseOperator(Matrix&&)` signature, d₀ = 5 needs exclusive use of the machine.
+    `SparseOperator` copy fix (−12 GB peak). Merged (e586d9a); follow-ups merged as WP22a-f (peak 2.75 → 1.80 × near
+    field). Open: the d₀ = 5 run needs exclusive use of the machine.
   - `wp/v1-box-validity` (record `benchmarks/results/box_validity.md` written; two Si L = 1.5 µm runs
     pending): docs/05 depth and edge checks fail at dense-feasible sizes; 400 nm box cells are a 1.5–2 %
     far-field error (100 nm: 0.17 %); Si needs the fine band; w₀ = L/3 too wide; the paraxial beam is 2.8 %

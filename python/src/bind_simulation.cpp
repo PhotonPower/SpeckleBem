@@ -7,9 +7,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <iomanip>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -409,6 +411,99 @@ std::string result_repr(const GmresResult& r) {
 
 }  // namespace
 
+namespace {
+
+/// Closing-box defaults of truncated rough patches (ADR 0006 with the 2026-10-10 amendment).
+void bind_box_defaults(py::module_& m) {
+    m.def("default_box_depth", &default_box_depth, py::arg("object"), py::arg("wavelength"),
+          "Default closing-box depth [m] max(5 delta, 2 um) below z = 0 (ADR 0006); raises "
+          "ValueError for a lossless dielectric object.");
+    m.def("default_box_fine_depth", &default_box_fine_depth, py::arg("object"),
+          py::arg("wavelength"), py::arg("sigma"),
+          "Fine band [m] 3 delta + 3 sigma of the graded closing box (ADR 0006).");
+    m.def("exterior_wavelength", &exterior_wavelength, py::arg("background"), py::arg("wavelength"),
+          "Wavelength lambda_0 / |n_1| [m] in the exterior medium R1 (conservative for a lossy "
+          "background); raises ValueError for a metallic background (Re(eps_r) <= 0).");
+    m.def("default_box_mesh_size", &default_box_mesh_size, py::arg("background"),
+          py::arg("wavelength"), py::arg("mesh_size"), R"doc(
+Nominal coarse spacing [m] of the graded closing box (ADR 0006 amendment 2026-10-10): the
+largest 2^M * mesh_size <= lambda_1 / 5 (M >= 0; M = 0 returns mesh_size, the uniform box).
+500 nm in vacuum with mesh_size = 50 nm gives 100 nm. Informational: the generator's grid
+spacing L / round(L / mesh_size) differs from mesh_size, so pass exterior_wavelength (as
+rough_surface_box_params does) rather than this value as box_mesh_size. Necessary under
+illumination, not shown sufficient.
+)doc");
+    py::class_<RoughBoxParams>(m, "RoughBoxParams",
+                               "Closing-box parameters chosen by rough_surface_box_params "
+                               "(lengths in metres).")
+        .def_readonly("box_depth", &RoughBoxParams::box_depth)
+        .def_readonly("box_fine_depth", &RoughBoxParams::box_fine_depth,
+                      "Fine band (None for strongly absorbing objects).")
+        .def_readonly("box_mesh_size", &RoughBoxParams::box_mesh_size,
+                      "Explicit coarse spacing: None (the generator caps its automatic rule at "
+                      "lambda_1 / 5 with the actual grid spacing), mesh_size for the uniform-box "
+                      "fallback.")
+        .def_readonly("exterior_wavelength", &RoughBoxParams::exterior_wavelength,
+                      "lambda_1 = wavelength / |n_1| in R1.")
+        .def_readonly("uniform_fallback", &RoughBoxParams::uniform_fallback,
+                      "True if the fine band would reach the bottom plate and the uniform box "
+                      "was chosen instead (logged as a warning).")
+        .def(
+            "kwargs",
+            [](const RoughBoxParams& b) {
+                py::dict d;
+                d["box_depth"] = b.box_depth;
+                d["box_mesh_size"] = py::cast(b.box_mesh_size);
+                d["box_fine_depth"] = py::cast(b.box_fine_depth);
+                d["exterior_wavelength"] = b.exterior_wavelength;
+                return d;
+            },
+            "The box keywords of RoughSurface / make_rough_surface_mesh / "
+            "make_mesh_from_height_map as a dict (None entries select the automatic rules).")
+        .def("__repr__", [](const RoughBoxParams& b) {
+            std::ostringstream os;
+            os << std::setprecision(6);
+            const auto opt = [&os](const std::optional<Real>& v) {
+                if (v.has_value())
+                    os << *v;
+                else
+                    os << "None";
+            };
+            os << "<RoughBoxParams box_depth=" << b.box_depth << " box_fine_depth=";
+            opt(b.box_fine_depth);
+            os << " box_mesh_size=";
+            opt(b.box_mesh_size);
+            os << " exterior_wavelength=" << b.exterior_wavelength
+               << " uniform_fallback=" << (b.uniform_fallback ? "True" : "False") << ">";
+            return os.str();
+        });
+    m.def("rough_surface_box_params", &rough_surface_box_params, py::arg("object"),
+          py::arg("background"), py::arg("wavelength"), py::arg("sigma"), py::arg("mesh_size"),
+          R"doc(
+Closing-box parameters of a rough patch from the materials (ADR 0006, amendment 2026-10-10):
+box_depth = default_box_depth(object), exterior_wavelength = lambda_1 = wavelength / |n_1|,
+box_mesh_size = None (the generator caps its automatic coarse spacing at the largest
+2^M h <= lambda_1 / 5 with the actual grid spacing h), and the mandatory fine band
+3 delta + 3 sigma for weakly absorbing objects (3 delta > 2 mesh_size, mirroring the grading
+contract; Si yes, Ag no at 500 nm and 50 nm). If the band would reach the bottom plate, the
+uniform box is chosen (box_mesh_size = mesh_size, uniform_fallback = True, warning logged).
+Raises ValueError for a metallic background (Re(eps_r) <= 0). Use as
+``RoughSurface(L, sigma, Lc, mesh_size, seed, **p.kwargs())``.
+
+Returns
+-------
+RoughBoxParams
+)doc");
+    m.def("check_beam_waist", &check_beam_waist, py::arg("patch_length"), py::arg("waist"),
+          py::arg("allow_wide") = false, R"doc(
+Beam-waist rule of rough patches (ADR 0006 amendment 2026-10-10): waist <= patch_length / 4.
+Raises ValueError for a wider waist unless allow_wide=True (then a warning is logged).
+Rough-surface drivers must call it: Simulation cannot determine the patch size from a mesh.
+)doc");
+}
+
+}  // namespace
+
 void bind_simulation(py::module_& m) {
     py::class_<GmresResult>(m, "SolveResult", R"doc(
 Result of Simulation.solve() (C++ solver::GmresResult).
@@ -701,6 +796,7 @@ float or ndarray of float64, shape (n,)
         py::arg("E_cyl"), py::arg("n_theta"), py::arg("n_y"),
         "Relative DRC: mean |E|^2 [V^2/m^2] over the n_y axial samples per theta of fields on "
         "cylinder_grid (row k * n_y + l).");
+    bind_box_defaults(m);
 }
 
 }  // namespace specklebem::python

@@ -5,6 +5,81 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- geometry / simulation (solver) / python (WP-B1): closing-box defaults of the ADR 0006
+  amendment 2026-10-10. Geometry: `RoughSurfaceParams::exterior_wavelength` (λ₁) caps the
+  automatic coarse spacing at the largest 2^M h_b ≤ λ₁/5 with the actual grid spacing
+  (`geometry::box_spacing_for_exterior_wavelength`; trailing optional `exterior_wavelength`
+  parameter of `make_mesh_from_height_map`, `detail::box_grading`, `detail::rough_box_arrays`);
+  without it a graded box from the old automatic rule logs one SBEM_WARN (mesh unchanged), and
+  an explicit coarse spacing above λ₁/5 warns when λ₁ is known. `geometry::kNoBandCoarseningDepth`
+  (= 2 top-face spacings, the grading contract). Simulation helpers (`simulation.hpp`):
+  `exterior_wavelength` (λ₀/|n₁|, conservative for lossy backgrounds; metallic backgrounds with
+  Re(ε_r) ≤ 0 are rejected), `default_box_mesh_size` (nominal; 500 nm vacuum, h = 50 nm →
+  100 nm, M = 1), `RoughBoxParams` / `rough_surface_box_params` (depth, λ₁, `box_mesh_size`
+  unset so the generator applies the λ₁/5 cap, and the mandatory fine band 3δ + 3σ for weakly
+  absorbing objects, 3δ > 2h: Si yes, Ag no at 500 nm / 50 nm; uniform box with SBEM_WARN and
+  `uniform_fallback = true` if the band would reach the bottom) and `check_beam_waist`
+  (w₀ ≤ L/4, `std::invalid_argument` unless `allow_wide`). L = 10 µm, h = 50 nm, seed 1: Ag
+  (depth 2 µm) M = 1, closing box 47.5 % of the top face (old rule 7.19 %); Si (5.65 µm, 73
+  fine rows) 195.5 % (old rule with band 153.4 %, uniform 326 %). Python: the helpers,
+  `RoughBoxParams` (`kwargs()`, `uniform_fallback`), `default_box_depth` /
+  `default_box_fine_depth` and the `exterior_wavelength` keyword of the rough-surface
+  functions and `RoughSurface`; example `02_rough_surface_speckle.py` uses the box defaults
+  and w₀ = L/4.
+- excitation / python (WP-E1): rigorous Gaussian beam `excitation::AngularSpectrumBeam`
+  (`sb.AngularSpectrumBeam`), the beam ADR 0006 (amendment item 4) requires for quantitative
+  rough-surface results: a finite sum of exact propagating plane waves around
+  `k̂0 = R_y(θ_in) ẑ` with spectrum `exp(−k_t² w0²/4)`, polarisation `ê0 − (k̂·ê0) k̂` (the WP-V1
+  study construction, generalised to oblique incidence, s polarisation, a focus and a lossless
+  background), `E(focus)·ê0 = 1 V/m`, evanescent part omitted (definition in docs/06).
+  Gauss–Legendre (polar) × trapezoid (azimuth) grid, refined per direction until a 1.5× finer
+  grid changes E by < `tolerance` (1e-10) on probe points of the ball `|r − focus| ≤ R`
+  (default 4 w0); fixed orders optional (a fixed grid that misses `tolerance` is kept with a
+  warning); `max_plane_waves` caps the check grids of both modes, orders are capped at 10⁶
+  (`std::invalid_argument` for fixed, `std::runtime_error` for automatic grids past the caps).
+  Fields are controlled only in that ball: `Excitation` gains `controlled_radius()` /
+  `controlled_center()` (+∞ / origin by default; the beam returns R and its focus), the
+  `Simulation` constructor rejects meshes with a vertex outside the ball
+  (`std::invalid_argument` / `ValueError` naming the required `region_radius`), and an
+  evaluation beyond 1.2 R logs one warning per beam (near fields at distant points; aliasing
+  ghosts reach 1e-4 at 2 R and 0.1 at 4 R for w0 = 2.5 µm, R = 4 w0). For
+  `|θ_in| + α_max > π/2` the outer components travel towards −z (logged, docs/06). Queries:
+  plane-wave count, orders, achieved change, `power()` (Parseval), the plane waves themselves.
+  New virtual `Excitation::fields(r)` (E and H; default the two calls, bitwise unchanged for
+  `PlaneWave` / `GaussianBeam`), overridden by the beam with one pass and used by the RHS
+  assembly and `post::total_field`; `sb.Excitation.fields`, `.controlled_radius`,
+  `.controlled_center` in Python. Plane-wave grid immutable after construction, branch-free
+  sincos with four partial sums: indicatively ~7 ns per plane wave and point (timed on a shared
+  machine); ≈ 1 300–1 600 waves at R = 4 w0 (≈ (R/w0)² scaling; ≈ 3 600 at R ≈ 8 w0).
+  Tests: each wave transverse with `H = k̂ × E / η` (div E and the curl
+  equation of the sum at round-off), finite-difference Maxwell residual 9e-11 (paraxial beam:
+  1.3e-2), focus normalisation, agreement with the study beam to 1.2e-14, paraxial limit
+  (w0 = 5λ: max |E − E_paraxial| = 0.37 (λ/(π w0))², ratio 0.2496 at 10λ), 45° p/s central
+  direction, polarisation and Gouy phase gradient `−k (1 − f²/2)`, rotation covariance, waist-plane
+  power = `power()` = `(1 + f²/2) π w0²/(4η)`, argument validation, order / plane-wave caps,
+  fixed-grid and outside-the-ball warnings (once), `fields()` through the base class, the
+  `Simulation` region check (C++ and Python). `GaussianBeam`'s warning and
+  header now point to it; validation helpers shared via `src/excitation/excitation_detail.hpp`.
+- tooling / docs (WP-V1): box validity study `benchmarks/box_validity.cpp`
+  (`specklebem_box_validity`, `SPECKLEBEM_BUILD_BENCHMARKS`): far field |F|² of one rough-box
+  configuration (material, L with a shared cropped height map, waist, depth factor, coarse spacing,
+  fine band) in the reflection and forward hemispheres and the xz/yz cuts, dense ICTF + GMRES
+  (tol 1e-6), with a rigorous angular-spectrum Gaussian beam (or the paraxial one), `.npy` output,
+  per-part far-field shares (top, walls, bottom, rim, foot) and `--compare` (hemisphere L2 of |F|²,
+  docs/05 ε_rr); unconverged runs are neither written nor compared (exit status 1) unless
+  `--allow-unconverged`, `--eps-imag` runs are marked DIAGNOSTIC and store ε_r. Record
+  `benchmarks/results/box_validity.md`: at dense sizes (L ≤ 2.4 µm) depth ×2 (Ag 0.8–3.5 %,
+  uniform box 1.1 %; Si fine band 0.13 %, ε_rr 0.04 %) and L ×1.2 (4–6 %) fail the docs/05
+  tolerances; the patch edge is lit at the percent level (w₀ = L/3: 0.6–0.9 % of the rigorous
+  beam power crosses z = 0 outside the patch) and the depth sensitivity follows the rim
+  illumination (3× lower at w₀ = L/4), with surface plasmons carrying about half of it (lossy-Ag
+  diagnostic). 400 nm coarse cells are 1.5–1.9 % from the uniform box; 100 nm cells 0.17 %
+  (L = 1.5 µm), 0.59 % (L = 1 µm) and 1.54 % (L = 1 µm, depth ×2), so λ₁/5 is necessary but not
+  shown to suffice for the depth check (depth ×2 with 100 nm: 1.76 % at L = 1 µm, 3.49 % at
+  L = 2 µm). Si needs the fine band (0.44–0.88 % without; fine band + 400 nm cells 0.37 % from the
+  uniform box). Proposed ADR 0006 changes: coarse spacing ≤ λ₁/5 (to be re-checked against a
+  uniform box at w₀ ≤ L/4), w₀ ≤ L/4, rigorous beam; the w₀/L (and L) at which the depth check can
+  pass is open (an earlier z_R ≥ 8 × depth, L ≳ 6–11 µm, estimate is withdrawn).
 - tests/benchmarks (WP22b1, Phase 4 DoD): MLFMM scaling study on Gaussian rough boxes (sigma =
   50 nm, Lc = 500 nm, h = 50 nm, 100 nm box cells, Si fine band, paraxial beam w0 = L/4, d0 = 3,
   `recommend` formulation, full GMRES tol 1e-3). Si: time per solve gamma = 0.73 over 2N = 4.3e4
@@ -86,6 +161,15 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `Simulation` (validation-large), 2N = 61 440 icosphere exact-rows case, memory guards.
 
 ### Fixed
+- operator (WP22a-f, WP22a review follow-ups): `SparseOperator(Matrix&& Z)` takes the near-field
+  matrix by rvalue reference and swaps it in; the former by-value parameter still copied it
+  (Eigen 3.4.0). Peak working set of the Ag sphere d = 2 um, octa n = 6 (2N = 98 304, near
+  3.07 GB): 8.47 -> 5.54 GB, i.e. 2.75 -> 1.80 x the near field. Test: the operator owns the
+  caller's arrays (same pointers). tests: `available_memory_bytes()` reads `MemAvailable` from
+  `/proc/meminfo` on Linux (fallback: free pages), 0 on macOS (the guarded cases SKIP), with a
+  unit test; `make_octasphere`/`edge_stats` moved to the light `tests/support/octasphere.hpp`;
+  `system_memory.cpp` is the static library `specklebem_test_support` (`tests/support/`), linked
+  by the test executables and `specklebem_ag_sphere_mlfmm` (also without the tests).
 - operator (WP22a): `SparseOperator` swaps the matrix in instead of `Z_(std::move(Z))`, which
   copied it (Eigen 3.4.0's `SparseMatrix` has no move constructor): one transient copy of the
   MLFMM near field less (peak RSS of the 393 216-unknown Ag sphere: -12 GB).
