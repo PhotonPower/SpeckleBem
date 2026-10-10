@@ -9,7 +9,10 @@
 
 namespace specklebem::op {
 
-SparseOperator::SparseOperator(Matrix Z) : Z_(std::move(Z)) {
+SparseOperator::SparseOperator(Matrix Z) {
+    // Swap instead of Z_(std::move(Z)): Eigen 3.4.0's SparseMatrix has no move constructor, so the
+    // move would copy the matrix (a third copy of the near field during the MLFMM setup).
+    Z_.swap(Z);
     Z_.makeCompressed();
 }
 
