@@ -1,17 +1,22 @@
 // Smoke test of the MLFMM scaling study's case code (WP22b1, benchmarks/mlfmm_scaling.cpp,
-// tests/support/mlfmm_scaling_support.hpp) at tiny patch sizes: geometry, estimates and one
-// complete Ag run (setup, timed matvecs, GMRES) through Simulation with compression "mlfmm".
+// tests/support/mlfmm_scaling_support.hpp) at tiny patch sizes: geometry (box parameters from
+// rough_surface_box_params, the waist rule), estimates, the describe() parser and one complete
+// Ag run (setup, timed matvecs, GMRES) through Simulation with compression "mlfmm". The Si
+// estimate (order searches up to L ~ 100) and the end-to-end run are checked in optimised builds
+// only, so that every case stays below ~20 s under the sanitizers.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <cmath>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "mlfmm_scaling_support.hpp"
 
 using namespace mlfmm_scaling;
 
-TEST_CASE("mlfmm_scaling: geometry follows the WP-V1 box recommendations", "[mlfmm_scaling]") {
+TEST_CASE("mlfmm_scaling: geometry follows the ADR 0006 box parameters", "[mlfmm_scaling]") {
     Case si;
     si.material = "si";
     si.L = 0.6e-6;
@@ -24,6 +29,10 @@ TEST_CASE("mlfmm_scaling: geometry follows the WP-V1 box recommendations", "[mlf
     CHECK_THAT(gs.depth, Catch::Matchers::WithinRel(5.6455e-6, 1e-3));
     CHECK(gs.grading.target_spacing == kBoxMeshSize);
     CHECK(gs.top_triangles == 2 * 12 * 12);
+    CHECK(uses_fine_band(si));
+    const RoughBoxParams bs = box_params(si);
+    CHECK(bs.box_mesh_size == kBoxMeshSize);  // explicit override of the automatic rule
+    CHECK_THAT(bs.exterior_wavelength, Catch::Matchers::WithinRel(kLambda, 1e-12));
 
     Case ag = si;
     ag.material = "ag";
@@ -31,9 +40,21 @@ TEST_CASE("mlfmm_scaling: geometry follows the WP-V1 box recommendations", "[mlf
     CHECK_FALSE(ga.fine_depth.has_value());  // Ag: no fine band
     CHECK(ga.depth == kMinBoxDepth);
     CHECK(ga.grading.levels == 1);  // 100 nm = 2 x 50 nm
+    CHECK_FALSE(uses_fine_band(ag));
+    ag.fine_band = true;
+    CHECK(uses_fine_band(ag));
+    ag.fine_band.reset();
 
-    ag.box_mesh_size.reset();  // automatic rule: min(depth / 2, L / 8, 10 h)
-    CHECK(make_geometry(ag).grading.target_spacing < kBoxMeshSize);
+    // Automatic rule capped at lambda1 / 5 (rough_surface_box_params) and the uncapped rule of
+    // the record's "auto" series.
+    ag.box_mesh_size.reset();
+    CHECK(make_geometry(ag).grading.target_spacing <= kBoxMeshSize * (1.0 + 1e-9));
+    CHECK(box_option(ag) == "auto");
+    ag.uncapped_box = true;
+    CHECK(box_option(ag) == "uncapped");
+    CHECK(make_geometry(ag).grading.target_spacing > 0.0);
+    ag.box_mesh_size = kBoxMeshSize;  // uncapped needs the automatic rule
+    CHECK_THROWS_AS(make_geometry(ag), std::invalid_argument);
 
     Case bad = si;
     bad.material = "gold";
@@ -43,8 +64,43 @@ TEST_CASE("mlfmm_scaling: geometry follows the WP-V1 box recommendations", "[mlf
     CHECK_THROWS_AS(make_geometry(bad), std::invalid_argument);
 }
 
+TEST_CASE("mlfmm_scaling: the waist rule w0 <= L/4 is enforced", "[mlfmm_scaling]") {
+    Case c;
+    c.material = "ag";
+    c.L = 0.4e-6;
+    c.waist_factor = 3.0;  // w0 = L/3 > L/4
+    CHECK_THROWS_AS(make_geometry(c), std::invalid_argument);
+    c.allow_wide_beam = true;  // deliberate edge-effect study: allowed (logged)
+    CHECK_NOTHROW(make_geometry(c));
+    c.allow_wide_beam = false;
+    c.waist_factor = 4.0;
+    CHECK_NOTHROW(make_geometry(c));
+}
+
+TEST_CASE("mlfmm_scaling: the angular-spectrum beam covers the mesh", "[mlfmm_scaling]") {
+    Case c;
+    c.material = "ag";
+    c.L = 0.4e-6;
+    c.beam = Beam::angular_spectrum;
+    const Geometry geo = make_geometry(c);
+    const auto beam = make_beam(c, geo);
+    const Real rmax = geo.mesh.vertices().rowwise().norm().maxCoeff();
+    CHECK(beam->controlled_radius() >= rmax);
+    CHECK(beam_name(c) == "angular_spectrum");
+    // E(focus) . x = 1 V/m, E along x at normal incidence.
+    const Vec3c e0 = beam->electric_field(Vec3::Zero());
+    CHECK_THAT(e0.x().real(), Catch::Matchers::WithinAbs(1.0, 1e-8));
+    CHECK(std::abs(e0.y()) < 1e-8);
+    c.beam = Beam::paraxial;
+    CHECK(std::isinf(make_beam(c, geo)->controlled_radius()));
+}
+
 TEST_CASE("mlfmm_scaling: estimate respects the ADR 0008 leaf rule", "[mlfmm_scaling]") {
-    for (const std::string m : {"si", "ag"}) {
+    std::vector<std::string> materials = {"ag"};
+#ifdef NDEBUG
+    materials.emplace_back("si");  // the Si order searches (L up to ~110) are slow unoptimised
+#endif
+    for (const std::string& m : materials) {
         Case c;
         c.material = m;
         c.L = 0.8e-6;
@@ -55,28 +111,48 @@ TEST_CASE("mlfmm_scaling: estimate respects the ADR 0008 leaf rule", "[mlfmm_sca
         CHECK(e.max_support_radius / e.leaf_edge <= mlfmm::kLeafMaxSupportRatioD3 + 1e-12);
         CHECK(e.near_bytes > 0);
         CHECK(e.exact_budget >= e.near_bytes);
-        CHECK(e.peak_setup_bytes > static_cast<Real>(e.near_bytes));
-        if (m == "si")
-            CHECK(e.exact_pairs == 0);  // Si: x* / alpha = 1.3 um, no exact fallback estimate
+        // R1 always expands at the leaf; the far tables come with the patterns.
+        CHECK(e.leaf_order[0] > 0);
+        CHECK(e.expansion_levels[0] >= 1);
+        CHECK(e.pattern_bytes > 0);
+        CHECK(e.far_table_bytes > 0);
+        CHECK(e.peak_setup_bytes > kPeakNearFactor * static_cast<Real>(e.near_bytes) +
+                                       static_cast<Real>(e.pattern_bytes + e.far_table_bytes));
+        if (m == "si") {
+            CHECK(e.exact_pairs == 0);  // Si: x* / alpha = 13 um, no exact fallback estimate
+            CHECK(e.leaf_order[1] > e.leaf_order[0]);  // the Si interior expands (k2 = 4.3 k1)
+        } else {
+            CHECK(e.leaf_order[1] == 0);  // Ag interior: no expansion (exact / truncated)
+            CHECK(e.expansion_levels[1] == 0);
+        }
     }
 }
 
 TEST_CASE("mlfmm_scaling: exact-pair estimate counts pairs within the decay reach",
           "[mlfmm_scaling]") {
-    // Two separated icosphere-free meshes are awkward; use a rough patch and compare the count
-    // for a strongly decaying k with a larger reach: more pairs, and zero for no decay.
+    // A small rough patch; a strongly decaying k (short reach x*/alpha) gives fewer pairs than a
+    // weaker one, and no decay gives none.
     Case c;
     c.material = "ag";
-    c.L = 0.6e-6;
+    c.L = 0.3e-6;
     const Geometry geo = make_geometry(c);
     const basis::RwgSpace space(geo.mesh);
     const Real k0 = 2.0 * constants::pi / kLambda;
     CHECK(estimate_exact_pairs(space, Complex(k0, 0.0), 3.0, 0) == 0);
-    const Index tight = estimate_exact_pairs(space, Complex(k0, -100e6), 3.0, 0);
-    const Index wide = estimate_exact_pairs(space, Complex(k0, -30e6), 3.0, 0);
+    const Index tight = estimate_exact_pairs(space, Complex(k0, -200e6), 3.0, 0);  // 59 nm
+    const Index wide = estimate_exact_pairs(space, Complex(k0, -80e6), 3.0, 0);    // 147 nm
     CHECK(tight >= space.size());  // every basis with itself (gap 0)
     CHECK(wide > tight);
-    CHECK(estimate_exact_pairs(space, Complex(k0, -30e6), 3.0, wide) == 0);
+    CHECK(estimate_exact_pairs(space, Complex(k0, -80e6), 3.0, wide) == 0);
+}
+
+TEST_CASE("mlfmm_scaling: number_after parses describe() and refuses missing markers",
+          "[mlfmm_scaling]") {
+    const std::string text = "octree built in 0.25 s\n  far: 3.5 s setup\n  near assembled in x";
+    CHECK(number_after(text, "built in ") == 0.25);
+    CHECK(number_after(text, "\n  far: ") == 3.5);
+    CHECK_THROWS_AS(number_after(text, "missing marker "), std::runtime_error);
+    CHECK_THROWS_AS(number_after(text, "assembled in "), std::runtime_error);  // no number
 }
 
 TEST_CASE("mlfmm_scaling: one tiny Ag case runs end to end", "[mlfmm_scaling]") {
@@ -90,7 +166,7 @@ TEST_CASE("mlfmm_scaling: one tiny Ag case runs end to end", "[mlfmm_scaling]") 
     c.tolerance = 1e-1;  // smoke test: the study itself uses 1e-3
     c.max_iter = 200;
     const Geometry geo = make_geometry(c);
-    const Result r = run(geo, c);
+    const Result r = run(geo, c, estimate(geo, c));
     CHECK(r.formulation == "ICTF");
     CHECK(r.jacobi);
     CHECK(r.converged);
@@ -106,8 +182,13 @@ TEST_CASE("mlfmm_scaling: one tiny Ag case runs end to end", "[mlfmm_scaling]") 
     CHECK(r.far_bytes > 0);
     CHECK(r.krylov_bytes > 0.0);
     CHECK(r.peak_rss >= r.peak_setup_rss);
+    // The far-memory model (patterns + tables) against the operator (block check not
+    // modelled: the model may only be larger).
+    CHECK(static_cast<Real>(r.est.pattern_bytes + r.est.far_table_bytes) >=
+          0.9 * static_cast<Real>(r.far_bytes));
     const std::string line = row(c, r);
     CHECK(line.rfind("ROW material=ag", 0) == 0);
     CHECK(line.find(" N2=" + std::to_string(r.est.unknowns) + " ") != std::string::npos);
+    CHECK(line.find(" beam=paraxial ") != std::string::npos);
 #endif
 }
