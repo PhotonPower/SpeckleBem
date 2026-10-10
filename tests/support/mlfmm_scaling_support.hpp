@@ -41,6 +41,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <random>
@@ -354,17 +355,17 @@ inline Real number_after(const std::string& text, const std::string& marker) {
     return is ? v : 0.0;
 }
 
-/// Median wall time of `count` calls of f (after one untimed warm-up call).
-template <class F>
-Real median_seconds(int count, F&& f) {
-    using Clock = std::chrono::steady_clock;
+/// Wall time of one call of f [s].
+inline Real seconds_of(const std::function<void()>& f) {
+    const auto t0 = std::chrono::steady_clock::now();
     f();
-    std::vector<Real> t;
-    for (int i = 0; i < std::max(1, count); ++i) {
-        const auto t0 = Clock::now();
-        f();
-        t.push_back(std::chrono::duration<Real>(Clock::now() - t0).count());
-    }
+    return std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count();
+}
+
+/// Median of a non-empty sample.
+inline Real median(std::vector<Real> t) {
+    if (t.empty())
+        throw std::invalid_argument("mlfmm_scaling::median: empty sample");
     std::sort(t.begin(), t.end());
     const std::size_t m = t.size() / 2;
     return t.size() % 2 == 1 ? t[m] : 0.5 * (t[m - 1] + t[m]);
@@ -409,9 +410,21 @@ inline Result run(const Geometry& geo, const Case& c) {
         VectorXc x(sim.num_unknowns());
         for (Index i = 0; i < x.size(); ++i) x(i) = Complex(nd(rng), nd(rng));
         VectorXc y(x.size());
-        r.matvec_s = median_seconds(c.matvecs, [&] { op->apply(x, y); });
-        r.near_matvec_s = median_seconds(c.matvecs, [&] { op->near_operator().apply(x, y); });
-        r.far_matvec_s = median_seconds(c.matvecs, [&] { op->far_operator().apply(x, y); });
+        // Interleaved (full, near, far per round, after one untimed round): transients of the
+        // machine (other processes, memory released after the setup) hit all three alike.
+        const std::array<std::function<void()>, 3> calls = {
+            [&] { op->apply(x, y); }, [&] { op->near_operator().apply(x, y); },
+            [&] { op->far_operator().apply(x, y); }};
+        std::array<std::vector<Real>, 3> t;
+        for (int round = 0; round <= std::max(1, c.matvecs); ++round)
+            for (std::size_t k = 0; k < 3; ++k) {
+                const Real s = seconds_of(calls[k]);
+                if (round > 0)
+                    t[k].push_back(s);
+            }
+        r.matvec_s = median(t[0]);
+        r.near_matvec_s = median(t[1]);
+        r.far_matvec_s = median(t[2]);
     }
     if (c.solve) {
         const solver::GmresResult g = sim.solve();

@@ -24,6 +24,7 @@ QUANTITIES = [
     ("far_mv_s", "far matvec"),
     ("it", "iterations"),
     ("solve_s", "solve"),
+    ("s_per_it", "solve time per iteration"),
     ("near_gb", "near memory"),
     ("far_gb", "far memory"),
     ("peak_gb", "peak memory"),
@@ -37,6 +38,10 @@ def parse_rows(paths: list[str]) -> list[dict[str, str]]:
             for line in f:
                 if line.startswith("ROW "):
                     fields = dict(kv.split("=", 1) for kv in line.split()[1:] if "=" in kv)
+                    fields.setdefault("solved", "1")
+                    it = int(fields.get("it", "0"))
+                    solve = float(fields.get("solve_s", "0"))
+                    fields["s_per_it"] = str(solve / it if it > 0 else 0.0)
                     rows.append(fields)
     return rows
 
@@ -68,10 +73,10 @@ def main(argv: list[str]) -> int:
         print(f"\n## {material}, box {box}\n")
         print(
             "| L [um] | 2N | levels | leaf [nm] | setup [s] | near [s] | far [s] | matvec [s] "
-            "| near mv [s] | far mv [s] | it | solve [s] | true res | near [GB] | far [GB] "
-            "| peak [GB] |"
+            "| near mv [s] | far mv [s] | it | solve [s] | s/it | true res | near [GB] "
+            "| far [GB] | peak [GB] |"
         )
-        print("|" + "---:|" * 16)
+        print("|" + "---:|" * 17)
         for r in rows:
             print(
                 f"| {float(r['L_um']):g} | {int(r['N2'])} | {r['levels']} "
@@ -79,10 +84,12 @@ def main(argv: list[str]) -> int:
                 f"| {float(r['near_s']):.1f} | {float(r['far_s']):.1f} "
                 f"| {float(r['matvec_s']):.3f} | {float(r['near_mv_s']):.3f} "
                 f"| {float(r['far_mv_s']):.3f} | {r['it']} | {float(r['solve_s']):.0f} "
+                f"| {float(r['s_per_it']):.2f} "
                 f"| {float(r['true_res']):.2e} | {float(r['near_gb']):.2f} "
                 f"| {float(r['far_gb']):.2f} | {float(r['peak_gb']):.1f} |"
             )
         sel = [r for r in rows if args.min_n2 <= int(r["N2"]) <= args.max_n2]
+        # Rows without a solve (--no-solve) enter only the setup / matvec / memory fits.
         if len(sel) < 2:
             continue
         n_lo, n_hi = int(sel[0]["N2"]), int(sel[-1]["N2"])
@@ -93,7 +100,7 @@ def main(argv: list[str]) -> int:
             if len(pts) < 2:
                 continue
             g, _ = fit([p[0] for p in pts], [p[1] for p in pts])
-            print(f"- {name}: gamma = {g:.2f}")
+            print(f"- {name}: gamma = {g:.2f} (2N = {pts[0][0]} ... {pts[-1][0]}, {len(pts)} sizes)")
     return 0
 
 
