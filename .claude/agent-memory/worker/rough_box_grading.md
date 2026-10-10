@@ -21,6 +21,12 @@ Graded rough box (src/geometry/rough_surface.cpp, WP2c + review fix 2026-10-09):
   anchor slope shears 2:1 cells up to 1.9 x uniform, seed 9 (L = 4 um) exceeds 2 x and falls
   back M 3 -> 2 (expected, tested). Safety net = max(4, 2 x uniform walls).
 - Si field decay length at 500 nm is 1.129 um (amplitude); intensity absorption length is half.
+- WP-B1 (2026-10-10, ADR 0006 amendment): level count M = round(log2(h_c / h_b)) rounds to
+  the NEAREST level, so a lambda_1/5 cap must be passed as an exact 2^M h_b (rounded down),
+  else 150 nm -> 200 nm. Defaults at L = 10 um, h = 50 nm, seed 1 (top 80 000 triangles):
+  Ag depth 2 um M = 1 box 47.5 % (old 400 nm rule 7.19 %, uniform 180 %); Si 5.65 um + band
+  3.54 um (73 rows) 195.5 % (old rule + band 153.4 %, uniform 326 %). The new "automatic rule
+  not validated" warning changes warning counts in old tests that build graded meshes.
 
 **Why:** these numbers drove kMaxRelaxationEdge, kAspectSlack, kMinColumnScale and the test bounds.
 **How to apply:** when touching the box grading or its tests, re-run the hidden
