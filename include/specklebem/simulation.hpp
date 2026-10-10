@@ -190,7 +190,10 @@ public:
     ///         inward (signed_volume() <= 0; they must point out of R2 into R1, docs/06), a
     ///         null excitation, config.wavelength not finite and > 0 or different from the
     ///         excitation's wavelength (relative 1e-12), an excitation background (eps_r or
-    ///         mu_r) different from config.exterior, an unknown or unavailable compression,
+    ///         mu_r) different from config.exterior, a mesh vertex farther than the
+    ///         excitation's controlled_radius() from its controlled_center()
+    ///         (AngularSpectrumBeam: region_radius around the focus), an unknown or unavailable
+    ///         compression,
     ///         2N > op::kMaxDenseUnknowns for the dense strategy, compression "mlfmm" with
     ///         SolverKind::Direct, a formulation that is not
     ///         implemented (formulation::Kind::JMCFIE), invalid kernel options or GMRES

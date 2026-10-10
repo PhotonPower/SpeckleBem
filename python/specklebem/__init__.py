@@ -5,6 +5,7 @@ SI units throughout (metres, seconds, V/m, A/m); time convention exp(+jwt).
 """
 
 from ._specklebem import (  # noqa: F401
+    AngularSpectrumBeam,
     DispersiveMaterial,
     Excitation,
     Formulation,
@@ -62,6 +63,7 @@ from ._specklebem import (  # noqa: F401
 from .rough_surface import RoughSurface
 
 __all__ = [
+    "AngularSpectrumBeam",
     "DispersiveMaterial",
     "Excitation",
     "Formulation",

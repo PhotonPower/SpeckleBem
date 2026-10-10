@@ -101,6 +101,18 @@ def test_auto_selection_and_overrides():
         sb.Simulation(sb.make_icosphere(RADIUS, 1), sb.PlaneWave(1e-6, [0, 0, 1], [1, 0, 0]))
 
 
+def test_beam_region_must_cover_the_mesh():
+    # AngularSpectrumBeam controls its fields only within region_radius of the focus; the
+    # icosphere vertices lie on |r| = RADIUS.
+    def beam(region_radius):
+        return sb.AngularSpectrumBeam(LAMBDA_FAST, 1e-6, region_radius=region_radius)
+
+    kw = dict(object=N15, kernels=CHEAP, gmres=dict(verbose=False))
+    sb.Simulation(sb.make_icosphere(RADIUS, 0), beam(1.1 * RADIUS), **kw)
+    with pytest.raises(ValueError, match="region_radius >="):
+        sb.Simulation(sb.make_icosphere(RADIUS, 0), beam(0.9 * RADIUS), **kw)
+
+
 def test_mlfmm_compression():
     # Icosphere n = 2 (2N = 960): the lambda / 4 leaf floor gives 3 octree levels. Accurate
     # near / far pairs (target 1e-5) so that the dense entries match the radiation patterns.

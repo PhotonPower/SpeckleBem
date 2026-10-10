@@ -59,6 +59,37 @@ void check_mlfmm_params(const mlfmm::MlfmmParams& m) {
     (void)mlfmm::interpolation_order(m.accuracy_digits);  // d0 in (0, 5]
 }
 
+/// The incident field is evaluated at surface quadrature points, which lie in the convex hull
+/// of the vertices; every vertex must lie in the ball where the excitation is controlled
+/// (AngularSpectrumBeam: |r - focus| <= region_radius; infinite for the other sources).
+void check_controlled_region(const geometry::TriangleMesh& mesh,
+                             const excitation::Excitation& exc) {
+    const Real radius = exc.controlled_radius();
+    if (std::isnan(radius) || !(radius > 0)) {
+        throw std::invalid_argument("Simulation: the excitation's controlled_radius() must be > 0");
+    }
+    if (std::isinf(radius))
+        return;
+    const Vec3 center = exc.controlled_center();
+    Real extent = 0;
+    const auto& v = mesh.vertices();
+    for (Index i = 0; i < v.rows(); ++i) {
+        extent = std::max(extent, (v.row(i).transpose() - center).norm());
+    }
+    if (extent > radius) {
+        // Suggested radius: the extent rounded up to 4 significant digits.
+        const Real scale = std::pow(10.0, std::floor(std::log10(extent)) - 3);
+        const Real suggested = std::ceil(extent / scale) * scale;
+        std::ostringstream msg;
+        msg.precision(4);
+        msg << "Simulation: the mesh extends to " << extent << " m from the excitation's centre ("
+            << center.x() << ", " << center.y() << ", " << center.z()
+            << ") m, but its fields are controlled only within " << radius
+            << " m; set AngularSpectrumBeam region_radius >= " << suggested << " m";
+        throw std::invalid_argument(msg.str());
+    }
+}
+
 void check_gmres_params(const solver::GmresParams& g) {
     if (!(std::isfinite(g.tolerance) && g.tolerance > 0) || g.max_iter < 1 || g.restart < 0) {
         throw std::invalid_argument(
@@ -273,6 +304,7 @@ Simulation::Simulation(geometry::TriangleMesh mesh,
         throw std::invalid_argument(
             "Simulation: the excitation's background differs from config.exterior");
     }
+    check_controlled_region(mesh, *excitation);
     check_compression(config.compression);
     // Closed mesh: every edge is interior and carries one RWG function (N = num_edges()).
     const Index unknowns = 2 * mesh.num_edges();

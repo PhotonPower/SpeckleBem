@@ -8,41 +8,23 @@
 #include <stdexcept>
 #include <string>
 
+#include "excitation_detail.hpp"
+
 namespace specklebem::excitation {
 
 namespace {
 
 constexpr Complex kJ{0.0, 1.0};
 
-/// omega = 2 pi c0 / lambda (vacuum wavelength). Validates lambda first because the base
-/// class is initialised from the result.
-Real omega_from_wavelength(Real wavelength, const char* who) {
-    if (!(wavelength > 0) || !std::isfinite(wavelength)) {
-        throw std::invalid_argument(std::string(who) + ": wavelength must be finite and > 0");
-    }
-    return 2 * constants::pi * constants::c0 / wavelength;
-}
-
-/// The incident fields are defined for a lossless background only (real k, real eta), as in
-/// reference::MieSolution.
-void require_lossless(const material::Material& m, const char* who) {
-    if (m.eps_r.imag() != 0 || !(m.eps_r.real() > 0) || m.mu_r.imag() != 0 ||
-        !(m.mu_r.real() > 0)) {
-        throw std::invalid_argument(std::string(who) +
-                                    ": the background medium must be lossless "
-                                    "(real eps_r > 0 and real mu_r > 0)");
-    }
-}
+using detail::all_finite;
+using detail::omega_from_wavelength;
+using detail::require_lossless;
 
 /// Plain cross product a x b. Eigen's MatrixBase::cross conjugates the result for complex
 /// scalars, which is not the vector product needed for complex field phasors.
 Vec3c cross(const Vec3& a, const Vec3c& b) {
     return {a.y() * b.z() - a.z() * b.y(), a.z() * b.x() - a.x() * b.z(),
             a.x() * b.y() - a.y() * b.x()};
-}
-
-bool all_finite(const Vec3& v) {
-    return std::isfinite(v.x()) && std::isfinite(v.y()) && std::isfinite(v.z());
 }
 
 }  // namespace
@@ -118,8 +100,8 @@ GaussianBeam::GaussianBeam(Params p, material::Material background)
     const Real ratio = p_.wavelength / (constants::pi * p_.waist_radius);
     SBEM_WARN(
         "GaussianBeam: the paraxial model (w0 = {:.4g} m, lambda = {:.4g} m) violates Maxwell's "
-        "equations at the (lambda/(pi w0))^2 = {:.3g} level; the rigorous angular-spectrum beam "
-        "replaces it in Phase 5",
+        "equations at the (lambda/(pi w0))^2 = {:.3g} level; use AngularSpectrumBeam for "
+        "quantitative results",
         p_.waist_radius, p_.wavelength, ratio * ratio);
 }
 

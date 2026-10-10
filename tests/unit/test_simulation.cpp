@@ -5,6 +5,7 @@
 // degrees, as wp7_options() in test_assembler.cpp), so that every case stays well below a second
 // in release and a few seconds in the sanitizer build. Physics
 // (eps_rr against Mie) is in tests/validation/test_simulation_mie.cpp.
+#include "specklebem/excitation/angular_spectrum_beam.hpp"
 #include "specklebem/simulation.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -341,6 +342,33 @@ TEST_CASE("simulation: further constructor checks", "[simulation]") {
         CHECK_NOTHROW(Simulation(big, wave, fmm));
     }
 #endif
+}
+
+TEST_CASE("simulation: the mesh must lie in the excitation's controlled ball", "[simulation]") {
+    // Icosphere vertices lie on |r| = kRadius = 0.5 um. AngularSpectrumBeam controls its fields
+    // only for |r - focus| <= region_radius; PlaneWave everywhere (the other cases).
+    const SimulationConfig ok = base_config(lossless_n15());
+    const auto beam = [](Real region_radius, const Vec3& focus) {
+        excitation::AngularSpectrumBeam::Params p;
+        p.wavelength = kLambdaFast;
+        p.waist_radius = 1e-6;
+        p.focus = focus;
+        p.region_radius = region_radius;
+        return std::make_shared<excitation::AngularSpectrumBeam>(p);
+    };
+    CHECK_NOTHROW(Simulation(sphere_mesh(0), beam(0.55e-6, Vec3::Zero()), ok));
+    // Too small, or shifted so that the far side leaves the ball (extent 0.6 um).
+    for (const auto& exc : {beam(0.45e-6, Vec3::Zero()), beam(0.55e-6, Vec3(0.1e-6, 0, 0))}) {
+        try {
+            const Simulation sim(sphere_mesh(0), exc, ok);
+            FAIL("no exception for a mesh outside the controlled ball");
+        } catch (const std::invalid_argument& e) {
+            CAPTURE(e.what());
+            CHECK(contains(e.what(), "region_radius >="));
+            CHECK(contains(e.what(), "controlled only within"));
+        }
+    }
+    CHECK(std::isinf(plane_wave()->controlled_radius()));
 }
 
 TEST_CASE("simulation: compression mlfmm", "[simulation]") {

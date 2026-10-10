@@ -26,6 +26,40 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `default_box_fine_depth` and the `exterior_wavelength` keyword of the rough-surface
   functions and `RoughSurface`; example `02_rough_surface_speckle.py` uses the box defaults
   and w₀ = L/4.
+- excitation / python (WP-E1): rigorous Gaussian beam `excitation::AngularSpectrumBeam`
+  (`sb.AngularSpectrumBeam`), the beam ADR 0006 (amendment item 4) requires for quantitative
+  rough-surface results: a finite sum of exact propagating plane waves around
+  `k̂0 = R_y(θ_in) ẑ` with spectrum `exp(−k_t² w0²/4)`, polarisation `ê0 − (k̂·ê0) k̂` (the WP-V1
+  study construction, generalised to oblique incidence, s polarisation, a focus and a lossless
+  background), `E(focus)·ê0 = 1 V/m`, evanescent part omitted (definition in docs/06).
+  Gauss–Legendre (polar) × trapezoid (azimuth) grid, refined per direction until a 1.5× finer
+  grid changes E by < `tolerance` (1e-10) on probe points of the ball `|r − focus| ≤ R`
+  (default 4 w0); fixed orders optional (a fixed grid that misses `tolerance` is kept with a
+  warning); `max_plane_waves` caps the check grids of both modes, orders are capped at 10⁶
+  (`std::invalid_argument` for fixed, `std::runtime_error` for automatic grids past the caps).
+  Fields are controlled only in that ball: `Excitation` gains `controlled_radius()` /
+  `controlled_center()` (+∞ / origin by default; the beam returns R and its focus), the
+  `Simulation` constructor rejects meshes with a vertex outside the ball
+  (`std::invalid_argument` / `ValueError` naming the required `region_radius`), and an
+  evaluation beyond 1.2 R logs one warning per beam (near fields at distant points; aliasing
+  ghosts reach 1e-4 at 2 R and 0.1 at 4 R for w0 = 2.5 µm, R = 4 w0). For
+  `|θ_in| + α_max > π/2` the outer components travel towards −z (logged, docs/06). Queries:
+  plane-wave count, orders, achieved change, `power()` (Parseval), the plane waves themselves.
+  New virtual `Excitation::fields(r)` (E and H; default the two calls, bitwise unchanged for
+  `PlaneWave` / `GaussianBeam`), overridden by the beam with one pass and used by the RHS
+  assembly and `post::total_field`; `sb.Excitation.fields`, `.controlled_radius`,
+  `.controlled_center` in Python. Plane-wave grid immutable after construction, branch-free
+  sincos with four partial sums: indicatively ~7 ns per plane wave and point (timed on a shared
+  machine); ≈ 1 300–1 600 waves at R = 4 w0 (≈ (R/w0)² scaling; ≈ 3 600 at R ≈ 8 w0).
+  Tests: each wave transverse with `H = k̂ × E / η` (div E and the curl
+  equation of the sum at round-off), finite-difference Maxwell residual 9e-11 (paraxial beam:
+  1.3e-2), focus normalisation, agreement with the study beam to 1.2e-14, paraxial limit
+  (w0 = 5λ: max |E − E_paraxial| = 0.37 (λ/(π w0))², ratio 0.2496 at 10λ), 45° p/s central
+  direction, polarisation and Gouy phase gradient `−k (1 − f²/2)`, rotation covariance, waist-plane
+  power = `power()` = `(1 + f²/2) π w0²/(4η)`, argument validation, order / plane-wave caps,
+  fixed-grid and outside-the-ball warnings (once), `fields()` through the base class, the
+  `Simulation` region check (C++ and Python). `GaussianBeam`'s warning and
+  header now point to it; validation helpers shared via `src/excitation/excitation_detail.hpp`.
 - tooling / docs (WP-V1): box validity study `benchmarks/box_validity.cpp`
   (`specklebem_box_validity`, `SPECKLEBEM_BUILD_BENCHMARKS`): far field |F|² of one rough-box
   configuration (material, L with a shared cropped height map, waist, depth factor, coarse spacing,
