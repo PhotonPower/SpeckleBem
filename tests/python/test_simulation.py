@@ -168,6 +168,12 @@ def test_mlfmm_compression():
     assert "leaf_radius_quantile 0.5" in lq.report()
     with pytest.raises(ValueError, match="quantile"):
         make_sim(compression="mlfmm", mlfmm=dict(leaf_radius_quantile=1.5)).assemble()
+    # The local leaf rule is accepted for d0 <= 3 only (ADR 0008 amendment, WP21L).
+    with pytest.raises(ValueError, match="accuracy_digits <= 3"):
+        make_sim(
+            compression="mlfmm", mlfmm=dict(leaf_radius_quantile=0.8, accuracy_digits=5)
+        ).assemble()
+    assert "leaf_radius_quantile 1," in make_sim(compression="mlfmm").report()
     # A lossless interior at d0 = 5 without the leaf rule (r_max / a ~ 0.5): no expansion order.
     bad = sb.Simulation(
         sb.make_icosphere(1.5e-6, 2),

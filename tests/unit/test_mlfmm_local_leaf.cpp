@@ -1,8 +1,9 @@
 /// Unit tests of the local leaf rule of the MLFMM (WP21L, ADR 0008 amendment 2026-10-11): home
 /// levels of the octree, the near pattern with elevated basis functions and its estimate, the
 /// partition of all basis pairs into near / expansion / exact / truncated, the bitwise identity
-/// of leaf_radius_quantile = 1 with the global leaf rule, and the accuracy of columns and rows of
-/// elevated functions against exact entries. lambda0 = 500 nm.
+/// of leaf_radius_quantile = 1 with the global leaf rule, the accuracy of columns and rows of
+/// elevated functions against exact entries, and the rejection of the local rule for d0 > 3.
+/// lambda0 = 500 nm.
 #include "specklebem/compression/mlfmm/far_operator.hpp"
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
 #include "specklebem/compression/mlfmm/near_field.hpp"
@@ -585,4 +586,47 @@ TEST_CASE("mlfmm local leaf: columns and rows of elevated functions match exact 
         CHECK(worst_leaf <= 5e-3);
         CHECK(row_err <= 1e-3);
     }
+}
+
+TEST_CASE("mlfmm local leaf: rejected for accuracy_digits > 3, opt-in by default", "[mlfmm]") {
+    // ADR 0008 amendment 2026-10-11 (WP21L): the local rule is validated at d0 = 3 only; at d0 = 5
+    // the lambda / 2 leaves it allows gave 5.6e-5 (Si) / 6.4e-5 (Ag) > 1e-5 on the graded box of
+    // tests/validation_large. A quantile < 1 with d0 > 3 is an error, never silently reset.
+    Setup s(graded_box(0.6e-6, 1e-6), {Complex(2.25, 0.0), Complex(1.0, 0.0)}, Kind::PMCHWT);
+    s.problem.kernel_options = cheap_options();
+    // Default: the global WP21 rule.
+    CHECK(mlfmm::MlfmmParams{}.leaf_radius_quantile == 1.0);
+    CHECK(mlfmm::kLocalLeafRuleMaxDigits == 3.0);
+    for (const bool automatic : {true, false}) {
+        mlfmm::MlfmmParams p;
+        p.automatic_leaf_size = automatic;
+        p.accuracy_digits = 5.0;
+        p.leaf_radius_quantile = 0.8;
+        INFO("automatic_leaf_size " << automatic);
+        try {
+            (void)mlfmm::leaf_rule_params(s.space, kLambda, p);
+            FAIL("expected std::invalid_argument");
+        } catch (const std::invalid_argument& e) {
+            const std::string what = e.what();
+            INFO(what);
+            CHECK(what.find("leaf_radius_quantile") != std::string::npos);
+            CHECK(what.find("accuracy_digits <= 3") != std::string::npos);
+        }
+        CHECK_THROWS_AS(mlfmm::make_octree(s.space, kLambda, p), std::invalid_argument);
+        // Just above the limit is rejected as well; the global rule stays valid at d0 = 5.
+        p.accuracy_digits = 3.5;
+        CHECK_THROWS_AS(mlfmm::leaf_rule_params(s.space, kLambda, p), std::invalid_argument);
+        p.accuracy_digits = 5.0;
+        p.leaf_radius_quantile = 1.0;
+        CHECK_NOTHROW(mlfmm::leaf_rule_params(s.space, kLambda, p));
+        // The local rule at d0 <= 3 is accepted.
+        p.accuracy_digits = 3.0;
+        p.leaf_radius_quantile = 0.8;
+        CHECK_NOTHROW(mlfmm::leaf_rule_params(s.space, kLambda, p));
+    }
+    // The operator rejects the configuration before any assembly.
+    mlfmm::MlfmmParams p;
+    p.accuracy_digits = 5.0;
+    p.leaf_radius_quantile = 0.9;
+    CHECK_THROWS_AS(mlfmm::MlfmmOperator(s.problem, p), std::invalid_argument);
 }

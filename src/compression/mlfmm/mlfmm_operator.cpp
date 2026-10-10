@@ -61,6 +61,20 @@ Real octree_wavelength(const op::Problem& problem) {
 
 OctreeParams leaf_rule_params(const basis::RwgSpace& space, Real wavelength,
                               const MlfmmParams& params) {
+    const Real q = params.leaf_radius_quantile;
+    if (!(q > 0.0 && q <= 1.0)) {
+        throw std::invalid_argument("leaf_rule_params: leaf_radius_quantile must lie in (0, 1]");
+    }
+    if (q < 1.0 && params.accuracy_digits > kLocalLeafRuleMaxDigits) {
+        std::ostringstream os;
+        os << "leaf_rule_params: the local leaf rule (leaf_radius_quantile = " << q
+           << " < 1) is validated for accuracy_digits <= " << kLocalLeafRuleMaxDigits
+           << " only, got accuracy_digits = " << params.accuracy_digits
+           << " (ADR 0008 amendment 2026-10-11: the lambda / 2 leaves it allows at d0 = 5 miss "
+              "10^-5); use leaf_radius_quantile = 1 or accuracy_digits <= "
+           << kLocalLeafRuleMaxDigits;
+        throw std::invalid_argument(os.str());
+    }
     OctreeParams o = params.octree;
     if (!params.automatic_leaf_size)
         return o;
@@ -73,7 +87,7 @@ OctreeParams leaf_rule_params(const basis::RwgSpace& space, Real wavelength,
     const Real a_min = params.accuracy_digits <= 3.0 ? kLeafMinLambdaD3 : kLeafMinLambdaD5;
     // r_q / a <= max_support_ratio(d0) also with the octree's floor tolerance.
     const Real a_rmax =
-        support_radius_quantile(space, params.leaf_radius_quantile) /
+        support_radius_quantile(space, q) /
         (max_support_ratio(params.accuracy_digits) * (1.0 - kMinBoxSizeTolerance) * wavelength);
     o.min_box_size_lambda = std::max({o.min_box_size_lambda, a_min, a_rmax});
     return o;

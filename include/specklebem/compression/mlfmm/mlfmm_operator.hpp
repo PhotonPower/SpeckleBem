@@ -59,9 +59,13 @@ struct MlfmmParams {
     /// function b gets a home level: the leaf level if r(b) <= max_support_ratio(d0) a_leaf, else
     /// the finest level l with r(b) <= max_support_ratio(d0) a_l / 2 (octree.hpp "Home levels",
     /// kElevatedSupportRatioFactor): the few large functions (e.g. coarse cells of a graded box)
-    /// then live on a coarser level instead of enlarging every leaf. In (0, 1]; 1.0 reproduces the
-    /// WP21 rule exactly (no elevated functions, bitwise identical results).
-    Real leaf_radius_quantile = 0.99;
+    /// then live on a coarser level instead of enlarging every leaf. In (0, 1]; the default 1.0
+    /// is the WP21 rule exactly (no elevated functions, bitwise identical results): the local rule
+    /// is opt-in until it is measured at large L (WP22b3; the WP22b1 Si boxes need q ~ 0.8 to
+    /// elevate their coarse box cells). Values < 1 are allowed for accuracy_digits <= 3 only
+    /// (kLocalLeafRuleMaxDigits): at d0 = 5 the lambda / 2 leaves the local rule permits miss
+    /// 10^-5 (graded box 1 x 1 x 4 um, matvec 5.6e-5 Si / 6.4e-5 Ag, WP21L).
+    Real leaf_radius_quantile = 1.0;
     /// Per region (0 = R1, 1 = R2): true evaluates every far interaction of that region exactly
     /// (the near-field fallback of ADR 0008 §6 on every far level) instead of the
     /// expansion / truncation policy. Rigorous, but O(N^2) memory for that region; meant for
@@ -101,14 +105,24 @@ inline constexpr Real kLeafMaxSupportRatioD5 = 0.3;
     return digits <= 3.0 ? kLeafMaxSupportRatioD3 : kLeafMaxSupportRatioD5;
 }
 
+/// Largest accuracy_digits for which the local leaf rule (leaf_radius_quantile < 1) is accepted
+/// (ADR 0008 amendment 2026-10-11, WP21L): validated at d0 = 3 (graded box, matvec 3.4e-4 Si /
+/// 2.5e-4 Ag against the dense matrix). At d0 = 5 the leaf is no longer forced to ~lambda by
+/// r_max, the lambda / 2 leaves of a_min(5) carry ~4e-4 per far block (WP19b), and the matvec
+/// error of the graded box is 5.6e-5 (Si) / 6.4e-5 (Ag) > 10^-5, almost all leaf-leaf vacuum
+/// interactions (the elevated functions contribute 7e-7 / 1e-6). Rejected, not corrected.
+inline constexpr Real kLocalLeafRuleMaxDigits = 3.0;
+
 /// Octree parameters after the leaf rule: params.octree with min_box_size_lambda raised to
 /// max(given, a_min(d0), r_q / (max_support_ratio(d0) (1 - kMinBoxSizeTolerance) wavelength))
 /// with r_q = support_radius_quantile(space, leaf_radius_quantile) (r_max for the quantile 1;
 /// the tolerance factor keeps r_q / a <= max_support_ratio(d0) despite the octree's floor
 /// tolerance); params.octree unchanged if params.automatic_leaf_size is false.
 /// @param wavelength the octree's reference wavelength lambda1 [m]
-/// @throws std::invalid_argument for an empty space, accuracy_digits <= 0, a non-positive
-///         wavelength or leaf_radius_quantile outside (0, 1].
+/// @throws std::invalid_argument for leaf_radius_quantile outside (0, 1] or < 1 together with
+///         accuracy_digits > kLocalLeafRuleMaxDigits (checked also without automatic_leaf_size),
+///         and, with automatic_leaf_size, for an empty space, accuracy_digits <= 0 or a
+///         non-positive wavelength.
 [[nodiscard]] OctreeParams leaf_rule_params(const basis::RwgSpace& space, Real wavelength,
                                             const MlfmmParams& params);
 

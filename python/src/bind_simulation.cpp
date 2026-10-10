@@ -623,8 +623,9 @@ mlfmm : dict, optional
     exterior wavelengths, a lower bound of the automatic leaf rule),
     ``automatic_leaf_size`` (True: leaf edge >= max(lambda/4 for d0 <= 3, lambda/2 for d0 > 3,
     r_q / 0.6 for d0 <= 3, r_q / 0.3 for d0 > 3); False uses min_box_size_lambda as given),
-    ``leaf_radius_quantile`` (0.99; r_q is this quantile of the RWG support radii, larger
-    functions live on coarser octree levels; 1.0 = the global rule with r_max)
+    ``leaf_radius_quantile`` (1.0 = the global rule with r_max; < 1: local leaf rule, r_q is
+    this quantile of the RWG support radii and larger functions live on coarser octree levels;
+    opt-in, accuracy_digits <= 3 only, otherwise ValueError)
     and ``max_exact_far_bytes`` (0 = automatic: max(2 x the near-field bytes, 1 GiB), at most
     the dense matrix bytes 16 (2N)^2; budget of the exactly evaluated far interactions of
     lossy regions, checked before allocation).

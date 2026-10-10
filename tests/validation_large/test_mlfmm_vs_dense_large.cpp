@@ -440,8 +440,7 @@ namespace {
 /// One MLFMM configuration of run_local_leaf_case.
 struct LocalLeafConfig {
     Real digits;
-    bool local;       ///< true: top_face_quantile (elevated functions), false: quantile 1
-    bool check_full;  ///< CHECK the full matvec error against 10^-d0 (else reported only)
+    bool local;  ///< true: top_face_quantile (elevated functions; d0 <= 3), false: quantile 1
 };
 
 /// MLFMM configurations against one dense matrix: full matvec error over 3 random x (docs/05
@@ -528,8 +527,7 @@ struct LocalLeafConfig {
                       << Zm.describe());
         if (c.local)
             CHECK(err_elevated < std::pow(10.0, -c.digits));
-        if (c.check_full)
-            CHECK(err < std::pow(10.0, -c.digits));
+        CHECK(err < std::pow(10.0, -c.digits));
     }
 }
 
@@ -545,8 +543,9 @@ struct LocalLeafConfig {
 // d0 = 5 with the local rule misses 1e-5: the error is the leaf-leaf part of the vacuum region at
 // the lambda / 2 leaves of the WP21 rule a_min(5) (5.3e-5 for Si; far part ~8 % of |Z x| on this
 // tall box), not the elevated functions (6.8e-7). The global rule meets 1e-5 only because r_max
-// forces lambda leaves. The full d0 = 5 check of the local rule is kept as a known limitation
-// ([!mayfail] cases below) until a_min(5) / the lossless block check is decided (WP21L report).
+// forces lambda leaves. Hence the local rule is accepted for d0 <= 3 only
+// (mlfmm::kLocalLeafRuleMaxDigits; leaf_rule_params rejects a quantile < 1 at d0 > 3, unit test
+// "rejected for accuracy_digits > 3"), and the d0 = 5 rows below use the global rule.
 
 TEST_CASE("mlfmm vs dense large: graded box Si with elevated functions (local leaf rule)",
           "[validation-large][mlfmm]") {
@@ -554,9 +553,8 @@ TEST_CASE("mlfmm vs dense large: graded box Si with elevated functions (local le
     SKIP("validation-large cases run in optimised builds only");
 #else
     const Setup s(graded_box(1e-6, 4e-6), material::silicon_500nm(), Kind::PMCHWT);
-    run_local_leaf_case(
-        "graded box 1 x 4 um, Si, PMCHWT", s,
-        {{3.0, true, true}, {3.0, false, true}, {5.0, true, false}, {5.0, false, true}});
+    run_local_leaf_case("graded box 1 x 4 um, Si, PMCHWT", s,
+                        {{3.0, true}, {3.0, false}, {5.0, false}});
 #endif
 }
 
@@ -566,19 +564,7 @@ TEST_CASE("mlfmm vs dense large: graded box Ag with elevated functions (local le
     SKIP("validation-large cases run in optimised builds only");
 #else
     const Setup s(graded_box(1e-6, 4e-6), material::silver_500nm(), Kind::PMCHWT);
-    run_local_leaf_case(
-        "graded box 1 x 4 um, Ag, PMCHWT", s,
-        {{3.0, true, true}, {3.0, false, true}, {5.0, true, false}, {5.0, false, true}});
-#endif
-}
-
-TEST_CASE("mlfmm vs dense large: graded box Si, d0 = 5, local leaf rule, full matvec",
-          "[validation-large][mlfmm][!mayfail]") {
-#ifndef NDEBUG
-    SKIP("validation-large cases run in optimised builds only");
-#else
-    // Known limitation (comment above): lambda / 2 leaves at d0 = 5; measured 5.6e-5.
-    const Setup s(graded_box(1e-6, 4e-6), material::silicon_500nm(), Kind::PMCHWT);
-    run_local_leaf_case("graded box 1 x 4 um, Si, PMCHWT", s, {{5.0, true, true}});
+    run_local_leaf_case("graded box 1 x 4 um, Ag, PMCHWT", s,
+                        {{3.0, true}, {3.0, false}, {5.0, false}});
 #endif
 }

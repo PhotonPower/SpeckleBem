@@ -78,8 +78,10 @@ inline constexpr Real kHomeLevelTolerance = 1e-12;
 /// on such a level (the ADR 0008 amendment of 2026-10-11 as written) the level's order grows to
 /// ~1.5 k r_min (r_min the nearest translation distance), and the translators amplify the
 /// interpolation error of the children's fields far beyond 10^-d0 (WP21L: O(1) errors of the Si
-/// interior at a 2.3 lambda_2 level; the leaf level is not affected because its patterns are
-/// exact samples).
+/// interior at a 2.3 lambda_2 level; matvec error of a Si graded box 1.5 x 2 um at d0 = 3
+/// against the dense matrix 5.0e-2 with rho, 1.5e-4 with rho / 2; the leaf level is not affected
+/// because its patterns are exact samples). Consequence: rho_e a_{D-1} = rho a_D, so an elevated
+/// function sits at least two levels above the leaf.
 inline constexpr Real kElevatedSupportRatioFactor = 0.5;
 
 /// Largest OctreeParams::max_levels: the finest level 20 needs 3 x 20 bits of a 64-bit Morton
