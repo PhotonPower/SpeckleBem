@@ -6,9 +6,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <spdlog/sinks/ringbuffer_sink.h>
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -61,6 +66,32 @@ Eigen::Matrix<Complex, 3, 3> jacobian(const Field& f, const Vec3& r, Real h) {
 Vec3c curl_of(const Eigen::Matrix<Complex, 3, 3>& jac) {
     return {jac(2, 1) - jac(1, 2), jac(0, 2) - jac(2, 0), jac(1, 0) - jac(0, 1)};
 }
+
+/// Counts the warnings logged while it lives (as in test_excitation.cpp).
+class WarningCounter {
+public:
+    WarningCounter()
+        : sink_(std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64)),
+          saved_level_(spdlog::default_logger()->level()) {
+        sink_->set_level(spdlog::level::warn);
+        spdlog::default_logger()->set_level(std::min(saved_level_, spdlog::level::warn));
+        spdlog::default_logger()->sinks().push_back(sink_);
+    }
+    ~WarningCounter() {
+        auto& sinks = spdlog::default_logger()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), sink_), sinks.end());
+        spdlog::default_logger()->set_level(saved_level_);
+    }
+    WarningCounter(const WarningCounter&) = delete;
+    WarningCounter& operator=(const WarningCounter&) = delete;
+    WarningCounter(WarningCounter&&) = delete;
+    WarningCounter& operator=(WarningCounter&&) = delete;
+    [[nodiscard]] std::size_t count() const { return sink_->last_formatted().size(); }
+
+private:
+    std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> sink_;
+    spdlog::level::level_enum saved_level_;
+};
 
 /// R_y(theta) applied to a beam-frame vector.
 Vec3 rotate_y(Real theta, const Vec3& v) {
@@ -423,4 +454,119 @@ TEST_CASE("angular-spectrum beam: invalid arguments throw", "[excitation]") {
     p = ok;
     p.max_plane_waves = 2000;  // the automatic refinement needs more
     CHECK_THROWS_AS(make(p), std::runtime_error);
+}
+
+TEST_CASE("angular-spectrum beam: order and plane-wave caps", "[excitation]") {
+    const Params ok = beam_params(1e-6);
+    // Fixed orders above kMaxOrder are rejected before any grid is built.
+    for (const auto& [na, np] : {std::pair{AngularSpectrumBeam::kMaxOrder + 1, 8},
+                                 std::pair{8, AngularSpectrumBeam::kMaxOrder + 1},
+                                 std::pair{std::numeric_limits<int>::max(), 8},
+                                 std::pair{8, std::numeric_limits<int>::max()}}) {
+        auto p = ok;
+        p.polar_order = na;
+        p.azimuth_order = np;
+        CHECK_THROWS_AS(AngularSpectrumBeam(p), std::invalid_argument);
+    }
+    // max_plane_waves applies to the check grid of a fixed grid: 10 x 16 -> 23 x 32 = 736.
+    auto p = ok;
+    p.polar_order = 10;
+    p.azimuth_order = 16;
+    p.max_plane_waves = 735;
+    CHECK_THROWS_AS(AngularSpectrumBeam(p), std::invalid_argument);
+    p.max_plane_waves = 736;
+    CHECK(AngularSpectrumBeam(p).num_plane_waves() == 160);
+    // Automatic mode: a huge k R gives start orders above kMaxOrder (formerly an int overflow
+    // for R = 1 km); rejected before any allocation.
+    for (const Real radius : {1.0, 1e3, 1e12}) {
+        p = ok;
+        p.region_radius = radius;
+        p.max_plane_waves = std::numeric_limits<Index>::max();
+        CAPTURE(radius);
+        CHECK_THROWS_AS(AngularSpectrumBeam(p), std::runtime_error);
+    }
+}
+
+TEST_CASE("angular-spectrum beam: fixed grids that miss the tolerance warn", "[excitation]") {
+    const AngularSpectrumBeam automatic(beam_params(1e-6));
+    auto p = beam_params(1e-6);
+    {
+        // The automatic orders as a fixed grid: converged, no warning.
+        p.polar_order = automatic.polar_order();
+        p.azimuth_order = automatic.azimuth_order();
+        const WarningCounter warnings;
+        const AngularSpectrumBeam fixed(p);
+        CHECK(fixed.grid_change() < p.tolerance);
+        CHECK(warnings.count() == 0);
+    }
+    {
+        p.polar_order = 10;
+        p.azimuth_order = 16;
+        const WarningCounter warnings;
+        const AngularSpectrumBeam coarse(p);
+        CHECK(coarse.grid_change() >= p.tolerance);
+        CHECK(warnings.count() == 1);
+    }
+}
+
+TEST_CASE("angular-spectrum beam: controlled region and one-time warning outside it",
+          "[excitation]") {
+    auto p = beam_params(1e-6, 0.3);
+    p.focus = Vec3(0.2e-6, -0.1e-6, 0.4e-6);
+    p.region_radius = 3e-6;
+    const AngularSpectrumBeam beam(p);
+    const Excitation& base = beam;
+    CHECK(base.controlled_radius() == 3e-6);
+    CHECK(base.controlled_center() == p.focus);
+    // Sources defined everywhere: infinite controlled radius around the origin.
+    const PlaneWave pw(kLambda, Vec3::UnitZ(), Vec3c(1, 0, 0));
+    CHECK(std::isinf(pw.controlled_radius()));
+    CHECK(pw.controlled_center() == Vec3::Zero());
+    GaussianBeam::Params gp;
+    gp.wavelength = kLambda;
+    gp.focus = Vec3(1e-6, 0, 0);
+    const GaussianBeam gb(gp);
+    CHECK(std::isinf(gb.controlled_radius()));
+
+    const Vec3 dir = Vec3(1, 2, -2).normalized();
+    const WarningCounter warnings;
+    // Inside 1.2 R: silent.
+    (void)beam.electric_field(p.focus + 1.19 * 3e-6 * dir);
+    (void)beam.fields(p.focus + 1.19 * 3e-6 * dir);
+    CHECK(warnings.count() == 0);
+    // Beyond 1.2 R: one warning, whichever evaluator is used and however often.
+    (void)beam.electric_field(p.focus + 1.21 * 3e-6 * dir);
+    (void)beam.magnetic_field(p.focus + 2 * 3e-6 * dir);
+    (void)base.fields(p.focus + 4 * 3e-6 * dir);
+    (void)beam.electric_field(p.focus + 4 * 3e-6 * dir);
+    CHECK(warnings.count() == 1);
+    // A copy has its own flag.
+    const AngularSpectrumBeam copy = beam;  // NOLINT(performance-unnecessary-copy-initialization)
+    (void)copy.electric_field(p.focus + 2 * 3e-6 * dir);
+    (void)beam.electric_field(p.focus + 2 * 3e-6 * dir);
+    CHECK(warnings.count() == 2);
+}
+
+TEST_CASE("excitation fields(): one call equals the two separate fields", "[excitation]") {
+    // Default implementation (PlaneWave, GaussianBeam): bitwise the two calls; the
+    // AngularSpectrumBeam override through the base class: the one-pass sum.
+    const PlaneWave pw(kLambda, Vec3(0.3, 0, 1), Vec3c(1, 0, -0.3));
+    GaussianBeam::Params gp;
+    gp.wavelength = kLambda;
+    gp.waist_radius = 1e-6;
+    gp.incidence_angle = 0.2;
+    const GaussianBeam gb(gp);
+    const AngularSpectrumBeam asb(beam_params(1e-6, 0.2));
+    for (const Vec3& r : {Vec3(0, 0, 0), Vec3(0.4e-6, -0.7e-6, 1.1e-6), Vec3(-2e-6, 1e-6, -1e-6)}) {
+        for (const Excitation* e : {static_cast<const Excitation*>(&pw),
+                                    static_cast<const Excitation*>(&gb)}) {
+            const auto [ef, hf] = e->fields(r);
+            CHECK(ef == e->electric_field(r));
+            CHECK(hf == e->magnetic_field(r));
+        }
+        const Excitation& base = asb;
+        const auto [ef, hf] = base.fields(r);
+        CHECK((ef - asb.electric_field(r)).norm() <= 1e-15);
+        CHECK((hf - asb.magnetic_field(r)).norm() * constants::eta0 <= 1e-15);
+    }
 }

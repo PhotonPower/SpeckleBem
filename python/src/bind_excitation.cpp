@@ -83,9 +83,13 @@ void bind_excitation(py::module_& m) {
 
     py::class_<Excitation, std::shared_ptr<Excitation>>(m, "Excitation",
                                                         R"doc(
-Incident field (abstract base of PlaneWave and GaussianBeam), time convention exp(+jwt).
+Incident field (abstract base of PlaneWave, GaussianBeam and AngularSpectrumBeam), time
+convention exp(+jwt).
 
-Fields are evaluated in the background medium R1 at points [m]; E in V/m, H in A/m.
+Fields are evaluated in the background medium R1 at points [m]; E in V/m, H in A/m. They are
+controlled within controlled_radius of controlled_center (infinite except for
+AngularSpectrumBeam, where it is region_radius around the focus); Simulation rejects meshes
+outside that ball with ValueError.
 )doc")
         .def(
             "electric_field",
@@ -125,6 +129,48 @@ Returns
 -------
 ndarray of complex128, shape (n, 3) or (3,)
 )doc")
+        .def(
+            "fields",
+            [](const Excitation& exc, const py::object& points) {
+                bool single = false;
+                const Vertices p = points_from_array(points, "points", &single);
+                require_all_finite(p, "points");
+                MatrixX3c e(p.rows(), 3);
+                MatrixX3c h(p.rows(), 3);
+                {
+                    py::gil_scoped_release release;
+                    for (Index i = 0; i < p.rows(); ++i) {
+                        const auto [ei, hi] = exc.fields(Vec3(p.row(i).transpose()));
+                        e.row(i) = ei.transpose();
+                        h.row(i) = hi.transpose();
+                    }
+                }
+                if (single) {
+                    return py::make_tuple(Vec3c(e.row(0).transpose()), Vec3c(h.row(0).transpose()));
+                }
+                return py::make_tuple(std::move(e), std::move(h));
+            },
+            py::arg("points"),
+            R"doc(
+E [V/m] and H [A/m] at points [m], exp(+jwt) phasors (the values of electric_field and
+magnetic_field; AngularSpectrumBeam computes both in one pass).
+
+Parameters
+----------
+points : array_like, shape (n, 3) or (3,)
+    Real, finite points [m]; ValueError otherwise.
+
+Returns
+-------
+(E, H) : tuple of ndarray of complex128, shape (n, 3) or (3,)
+)doc")
+        .def_property_readonly(
+            "controlled_radius", &Excitation::controlled_radius,
+            "Radius [m] of the ball around controlled_center where the fields are controlled "
+            "(inf except for AngularSpectrumBeam: region_radius).")
+        .def_property_readonly("controlled_center", &Excitation::controlled_center,
+                               "Centre [m] of the controlled ball (AngularSpectrumBeam: the "
+                               "focus; the origin otherwise).")
         .def_property_readonly("omega", &Excitation::omega, "Angular frequency omega [rad/s].")
         .def_property_readonly("wavelength", &Excitation::wavelength, "Vacuum wavelength [m].")
         .def_property_readonly(
@@ -215,7 +261,10 @@ k_t = k sin(alpha) is the transverse wavenumber relative to k0_hat and
 p_i = e0 - (k_hat_i . e0) k_hat_i the projected central polarisation (not renormalised).
 E(focus) . e0 = 1 V/m. Evanescent components are omitted. Solves Maxwell's equations exactly;
 the quadrature is refined until a 1.5x finer grid changes E by < tolerance (relative) on probe
-points in the ball |r - focus| <= region_radius, outside of which fields are not controlled.
+points in the ball |r - focus| <= region_radius, outside of which fields are not controlled
+(controlled_radius; Simulation rejects meshes outside the ball, and an evaluation beyond
+1.2 region_radius logs one warning per beam). For |theta_in| + max_polar_angle > pi/2 the
+outer plane waves travel towards -z.
 
 Parameters
 ----------
@@ -236,9 +285,10 @@ tolerance : float, optional
 region_radius : float, optional
     Radius R [m] of the ball around the focus where the fields are controlled; None = 4 w0.
 polar_order, azimuth_order : int, optional
-    Fixed grid (both >= 1; azimuth rounded up to a multiple of 4); 0 = automatic (default).
+    Fixed grid (both in [1, 1 000 000]; azimuth rounded up to a multiple of 4); 0 = automatic
+    (default). A fixed grid that misses tolerance is kept with a warning.
 max_plane_waves : int, optional
-    Cap of the automatic refinement (default 2 000 000).
+    Cap of the check grids, automatic and fixed (default 2 000 000).
 
 Raises
 ------
@@ -277,37 +327,6 @@ RuntimeError
              py::arg("tolerance") = 1e-10, py::arg("region_radius") = py::none(),
              py::arg("polar_order") = 0, py::arg("azimuth_order") = 0,
              py::arg("max_plane_waves") = Index{2'000'000})
-        .def(
-            "fields",
-            [](const AngularSpectrumBeam& b, const py::object& points) {
-                // One pass over the plane waves per point for both fields.
-                bool single = false;
-                const Vertices p = points_from_array(points, "points", &single);
-                require_all_finite(p, "points");
-                MatrixX3c e(p.rows(), 3);
-                MatrixX3c h(p.rows(), 3);
-                {
-                    py::gil_scoped_release release;
-                    for (Index i = 0; i < p.rows(); ++i) {
-                        const auto [ei, hi] = b.fields(Vec3(p.row(i).transpose()));
-                        e.row(i) = ei.transpose();
-                        h.row(i) = hi.transpose();
-                    }
-                }
-                if (single) {
-                    return py::make_tuple(Vec3c(e.row(0).transpose()), Vec3c(h.row(0).transpose()));
-                }
-                return py::make_tuple(std::move(e), std::move(h));
-            },
-            py::arg("points"),
-            R"doc(
-E [V/m] and H [A/m] at points [m], exp(+jwt) phasors (same as electric_field and
-magnetic_field).
-
-Returns
--------
-(E, H) : tuple of ndarray of complex128, shape (n, 3) or (3,)
-)doc")
         .def_property_readonly(
             "waist", [](const AngularSpectrumBeam& b) { return b.params().waist_radius; },
             "w0 [m] of the spectrum exp(-k_t^2 w0^2 / 4).")

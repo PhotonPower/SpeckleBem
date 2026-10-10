@@ -628,8 +628,7 @@ VectorXc assemble_rhs(const Problem& p) {
                 const Vec3& l = rule.barycentric[q];
                 const Vec3 r = l(0) * v0 + l(1) * v1 + l(2) * v2;
                 const Real w = rule.weights[q] * area;
-                const Vec3c E = exc.electric_field(r);
-                const Vec3c H = exc.magnetic_field(r);
+                const auto [E, H] = exc.fields(r);  // one pass for AngularSpectrumBeam
                 for (int a = 0; a < sup.count; ++a) {
                     const Vec3 f = space.value(sup.n[a], t, r);
                     // f is real: plain (non-conjugating) dot product.

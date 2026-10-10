@@ -498,8 +498,9 @@ void total_field(const SurfaceSolution& s, const Vertices& points, FieldMatrix& 
         if (region(p) != 1)
             continue;  // the incident field exists only in R1 (docs/03)
         const Vec3 r = points.row(p).transpose();
-        E.row(p) += exc->electric_field(r).transpose();
-        H.row(p) += exc->magnetic_field(r).transpose();
+        const auto [e_inc, h_inc] = exc->fields(r);
+        E.row(p) += e_inc.transpose();
+        H.row(p) += h_inc.transpose();
     }
 }
 

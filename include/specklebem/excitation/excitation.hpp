@@ -6,6 +6,9 @@
 #include "specklebem/core/types.hpp"
 #include "specklebem/material/material.hpp"
 
+#include <limits>
+#include <utility>
+
 namespace specklebem::excitation {
 
 /// p: E in the plane of incidence (xz-plane); s: E along y.
@@ -16,6 +19,20 @@ public:
     virtual ~Excitation() = default;
     [[nodiscard]] virtual Vec3c electric_field(const Vec3& r) const = 0;
     [[nodiscard]] virtual Vec3c magnetic_field(const Vec3& r) const = 0;
+    /// E and H at r. The default calls electric_field and magnetic_field (bitwise the same
+    /// values); sources that share work between the two (AngularSpectrumBeam) override it.
+    [[nodiscard]] virtual std::pair<Vec3c, Vec3c> fields(const Vec3& r) const {
+        return {electric_field(r), magnetic_field(r)};
+    }
+    /// Radius [m] of the ball around controlled_center() in which the fields are controlled
+    /// (AngularSpectrumBeam: its region_radius); +infinity for sources that are defined
+    /// everywhere (PlaneWave, GaussianBeam). Simulation rejects meshes that leave the ball.
+    [[nodiscard]] virtual Real controlled_radius() const {
+        return std::numeric_limits<Real>::infinity();
+    }
+    /// Centre [m] of the controlled ball (AngularSpectrumBeam: its focus); the origin by default
+    /// (irrelevant for an infinite controlled_radius()).
+    [[nodiscard]] virtual Vec3 controlled_center() const { return Vec3::Zero(); }
     [[nodiscard]] Real omega() const { return omega_; }
     [[nodiscard]] Real wavelength() const;
     [[nodiscard]] const material::Material& background() const { return background_; }

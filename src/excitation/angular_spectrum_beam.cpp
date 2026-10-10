@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -33,11 +34,12 @@ std::string sci(Real x) {
     return buf;
 }
 
+/// Callers keep n <= AngularSpectrumBeam::kMaxOrder (or refine() of it), far from INT_MAX.
 int round_up4(int n) {
     return 4 * ((n + 3) / 4);
 }
 
-/// n -> 1.5 n + 8 (the refinement step of the WP-V1 study).
+/// n -> 1.5 n + 8 (the refinement step of the WP-V1 study); n <= kMaxOrder, so no overflow.
 int refine(int n) {
     return n + n / 2 + 8;
 }
@@ -86,6 +88,10 @@ AngularSpectrumBeam::AngularSpectrumBeam(Params p, material::Material background
             "AngularSpectrumBeam: polar_order and azimuth_order must both be >= 1 (fixed grid) "
             "or both 0 (automatic)");
     }
+    if (p_.polar_order > kMaxOrder || p_.azimuth_order > kMaxOrder) {
+        throw std::invalid_argument("AngularSpectrumBeam: polar_order and azimuth_order must be <= " +
+                                    std::to_string(kMaxOrder));
+    }
     if (p_.max_plane_waves < 1) {
         throw std::invalid_argument("AngularSpectrumBeam: max_plane_waves must be >= 1");
     }
@@ -99,6 +105,7 @@ AngularSpectrumBeam::AngularSpectrumBeam(Params p, material::Material background
     k_ = background_.wavenumber(omega_).real();  // real: the background is lossless
     eta_ = background_.wave_impedance(omega_).real();
     region_radius_ = p_.region_radius > 0 ? p_.region_radius : 4.0 * p_.waist_radius;
+    warn_radius_ = 1.2 * region_radius_;  // before the probes are evaluated (all within R)
 
     // Spectrum truncation: A(k sin(alpha_max)) = 1e-3 tolerance; the field error of dropping
     // k_t > K is A(K) relative to the peak (int_K^inf exp(-k_t^2 w0^2/4) k_t dk_t / int_0^inf).
@@ -128,25 +135,54 @@ AngularSpectrumBeam::AngularSpectrumBeam(Params p, material::Material background
 
     const Real kr = k_ * region_radius_;
     if (fixed) {
-        grid_ = build(p_.polar_order, round_up4(p_.azimuth_order));
-        const Grid fine = build(refine(grid_.n_alpha), round_up4(refine(grid_.n_phi)));
-        grid_change_ = change(evaluate_probes(grid_), evaluate_probes(fine));
+        const int na = p_.polar_order;
+        const int np = round_up4(p_.azimuth_order);
+        const int na_cmp = refine(na);
+        const int np_cmp = round_up4(refine(np));
+        if (static_cast<Index>(na_cmp) * np_cmp > p_.max_plane_waves) {
+            throw std::invalid_argument(
+                "AngularSpectrumBeam: the check grid " + std::to_string(na_cmp) + " x " +
+                std::to_string(np_cmp) + " of the fixed grid " + std::to_string(na) + " x " +
+                std::to_string(np) + " exceeds max_plane_waves = " +
+                std::to_string(p_.max_plane_waves));
+        }
+        grid_ = build(na, np);
+        grid_change_ = change(evaluate_probes(grid_), evaluate_probes(build(na_cmp, np_cmp)));
+        if (!(grid_change_ < p_.tolerance)) {
+            SBEM_WARN(
+                "AngularSpectrumBeam: the fixed grid {} x {} changes E by {:.2e} >= tolerance "
+                "{:.2e} against the 1.5x finer grid on |r - focus| <= {:.4g} m; the fields are "
+                "not converged there (use automatic orders or raise them)",
+                na, np, grid_change_, p_.tolerance, region_radius_);
+        }
     } else {
-        // Start below the phase-variation estimate (k R alpha_max / 2 Gauss-Legendre nodes,
-        // Bessel orders up to k R sin(alpha_max) in azimuth) and refine each direction on its
-        // own in steps of ~25 %: the quadrature error falls super-exponentially once resolved,
-        // so the 1.5x refinement of the study overshoots by up to 2.25x in waves.
-        int na = static_cast<int>(std::ceil(0.25 * kr * alpha_max_)) + 4;
-        int np = round_up4(static_cast<int>(std::ceil(0.5 * kr * std::sin(alpha_max_))) + 4);
         const auto fail = [&](const std::string& why) {
             throw std::runtime_error("AngularSpectrumBeam: plane-wave grid not converged to " +
                                      sci(p_.tolerance) + " (" + why +
                                      "; w0 = " + sci(p_.waist_radius) +
                                      " m, region_radius = " + sci(region_radius_) + " m)");
         };
+        // Start below the phase-variation estimate (k R alpha_max / 2 Gauss-Legendre nodes,
+        // Bessel orders up to k R sin(alpha_max) in azimuth) and refine each direction on its
+        // own in steps of ~25 %: the quadrature error falls super-exponentially once resolved,
+        // so the 1.5x refinement of the study overshoots by up to 2.25x in waves. The estimates
+        // are checked in floating point before the conversion to int (huge k R).
+        const Real na0 = std::ceil(0.25 * kr * alpha_max_) + 4;
+        const Real np0 = std::ceil(0.5 * kr * std::sin(alpha_max_)) + 4;
+        if (!(na0 <= kMaxOrder) || !(np0 <= kMaxOrder)) {
+            fail("the start orders " + sci(na0) + " x " + sci(np0) + " exceed " +
+                 std::to_string(kMaxOrder) + " (k region_radius = " + sci(kr) + ")");
+        }
+        int na = static_cast<int>(na0);
+        int np = round_up4(static_cast<int>(np0));
         const auto step = [](int n) { return n + std::max(n / 4, 2); };
         bool converged = false;
         for (int round = 0; round < kMaxRounds && !converged; ++round) {
+            if (na > kMaxOrder || np > kMaxOrder) {
+                fail("the orders " + std::to_string(na) + " x " + std::to_string(np) +
+                     " exceed " + std::to_string(kMaxOrder) + ", last change " +
+                     sci(grid_change_));
+            }
             const int na_cmp = refine(na);
             const int np_cmp = round_up4(refine(np));
             if (static_cast<Index>(na_cmp) * np_cmp > p_.max_plane_waves) {
@@ -193,6 +229,25 @@ AngularSpectrumBeam::AngularSpectrumBeam(Params p, material::Material background
             "exp(-rho^2/w0^2) at that level",
             std::exp(-0.25 * k_ * k_ * p_.waist_radius * p_.waist_radius));
     }
+    if (std::abs(p_.incidence_angle) + alpha_max_ > 0.5 * constants::pi) {
+        SBEM_INFO(
+            "AngularSpectrumBeam: |theta_in| + alpha_max = {:.4g} rad > pi/2: the outer plane "
+            "waves of the cone around k0_hat travel towards -z (the beam as a whole travels "
+            "towards +z)",
+            std::abs(p_.incidence_angle) + alpha_max_);
+    }
+}
+
+void AngularSpectrumBeam::warn_outside(Real distance) const {
+    std::atomic<bool>& fired = outside_warned_.fired;
+    if (fired.load(std::memory_order_relaxed) || fired.exchange(true, std::memory_order_relaxed)) {
+        return;
+    }
+    SBEM_WARN(
+        "AngularSpectrumBeam: field evaluated at |r - focus| = {:.4g} m > 1.2 region_radius = "
+        "{:.4g} m, where the plane-wave sum is not controlled (azimuthal aliasing); raise "
+        "region_radius to cover every evaluation point (warned once per beam)",
+        distance, warn_radius_);
 }
 
 AngularSpectrumBeam::Grid AngularSpectrumBeam::build(int n_alpha, int n_phi) const {
@@ -260,8 +315,11 @@ void AngularSpectrumBeam::sum_waves(const Grid& g, const Vec3& r, const Real* co
     const std::size_t n = g.kx.size();  // padded: a multiple of kLanes
     std::array<std::array<Real, kLanes>, M> re{};
     std::array<std::array<Real, kLanes>, M> im{};
+    const Real dist = d.norm();
+    if (dist > warn_radius_)
+        warn_outside(dist);
     // |phase| <= k |d|: the branch-free sincos is valid up to kFastSincosMax (kernels/fast_math).
-    if (k_ * d.norm() <= kernels::fastmath::kFastSincosMax) {
+    if (k_ * dist <= kernels::fastmath::kFastSincosMax) {
         for (std::size_t i = 0; i < n; i += kLanes) {
             for (std::size_t l = 0; l < kLanes; ++l) {
                 const std::size_t j = i + l;
