@@ -5,6 +5,54 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm (WP21 review): exact far part stored as the region's (L_i, K_i) per basis pair
+  (`op::RegionSparseOperator`, `op::assemble_region_sparse`; 40 instead of 96 bytes per pair,
+  weights e_i, h_i, m_i applied in `apply()`): Ag icosphere R = 0.5 um, d0 = 3: 408 -> 170 MB
+  (d0 = 5: 239 -> 100 MB); 2N = 61 440 Ag icosphere: 687 MB (four-entry storage 1.73 GB).
+  Pre-assembly estimate (sum n_A n_B over the exact box pairs, logged; per-basis-pair count when
+  the bound exceeds the budget) and budget guard `MlfmmParams::max_exact_far_bytes` (0 =
+  automatic: max(2 x the near-field bytes from the octree, 1 GiB); `estimate_near_bytes()`)
+  throwing `TruncationOrderError` with the new cause `exact_part_too_large` before any
+  allocation; `exact_info()`, `exact_budget()`. The exact fallback is allowed only if
+  x*(d0) / alpha <= 4 box edges of the first level without expansion (x* the root of
+  (1 + x) e^-x = 10^-(d0+1), `truncation_decay_exponent()`: 11.76 / 16.69 for d0 = 3 / 5),
+  replacing alpha a >= 1 (which let n = 1.5 - 0.6j make the exact part denser than the dense
+  matrix). Leaf rule ratio `max_support_ratio(d0)`: r_max / a <= 0.6 for d0 <= 3, 0.3 for
+  d0 > 3 (also the threshold of the cause mesh_or_leaf_size): 50-70 nm meshes return to lambda/4
+  leaves at d0 = 3. Block check: per box the bases nearest to the partner box; "not run"
+  instead of -1 in logs and exceptions. Python key `mlfmm.max_exact_far_bytes`; Simulation
+  advice for the new cause; `Simulation::report()` lists automatic_leaf_size and the budget.
+  Tests: RegionSparseOperator vs dense (jump terms, sparse pattern, errors), multi-level
+  complementarity (3-sphere 4-level tree in every build, 4-level icosphere in release: near +
+  exact = dense to 1e-12, pair counts = N^2), causes lossy_region / digits /
+  exact_part_too_large, budget, x*(d0); validation-large Ag icosphere 2N = 61 440 exact rows
+  (1.1e-4, setup 20 s, apply 0.23 s, peak RSS 4.9 GB).
+- mlfmm (WP21): region policy of ADR 0008 §6 in `MlfmmFarOperator`, per region and level from the
+  leaf up: expansion if the order search is achievable (lossy regions additionally: block check
+  <= 10^-d0 or <= 2 x the lossless analogue's), otherwise per box pair a documented truncation
+  when the decay bound (1 + alpha d) e^{-alpha d} (d = distance of the support bounding boxes;
+  the WP-P2 bound of |G| and |grad G| relative to their undamped bounds) is <= 10^-(d0+1), else an
+  exact region-masked sparse correction (`exact_part(i)`, `op::assemble_sparse` with the other
+  region's weights zeroed; refined per basis pair with the same bound); `FarDecision`,
+  `FarLevelInfo` (decision, search / block / reference errors, bounds, pair counts),
+  `describe()` and `SBEM_INFO` report every decision; `TruncationOrderError` (cause: mesh or
+  leaf size, lossy region, digits) when a region has neither expansion nor enough decay;
+  `MlfmmParams::exact_far_regions` forces the exact fallback (diagnostics);
+  `basis_patterns()` (patterns of any bases about any centre, for the block check on every
+  level). Leaf rule `MlfmmParams::automatic_leaf_size` / `leaf_rule_params()`: leaf edge >=
+  max(min_box_size_lambda, lambda/4 (d0 <= 3) or lambda/2 (d0 > 3), r_max / ratio); Python key
+  `automatic_leaf_size`. `mlfmm::kMaxOctreeLevels` replaces the literal 21. Tests:
+  `tests/unit/test_mlfmm_policy.cpp` (lossless expansion, very lossy truncation, Ag exact
+  fallback with per-region complementarity to 1e-12 when forced exact, leaf rule, pool failure
+  injection, basis patterns), Ag icosphere / rough box matvec vs dense and Ag GMRES through
+  `Simulation` (validation-large), 2N = 61 440 icosphere exact-rows case, memory guards.
+
+### Fixed
+- mlfmm (WP21, WP20b review): the apply-workspace pool builds a workspace completely before
+  counting it and reserves pool capacity in `take()`, so a failed allocation leaves the pool
+  consistent and returning a workspace cannot allocate; `describe()` states the workspace count
+  consistently with `memory_bytes()` (at least one counted); `Simulation` wraps only
+  `TruncationOrderError`, with advice per cause.
 - mlfmm (WP20b): `mlfmm::MlfmmOperator` = Z_near + Z_far (`compression/mlfmm/mlfmm_operator.hpp`):
   owns the octree (leaf floor in wavelengths of R1), the far operator (built first, so that
   unusable configurations fail before the near assembly) and the exact near field

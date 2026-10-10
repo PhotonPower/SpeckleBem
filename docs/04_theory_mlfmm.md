@@ -53,6 +53,24 @@ Each of the four blocks (`L1, L2, K1, K2`, combined by the formulation weights) 
 The interior wavenumber `k_2` is complex. Consequences:
 - `h_l^{(2)}(k_2 r)` grows and the plane-wave sampling of `e^{−jk_2·r}` becomes exponentially ill-conditioned for `Im(k_2)·D` large. For Ag (`Im(n) ≈ −3.1`, skin depth ≈ 13 nm) the interior expansion is useless beyond the leaf level; for Si (`Im(n) ≈ −0.07`, absorption length ≈ 0.6 µm) it is usable for a few levels.
 - Policy: compute, per level and region, the expansion error on a test pair against direct integration; use the expansion only where the error is below the target. For deeper levels the interior interaction decays as `e^{−|Im k_2| r}`; it is retained **only if above the tolerance**, otherwise dropped *as a numerical truncation below the requested accuracy* (reported in the log). This keeps the method rigorous to the stated tolerance.
+- Implemented (WP21, `far_operator.hpp`): per region and level from the leaf up, expansion where
+  the order search is achievable (lossy regions: and the sampled block check meets `10^{-d₀}` or
+  is at most twice that of the lossless analogue `k = Re k_i`); elsewhere, per box pair with
+  `d` the distance between the bounding boxes of the two supports, the factor
+  `δ = (1 + αd) e^{−αd}` (`α = −Im k_i`) bounds `|G|` and `|∇G|` relative to their undamped values
+  `1/(4πR)` and `(1 + |Re k| R)/(4πR²)`, so dropping the pair changes each entry by at most
+  `δ` times its undamped bound: pairs with `δ ≤ 10^{−(d₀+1)}` are truncated (logged), the others
+  are evaluated exactly in a sparse correction that stores the region's `L_i` and `K_i` per basis
+  pair (40 bytes) and applies the block weights in the matvec. Ag at 500 nm (`α ≈ 39 µm⁻¹`): no
+  interior expansion at λ/4 … λ/2 leaves; exact pairs only at the leaf level (and the next one at
+  `d₀ = 5`), all coarser levels truncated.
+- Exact-part size (WP21 review): truncation needs `αd ≥ x*(d₀)`, the root of
+  `(1 + x) e^{−x} = 10^{−(d₀+1)}` (11.76 at `d₀ = 3`, 16.69 at `d₀ = 5`), so the exact pairs reach
+  `x*/α` in support distance. The fallback is allowed only if `x*/α ≤ 4 a_l` (`a_l` the box edge of
+  the first level without expansion); weaker decay throws instead of growing towards `N²`. Before
+  any allocation the exact parts are estimated (`Σ n_A n_B` over the exact box pairs, refined per
+  basis pair when needed) and checked against `MlfmmParams::max_exact_far_bytes` (default
+  `max(2 × near field, 1 GiB)`).
 - Phase 8 alternative: ACA/H-matrix for the interior operator — kernel-independent, no stability issue with complex `k`.
 
 ## Complexity and memory

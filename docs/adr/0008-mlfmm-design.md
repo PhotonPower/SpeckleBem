@@ -164,3 +164,33 @@ remain limited to d₀ = 3. Leaf rule: a ≥ max(a_min(d₀), r_max / 0.3) with 
 λ/2 (d₀ = 5); WP21 applies it automatically. The d₀ = 5 near field with λ/2 leaves is ~6.6× the λ/4 one
 (1.5 GB vs 0.23 GB at 2N = 2.5·10⁴) — relevant for WP22 sizing. Lossy interiors (Ag) are still rejected
 by the order search; WP21 implements §6. The per-level block check is reported from WP21 on.
+
+## Amendment 2026-10-10 (WP21: lossy-region policy, leaf rule, exact-part budget)
+
+Replaces §6 and the leaf rule of the WP20b amendment. Per region and level, from the leaf upwards
+(expansion levels are contiguous: once a level does not use the expansion, no coarser level does):
+1. **Expansion** if the order search is achievable and, for **lossy** regions, the block check passes
+   (≤ 10^{−d₀} or ≤ 2 × the block error of the lossless analogue k = Re k_i, whose own search must be
+   achievable). For lossless regions the block check is reported only (the WP20a/b acceptance by the
+   full-matvec error stands).
+2. Otherwise per box pair (and inside exact box pairs per basis pair), with d = distance between the
+   bounding boxes of the support vertices (a true lower bound on |r − r'|) and α = −Im k:
+   δ = (1 + αd) e^{−αd} bounds every region-i entry relative to its undamped bound U (|G| ≤ δ/(4πR),
+   |∇G| ≤ δ(1 + |Re k|R)/(4πR²)). **Truncation** if δ ≤ 10^{−(d₀+1)} — counted and logged with the bound,
+   never silent; otherwise **exact** evaluation in a per-region sparse part storing (L_i, K_i) per basis
+   pair (40 B/pair, weights applied in apply).
+3. The exact fallback is allowed only if x*(d₀)/α ≤ 4·a_l, with x* the root of (1 + x)e^{−x} =
+   10^{−(d₀+1)} (x*(3) = 11.76, x*(5) = 16.69) and a_l the box edge of the first level without
+   expansion; otherwise `TruncationOrderError` (cause `lossy_region`; `mesh_or_leaf_size` when
+   r_max/a > `max_support_ratio(d₀)`; `digits` otherwise).
+4. **Exact-part budget:** estimated before any allocation (box-pair bound, then the exact per-basis
+   count); default max(2 × near-field bytes, 1 GiB), `MlfmmParams::max_exact_far_bytes`; exceeding it
+   raises `TruncationOrderError` (cause `exact_part_too_large`).
+5. **Leaf rule:** a ≥ max(a_min(d₀), r_max / max_support_ratio(d₀)) with a_min = λ/4 and ratio 0.6 for
+   d₀ ≤ 3, a_min = λ/2 and ratio 0.3 for d₀ ≤ 5 (applied automatically; the user value is a lower bound).
+
+Measured (Ag, vacuum exterior): icosphere 2N = 15 360 matvec 1.0e-4 (d₀ = 3, λ/4) / 4.1e-6 (d₀ = 5,
+λ/2), exact part 170 / 100 MB; rough box 2N = 21 216: 6.4e-5 / 2.1e-6; icosphere 2N = 61 440 (exact rows):
+1.1e-4, exact part 687 MB vs near field 1133 MB; Ag GMRES through Simulation matches dense (RCS 3.3e-6).
+WP22 projection (Ag sphere 4 µm, λ/27, N ≈ 196 k): exact part ≈ 15 GB (d₀ = 3) / 30 GB (d₀ = 5) next to a
+near field of ≈ 15 GB (d₀ = 3).

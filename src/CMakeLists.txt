@@ -21,6 +21,7 @@ set(SPECKLEBEM_SOURCES
     operator/linear_operator.cpp
     operator/assembler.cpp
     operator/sparse_operator.cpp
+    operator/region_sparse_operator.cpp
     backend/backend.cpp
     backend/cpu/cpu_backend.cpp
     solver/direct.cpp

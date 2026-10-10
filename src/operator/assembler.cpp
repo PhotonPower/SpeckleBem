@@ -80,6 +80,7 @@
 #include "specklebem/core/timer.hpp"
 #include "specklebem/kernels/quadrature.hpp"
 #include "specklebem/operator/dense_operator.hpp"
+#include "specklebem/operator/region_sparse_operator.hpp"
 #include "specklebem/operator/sparse_operator.hpp"
 
 #include <algorithm>
@@ -508,6 +509,87 @@ std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPat
         }
     });
     return std::make_shared<SparseOperator>(std::move(Z));
+}
+
+std::shared_ptr<RegionSparseOperator> assemble_region_sparse(const Problem& p, int region,
+                                                             std::vector<Index> row_ptr,
+                                                             std::vector<Index> cols) {
+    validate(p);
+    if (region != 0 && region != 1)
+        throw std::invalid_argument("assemble_region_sparse: region must be 0 or 1");
+    const basis::RwgSpace& space = *p.space;
+    const Index N = space.size();
+    const auto fail = [](const std::string& what) {
+        throw std::invalid_argument("assemble_region_sparse: invalid pattern: " + what);
+    };
+    const auto rows = static_cast<std::size_t>(std::max<Index>(N, 0));
+    if (row_ptr.size() != rows + 1 || row_ptr.front() != 0 ||
+        row_ptr.back() != static_cast<Index>(cols.size()))
+        fail("row_ptr must have N + 1 entries from 0 to cols.size()");
+    for (std::size_t r = 0; r < rows; ++r) {
+        if (row_ptr[r + 1] < row_ptr[r])
+            fail("row_ptr decreases");
+        for (Index k = row_ptr[r]; k < row_ptr[r + 1]; ++k) {
+            const Index c = cols[static_cast<std::size_t>(k)];
+            if (c < 0 || c >= N || (k > row_ptr[r] && c <= cols[static_cast<std::size_t>(k - 1)]))
+                fail("columns out of range or not strictly ascending");
+        }
+    }
+    const Setup setup = make_setup(p);
+    const auto ri = static_cast<std::size_t>(region);
+    std::vector<Complex> values(2 * cols.size(), Complex(0.0, 0.0));
+    SBEM_INFO("region sparse assembly: region R{}, N = {}, {} basis pairs, {:.3f} MB", region + 1,
+              N, cols.size(),
+              static_cast<Real>(cols.size() * RegionSparseOperator::kBytesPerPair) * 1e-6);
+    if (setup.active[ri] && !cols.empty()) {
+        const ScopedTimer timer("region sparse assembly (R" + std::to_string(region + 1) +
+                                ", pairs = " + std::to_string(cols.size()) + ")");
+        const std::vector<std::vector<Index>> groups = test_schedule(space);
+        const Real jump = kJumpSign[ri];
+        for_each_test_triangle(groups, [&](Index t) {
+            const basis::RwgSpace::Support st = space.support(t);
+            if (st.count == 0)
+                return;
+            std::vector<Index> sources;
+            for (int a = 0; a < st.count; ++a) {
+                const auto m = static_cast<std::size_t>(st.n[a]);
+                for (Index k = row_ptr[m]; k < row_ptr[m + 1]; ++k) {
+                    const Index c = cols[static_cast<std::size_t>(k)];
+                    sources.push_back(space.plus_triangle(c));
+                    sources.push_back(space.minus_triangle(c));
+                }
+            }
+            std::sort(sources.begin(), sources.end());
+            sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
+            Block L;
+            Block K;
+            Block I;
+            for (const Index s : sources) {
+                const basis::RwgSpace::Support ss = space.support(s);
+                kernels::element_blocks(space, t, s, setup.region[ri], p.kernel_options, L, K);
+                if (s == t) {
+                    kernels::jump_block(space, t, I);
+                    K += jump * I;
+                }
+                for (int a = 0; a < st.count; ++a) {
+                    const auto m = static_cast<std::size_t>(st.n[a]);
+                    const Index* const cb = cols.data() + row_ptr[m];
+                    const Index* const ce = cols.data() + row_ptr[m + 1];
+                    for (int b = 0; b < ss.count; ++b) {
+                        const Index* it = std::lower_bound(cb, ce, ss.n[b]);
+                        if (it == ce || *it != ss.n[b])
+                            continue;
+                        const auto k = static_cast<std::size_t>(it - cols.data());
+                        values[2 * k] += L(a, b);
+                        values[2 * k + 1] += K(a, b);
+                    }
+                }
+            }
+        });
+    }
+    return std::make_shared<RegionSparseOperator>(N, std::move(row_ptr), std::move(cols),
+                                                  std::move(values), setup.e[ri], setup.h[ri],
+                                                  setup.m[ri]);
 }
 
 VectorXc assemble_rhs(const Problem& p) {

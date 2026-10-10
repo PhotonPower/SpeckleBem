@@ -317,15 +317,21 @@ TEST_CASE("mlfmm: with 3 levels the far operator equals the single-level far blo
 TEST_CASE("mlfmm: far operator error cases", "[mlfmm]") {
     // 3 levels, leaf a = R / 2 = 0.75 lambda0 (r_max / a ~ 0.5).
     const Real radius = 1.5 * kLambda;
-    // Ag interior: d0 = 3 is not achievable from 0.5 lambda0 boxes on (ADR 0008 amendment), and
-    // the lossy-region policy (WP21) is missing -> runtime_error naming region R2 (all order
-    // searches run before any translator or pattern is computed).
+    // Lossless interior at d0 = 5 with r_max / a ~ 0.5: no expansion order meets 1e-5 (ADR 0008
+    // WP20a amendment) and no decay for the §6 fallback -> TruncationOrderError naming region R1
+    // (the exterior is planned first; all searches run before any translator or pattern).
     {
-        const Case ag(geometry::make_icosphere(radius, 2), 3, material::silver_500nm(),
-                      Kind::PMCHWT, 3.0);
-        CHECK_THROWS_MATCHES(
-            MlfmmFarOperator(ag.problem, ag.tree, ag.params), std::runtime_error,
-            Catch::Matchers::MessageMatches(Catch::Matchers::ContainsSubstring("region R2")));
+        const Case d5(geometry::make_icosphere(radius, 2), 3, medium(1.5), Kind::PMCHWT, 5.0);
+        try {
+            const MlfmmFarOperator far(d5.problem, d5.tree, d5.params);
+            FAIL("expected TruncationOrderError");
+        } catch (const mlfmm::TruncationOrderError& e) {
+            INFO(e.what());
+            CHECK(e.region() == 0);
+            CHECK(e.level() == 2);
+            CHECK(e.cause() == mlfmm::TruncationOrderError::Cause::mesh_or_leaf_size);
+            CHECK(std::string(e.what()).find("region R1") != std::string::npos);
+        }
     }
     const Case c(geometry::make_icosphere(radius, 2), 2, medium(1.5), Kind::PMCHWT, 3.0);
     for (int bad = 0; bad < 5; ++bad) {

@@ -1,6 +1,7 @@
 #include "specklebem/simulation.hpp"
 
 #include "specklebem/basis/rwg.hpp"
+#include "specklebem/compression/mlfmm/far_operator.hpp"
 #include "specklebem/compression/mlfmm/interpolation.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/core/timer.hpp"
@@ -13,6 +14,7 @@
 #include <cmath>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace specklebem {
@@ -42,11 +44,12 @@ void check_compression(const std::string& name) {
 /// assembly), so that a bad configuration fails at construction.
 void check_mlfmm_params(const mlfmm::MlfmmParams& m) {
     const mlfmm::OctreeParams& o = m.octree;
-    if (o.max_elements_per_leaf < 1 || o.max_levels < 1 || o.max_levels > 21 ||
+    if (o.max_elements_per_leaf < 1 || o.max_levels < 1 || o.max_levels > mlfmm::kMaxOctreeLevels ||
         !(std::isfinite(o.min_box_size_lambda) && o.min_box_size_lambda >= 0.0)) {
         throw std::invalid_argument(
             "Simulation: MLFMM octree parameters need max_elements_per_leaf >= 1, max_levels in "
-            "[1, 21] and a finite min_box_size_lambda >= 0");
+            "[1, " +
+            std::to_string(mlfmm::kMaxOctreeLevels) + "] and a finite min_box_size_lambda >= 0");
     }
     if (m.truncation_L != 0 || !m.precompute_translators || m.use_fft_interpolation) {
         throw std::invalid_argument(
@@ -252,17 +255,34 @@ void Simulation::assemble() {
             const ScopedTimer t("Simulation: MLFMM operator");
             try {
                 Z = mlfmm::MlfmmStrategy(s.config.mlfmm).build(s.problem);
-            } catch (const std::runtime_error& e) {
-                // No usable expansion order (lossy interior such as Ag; WP21 adds the ADR 0008 §6
-                // policy): say what to change instead of only the far operator's diagnosis.
+            } catch (const mlfmm::TruncationOrderError& e) {
+                // Neither a usable expansion nor enough decay for the ADR 0008 §6 fallback: say
+                // what to change, per cause, instead of only the far operator's diagnosis.
                 std::ostringstream os;
-                os << "Simulation: compression \"mlfmm\" cannot represent this problem to 10^-"
-                   << s.config.mlfmm.accuracy_digits
-                   << " (the lossy-region policy for metal interiors is not implemented yet); "
-                      "use compression \"dense\", or for a dielectric coarser leaves "
-                      "(mlfmm.min_box_size_lambda), a finer mesh or fewer accuracy_digits. "
-                      "Details: "
-                   << e.what();
+                os << "Simulation: compression \"mlfmm\" cannot represent region R"
+                   << e.region() + 1 << " to 10^-" << s.config.mlfmm.accuracy_digits << ": ";
+                switch (e.cause()) {
+                    case mlfmm::TruncationOrderError::Cause::mesh_or_leaf_size:
+                        os << "the mesh is too coarse for the octree leaves; refine the mesh or "
+                              "raise mlfmm.min_box_size_lambda";
+                        break;
+                    case mlfmm::TruncationOrderError::Cause::lossy_region:
+                        os << "the region is too lossy for the expansion at this box size but its "
+                              "decay is too weak for truncation; change mlfmm.min_box_size_lambda, "
+                              "lower mlfmm.accuracy_digits or use compression \"dense\"";
+                        break;
+                    case mlfmm::TruncationOrderError::Cause::digits:
+                        os << "the requested digits are not reachable at this leaf size; lower "
+                              "mlfmm.accuracy_digits or raise mlfmm.min_box_size_lambda";
+                        break;
+                    case mlfmm::TruncationOrderError::Cause::exact_part_too_large:
+                        os << "the exactly evaluated far interactions of the lossy region would "
+                              "exceed the memory budget mlfmm.max_exact_far_bytes; lower "
+                              "mlfmm.accuracy_digits, raise mlfmm.max_exact_far_bytes or use "
+                              "compression \"dense\"";
+                        break;
+                }
+                os << ". Details: " << e.what();
                 throw std::runtime_error(os.str());
             }
             s.assembly_s = t.elapsed_seconds();
@@ -374,7 +394,9 @@ std::string Simulation::report() const {
         const mlfmm::MlfmmParams& m = s.config.mlfmm;
         o << " (accuracy_digits " << m.accuracy_digits << ", max_elements_per_leaf "
           << m.octree.max_elements_per_leaf << ", min_box_size_lambda "
-          << m.octree.min_box_size_lambda << ", max_levels " << m.octree.max_levels << ")";
+          << m.octree.min_box_size_lambda << ", max_levels " << m.octree.max_levels
+          << ", automatic_leaf_size " << (m.automatic_leaf_size ? "true" : "false")
+          << ", max_exact_far_bytes " << m.max_exact_far_bytes << ")";
     }
     o << "\n";
     if (s.op == nullptr) {

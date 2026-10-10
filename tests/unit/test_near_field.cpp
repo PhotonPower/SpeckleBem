@@ -18,8 +18,10 @@
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/operator/dense_operator.hpp"
+#include "specklebem/operator/region_sparse_operator.hpp"
 #include "specklebem/operator/sparse_operator.hpp"
 
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
@@ -436,4 +438,112 @@ TEST_CASE("near_field: input errors", "[near_field]") {
     E->apply(VectorXc::Ones(2 * c.space.size()), y);
     CHECK(y.isZero(0.0));
     CHECK_THROWS_AS(E->apply(VectorXc::Ones(3), y), std::invalid_argument);
+}
+
+namespace {
+
+/// The region-i part of Z on the pattern, rebuilt from the stored (L, K) and the weights.
+MatrixXc region_matrix(const op::RegionSparseOperator& R, Index n) {
+    // Columns of the identity through apply(): exact for the block structure.
+    MatrixXc Z = MatrixXc::Zero(2 * n, 2 * n);
+    VectorXc y;
+    for (Index c = 0; c < 2 * n; ++c) {
+        R.apply(VectorXc::Unit(2 * n, c), y);  // (GCC 16 -Wnull-dereference with e(c) = 1)
+        Z.col(c) = y;
+    }
+    return Z;
+}
+
+}  // namespace
+
+TEST_CASE("near_field: region (L, K) storage reproduces the dense matrix", "[near_field]") {
+    // WP21 review: the MLFMM exact far part stores L_i and K_i per basis pair and applies the
+    // block weights; R1 + R2 on the full pattern (jump terms included) equal the dense Z.
+    NearCase c(geometry::make_icosphere(0.5 * kLambda, 1));
+    const Index n = c.space.size();
+    for (const Kind kind : {Kind::ICTF}) {  // (PMCHWT: the sparse pattern below)
+        c.set(material::silver_500nm(), kind);
+        const MatrixXc D = dense(c.problem);
+        std::vector<Index> row_ptr(sz(n) + 1), cols;
+        for (Index m = 0; m < n; ++m) {
+            for (Index k = 0; k < n; ++k) cols.push_back(k);
+            row_ptr[sz(m) + 1] = static_cast<Index>(cols.size());
+        }
+        const auto R1 = op::assemble_region_sparse(c.problem, 0, row_ptr, cols);
+        const auto R2 = op::assemble_region_sparse(c.problem, 1, row_ptr, cols);
+        CHECK(R1->pairs() == n * n);
+        CHECK(R1->rows() == 2 * n);
+        CHECK(R1->memory_bytes() == sz(n * n) * 40 + (sz(n) + 1) * sizeof(Index));
+        CHECK(op::RegionSparseOperator::kBytesPerPair == 40);
+        MatrixXc S = region_matrix(*R1, n);  // (GCC 16 -Wnull-dereference with a + b)
+        S += region_matrix(*R2, n);
+        const Real err = (S - D).cwiseAbs().maxCoeff() / D.cwiseAbs().maxCoeff();
+        INFO("formulation " << static_cast<int>(kind) << ": max entry difference " << err);
+        CHECK(err <= 1e-12);
+        CHECK(R1->describe().find("basis pairs (L, K)") != std::string::npos);
+    }
+    // A sparse pattern (every third pair): R1 + R2 equal the dense entries on it, zero elsewhere;
+    // x and y may alias.
+    c.set(lossless(), Kind::PMCHWT);
+    const MatrixXc D = dense(c.problem);
+    std::vector<Index> row_ptr(sz(n) + 1), cols;
+    for (Index m = 0; m < n; ++m) {
+        for (Index k = m % 3; k < n; k += 3) cols.push_back(k);
+        row_ptr[sz(m) + 1] = static_cast<Index>(cols.size());
+    }
+    const auto R1 = op::assemble_region_sparse(c.problem, 0, row_ptr, cols);
+    const auto R2 = op::assemble_region_sparse(c.problem, 1, row_ptr, cols);
+    MatrixXc masked = MatrixXc::Zero(2 * n, 2 * n);
+    for (Index m = 0; m < n; ++m) {
+        for (Index k = row_ptr[sz(m)]; k < row_ptr[sz(m) + 1]; ++k) {
+            const Index col = cols[sz(k)];
+            for (const Index r : {m, n + m})
+                for (const Index q : {col, n + col}) masked(r, q) = D(r, q);
+        }
+    }
+    MatrixXc S = region_matrix(*R1, n);  // (GCC 16 -Wnull-dereference with a + b)
+    S += region_matrix(*R2, n);
+    CHECK((S - masked).cwiseAbs().maxCoeff() <= 1e-12 * D.cwiseAbs().maxCoeff());
+    VectorXc x = VectorXc::LinSpaced(2 * n, -1.0, 2.0);
+    VectorXc y;
+    R1->apply(x, y);
+    R1->apply(x, x);
+    CHECK((x.array() == y.array()).all());
+    CHECK_THROWS_AS(R1->apply(VectorXc::Ones(3), y), std::invalid_argument);
+}
+
+TEST_CASE("near_field: region (L, K) storage input errors", "[near_field]") {
+    NearCase c(geometry::make_icosphere(0.5 * kLambda, 1));
+    c.set(lossless(), Kind::PMCHWT);
+    const Index n = c.space.size();
+    std::vector<Index> row_ptr(sz(n) + 1, 0), cols;
+    CHECK_THROWS_AS(op::assemble_region_sparse(c.problem, 2, row_ptr, cols), std::invalid_argument);
+    CHECK_THROWS_AS(op::assemble_region_sparse(c.problem, -1, row_ptr, cols),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(op::assemble_region_sparse(c.problem, 0, std::vector<Index>(sz(n), 0), cols),
+                    std::invalid_argument);
+    std::vector<Index> bad_ptr(sz(n) + 1, 2);  // row 0 has columns {1, 0}: not ascending
+    bad_ptr.front() = 0;
+    CHECK_THROWS_AS(op::assemble_region_sparse(c.problem, 0, bad_ptr, {1, 0}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(op::assemble_region_sparse(c.problem, 0, bad_ptr, {0, n}),
+                    std::invalid_argument);
+    // An empty pattern gives a zero operator.
+    const auto E = op::assemble_region_sparse(c.problem, 1, row_ptr, cols);
+    CHECK(E->pairs() == 0);
+    VectorXc y;
+    E->apply(VectorXc::Ones(2 * n), y);
+    CHECK(y.isZero(0.0));
+    // Constructor checks.
+    const Complex one(1.0, 0.0);
+    CHECK_THROWS_AS(op::RegionSparseOperator(2, {0, 1}, {0}, {one, one}, one, one, one),
+                    std::invalid_argument);  // row_ptr size
+    CHECK_THROWS_AS(op::RegionSparseOperator(2, {0, 1, 1}, {0}, {one}, one, one, one),
+                    std::invalid_argument);  // one value per pair
+    CHECK_THROWS_AS(op::RegionSparseOperator(2, {0, 1, 0}, {0}, {one, one}, one, one, one),
+                    std::invalid_argument);  // decreasing / back mismatch
+    CHECK_THROWS_AS(op::RegionSparseOperator(2, {0, 1, 1}, {2}, {one, one}, one, one, one),
+                    std::invalid_argument);  // column out of range
+    CHECK_THROWS_AS(op::RegionSparseOperator(-1, {0}, {}, {}, one, one, one),
+                    std::invalid_argument);
 }
