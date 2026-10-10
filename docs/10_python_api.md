@@ -89,7 +89,8 @@ sb.RoughSurface(L, sigma, Lc, mesh_size, seed=0, *, box_depth=None, box_mesh_siz
                 box_fine_depth=None, exterior_wavelength=None, use_fft=True)
                                         # .mesh (lazy), .height_map, .heights, .dx, .dy
 sb.rough_surface_box_params(object, background, wavelength, sigma, mesh_size)  # sb.RoughBoxParams
-p.box_depth, p.box_fine_depth (None: no band), p.box_mesh_size, p.exterior_wavelength, p.kwargs()
+p.box_depth, p.box_fine_depth (None: no band), p.box_mesh_size (None: automatic, capped),
+p.exterior_wavelength, p.uniform_fallback, p.kwargs()
 sb.default_box_depth(object, wavelength), sb.default_box_fine_depth(object, wavelength, sigma)
 sb.default_box_mesh_size(background, wavelength, mesh_size), sb.exterior_wavelength(background, wavelength)
 sb.check_beam_waist(patch_length, waist, allow_wide=False)   # ValueError if waist > L / 4
@@ -112,13 +113,21 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
 - Closing box (ADR 0006 with the 2026-10-10 amendment): `rough_surface_box_params` chooses the
   box from the materials and is the recommended way to build a rough patch for a simulation:
   `sb.RoughSurface(L, sigma, Lc, h, seed, **sb.rough_surface_box_params(obj, bg, wl, sigma, h).kwargs())`.
-  It sets the depth (`default_box_depth`), the coarse spacing (`default_box_mesh_size`: the
-  largest 2^M h <= lambda_1 / 5, lambda_1 = wavelength / Re(n_1); 100 nm at 500 nm in vacuum
-  with h = 50 nm), `exterior_wavelength` and, for weakly absorbing objects (3 delta > 2 h, e.g.
-  Si), the mandatory fine band 3 delta + 3 sigma. Without `box_mesh_size`,
-  `exterior_wavelength` caps the automatic coarse spacing at lambda_1 / 5; without both the old
-  automatic rule (min(depth / 2, L / 8, 10 h)) is used with a warning (not validated under
-  illumination). lambda_1 / 5 is necessary, not shown sufficient (WP-V2).
+  It sets the depth (`default_box_depth`), `exterior_wavelength` (lambda_1 = wavelength /
+  |n_1|, conservative for a lossy background; a metallic background, Re(eps_r) <= 0, raises
+  `ValueError`) and, for weakly absorbing objects, the mandatory fine band 3 delta + 3 sigma.
+  "Weakly absorbing" is 3 delta > 2 h: it mirrors the grading contract (the walls without a
+  band start to coarsen 2 top-face spacings below a smooth rim); Si yes, Ag no at 500 nm and
+  h = 50 nm. `box_mesh_size` stays `None`: with `exterior_wavelength` the generator caps its
+  automatic coarse spacing at the largest 2^M h <= lambda_1 / 5 with the actual grid spacing
+  h = L / round(L / mesh_size) (100 nm at 500 nm in vacuum with h = 50 nm), so the coarse
+  spacing never exceeds lambda_1 / 5 and no warning is logged. `default_box_mesh_size` gives
+  the nominal value for `mesh_size`; do not pass it as `box_mesh_size` (for L not a multiple
+  of h it can exceed lambda_1 / 5 slightly, which warns). If the band would reach the bottom
+  plate (very rough surfaces), the uniform box is chosen: `box_mesh_size = mesh_size`,
+  `uniform_fallback = True`, logged as a warning. Without `exterior_wavelength` and
+  `box_mesh_size` the old automatic rule (min(depth / 2, L / 8, 10 h)) is used with a warning
+  (not validated under illumination). lambda_1 / 5 is necessary, not shown sufficient (WP-V2).
 - Beam waist: rough-surface drivers must call `check_beam_waist(L, waist)` (w0 <= L / 4,
   ADR 0006 amendment); `Simulation` cannot determine the patch size from a mesh.
   `allow_wide=True` accepts a wider waist with a warning.
