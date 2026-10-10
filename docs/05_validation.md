@@ -36,7 +36,7 @@ analytic (Mie, Fresnel, static integrals)
 | Power balance, Ag and Si surfaces | — | rel | < 1 % (Ag at mesh ≤ λ/13: the surface P_abs of weakly absorbing Ag converges slowly, see benchmarks/results/mie_sphere_dense.md) | 4 |
 | Reciprocity, rough surface | — | rel | < 1 % | 4 |
 | Near field Ag sphere, xz-plane | Mie | rel per point | < 0.1 (lit), < 1 (shadow) | 5 |
-| Rigorous beam Maxwell check | — | ‖∇×E + jωμH‖ / ‖ωμH‖ | < 1e-8 | 5 |
+| Rigorous beam Maxwell check (`AngularSpectrumBeam`; unit test "angular-spectrum beam: finite-difference Maxwell residual at round-off level", tests/unit/test_angular_spectrum_beam.cpp, asserts < 1e-9, measured ≤ 9e-11) | finite differences (O(h⁴), h = λ/400) | ‖∇×E + jωμH‖ / ‖ωμH‖ | < 1e-8 | 5 |
 | Speckle PDF at z = −1 mm | Eq. 10 | KS test | p > 0.05 | 6 |
 | Contrast, γ₁₂ vs σ | monotone decrease | — | — | 6 |
 | Speckle size | λz/D | rel | < 10 % | 6 |

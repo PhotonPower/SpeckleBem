@@ -95,10 +95,11 @@ sb.GaussianBeam(wavelength, waist, polarization="p", incidence_angle=0.0, focus=
 sb.AngularSpectrumBeam(wavelength, waist, polarization="p", incidence_angle=0.0, focus=(0, 0, 0),
                        background=sb.vacuum(), *, tolerance=1e-10, region_radius=None,
                        polar_order=0, azimuth_order=0, max_plane_waves=2_000_000)
-beam.fields(points)                     # (E, H) in one pass; .num_plane_waves, .polar_order,
-                                        # .azimuth_order, .grid_change, .max_polar_angle,
-                                        # .region_radius, .power, .waist, .tolerance
+beam.num_plane_waves, beam.polar_order, beam.azimuth_order, beam.grid_change,
+beam.max_polar_angle, beam.region_radius, beam.power, beam.waist, beam.tolerance
 exc.electric_field(points), exc.magnetic_field(points), exc.omega, exc.wavelength, exc.background
+exc.fields(points)                      # (E, H); one pass for AngularSpectrumBeam
+exc.controlled_radius, exc.controlled_center   # inf / origin except AngularSpectrumBeam
 sb.Mie(radius, wavelength, material, exterior=sb.vacuum(), n_max=0)
 mie.bistatic_rcs(theta, phi)            # NumPy broadcasting; a float for scalar input
 mie.scattered_E(points), mie.scattered_H(points), mie.internal_E(points)
@@ -118,11 +119,15 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
   `R_y(theta_in) z_hat` (definition in docs/06, "Incident beams"), `E(focus) . e0 = 1 V/m`.
   Same positional arguments as `GaussianBeam`; the keyword-only quadrature controls map to
   `AngularSpectrumBeam::Params` (`region_radius=None` = 4 w0). Fields are controlled only in
-  the ball `|r - focus| <= region_radius`: choose it to cover the mesh and any near-field
-  observation points. Construction releases the GIL and raises `RuntimeError` when the
-  automatic grid does not converge within `max_plane_waves`. Cost: one sincos per plane wave
-  and point (about 7 ns per wave for `electric_field`, release build; `fields` gives E and H
-  for about the price of one).
+  the ball `|r - focus| <= region_radius` (`controlled_radius`): choose it to cover the mesh
+  and any near-field observation points. `Simulation` raises `ValueError` when a mesh vertex
+  lies outside the ball, and an evaluation beyond 1.2 `region_radius` logs one warning per beam.
+  Construction releases the GIL and raises `RuntimeError` when the automatic grid does not
+  converge within `max_plane_waves`, `ValueError` for orders above 10^6 or a fixed grid whose
+  check grid exceeds `max_plane_waves`; a fixed grid that misses `tolerance` is kept with a
+  warning. Cost: one sincos per plane wave and point (indicatively ~7 ns per wave for
+  `electric_field` in a release build, timed on a shared machine; `fields` gives E and H for
+  little more than the price of one).
 - `Mie.material` is `MieParams::sphere`, `exterior` is `MieParams::medium` (lossless).
 - Inputs: any real NumPy layout or nested list is accepted (int32/uint32 connectivity,
   Fortran order, strided views); it is converted to a C-contiguous float64 / int64 copy.

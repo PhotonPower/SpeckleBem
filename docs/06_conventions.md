@@ -36,7 +36,11 @@ Consequences:
   `E(focus)·ê0 = 1 V/m`. Evanescent components are omitted (they grow towards the source side
   `z < 0`). The projection makes the `ê0` spectrum `A (1 − (k̂·ê0)²)`, so the focal profile and
   the power (`1 + (λ1/(π w0))²/2` times the paraxial `π w0²/(4η)`) deviate from the paraxial
-  Gaussian at second order in `λ1/(π w0)`.
+  Gaussian at second order in `λ1/(π w0)`. The cone is around `k̂0`, so for
+  `|θ_in| + α_max > π/2` its outer (weak) components travel towards `−z` (logged at
+  construction); the beam as a whole travels towards `+z`. The finite sum is controlled only in
+  the ball `|r − focus| ≤ region_radius` (`Excitation::controlled_radius()`): `Simulation`
+  rejects meshes that leave it, and evaluations beyond 1.2 `region_radius` log one warning.
 - Spheres and the Mie reference use ordinary spherical coordinates: polar angle `θ` from `+z` (forward scattering `θ = 0`, backscattering `θ = π`), azimuth `φ` from `+x`. In the xz-plane `θ_s = π − θ`. `reference::MieSolution::bistatic_rcs(theta, phi)` and the sphere validation tests follow this spherical convention.
 
 ## Discretisation
