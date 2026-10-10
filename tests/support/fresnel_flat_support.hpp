@@ -72,6 +72,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -594,9 +595,11 @@ struct Result {
 };
 
 /// Builds, assembles and solves a case and evaluates the reflected power. `geo` and `beam` from
-/// make_geometry / make_beam of the same case.
+/// make_geometry / make_beam of the same case. `inspect` (optional) is called with the solved
+/// simulation before it is destroyed (further diagnostics, benchmarks/ag_absorption.cpp).
 inline Result run(const Case& c, const Geometry& geo,
-                  const std::shared_ptr<excitation::AngularSpectrumBeam>& beam, Real beam_build_s) {
+                  const std::shared_ptr<excitation::AngularSpectrumBeam>& beam, Real beam_build_s,
+                  const std::function<void(const Simulation&)>& inspect = {}) {
     using Clock = std::chrono::steady_clock;
     Result r;
     r.est = estimate(geo, c, beam);
@@ -639,6 +642,8 @@ inline Result run(const Case& c, const Geometry& geo,
     r.p_abs = absorbed_power(sim.solution());
     r.post_s = std::chrono::duration<Real>(Clock::now() - t0).count();
     r.report = sim.report();
+    if (inspect)
+        inspect(sim);
     r.peak_rss = system_memory::peak_rss_bytes();
     return r;
 }
