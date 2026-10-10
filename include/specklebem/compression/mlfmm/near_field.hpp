@@ -16,6 +16,7 @@
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/operator/sparse_operator.hpp"
 
+#include <cstddef>
 #include <memory>
 
 namespace specklebem::mlfmm {
@@ -32,5 +33,10 @@ op::BasisPattern near_pattern(const Octree& tree, const basis::RwgSpace& space);
 /// @throws std::invalid_argument for an invalid Problem (op::validate) or an octree not built
 ///         on p.space (near_pattern).
 std::shared_ptr<op::SparseOperator> assemble_near(const op::Problem& p, const Octree& tree);
+
+/// Bytes of assemble_near(p, tree) (4 blocks x (16 + 8) bytes per near basis pair + 2N + 1 row
+/// pointers), computed from the leaf box counts without building the pattern or assembling: the
+/// reference of the automatic exact-part budget (MlfmmParams::max_exact_far_bytes). O(leaves).
+[[nodiscard]] std::size_t estimate_near_bytes(const Octree& tree);
 
 }  // namespace specklebem::mlfmm

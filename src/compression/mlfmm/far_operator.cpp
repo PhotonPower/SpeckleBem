@@ -4,6 +4,7 @@
 #include "specklebem/compression/mlfmm/far_operator.hpp"
 
 #include "specklebem/compression/mlfmm/interpolation.hpp"
+#include "specklebem/compression/mlfmm/near_field.hpp"
 #include "specklebem/compression/mlfmm/plane_wave.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/formulation/formulation.hpp"
@@ -17,6 +18,7 @@
 #include <cmath>
 #include <cstdio>
 #include <exception>
+#include <iomanip>
 #include <limits>
 #include <map>
 #include <memory>
@@ -159,8 +161,32 @@ std::string error_text(Real e) {
     return buf;
 }
 
+/// "search achievable, error 1.23e-04 at L = 12", "search not achievable, ..." or "search not
+/// run" (levels after the first fallback, or an underflowing interaction).
+std::string search_text(const FarLevelInfo& f) {
+    if (!f.search_run)
+        return "search not run";
+    return std::string("search ") + (f.search_achievable ? "achievable" : "not achievable") +
+           ", error " + error_text(f.search_error) +
+           " at L = " + std::to_string(f.truncation_order);
+}
+
 Real megabytes(std::size_t b) {
     return static_cast<Real>(b) / 1048576.0;
+}
+
+/// Bytes of the dense 2N x 2N matrix: the cap of the automatic exact-part budget.
+std::size_t dense_bytes(Index n) {
+    return sizeof(Complex) * 4 * static_cast<std::size_t>(n) * static_cast<std::size_t>(n);
+}
+
+/// The automatic exact-part budget's rule with its numbers (log and error messages).
+std::string automatic_budget_text(std::size_t near, Index n) {
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(1) << "automatic: min(max(" << kExactFarNearFactor
+       << " x near-field estimate " << megabytes(near) << " MB, " << megabytes(kExactFarMinBytes)
+       << " MB), dense matrix " << megabytes(dense_bytes(n)) << " MB)";
+    return os.str();
 }
 
 kernels::RegionParams region_params(const material::Material& m, Real omega) {
@@ -208,21 +234,6 @@ Real truncation_decay_exponent(Real digits) {
             break;
     }
     return x;
-}
-
-std::size_t estimate_near_bytes(const Octree& tree) {
-    const auto& boxes = tree.boxes();
-    std::size_t pairs = 0;
-    for (const Index b : tree.boxes_at_level(tree.leaf_level())) {
-        const Box& box = boxes[sz(b)];
-        std::size_t cols = sz(box.num_elements);
-        for (const Index nb : box.near_list) cols += sz(boxes[sz(nb)].num_elements);
-        pairs += sz(box.num_elements) * cols;
-    }
-    // op::assemble_sparse: 4 entries per pair (JJ, JM, MJ, MM), value + column index, 2N + 1
-    // row pointers.
-    return 4 * pairs * (sizeof(Complex) + sizeof(Index)) +
-           (2 * tree.permutation().size() + 1) * sizeof(Index);
 }
 
 const char* to_string(FarDecision d) {
@@ -592,6 +603,7 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
             } catch (const std::underflow_error&) {
                 searched = false;  // the interaction underflows: certainly no expansion
             }
+            f.search_run = searched;
             if (searched) {
                 f.search_achievable = search.achievable;
                 f.search_error = search.error;
@@ -648,11 +660,10 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
             f.decision = FarDecision::exact;
         f.setup_seconds = seconds_since(t0);
         SBEM_INFO(
-            "MlfmmFarOperator: region R{} level {} (a = {:.3g} lambda_i): {} (search {} error "
-            "{:.2e}, block check {}); {} box pairs truncated (delta <= {:.2e}, bound 1e-{}), "
-            "{} exact (delta >= {:.2e})",
-            index + 1, l, a / lambda, to_string(f.decision),
-            f.search_achievable ? "achievable," : "not achievable,", f.search_error,
+            "MlfmmFarOperator: region R{} level {} (a = {:.3g} lambda_i): {} ({}, block check "
+            "{}); {} box pairs truncated (delta <= {:.2e}, bound 1e-{}), {} exact (delta >= "
+            "{:.2e})",
+            index + 1, l, a / lambda, to_string(f.decision), search_text(f),
             error_text(f.block_error), f.truncated_pairs, f.decay_bound, digits + 1.0,
             f.exact_pairs, f.exact_bound);
         // The fallback needs strong decay: the exact pairs reach x* / alpha in support distance,
@@ -669,10 +680,7 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
             std::ostringstream os;
             os << "MlfmmFarOperator: region R" << index + 1 << " (k = " << r.k << " 1/m), level "
                << l << " (box edge " << a / lambda << " lambda_i): no expansion meets 10^-"
-               << digits << " (order search "
-               << (f.search_achievable ? "achievable" : "not achievable") << ", best "
-               << f.search_error << " at L = " << f.truncation_order << "; block check "
-               << error_text(f.block_error)
+               << digits << " (" << search_text(f) << "; block check " << error_text(f.block_error)
                << "), and the decay is too weak for the ADR 0008 §6 fallback (exact pairs reach "
                   "x*/alpha = "
                << reach << " m = " << reach / first_fallback_edge << " box edges of level "
@@ -751,10 +759,13 @@ Index MlfmmFarOperator::Impl::count_exact_pairs(const Region& r, Index limit) co
 void MlfmmFarOperator::Impl::check_exact_budget(const op::Problem& problem,
                                                 const MlfmmParams& params) {
     const std::size_t near = estimate_near_bytes(tree);
-    budget = params.max_exact_far_bytes > 0
-                 ? params.max_exact_far_bytes
-                 : std::max(static_cast<std::size_t>(kExactFarNearFactor * static_cast<Real>(near)),
-                            kExactFarMinBytes);
+    budget =
+        params.max_exact_far_bytes > 0
+            ? params.max_exact_far_bytes
+            : std::min(
+                  std::max(static_cast<std::size_t>(kExactFarNearFactor * static_cast<Real>(near)),
+                           kExactFarMinBytes),
+                  dense_bytes(n));
     const std::size_t per_pair = op::RegionSparseOperator::kBytesPerPair;
     const std::size_t row_bytes = (sz(n) + 1) * sizeof(Index);
     const auto& boxes = tree.boxes();
@@ -784,11 +795,8 @@ void MlfmmFarOperator::Impl::check_exact_budget(const op::Problem& problem,
     SBEM_INFO(
         "MlfmmFarOperator: exact-part budget {:.1f} MB ({}), estimate {:.1f} MB (upper bound)",
         megabytes(budget),
-        params.max_exact_far_bytes > 0
-            ? std::string("max_exact_far_bytes")
-            : "automatic: max(" + std::to_string(kExactFarNearFactor) + " x near-field estimate " +
-                  std::to_string(megabytes(near)) + " MB, " +
-                  std::to_string(megabytes(kExactFarMinBytes)) + " MB)",
+        params.max_exact_far_bytes > 0 ? std::string("max_exact_far_bytes")
+                                       : automatic_budget_text(near, n),
         megabytes(bound_bytes));
     if (bound_bytes <= budget)
         return;
@@ -821,11 +829,7 @@ void MlfmmFarOperator::Impl::check_exact_budget(const op::Problem& problem,
     os << "MlfmmFarOperator: the exact far parts of the ADR 0008 §6 fallback would need "
        << (r_over ? "more than " : "") << megabytes(total) << " MB, more than the budget of "
        << megabytes(budget) << " MB (MlfmmParams::max_exact_far_bytes"
-       << (params.max_exact_far_bytes > 0
-               ? ")"
-               : "; automatic: max(" + std::to_string(kExactFarNearFactor) +
-                     " x the near-field estimate of " + std::to_string(megabytes(near)) + " MB, " +
-                     std::to_string(megabytes(kExactFarMinBytes)) + " MB))")
+       << (params.max_exact_far_bytes > 0 ? ")" : "; " + automatic_budget_text(near, n) + ")")
        << "; region R" << worst + 1 << " (k = " << r.k << " 1/m): " << r.xinfo.box_pairs
        << " exact box pairs from level " << r.xinfo.first_level << ", "
        << (r.xinfo.counted_pairs > limit ? "more than " : "") << r.xinfo.counted_pairs
@@ -1390,9 +1394,7 @@ std::string MlfmmFarOperator::describe() const {
         for (const FarLevelInfo& f : r.info) {
             os << "\n    level " << f.level << ": " << f.boxes
                << " boxes, a = " << f.box_size / lambda << " lambda_i, " << to_string(f.decision)
-               << "; search " << (f.search_achievable ? "achievable" : "not achievable/not run")
-               << " (error " << f.search_error << ", L = " << f.truncation_order
-               << "), block check ";
+               << "; " << search_text(f) << ", block check ";
             if (f.block_error < 0.0)
                 os << "not run";
             else

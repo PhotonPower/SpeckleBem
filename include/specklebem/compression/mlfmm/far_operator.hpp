@@ -162,9 +162,12 @@ struct FarLevelInfo {
     Index boxes = 0;
     Real box_size = 0;  ///< box edge [m]
     FarDecision decision = FarDecision::expansion;
-    int truncation_order = 0;        ///< L of the translators (expansion levels)
-    int sampling_order = 0;          ///< L of the sampling (leaf: max(L, p - 1))
-    Index directions = 0;            ///< 2 (sampling_order + 1)^2
+    int truncation_order = 0;  ///< L of the translators (expansion levels)
+    int sampling_order = 0;    ///< L of the sampling (leaf: max(L, p - 1))
+    Index directions = 0;      ///< 2 (sampling_order + 1)^2
+    /// An order search ran; false for levels after the first fallback, for forced-exact regions
+    /// and when the interaction underflows.
+    bool search_run = false;
     bool search_achievable = false;  ///< order search result (false: failed or not run)
     Real search_error = 0;           ///< statistical check of search_truncation_order at L
     Real block_error = -1;           ///< block check (file comment); -1: not run ("not run")
@@ -262,11 +265,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
-
-/// Near-field bytes of the octree's leaf level as mlfmm::assemble_near stores them (4 blocks x
-/// (16 + 8) bytes per near basis pair + row pointers), computed from the box counts without
-/// assembling: the reference of the automatic exact-part budget.
-[[nodiscard]] std::size_t estimate_near_bytes(const Octree& tree);
 
 /// Test-only hooks, not part of the API (no stability guarantee; used by tests/unit).
 namespace testing {

@@ -34,6 +34,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "assembler_test_support.hpp"
@@ -510,6 +511,65 @@ TEST_CASE("near_field: region (L, K) storage reproduces the dense matrix", "[nea
     R1->apply(x, x);
     CHECK((x.array() == y.array()).all());
     CHECK_THROWS_AS(R1->apply(VectorXc::Ones(3), y), std::invalid_argument);
+}
+
+namespace {
+
+/// The formulation with the other region's weights zeroed: its dense matrix is region r's part
+/// of Z alone, jump term on coincident triangles included (WP21f).
+class OneRegion final : public formulation::Formulation {
+public:
+    OneRegion(const formulation::Formulation& f, int region) : f_(f), region_(region) {}
+    [[nodiscard]] Kind kind() const override { return f_.kind(); }
+    [[nodiscard]] std::string name() const override { return f_.name(); }
+    [[nodiscard]] formulation::Weights weights(Complex eta1, Complex eta2) const override {
+        formulation::Weights w = f_.weights(eta1, eta2);
+        if (region_ == 0)
+            w.a2 = w.b2 = Complex(0.0, 0.0);
+        else
+            w.a1 = w.b1 = Complex(0.0, 0.0);
+        return w;
+    }
+
+private:
+    const formulation::Formulation& f_;
+    int region_;
+};
+
+}  // namespace
+
+TEST_CASE("near_field: region (L, K) storage per region with its jump term", "[near_field]") {
+    // WP21f: R1 + R2 against Z (test above) cannot see the jump terms (-1/2 I in K_1, +1/2 I in
+    // K_2 on coincident triangles) where they cancel in the sum. Each region alone on the full
+    // pattern, assembled with the complete formulation as the MLFMM exact part does, against the
+    // dense matrix with the other region's weights zeroed.
+    NearCase c(geometry::make_icosphere(0.5 * kLambda, 1));
+    const Index n = c.space.size();
+    std::vector<Index> row_ptr(sz(n) + 1), cols;
+    for (Index m = 0; m < n; ++m) {
+        for (Index k = 0; k < n; ++k) cols.push_back(k);
+        row_ptr[sz(m) + 1] = static_cast<Index>(cols.size());
+    }
+    // Ag with ICTF, n = 1.5 with PMCHWT (each full-pattern pair costs a dense assembly in the
+    // sanitizer build; with all four combinations a flipped jump sign gave 2 (ICTF) and
+    // 3e-3 ... 7e-3 (PMCHWT) for either material).
+    const std::array<std::pair<material::Material, Kind>, 2> cases = {
+        std::pair{material::silver_500nm(), Kind::ICTF}, std::pair{lossless(), Kind::PMCHWT}};
+    for (std::size_t o = 0; o < cases.size(); ++o) {
+        c.set(cases[o].first, cases[o].second);
+        for (const int region : {0, 1}) {
+            const OneRegion only(*c.form, region);
+            op::Problem q = c.problem;
+            q.formulation = &only;
+            const MatrixXc D = dense(q);
+            const auto R = op::assemble_region_sparse(c.problem, region, row_ptr, cols);
+            const MatrixXc S = region_matrix(*R, n);
+            const Real err = (S - D).cwiseAbs().maxCoeff() / D.cwiseAbs().maxCoeff();
+            INFO((o == 0 ? "Ag, " : "n = 1.5, ") << c.form->name() << ", region R" << region + 1
+                                                 << ": max entry difference " << err);
+            CHECK(err <= 1e-12);
+        }
+    }
 }
 
 TEST_CASE("near_field: region (L, K) storage input errors", "[near_field]") {

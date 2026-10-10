@@ -184,7 +184,8 @@ Replaces §6 and the leaf rule of the WP20b amendment. Per region and level, fro
    expansion; otherwise `TruncationOrderError` (cause `lossy_region`; `mesh_or_leaf_size` when
    r_max/a > `max_support_ratio(d₀)`; `digits` otherwise).
 4. **Exact-part budget:** estimated before any allocation (box-pair bound, then the exact per-basis
-   count); default max(2 × near-field bytes, 1 GiB), `MlfmmParams::max_exact_far_bytes`; exceeding it
+   count); default min(max(2 × near-field bytes, 1 GiB), dense 16 (2N)²) (dense cap: WP21f),
+   `MlfmmParams::max_exact_far_bytes`; exceeding it
    raises `TruncationOrderError` (cause `exact_part_too_large`).
 5. **Leaf rule:** a ≥ max(a_min(d₀), r_max / max_support_ratio(d₀)) with a_min = λ/4 and ratio 0.6 for
    d₀ ≤ 3, a_min = λ/2 and ratio 0.3 for d₀ ≤ 5 (applied automatically; the user value is a lower bound).

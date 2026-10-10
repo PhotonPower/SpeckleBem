@@ -27,6 +27,13 @@ box:
 - Leaf ratio 0.6 (d0 <= 3) / 0.3 (d0 > 3): the 50 nm / 70 nm meshes return to lambda/4 leaves at
   d0 = 3 (88 320 box: 5.5 GB, peak RSS 6.4 GB, 2.9e-4).
 
+- WP21f: automatic budget now min(max(2 near, 1 GiB), 16 (2N)^2). Both regions forced exact
+  (40 B/pair each, 80 B vs dense 64 B per pair) exceed it once far pairs > 80 % of N^2 (4-level
+  icosphere sub 3: 94.6 %, 266 MB vs 225 MB): forced-exact diagnostics need an explicit budget.
+- Jump terms: R1 + R2 vs dense does NOT detect a flipped jump sign in assemble_region_sparse
+  (cancels); per-region vs dense with the other weights zeroed gives 2 (ICTF) / 3e-3..7e-3
+  (PMCHWT) relative max entry error with the flip.
+
 **Why:** WP22 (393k Ag sphere) sizing: projected exact part ~15 GB at d0 = 3, ~30 GB at d0 = 5
 (scale pairs/row ~586 by (h_ref/h)^2 and by (x*(d0)/x*(3))^2).
 **How to apply:** use these numbers for WP22 memory planning; see [[mlfmm-operator-findings]].
