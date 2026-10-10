@@ -19,7 +19,7 @@
 //
 // Usage: specklebem_fresnel_flat --material ag|si [--L 4e-6] [--w0 1e-6] [--theta 0] [--pol p|s]
 //            [--mesh-size 50e-9] [--digits 3] [--tol 1e-4] [--max-iter 6000] [--restart 0]
-//            [--ff-dtheta 0.5]
+//            [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--estimate-only]
 //            [--force]
 #include "specklebem/formulation/formulation.hpp"

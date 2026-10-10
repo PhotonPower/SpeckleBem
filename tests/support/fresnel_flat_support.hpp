@@ -241,7 +241,7 @@ struct Case {
     int max_iter = 6000;
     int restart = 0;  ///< 0: full GMRES
     /// Midpoint spacing in theta of the reflection-hemisphere grid [deg] (phi: twice that).
-    Real ff_dtheta_deg = 0.5;
+    Real ff_dtheta_deg = 1.0;
     int ff_degree = 6;  ///< Dunavant degree of the far-field source quadrature
     /// Empty: formulation::recommend (Ag: ICTF + left Jacobi, Si: ICTF).
     std::optional<formulation::Kind> formulation;
