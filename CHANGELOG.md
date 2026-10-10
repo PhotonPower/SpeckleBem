@@ -19,7 +19,10 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   split the reductions by thread count, and nesting it inside the row-block loop would
   oversubscribe. `GmresResult` gains `orthogonalization_seconds`, `reorthogonalizations` and,
   with `GmresParams::keep_basis` (test hook), `basis`. Benchmark
-  `benchmarks/gmres_orthogonalization.cpp`, record `benchmarks/results/gmres_orthogonalization.md`.
+  `benchmarks/gmres_orthogonalization.cpp` (n = 2·10⁵, 1 000 iterations, 5900X): CGS2 with 24
+  threads ≈ 0.35 ms per basis vector and step; orthogonalisation 3–4.4× faster than MGS per
+  iteration at low load, 3.7–4.7× over partly loaded full runs; record
+  `benchmarks/results/gmres_orthogonalization.md`.
 - geometry / simulation (solver) / python (WP-B1): closing-box defaults of the ADR 0006
   amendment 2026-10-10. Geometry: `RoughSurfaceParams::exterior_wavelength` (λ₁) caps the
   automatic coarse spacing at the largest 2^M h_b ≤ λ₁/5 with the actual grid spacing

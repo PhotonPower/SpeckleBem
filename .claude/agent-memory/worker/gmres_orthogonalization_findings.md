@@ -12,9 +12,10 @@ Findings from WP-G1 (2026-10-10, branch wp/g1-gmres-cgs2):
   random), 200/200 (diag in disk |z-1|<0.95). So "selective" CGS2 == always-two-pass in practice;
   CGS2 was made always two passes with the pass-1 update fused with the pass-2 projection.
 - Dev machine = Ryzen 9 5900X (12 cores/24 threads, dual-channel DDR4, 2x32 MB L3): parallel
-  streaming tops out ~25-30 GB/s vs ~10-20 GB/s for one thread, so a parallel CGS2 (3-4 sweeps
-  over V) gains only ~1.5-2.5x over serial MGS (whose second read of v_j hits L3). Do not expect
-  core-count speed-ups for bandwidth-bound Krylov kernels on this machine.
+  streaming tops out ~25-30 GB/s vs ~10-20 GB/s for one thread, so parallel CGS2 (3 sweeps over
+  V, ~0.35 ms per basis vector per step at n=2e5, 24 threads) gains only ~2-4x over serial MGS
+  (whose second read of v_j hits L3). Do not expect core-count speed-ups for bandwidth-bound
+  Krylov kernels on this machine; 24 threads still beat 12 (1.6x).
 - Thread-count determinism tests must not use DenseOperator or Eigen GEMV in the test operator:
   OpenBLAS threaded zgemv changes its reduction split with omp_set_num_threads. Use explicit
   dot products in the test double.

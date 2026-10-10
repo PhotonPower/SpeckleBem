@@ -62,10 +62,34 @@ A 1 000-iteration run was started but stopped: under this load MGS alone took 2 
 (99.6 % orthogonalisation, 1 000 of 1 000 steps re-orthogonalised) and serial CGS2 more than an
 hour.
 
-### Idle machine
+### n = 2·10⁵, 1 000 iterations (basis 3.2 GB), runs started at low load
 
-See the table below (filled when the machine was idle; otherwise the microbenchmark numbers
-apply).
+The machine was shared with another worker's MLFMM runs for the whole session; both runs were
+started when the load average had dropped below 8, but it rose again during the runs (run A: to
+~120 during the CGS2 12-thread row; run B: from 7.5 to ~400 during MGS). Rows marked * ran
+mostly under that load.
+
+| run | variant | threads | total s | orth s | share | reorth | ms/it k=10 | k=100 | k=250 | k=500 | k=750 | k=1000 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| A | CGS2 | 24 | 181.2 | 179.5 | 99.1 % | 1000 | 3.1 | 34 | 83 | 213 | 272 | 360 |
+| A | CGS2* | 12 | 295.0 | 293.4 | 99.4 % | 1000 | 17 | 69 | 150 | 240 | 414 | 393 |
+| A | CGS2* | 6 | 339.1 | 337.3 | 99.5 % | 1000 | 12 | 96 | 108 | 248 | 427 | 627 |
+| A | MGS* | 1 (serial) | 852.6 | 850.2 | 99.7 % | 1000 | 14 | 139 | 225 | 391 | 2 795 | 1 084 |
+| B | MGS (* from k ≈ 300) | 1 (serial) | 808.3 | 805.2 | 99.6 % | 1000 | 6.2 | 155 | 271 | 747 | 3 348 | 760 |
+| B | CGS2* | 24 | 222.2 | 220.1 | 99.1 % | 1000 | 6.4 | 35 | 88 | 175 | 272 | 344 |
+
+Matvec 0.6–1.0 ms; final Arnoldi residual 1.11·10⁻²⁵ for every row (identical to three digits).
+Run B, `--blas-reference`: one Eigen/OpenBLAS GEMV pair (Vᴴw, w −= Vh) on a contiguous basis
+under load ~400 took 0.20 / 0.22 / 0.37 / 0.35 / 0.49 s at k = 100 / 250 / 500 / 750 / 1 000, so
+a full CGS2 step (three sweeps, 0.34 s at k = 1 000) costs less than one BLAS pass pair under the
+same load.
+
+Reading: CGS2 with 24 threads costs ≈ 0.35 ms per basis vector and step at n = 2·10⁵
+(≈ 1.7·10⁻⁹ s per complex entry, ≈ 28 GB/s for the three sweeps), nearly the same at low and at high machine load. The
+low-load MGS points (k ≤ 250) are 4.4× (k = 100) and 3.1× (k = 250) slower per iteration; the
+whole-solve orthogonalisation time drops from 805–850 s (MGS, partly loaded) to 180–220 s
+(CGS2, 24 threads): 3.7–4.7×. Fewer threads are slower (12: 1.6×, 6: 1.9× the 24-thread time,
+both partly loaded), so the kernel does profit from SMT/all cores despite the bandwidth bound.
 
 ### Microbenchmark (one orthogonalisation pass, n = 2·10⁵, k = 1 000, machine load ≈ 5)
 
@@ -89,8 +113,11 @@ passes; a CGS2 step 1.5 parallel pairs (three sweeps). Expected idle speed-up on
 
 - CGS2 is the default; orthogonality and solutions match MGS to rounding, iteration counts are
   equal in all tests (differences of ±1–2 near the tolerance are possible by design).
-- On this machine the gain is bandwidth-limited: ≈ 2× idle (estimate from the kernel
-  microbenchmark), 7–8× when the machine is loaded. The remaining cost is three streams of V per
+- On this machine the gain is bandwidth-limited: ≈ 2–4× on an idle machine (low-load
+  per-iteration times at k ≤ 250: 3.1–4.4×; kernel microbenchmark at k = 1 000: 1.6–3×),
+  3.7–4.7× for the whole 1 000-iteration orthogonalisation in partly loaded runs and 7–8× under
+  heavy load (the serial MGS loop suffers most from competing processes). For the WP22b1 Ag
+  solves (MGS 42–66 % of the solve time) this means roughly a 1.3–2× shorter solve. The remaining cost is three streams of V per
   step; a single-synchronisation variant (delayed re-orthogonalisation, DCGS2, Bielich et al.
   2022) would need two and is the next step if the orthogonalisation still dominates.
 - Restarting is not affected; GMRES(m) uses the same kernels on a basis of m + 1 columns.
