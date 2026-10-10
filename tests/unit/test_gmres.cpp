@@ -11,6 +11,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -22,6 +23,10 @@
 #include <vector>
 
 #include "assembler_test_support.hpp"
+
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#include <omp.h>
+#endif
 
 using namespace specklebem;
 using solver::GmresParams;
@@ -493,4 +498,154 @@ TEST_CASE("gmres: dense BEM system of an Ag sphere (PMCHWT, left Jacobi) matches
     CHECK(r.converged);
     CHECK(r.true_relative_residual <= 1e-6);
     CHECK(rel_diff(r.x, x_lu) <= 1e-5);
+}
+
+// --- Gram-Schmidt variants (WP-G1) -------------------------------------------------------------
+
+namespace {
+
+/// |I - V^H V|_F (an upper bound of the 2-norm).
+Real orthogonality_loss(const MatrixXc& V) {
+    return (MatrixXc::Identity(V.cols(), V.cols()) - V.adjoint() * V).norm();
+}
+
+GmresParams with(GmresParams p, solver::Orthogonalization o, bool keep_basis = false) {
+    p.orthogonalization = o;
+    p.keep_basis = keep_basis;
+    return p;
+}
+
+/// Test double y = d .* x + U (W^H x): a cheap matvec, so that n can span several row blocks of
+/// the parallel CGS2 products (4096 rows each), and deterministic (no BLAS).
+class DiagonalPlusLowRank final : public op::LinearOperator {
+public:
+    DiagonalPlusLowRank(Index n, std::uint64_t seed)
+        : d_(n), U_(random_matrix(n, 2, seed + 1)), W_(random_matrix(n, 2, seed + 2)) {
+        // Eigenvalues of the diagonal part in the disk |z - 1| < 0.95: slow, steady convergence.
+        std::mt19937_64 rng(seed);
+        std::uniform_real_distribution<Real> u(0.0, 1.0);
+        for (Index i = 0; i < n; ++i) {
+            d_(i) = 1.0 + std::polar(0.95 * std::sqrt(u(rng)), 2.0 * constants::pi * u(rng));
+        }
+        U_ /= static_cast<Real>(n);
+    }
+    [[nodiscard]] Index rows() const override { return d_.size(); }
+    [[nodiscard]] Index cols() const override { return d_.size(); }
+    void apply(const VectorXc& x, VectorXc& y) const override {
+        // Explicit dot products instead of a GEMV: a threaded BLAS GEMV may split the sums
+        // over threads, which would make the operator depend on the thread count.
+        const Complex c0 = W_.col(0).dot(x);
+        const Complex c1 = W_.col(1).dot(x);
+        y = d_.cwiseProduct(x) + c0 * U_.col(0) + c1 * U_.col(1);
+    }
+    [[nodiscard]] std::string describe() const override { return "DiagonalPlusLowRank"; }
+    [[nodiscard]] std::size_t memory_bytes() const override { return 0; }
+    [[nodiscard]] const VectorXc& diagonal() const { return d_; }
+
+private:
+    VectorXc d_;
+    MatrixXc U_;
+    MatrixXc W_;
+};
+
+constexpr Index kLargeN = 3 * 4096 + 123;  // three full row blocks and a partial one
+
+}  // namespace
+
+TEST_CASE("gmres: CGS2 and MGS on an ill-conditioned dense system (200 iterations)", "[gmres]") {
+    // Badly row-scaled system (row scales 1e-3 .. 1e3), unpreconditioned: the residual decays
+    // slowly, so all 200 iterations run and the basis has 201 columns.
+    const Index n = 300;
+    const MatrixXc A = wide_diagonal(n, 71).asDiagonal() * well_conditioned(n, 72);
+    const op::DenseOperator Z(A);
+    const VectorXc b = random_vector(n, 73);
+    const GmresParams p = params(1e-14, 200);
+    const GmresResult c =
+        solver::gmres(Z, b, kNone, with(p, solver::Orthogonalization::CGS2, true));
+    const GmresResult m = solver::gmres(Z, b, kNone, with(p, solver::Orthogonalization::MGS, true));
+    REQUIRE(c.iterations == 200);
+    REQUIRE(m.iterations == 200);
+    REQUIRE(c.basis.cols() == 201);
+    REQUIRE(c.basis.rows() == n);
+    REQUIRE(m.basis.cols() == 201);
+    const Real loss_c = orthogonality_loss(c.basis);
+    const Real loss_m = orthogonality_loss(m.basis);
+    Real max_hist = 0;
+    for (std::size_t k = 0; k < c.residual_history.size(); ++k) {
+        max_hist = std::max(max_hist, std::abs(c.residual_history[k] - m.residual_history[k]) /
+                                          m.residual_history[k]);
+    }
+    VectorXc diff;
+    Z.apply(c.x - m.x, diff);
+    INFO("|I - V^H V|_F: CGS2 " << loss_c << ", MGS " << loss_m << "; re-orthogonalisations "
+                               << c.reorthogonalizations << " / " << m.reorthogonalizations
+                               << "; history rel. diff " << max_hist << "; residual "
+                               << c.residual_history.back() << "; |A (x_c - x_m)| / |b| "
+                               << diff.norm() / b.norm());
+    CHECK_FALSE(c.converged);
+    CHECK(loss_c <= 1e-12);
+    CHECK(loss_m <= 1e-12);
+    CHECK(max_hist <= 1e-8);
+    CHECK(diff.norm() / b.norm() <= 1e-10);
+    CHECK(c.orthogonalization_seconds > 0);
+    CHECK(c.orthogonalization_seconds <= c.wall_seconds);
+
+    // Always two passes: every step counts as re-orthogonalised; the basis stays orthonormal.
+    GmresParams pa = with(p, solver::Orthogonalization::CGS2, true);
+    pa.always_reorthogonalize = true;
+    const GmresResult a = solver::gmres(Z, b, kNone, pa);
+    CHECK(a.reorthogonalizations == 200);
+    CHECK(orthogonality_loss(a.basis) <= 1e-12);
+    CHECK(rel_diff(a.x, c.x) <= 1e-6);
+    CHECK(solver::gmres(Z, b, kNone, p).basis.size() == 0);  // keep_basis is off by default
+}
+
+TEST_CASE("gmres: CGS2 is bitwise deterministic across runs and thread counts", "[gmres]") {
+    const DiagonalPlusLowRank Z(kLargeN, 81);
+    const VectorXc b = random_vector(kLargeN, 82);
+    const GmresParams p = with(params(1e-14, 60), solver::Orthogonalization::CGS2, true);
+    const GmresResult r1 = solver::gmres(Z, b, kNone, p);
+    const GmresResult r2 = solver::gmres(Z, b, kNone, p);
+    REQUIRE(r1.iterations == 60);
+    INFO("residual after 60 iterations " << r1.residual_history.back() << ", |I - V^H V|_F "
+                                         << orthogonality_loss(r1.basis));
+    CHECK(r1.x == r2.x);
+    CHECK(r1.residual_history == r2.residual_history);
+    CHECK(r1.basis == r2.basis);
+    CHECK(orthogonality_loss(r1.basis) <= 1e-12);
+#ifdef SPECKLEBEM_HAVE_OPENMP
+    // The row-block partition and the order of the partial sums do not depend on the threads.
+    const int threads = omp_get_max_threads();
+    omp_set_num_threads(threads > 1 ? 1 : 3);
+    const GmresResult r3 = solver::gmres(Z, b, kNone, p);
+    omp_set_num_threads(threads);
+    CHECK(r3.x == r1.x);
+    CHECK(r3.residual_history == r1.residual_history);
+#endif
+}
+
+TEST_CASE("gmres: CGS2 matches MGS with left/right preconditioning and restart", "[gmres]") {
+    const DiagonalPlusLowRank Z(kLargeN, 91);
+    const VectorXc b = random_vector(kLargeN, 92);
+    // Diagonal preconditioner |d| (magnitudes only; Jacobi on d would leave identity + rank 2):
+    // the preconditioned eigenvalues lie on an arc of the unit circle.
+    const solver::DiagonalPreconditioner M(Z.diagonal().cwiseAbs().cast<Complex>());
+    for (const auto side : {PreconditionerSide::Left, PreconditionerSide::Right}) {
+        for (const int restart : {0, 3}) {
+            const GmresParams p = params(1e-10, 200, restart, side);
+            const GmresResult c = solver::gmres(Z, b, M, with(p, solver::Orthogonalization::CGS2));
+            const GmresResult m = solver::gmres(Z, b, M, with(p, solver::Orthogonalization::MGS));
+            INFO((side == PreconditionerSide::Left ? "left" : "right")
+                 << ", restart " << restart << ": iterations CGS2 " << c.iterations << ", MGS "
+                 << m.iterations << "; true residual " << c.true_relative_residual
+                 << ", |x_c - x_m| / |x_m| " << rel_diff(c.x, m.x));
+            CHECK(c.converged);
+            CHECK(m.converged);
+            CHECK(std::abs(c.iterations - m.iterations) <= 2);
+            CHECK(c.true_relative_residual <= 1e-9);
+            CHECK(rel_diff(c.x, m.x) <= 1e-9);
+            if (restart > 0)
+                CHECK(c.iterations > restart);
+        }
+    }
 }
