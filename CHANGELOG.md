@@ -71,6 +71,15 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `Simulation` (validation-large), 2N = 61 440 icosphere exact-rows case, memory guards.
 
 ### Fixed
+- operator (WP22a-f, WP22a review follow-ups): `SparseOperator(Matrix&& Z)` takes the near-field
+  matrix by rvalue reference and swaps it in; the former by-value parameter still copied it
+  (Eigen 3.4.0). Peak working set of the Ag sphere d = 2 um, octa n = 6 (2N = 98 304, near
+  3.07 GB): 8.47 -> 5.54 GB, i.e. 2.75 -> 1.80 x the near field. Test: the operator owns the
+  caller's arrays (same pointers). tests: `available_memory_bytes()` reads `MemAvailable` from
+  `/proc/meminfo` on Linux (fallback: free pages), 0 on macOS (the guarded cases SKIP), with a
+  unit test; `make_octasphere`/`edge_stats` moved to the light `tests/support/octasphere.hpp`;
+  `system_memory.cpp` is the static library `specklebem_test_support` (`tests/support/`), linked
+  by the test executables and `specklebem_ag_sphere_mlfmm` (also without the tests).
 - operator (WP22a): `SparseOperator` swaps the matrix in instead of `Z_(std::move(Z))`, which
   copied it (Eigen 3.4.0's `SparseMatrix` has no move constructor): one transient copy of the
   MLFMM near field less (peak RSS of the 393 216-unknown Ag sphere: -12 GB).

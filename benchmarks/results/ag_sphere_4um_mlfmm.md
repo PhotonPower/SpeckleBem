@@ -140,6 +140,12 @@ now swaps (`Z_.swap(Z)`), leaving two transient copies (the by-value parameter i
 from the caller's matrix; removing it needs a signature change). At 2N = 393 216 the fix saves
 12 GB of peak memory.
 
+WP22a-f removed the remaining copy: `SparseOperator(Matrix&& Z)` swaps the caller's matrix in.
+Measured with `specklebem_ag_sphere_mlfmm --mesh octa --n 6 --d 2e-6 --max-iter 5` (2N = 98 304,
+near 3.07 GB, far incl. exact part 2.25 GB): peak working set 8.47 GB before, 5.54 GB after, i.e.
+2.75 → 1.80 × the near field (peak minus far: 2.02 → 1.07 × near). The validation-large memory
+guard (`kPeakPerNear = 3`) is now conservative.
+
 ## Comparison with the paper
 
 | | Fu et al. 2023 | SpeckleBem (this record) |
