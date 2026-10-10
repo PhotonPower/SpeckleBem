@@ -167,7 +167,8 @@ std::string search_text(const FarLevelInfo& f) {
     if (!f.search_run)
         return "search not run";
     return std::string("search ") + (f.search_achievable ? "achievable" : "not achievable") +
-           ", error " + error_text(f.search_error) + " at L = " + std::to_string(f.truncation_order);
+           ", error " + error_text(f.search_error) +
+           " at L = " + std::to_string(f.truncation_order);
 }
 
 Real megabytes(std::size_t b) {
@@ -679,8 +680,7 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
             std::ostringstream os;
             os << "MlfmmFarOperator: region R" << index + 1 << " (k = " << r.k << " 1/m), level "
                << l << " (box edge " << a / lambda << " lambda_i): no expansion meets 10^-"
-               << digits << " (" << search_text(f) << "; block check "
-               << error_text(f.block_error)
+               << digits << " (" << search_text(f) << "; block check " << error_text(f.block_error)
                << "), and the decay is too weak for the ADR 0008 §6 fallback (exact pairs reach "
                   "x*/alpha = "
                << reach << " m = " << reach / first_fallback_edge << " box edges of level "
@@ -759,12 +759,13 @@ Index MlfmmFarOperator::Impl::count_exact_pairs(const Region& r, Index limit) co
 void MlfmmFarOperator::Impl::check_exact_budget(const op::Problem& problem,
                                                 const MlfmmParams& params) {
     const std::size_t near = estimate_near_bytes(tree);
-    budget = params.max_exact_far_bytes > 0
-                 ? params.max_exact_far_bytes
-                 : std::min(std::max(static_cast<std::size_t>(kExactFarNearFactor *
-                                                              static_cast<Real>(near)),
-                                     kExactFarMinBytes),
-                            dense_bytes(n));
+    budget =
+        params.max_exact_far_bytes > 0
+            ? params.max_exact_far_bytes
+            : std::min(
+                  std::max(static_cast<std::size_t>(kExactFarNearFactor * static_cast<Real>(near)),
+                           kExactFarMinBytes),
+                  dense_bytes(n));
     const std::size_t per_pair = op::RegionSparseOperator::kBytesPerPair;
     const std::size_t row_bytes = (sz(n) + 1) * sizeof(Index);
     const auto& boxes = tree.boxes();

@@ -162,10 +162,10 @@ struct FarLevelInfo {
     Index boxes = 0;
     Real box_size = 0;  ///< box edge [m]
     FarDecision decision = FarDecision::expansion;
-    int truncation_order = 0;        ///< L of the translators (expansion levels)
-    int sampling_order = 0;          ///< L of the sampling (leaf: max(L, p - 1))
-    Index directions = 0;            ///< 2 (sampling_order + 1)^2
-    bool search_run = false;  ///< an order search ran (false: levels after the first fallback)
+    int truncation_order = 0;  ///< L of the translators (expansion levels)
+    int sampling_order = 0;    ///< L of the sampling (leaf: max(L, p - 1))
+    Index directions = 0;      ///< 2 (sampling_order + 1)^2
+    bool search_run = false;   ///< an order search ran (false: levels after the first fallback)
     bool search_achievable = false;  ///< order search result (false: failed or not run)
     Real search_error = 0;           ///< statistical check of search_truncation_order at L
     Real block_error = -1;           ///< block check (file comment); -1: not run ("not run")

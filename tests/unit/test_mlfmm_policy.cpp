@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <limits>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -229,8 +231,11 @@ geometry::TriangleMesh spheres(Real radius, int subdivisions, const std::vector<
 
 /// Both regions forced exact on a multi-level tree: near + exact parts reproduce the dense matrix
 /// (round-off) and their basis pairs partition the N^2 pairs per region.
-void check_forced_exact(const Setup& s, const mlfmm::MlfmmParams& p, int min_exact_levels) {
+void check_forced_exact(const Setup& s, mlfmm::MlfmmParams p, int min_exact_levels) {
     const auto dense = op::DenseStrategy().build(s.problem);
+    // Both regions forced exact store up to 2 x 40 bytes per far pair, more than the dense 64
+    // bytes per pair the automatic budget allows (WP21f): diagnostics, no budget.
+    p.max_exact_far_bytes = std::numeric_limits<std::size_t>::max();
     const mlfmm::MlfmmOperator Z(s.problem, p);
     INFO(Z.describe());
     const mlfmm::MlfmmFarOperator& far = Z.far_operator();
@@ -281,9 +286,12 @@ TEST_CASE("mlfmm policy: truncation decay exponent x*(d0)", "[mlfmm]") {
 }
 
 TEST_CASE("mlfmm policy: levels after the first fallback report no search", "[mlfmm]") {
-    // WP21f: Ag interior with 4 levels (leaf 0.375 lambda0): the order search fails on the leaf
-    // level, level 2 is not searched and says so ("search not run", not "error 0, L = 0").
-    Setup s(geometry::make_icosphere(1.5 * kLambda, 2), material::silver_500nm(), Kind::PMCHWT);
+    // WP21f: a very lossy interior (n = 0.1 - 20j, all far pairs truncated: no exact part to
+    // assemble) with 4 levels (leaf 0.375 lambda0, subdivision 3: r_max < a): the order search
+    // fails on the leaf level, level 2 is not searched and says so ("search not run", not
+    // "error 0, L = 0").
+    const Complex n(0.1, -20.0);
+    Setup s(geometry::make_icosphere(1.5 * kLambda, 3), {n * n, Complex(1.0, 0.0)}, Kind::PMCHWT);
     s.problem.kernel_options = cheap_options();
     const InteriorOnly interior(*s.form);
     s.problem.formulation = &interior;

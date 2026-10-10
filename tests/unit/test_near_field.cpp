@@ -561,9 +561,9 @@ TEST_CASE("near_field: region (L, K) storage per region with its jump term", "[n
                 const auto R = op::assemble_region_sparse(c.problem, region, row_ptr, cols);
                 const MatrixXc S = region_matrix(*R, n);
                 const Real err = (S - D).cwiseAbs().maxCoeff() / D.cwiseAbs().maxCoeff();
-                INFO((o == 0 ? "Ag" : "n = 1.5") << ", formulation " << static_cast<int>(kind)
-                                                 << ", region R" << region + 1
-                                                 << ": max entry difference " << err);
+                INFO((o == 0 ? "Ag, " : "n = 1.5, ") << c.form->name() << ", region R" << region + 1
+                                                     << ": max entry difference " << err);
+                // A flipped jump sign gives 2 (ICTF) and 3e-3 ... 7e-3 (PMCHWT) here (WP21f).
                 CHECK(err <= 1e-12);
             }
         }
