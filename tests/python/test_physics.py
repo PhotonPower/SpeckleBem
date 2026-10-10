@@ -171,6 +171,25 @@ def test_angular_spectrum_beam(pol):
     )
     assert (fixed.polar_order, fixed.azimuth_order, fixed.num_plane_waves) == (10, 16, 160)
     assert fixed.region_radius == 2e-6
+    # The controlled ball (read-only), inherited from Excitation.
+    assert beam.controlled_radius == beam.region_radius
+    assert np.array_equal(beam.controlled_center, beam.focus)
+    with pytest.raises(AttributeError):
+        beam.controlled_radius = 1.0
+
+
+def test_excitation_fields_and_controlled_ball():
+    # fields() on the base class: the two separate evaluations (bitwise for PlaneWave and
+    # GaussianBeam); both are controlled everywhere.
+    pw = sb.PlaneWave(LAMBDA, [0, 0, 1], [1, 0, 0])
+    gb = sb.GaussianBeam(LAMBDA, 2e-6, incidence_angle=0.1)
+    pts = np.random.default_rng(3).uniform(-2e-6, 2e-6, size=(4, 3))
+    for exc in (pw, gb):
+        E, H = exc.fields(pts)
+        assert np.array_equal(E, exc.electric_field(pts))
+        assert np.array_equal(H, exc.magnetic_field(pts))
+        assert exc.controlled_radius == np.inf
+        assert np.array_equal(exc.controlled_center, [0.0, 0.0, 0.0])
 
 
 def test_angular_spectrum_beam_invalid():
@@ -186,6 +205,10 @@ def test_angular_spectrum_beam_invalid():
         sb.AngularSpectrumBeam(LAMBDA, 1e-6, polar_order=10)
     with pytest.raises(RuntimeError):
         sb.AngularSpectrumBeam(LAMBDA, 1e-6, max_plane_waves=500)
+    with pytest.raises(ValueError):  # order cap
+        sb.AngularSpectrumBeam(LAMBDA, 1e-6, polar_order=1_000_001, azimuth_order=8)
+    with pytest.raises(ValueError):  # fixed check grid 23 x 32 above max_plane_waves
+        sb.AngularSpectrumBeam(LAMBDA, 1e-6, polar_order=10, azimuth_order=16, max_plane_waves=700)
     assert "[m]" in sb.AngularSpectrumBeam.__doc__ and "exp(+jwt)" in sb.AngularSpectrumBeam.__doc__
 
 
