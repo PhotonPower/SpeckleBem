@@ -15,3 +15,4 @@
 - [MLFMM lossy policy findings](mlfmm_lossy_policy_findings.md) — block check vs 10^-d0, x*(d0), Ag exact part 40 B/pair (61440: 687 MB), budget, leaf ratio 0.6/0.3
 - [Ag sphere MLFMM findings](ag_sphere_mlfmm_findings.md) — WP22a 4 um costs/accuracy, octahedral paper mesh, tol dominates eps_rr, Eigen 3.4 sparse move copies
 - [Angular-spectrum beam findings](angular_spectrum_beam_findings.md) — WP-E1 wave counts, aliasing beyond R (controlled ball), grid convergence, CODATA 3e-11 floor, f^2 coefficients
+- [MLFMM scaling findings](mlfmm_scaling_findings.md) — WP22b1 rough boxes: box r_max sets leaves, Si memory limit, uniform box route, Ag MGS share, far-table peak model

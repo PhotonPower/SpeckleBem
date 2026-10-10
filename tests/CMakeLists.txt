@@ -37,6 +37,7 @@ add_executable(specklebem_unit_tests
     unit/test_mlfmm_operator.cpp
     unit/test_mlfmm_policy.cpp
     unit/test_system_memory.cpp
+    unit/test_mlfmm_scaling.cpp
     # unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
