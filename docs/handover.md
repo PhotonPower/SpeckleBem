@@ -25,10 +25,20 @@ on the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`
   interiors (d₀ = 3 ≤ 2.9e-4 with λ/4 leaves; d₀ = 5 ≤ 6.7e-6 with λ/2 leaves; up to 2N = 8.8·10⁴). Also
   merged: WP-P2 dense assembly performance (Ag box ×35, Si box ×6 faster), WP7d kernel polish.
 - **In flight when the session ended (branches pushed, not merged, not reviewed):**
-  - `wp/21-mlfmm-lossy` (head: a final WIP commit with unverified changes to `src/simulation.cpp` and the large test): lossy-region policy (ADR 0008 §6) for Ag, automatic leaf rule,
-    WP20b review follow-ups, Ag validation-large cases. The worker had committed implementation and
-    tests but had not reported; continue with a worker that verifies (builds, tests incl. the Ag
-    validation-large cases), completes the brief in the WP21 backlog row and reports; then review.
+  - `wp/21-mlfmm-lossy` (head 60fe040, pushed; worker reported after the session end, **not yet reviewed**):
+    lossy-region policy (ADR 0008 §6) — per region and level: expansion if the order search is achievable
+    and (for lossy regions) the block check passes (≤ 10^-d₀ or ≤ 2 × the lossless analogue); otherwise per
+    box pair truncation if δ = (1 + αd)e^{−αd} ≤ 10^{−(d₀+1)} (relative to the undamped bound), else an exact
+    per-region sparse part; `TruncationOrderError` with cause; automatic leaf rule; WP20b follow-ups.
+    Worker-reported: win-debug/win-release 341/341, 11 MLFMM validation-large cases pass, pytest 83, GCC 13.3
+    clean; Ag matvec vs dense 1.0e-4 (d₀ = 3, λ/4) / 4.1e-6 (d₀ = 5, λ/2) on a 2N = 15 360 sphere, 4.8e-6 /
+    2.1e-6 on an Ag rough box; Ag GMRES through Simulation matches dense (RCS 3.3e-6). Decisions pending for
+    the coordinator/lead: (1) block check gates lossy regions only; (2) the leaf rule r_max/0.3 also at
+    d₀ = 3 moves default leaves from λ/4 to λ/2 (88 320 box: 5.5 → 12 GB) — worker proposes ratio 0.6 for
+    d₀ ≤ 3; (3) the Ag exact part can be large (408 MB of 803 MB at 2N = 1.5·10⁴, λ/4 leaves) — a WP22
+    sizing risk, possibly ACA for the interior earlier; (4) squash the WIP commit 60fe040 at merge. Next
+    step: reviewer on the branch, then merge with an ADR 0008 amendment (bound, gating, contiguous levels,
+    fallback condition, measured Ag decisions).
   - `wp/v1-box-validity` (head a4768d0): study executable for the closing-box validity (depth ×2, graded
     vs uniform, Si fine band, edge effect) plus diagnostics (far-field share of top/walls/bottom, a
     diagnostic loss override). No results record yet; the long dense runs were still going. Continue
