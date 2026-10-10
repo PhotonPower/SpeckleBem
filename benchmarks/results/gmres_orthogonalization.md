@@ -99,6 +99,23 @@ whole-solve orthogonalisation time drops from 805–850 s (MGS, partly loaded) t
 (CGS2, 24 threads): 3.7–4.7×. Fewer threads are slower (12: 1.6×, 6: 1.9× the 24-thread time,
 both partly loaded), so the kernel does profit from SMT/all cores despite the bandwidth bound.
 
+### Row-block schedule: static vs dynamic (review W3, 2026-10-11)
+
+Same benchmark harness and flags compiled twice (the library loop with `schedule(static)` and
+with `schedule(dynamic, 1)`), CGS2, 24 threads, n = 2·10⁵, 250 iterations, run alternately
+twice on the shared machine (moderately loaded by other workers: 104–119 ms per iteration at
+k = 250 against 83 ms in run A above):
+
+| schedule | orth s (run 1 / run 2) | ms/it k=100 | ms/it k=250 |
+|---|---|---|---|
+| static | 18.5 / 14.5 | 77 / 56 | 119 / 108 |
+| dynamic, 1 | 13.9 / 13.0 | 40 / 45 | 107 / 104 |
+
+Dynamic is not slower and was 5–30 % faster here (within the load noise); the final residuals
+are identical (4.87·10⁻⁸). Its expected benefit is under contention, where a descheduled thread
+no longer holds a fixed share of the rows; the 49 blocks of n = 2·10⁵ give enough slack for 24
+threads.
+
 ### Microbenchmark (one orthogonalisation pass, n = 2·10⁵, k = 1 000, machine load ≈ 5)
 
 Throwaway kernel timings (best of 2–3, before the gmres integration) at nearly idle load, one
