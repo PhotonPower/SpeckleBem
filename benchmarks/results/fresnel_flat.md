@@ -117,9 +117,14 @@ Memory (Si L = 6 µm): near field 6.0 GB, far operator 30.0 GB (Si interior leaf
   A_sim = 0.01835 equals 1 − |r|² = 0.01835, and 1 − R − A = 1.1·10⁻⁴ — **at 0°**. At 45° the Ag energy
   balance stays open (1 − R − A = +2.6·10⁻³ / +6.9·10⁻³ for p / s at tol 1e-4, +6.2·10⁻³ for s at 1e-5,
   A_sim = 0.0073 vs Fresnel 0.0127), so it is not solver error there: the absorbed power of Ag
-  (∝ Re Z_s ≈ 1.5 % of |Z_s|) is extremely sensitive to the phase of M at the skin-depth scale
-  (δ = 25 nm < h = 50 nm), while R is not. A_sim is therefore not a reliable closure check for Ag at
-  oblique incidence; R meets the criterion. The Si interior wavelength 116 nm = 2.3 h is not limiting on
+  (∝ Re Z_s ≈ 1.6 % of |Z_s|) is extremely sensitive to the phase of M, while R is not. WP-A1
+  (`benchmarks/results/ag_absorption.md`) located it: the formula and the box are correct, the absorbed
+  power from the far field and the extinction of the same currents, (P_ext − P_sca)/P_inc = 0.012716, equals
+  Fresnel (+0.2 %), iterative refinement to a true residual of 10⁻⁶ does not change A_sim, and h = 50 nm
+  resolves the currents (L = 2 and 3 µm at 45° s are within −0.1 / −2.1 %); at L = 4 µm the solved
+  currents carry a spurious standing-wave component (tangential wavenumbers ±k₀ sin θ, ~1–2 %) that shifts
+  the phase of M against J by 4–6 mrad. The local A_sim is therefore not a reliable closure check for Ag at
+  oblique incidence (use P_ext − P_sca); R meets the criterion. The Si interior wavelength 116 nm = 2.3 h is not limiting on
   a flat surface (currents vary only with k₀ sin θ) — this must not be carried over to rough surfaces.
 - **Edge effects**: the 45° footprint is 1/cos θ longer, so w₀ = L/4 loses 0.6 % past the patch
   (more than the error budget); w₀ ≤ L/5 is needed for oblique incidence (ADR 0006 states only

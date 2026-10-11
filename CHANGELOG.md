@@ -5,6 +5,23 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / tooling (WP-A1): investigation of the Ag absorbed power at oblique incidence (WP22c:
+  local A = 0.0073 vs Fresnel 0.0127 at 45° s). `tests/support/ag_absorption_support.hpp`: absorbed
+  power per surface part (any Dunavant degree), extinction integral P_ext = ½ Re ∮ (E_inc·J* +
+  M·H_inc*) dS, analytic interface fields/currents of the beam on the infinite interface and their
+  RWG interpolant, top-face metrics (correlation of J and M with the analytic currents), strip
+  profiles, exact-row checks of the compressed operator (`op::assemble_sparse`). Study
+  `benchmarks/ag_absorption.cpp` (`specklebem_ag_absorption`: the fresnel_flat case plus the
+  diagnostics; `--refine` iterative refinement, `--save/--load-currents`, `--row-check`,
+  `--profile`, `--spectrum`, `--strip-check`); tests `tests/validation/test_ag_absorption.cpp`
+  (4 cases). `fresnel_flat::run` takes an optional inspection callback. Record
+  `benchmarks/results/ag_absorption.md`: the formula, the quadrature and the box are correct; the
+  far-field/extinction absorption (P_ext − P_sca)/P_inc of the same currents equals Fresnel
+  (+0.2 %); the local ½ Re ∮ (n̂ × M)·J* is low because the L = 4 µm solution carries a spurious
+  standing-wave component (±k₀ sin θ, ~1–2 %) that shifts the phase of M against J by 4–6 mrad
+  (Re Z_s/|Z_s| = 1.6 %, so 1 mrad ≈ 6 % of A). Not solver error (unchanged at true residual
+  10⁻⁶), not RWG resolution (L = 2 / 3 µm at h = 50 nm within −0.1 / −2.1 %), MLFMM operator error
+  2–4·10⁻⁵ without mirrored content; use P_ext − P_sca for Ag absorption. No library change.
 - tests / tooling (WP22c, former WP12): flat-interface limit vs Fresnel (docs/05 row "Flat box,
   tapered beam, 0° and 45°", < 1 % on |r|²) — met for Ag and Si, 0° and 45°, p and s.
   `tests/support/fresnel_flat_support.hpp`: plane-wave Fresnel coefficients (exp(+jωt)), the

@@ -19,7 +19,7 @@
 //            [--tol 1e-5] [--max-iter 6000] [--restart 0] [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--force]
 //            [--save-currents FILE] [--load-currents FILE] [--refine 1e-6,1e-7]
-//            [--row-check RADIUS] [--profile BINS]
+//            [--row-check RADIUS] [--profile BINS] [--spectrum] [--strip-check HALF_WIDTH]
 // --save-currents writes the solved [J; M] (raw complex<double>); --load-currents evaluates the
 // diagnostics of saved currents of the same case without assembly and solve. --refine adds
 // iterative-refinement steps x <- x + GMRES(Z, b - Z x) (left Jacobi) down to the listed true
@@ -61,6 +61,11 @@ struct Options {
     Real row_check_radius = 0;
     /// --profile BINS (with --load-currents): metrics in BINS strips along x and along y
     int profile_bins = 0;
+    /// --spectrum (with --load-currents): spatial spectrum along x of the current error
+    bool spectrum = false;
+    /// --strip-check HALF_WIDTH (with --load-currents): compressed vs exact rows on the strip
+    /// |y| <= HALF_WIDTH applied to the interpolated analytic currents [m]
+    Real strip_half_width = 0;
 };
 
 Options parse(int argc, char** argv) {
@@ -112,6 +117,10 @@ Options parse(int argc, char** argv) {
             o.save = value();
         } else if (a == "--load-currents") {
             o.load = value();
+        } else if (a == "--strip-check") {
+            o.strip_half_width = std::stod(value());
+        } else if (a == "--spectrum") {
+            o.spectrum = true;
         } else if (a == "--profile") {
             o.profile_bins = std::stoi(value());
         } else if (a == "--row-check") {
@@ -301,6 +310,110 @@ int main(int argc, char** argv) {
                             std::abs(b.m.c_j), std::abs(b.m.c_m),
                             1e3 * (std::arg(b.m.c_m) - std::arg(b.m.c_j)), b.m.err_j, b.m.err_m);
                     }
+                }
+                std::fflush(stdout);
+            }
+            if (o.spectrum) {
+                // Spatial spectrum along x of the current error X_sim - X_ref on the strip
+                // |y| <= L / 8 (top-triangle centroids, area weights): which tangential wavenumber
+                // carries the error.
+                const aa::InterfaceFields f(*beam, 1.0, eps2);
+                const geometry::TriangleMesh& mesh = geo.mesh;
+                const Real k = 2.0 * constants::pi / kLambda;
+                std::vector<Real> xs, ws;
+                std::vector<Vec3c> ej, em, rj, rm;
+                for (Index t = 0; t < mesh.num_triangles(); ++t) {
+                    const Vec3 cen = mesh.centroid(t);
+                    if (aa::part_of(mesh, t, geo.spacing) != aa::Part::Top ||
+                        std::abs(cen.y()) > c.L / 8.0)
+                        continue;
+                    const auto [Js, Ms] = aa::currents_at(s, t, cen);
+                    const auto [Jr, Mr] = f.currents(cen.x(), cen.y());
+                    xs.push_back(cen.x());
+                    ws.push_back(mesh.area(t));
+                    ej.push_back(Js - Jr);
+                    em.push_back(Ms - Mr);
+                    rj.push_back(Jr);
+                    rm.push_back(Mr);
+                }
+                for (int i = -30; i <= 30; ++i) {
+                    const Real kx = 0.05 * static_cast<Real>(i) * k;
+                    Vec3c sej = Vec3c::Zero(), sem = Vec3c::Zero(), srj = Vec3c::Zero(),
+                          srm = Vec3c::Zero();
+                    for (std::size_t q = 0; q < xs.size(); ++q) {
+                        const Complex ph = ws[q] * std::polar(1.0, kx * xs[q]);
+                        sej += ph * ej[q];
+                        sem += ph * em[q];
+                        srj += ph * rj[q];
+                        srm += ph * rm[q];
+                    }
+                    std::printf(
+                        "SPECTRUM kx/k %+.2f | |J_err| %.3e | |M_err| %.3e | |J_ref| %.3e | "
+                        "|M_ref| %.3e\n",
+                        kx / k, sej.norm(), sem.norm(), srj.norm(), srm.norm());
+                }
+                std::fflush(stdout);
+            }
+            if (o.strip_half_width > 0.0) {
+                // Compressed vs exact rows along the strip |y| <= half width, applied to the RWG
+                // interpolant of the analytic currents (tangential wavenumber +k sin(theta) only):
+                // spatial spectrum along x of the operator error on the J and M rows.
+                sim.assemble();
+                const basis::RwgSpace& space = *sim.problem().space;
+                const geometry::TriangleMesh& mesh = space.mesh();
+                const Index N = space.size();
+                const aa::InterfaceFields f(*beam, 1.0, eps2);
+                const VectorXc xpw = aa::interpolate_reference(space, f, geo.spacing);
+                std::vector<Index> rows;
+                std::vector<Real> xm;
+                for (Index n = 0; n < N; ++n) {
+                    if (aa::part_of(mesh, space.plus_triangle(n), geo.spacing) != aa::Part::Top ||
+                        aa::part_of(mesh, space.minus_triangle(n), geo.spacing) != aa::Part::Top)
+                        continue;
+                    const Vec3 mid = 0.5 * (mesh.vertices().row(mesh.edges()(n, 0)).transpose() +
+                                            mesh.vertices().row(mesh.edges()(n, 1)).transpose());
+                    if (std::abs(mid.y()) <= o.strip_half_width) {
+                        rows.push_back(n);
+                        xm.push_back(mid.x());
+                    }
+                }
+                op::BasisPattern pat;
+                pat.group_of_row.assign(static_cast<std::size_t>(N), 0);
+                pat.col_ptr = {0, 0, N};
+                pat.cols.resize(static_cast<std::size_t>(N));
+                for (Index n = 0; n < N; ++n) pat.cols[static_cast<std::size_t>(n)] = n;
+                for (const Index m : rows) pat.group_of_row[static_cast<std::size_t>(m)] = 1;
+                const auto Zex = op::assemble_sparse(sim.problem(), pat);
+                VectorXc ye(2 * N), yc(2 * N);
+                Zex->apply(xpw, ye);
+                sim.system_operator()->apply(xpw, yc);
+                const Real k = 2.0 * constants::pi / kLambda;
+                Real nd = 0, ne = 0;
+                for (const Index m : rows) {
+                    for (const Index r : {m, N + m}) {
+                        nd += std::norm(yc(r) - ye(r));
+                        ne += std::norm(ye(r));
+                    }
+                }
+                std::printf(
+                    "STRIP | %zu basis functions with |y| <= %.3g um | relative operator "
+                    "error on the interpolant %.3e\n",
+                    rows.size(), o.strip_half_width * 1e6, std::sqrt(nd / ne));
+                for (int i = -30; i <= 30; ++i) {
+                    const Real kx = 0.05 * static_cast<Real>(i) * k;
+                    Complex dj = 0, dm = 0, ej = 0, em = 0;
+                    for (std::size_t q = 0; q < rows.size(); ++q) {
+                        const Complex ph = std::polar(1.0, kx * xm[q]);
+                        const Index m = rows[q];
+                        dj += ph * (yc(m) - ye(m));
+                        dm += ph * (yc(N + m) - ye(N + m));
+                        ej += ph * ye(m);
+                        em += ph * ye(N + m);
+                    }
+                    std::printf(
+                        "STRIPSPEC kx/k %+.2f | J rows: |dZx| %.3e |Zx| %.3e | M rows: "
+                        "|dZx| %.3e |Zx| %.3e\n",
+                        kx / k, std::abs(dj), std::abs(ej), std::abs(dm), std::abs(em));
                 }
                 std::fflush(stdout);
             }
