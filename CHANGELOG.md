@@ -51,16 +51,28 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   RWG interpolant, top-face metrics (correlation of J and M with the analytic currents), strip
   profiles, exact-row checks of the compressed operator (`op::assemble_sparse`). Study
   `benchmarks/ag_absorption.cpp` (`specklebem_ag_absorption`: the fresnel_flat case plus the
-  diagnostics; `--refine` iterative refinement, `--save/--load-currents`, `--row-check`,
-  `--profile`, `--spectrum`, `--strip-check`); tests `tests/validation/test_ag_absorption.cpp`
-  (4 cases). `fresnel_flat::run` takes an optional inspection callback. Record
+  diagnostics; `--allow-wide-beam`, `--refine` iterative refinement, `--save/--load-currents`,
+  `--row-check`, `--profile`, `--spectrum` (raw and relative to the reference at +k₀ sin θ,
+  `--spectrum-window rect|hann`), `--strip-check`; options of the other mode throw); tests
+  `tests/validation/test_ag_absorption.cpp` (4 cases). `fresnel_flat::run` takes an optional
+  inspection callback (called after `peak_rss` is sampled). Record
   `benchmarks/results/ag_absorption.md`: the formula, the quadrature and the box are correct; the
   far-field/extinction absorption (P_ext − P_sca)/P_inc of the same currents equals Fresnel
-  (+0.2 %); the local ½ Re ∮ (n̂ × M)·J* is low because the L = 4 µm solution carries a spurious
-  standing-wave component (±k₀ sin θ, ~1–2 %) that shifts the phase of M against J by 4–6 mrad
-  (Re Z_s/|Z_s| = 1.6 %, so 1 mrad ≈ 6 % of A). Not solver error (unchanged at true residual
-  10⁻⁶), not RWG resolution (L = 2 / 3 µm at h = 50 nm within −0.1 / −2.1 %), MLFMM operator error
-  2–4·10⁻⁵ without mirrored content; use P_ext − P_sca for Ag absorption. No library change.
+  (+0.2 %; A_ext is a difference of terms ≈ 160× larger than A, so its far-field quadrature must
+  be good to ~10⁻⁵); the local ½ Re ∮ (n̂ × M)·J* is low because the L = 4 µm solution carries a
+  spurious standing-wave component (±k₀ sin θ, of order 1 %) that shifts the phase of M against
+  J by 4–6 mrad (Re Z_s/|Z_s| = 1.6 %, so 1 mrad ≈ 6 % of A). P_ext, P_refl and P_fwd depend only
+  on the field radiated into R1, and currents that are the trace of a source-free vacuum field
+  inside the box radiate nothing, so A_ext and R are exactly blind to such a component, while
+  the local product's cross term with the Ag interior field is weighted by |ε′ − 1| ≈ 11: leading
+  hypothesis a (nearly) non-radiating near-null mode of the discrete PMCHWT-family system at high
+  contrast (null space of the exterior operator). Not solver error (unchanged at true residual
+  10⁻⁶); h = 50 nm limits the local product to ~1–3 % even without the mode (interpolant −2.7 %,
+  L = 3 µm −2.1 %), not to −43 %. The row and strip checks (exact-row residual 2.9·10⁻⁵, MLFMM
+  error 4.4·10⁻⁵ without mirrored content) show that a near-null mode exists but do not decide
+  between intrinsic excitation (discretisation error) and MLFMM-error excitation (gain needed
+  only a few hundred, ~250–700): origin open, follow-up experiments E1–E5 in the record. Use P_ext − P_sca for
+  Ag absorption. No library change.
 - tests / tooling (WP22c, former WP12): flat-interface limit vs Fresnel (docs/05 row "Flat box,
   tapered beam, 0° and 45°", < 1 % on |r|²) — met for Ag and Si, 0° and 45°, p and s.
   `tests/support/fresnel_flat_support.hpp`: plane-wave Fresnel coefficients (exp(+jωt)), the
