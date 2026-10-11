@@ -30,21 +30,28 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   angular-spectrum beam, `Excitation::controlled_radius` checked by `Simulation`), **WP22b1** (scaling: DoD
   partially demonstrated — Si γ 0.73–0.88 to 2N = 5.2·10⁵, Ag γ 1.2 to 2.9·10⁵), **WP22c** (Fresnel: all 8
   cases < 1 %, DoD met), **WP-G1** (CGS2 GMRES, 1.6–4.7× faster orthogonalisation).
-- **In flight:** WP21L (local leaf rule, ADR 0008 amendment 2026-10-11; fix round: default quantile 1.0,
-  d₀ ≤ 3 only), WP-A1 (Ag absorbed power at 45° ≈ 40 % low while R is right).
-- **Next:** WP22b3 (complete the scaling DoD to 2N = 10⁶: Ag solves with CGS2, Si with the uniform box or the
-  local leaf rule; needs exclusive machine time), WP-V2 (box validity at MLFMM sizes), then the Phase 4 Si
-  30×30 µm² target (needs memory reductions: local leaf rule, pattern recompute/single precision).
-- Test counts on `main`: 391 ctest (`-LE "validation-large|slow"`), 93 pytest; labels `slow`, `validation`
+- **Merged 2026-10-11 (later):** WP21L (local leaf rule, opt-in, d₀ ≤ 3), WP-A1 (Ag absorption: A_ext from
+  far field + extinction matches Fresnel; local ½Re∮(n̂×M)·J* fails through a near-null mode), **WP22b3**
+  (scaling: **Si met** with the uniform 50 nm box, γ_solve 1.09 over 2N = 5.9·10⁴ … 1.02·10⁶, 954 s / 75 GB at
+  10⁶; **Ag measured** γ 1.40 over 7·10⁴ … 4.2·10⁵, full window projected 1.40–1.51; default leaf quantile stays 1,
+  ADR 0008 decision 2026-10-11).
+- **In flight:** WP22d (Si large-area proxy on 128 GB + run kit for the lead's 1 TB server, incl. the converged
+  Ag L = 17.5 µm solve that would close the Ag scaling by measurement), WP-A2 (origin of the Ag near-null mode).
+  They share the machine via a lock directory in the session scratchpad (WP22d holds it for timed runs).
+- **Next:** WP-V2 (box validity at MLFMM sizes, graded vs uniform box), WP22b2 (formulation sweep with MLFMM),
+  then Phases 5/6. A stronger preconditioner than Jacobi would address the Ag iteration growth.
+- Test counts on `main`: 402 ctest (`-LE "validation-large|slow"`), 93 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
 
 1. **Box validity at realistic sizes (WP-V2)** is the remaining physics gate before quantitative speckle
    results: λ₁/5 box cells are necessary, not shown sufficient.
-2. **Ag absorption at oblique incidence** (WP-A1) — R is validated, A is not.
-3. **Phase 4 target "Si 30×30 µm² on a 256 GB node"**: this machine has 128 GB; the graded box adds ~50 % unknowns
-   at L = 30 µm; feasible only with the local leaf rule plus pattern memory reductions (Phase 7 recompute mode).
+2. **Ag absorption at oblique incidence**: use A_ext (far field + extinction), not the local formula (WP-A1);
+   origin of the near-null mode in WP-A2.
+3. **Phase 4 target "Si 30×30 µm²"**: lead decision — proxy on this 128 GB machine plus a run kit; the lead runs
+   L = 30 µm on a 1 TB server (WP22d). Ag scaling to 10⁶ is closed by measurement only once that server run (or a
+   > 2 h local run) is done.
 4. WP15 deviations from Fu et al. (formulation sweep with MLFMM, WP22b2) and the Ag λ/20 sphere (size) remain open.
 
 ## How the workflow runs on this machine

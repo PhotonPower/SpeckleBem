@@ -5,6 +5,23 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / docs (WP22b3): MLFMM scaling DoD runs with the CGS2 GMRES, `--beam angular-spectrum`
+  and exclusive machine time (`benchmarks/results/mlfmm_scaling.md`, rows block "WP22b3").
+  **Si (uniform 50 nm box): γ_solve = 1.09 ± 0.04 over 2N = 5.9·10⁴ … 1.02·10⁶** (7 solved
+  sizes; L = 10 µm: 68 iterations, 954 s, 74.8 GB): Phase 4 criterion (≤ 1.5) met by
+  measurement. **Ag: γ_solve = 1.40 ± 0.14 measured over 2N = 7·10⁴ … 4.2·10⁵**; over the full
+  window projected (1.40–1.51), not measured; the Ag part of the DoD remains open by measurement.
+  The converged L = 17.5 µm solve (~5 h, ~100 GB) is scheduled for the 1 TB server run kit
+  (WP22d). Setup / matvec / memory measured to 1.02·10⁶ (γ 0.99 / 0.99 / 1.06); the solves at
+  7.6·10⁵ and 1.02·10⁶ exceed the 2-hour run limit (projected 2.6–2.9 h and 3.3–5.1 h from runs
+  capped at 2 100 / 1 450 iterations, assuming the iterations do not keep growing at the local
+  rate of L = 9 → 11 µm, γ_it 0.80). GMRES histories and the projection script are committed
+  (`benchmarks/results/mlfmm_scaling_ag_histories.txt`, `benchmarks/mlfmm_scaling_projection.py`).
+  CGS2 shortens the Ag solves 1.2–1.7 × against the WP22b1 MGS runs. Local leaf rule q = 0.8 at
+  Si L = 4 / 8 µm (100 nm box): peak memory −34 % / −26 %, setup +32 % / +20 %, same iterations
+  and matvec; measured, default unchanged at q = 1 (coordinator decision 2026-10-11: the uniform
+  box is the recommended Si configuration, the local rule the opt-in memory option for graded
+  boxes). WP22b1 rows kept as the older series.
 - solver (simulation) / python (WP-B2): angle-aware beam-waist check (ADR 0006 amendment
   2026-10-11): `check_beam_waist(L, w0, BeamWaistOptions{.incidence_angle, .allow_wide})`
   enforces w₀ ≤ L cos θ_in / 4 (|θ_in| < π/2 validated; the exception states the rule and the

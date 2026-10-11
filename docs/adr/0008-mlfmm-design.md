@@ -232,3 +232,15 @@ until WP22b3 measures the local rule at large L (0.8 is needed to elevate the 10
 peak 10.3 → 6.3 GB, same iterations). The local rule is **restricted to d₀ ≤ 3**: at d₀ = 5 the λ/2 leaves it
 admits miss 1e-5 on a graded box (5.6e-5 Si, 6.4e-5 Ag, leaf-to-leaf vacuum interactions; the global rule
 passed only because r_max forced λ leaves); quantile < 1 with d₀ > 3 is rejected.
+
+### Decision 2026-10-11 (after WP22b3): default leaf quantile stays 1.0
+
+WP22b3 measured the local leaf rule at scale (Si, graded 100 nm box, d₀ = 3, L = 4 / 8 µm,
+2N = 2.1·10⁵ / 5.2·10⁵): q = 0.8 lowers the peak memory by 34 % / 26 % at equal iterations,
+matvec and solve time, and costs +32 % / +20 % setup. The default stays `leaf_radius_quantile = 1.0`
+(opt-in local rule), because (1) the uniform box (box cells = top-face cells, `box_mesh_size`
+= top mesh size) is cheaper than either rule on the graded box (L = 4 µm: 203 s / 23 GB vs
+396 s / 45 GB) and is the recommended Si MLFMM configuration; (2) the evidence covers two sizes
+of one surface family; (3) on box-dominated geometries the local rule costs more memory (WP21L
+tall box); (4) a default that depends on d₀ would add a silent mode switch. The local rule
+remains the memory option for graded boxes (`benchmarks/results/mlfmm_scaling.md`).
