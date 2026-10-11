@@ -58,3 +58,8 @@ target_link_libraries(specklebem_fresnel_flat PRIVATE SpeckleBem::specklebem spe
 add_executable(specklebem_gmres_orthogonalization gmres_orthogonalization.cpp)
 target_link_libraries(specklebem_gmres_orthogonalization PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
 
+# Absorbed power of the flat box (WP-A1, follow-up of WP22c): the fresnel_flat case with
+# diagnostics of P_abs from the currents (parts, extinction, analytic interface currents); one
+# case per process, run by hand, see benchmarks/results/ag_absorption.md.
+add_executable(specklebem_ag_absorption ag_absorption.cpp)
+target_link_libraries(specklebem_ag_absorption PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
