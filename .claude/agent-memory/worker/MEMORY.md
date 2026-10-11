@@ -19,4 +19,4 @@
 - [MLFMM local leaf findings](mlfmm_local_leaf_findings.md) — WP21L: rho/2 needed, d0=5 lambda/2-leaf failure (rule now d0<=3, default q=1), q=0.99 inert for Si
 - [Flat interface vs Fresnel](fresnel_flat_findings.md) — WP22c errors vs R_beam (Ag/Si, 0/45 deg), Ag needs GMRES tol 1e-5, w0 <= L/5 at 45 deg, GL hemisphere
 - [GMRES orthogonalisation findings](gmres_orthogonalization_findings.md) — WP-G1: 0.7 criterion fires ~always, 5900X bandwidth cap, BLAS-thread nondeterminism in test ops
-- [Ag absorption findings](ag_absorption_findings.md) — WP-A1: local (n x M).J* -43 % at L = 4 um 45 deg (spurious +-k standing wave), A_ext = P_ext - P_sca correct
+- [Ag absorption findings](ag_absorption_findings.md) — WP-A1: local (n x M).J* -43 % at L = 4 um 45 deg (non-radiating +-k mode?), A_ext = P_ext - P_sca correct
