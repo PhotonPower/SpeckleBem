@@ -118,11 +118,18 @@ strip |y| ≤ 50 nm (558 basis functions) the MLFMM error is 4.4·10⁻⁵ relat
 
 ## Reproduce
 
+All recorded cases use w₀ = L/5 at 45°, above the oblique-incidence limit w₀ ≤ L cos θ/4 that
+`check_beam_waist` enforces since WP-B2 (ADR 0006 amendment 2026-10-11), so they need
+`--allow-wide-beam` (as `benchmarks/fresnel_flat.cpp`; edge loss of these cases 0.06–0.1 %):
+
 ```
-specklebem_ag_absorption --material ag --L 2e-6 --w0 0.4e-6 --theta 45 --pol s            # tol 1e-5 default
-specklebem_ag_absorption --material ag --L 3e-6 --w0 0.6e-6 --theta 45 --pol s [--d0 5] --row-check 0.15e-6
-specklebem_ag_absorption --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol s --max-iter 3500 \
-    --row-check 0.2e-6 --save-currents x_L4.bin
-specklebem_ag_absorption --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol s --tol 1e-4 --refine 1e-5,1e-6
-specklebem_ag_absorption ... --load-currents x_L4.bin --profile 16 | --spectrum | --strip-check 0.05e-6
+specklebem_ag_absorption --material ag --L 2e-6 --w0 0.4e-6 --theta 45 --pol s --allow-wide-beam   # tol 1e-5 default
+specklebem_ag_absorption --material ag --L 3e-6 --w0 0.6e-6 --theta 45 --pol s --allow-wide-beam \
+    [--d0 5] --row-check 0.15e-6
+specklebem_ag_absorption --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol s --allow-wide-beam \
+    --max-iter 3500 --row-check 0.2e-6 --save-currents x_L4.bin
+specklebem_ag_absorption --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol s --allow-wide-beam \
+    --tol 1e-4 --refine 1e-5,1e-6
+specklebem_ag_absorption ... --allow-wide-beam --load-currents x_L4.bin --profile 16 | --spectrum | \
+    --strip-check 0.05e-6
 ```

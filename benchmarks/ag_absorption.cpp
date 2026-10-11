@@ -15,11 +15,14 @@
 // appended to --summary FILE. Record: benchmarks/results/ag_absorption.md.
 //
 // Usage: specklebem_ag_absorption --material ag|si [--L 2e-6] [--w0 0.4e-6] [--theta 0]
-//            [--pol p|s] [--mesh-size 50e-9] [--compression mlfmm|dense] [--digits|--d0 3]
+//            [--pol p|s] [--allow-wide-beam] [--mesh-size 50e-9] [--compression mlfmm|dense] [--digits|--d0 3]
 //            [--tol 1e-5] [--max-iter 6000] [--restart 0] [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--force]
 //            [--save-currents FILE] [--load-currents FILE] [--refine 1e-6,1e-7]
 //            [--row-check RADIUS] [--profile BINS] [--spectrum] [--strip-check HALF_WIDTH]
+// --allow-wide-beam accepts w0 > L cos(theta) / 4 (check_beam_waist, ADR 0006 amendment
+// 2026-10-11) with a warning, as benchmarks/fresnel_flat.cpp: the recorded 45 deg cases use
+// w0 = L / 5 (the WP22c parameters, edge loss 0.06-0.1 %).
 // --save-currents writes the solved [J; M] (raw complex<double>); --load-currents evaluates the
 // diagnostics of saved currents of the same case without assembly and solve. --refine adds
 // iterative-refinement steps x <- x + GMRES(Z, b - Z x) (left Jacobi) down to the listed true
@@ -88,6 +91,8 @@ Options parse(int argc, char** argv) {
             o.c.waist = std::stod(value());
         } else if (a == "--theta") {
             o.c.theta_deg = std::stod(value());
+        } else if (a == "--allow-wide-beam") {
+            o.c.allow_wide_beam = true;
         } else if (a == "--pol") {
             const std::string p = value();
             if (p != "p" && p != "s")
