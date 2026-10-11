@@ -103,6 +103,9 @@ struct Case {
     int matvecs = 5;                      ///< timed applies per operator (median)
     bool solve = true;                    ///< false: setup and matvec timings only (no GMRES)
     std::size_t max_exact_far_bytes = 0;  ///< 0: automatic budget
+    /// MlfmmParams::leaf_radius_quantile (local leaf rule, ADR 0008 amendment 2026-10-11); 1 =
+    /// the global WP21 rule of the recorded WP22b1 rows.
+    Real leaf_radius_quantile = mlfmm::MlfmmParams{}.leaf_radius_quantile;
     std::optional<formulation::Kind> formulation;
     std::optional<bool> jacobi;
 };
@@ -212,6 +215,7 @@ inline SimulationConfig make_config(const Case& c) {
     cfg.compression = "mlfmm";
     cfg.mlfmm.accuracy_digits = c.digits;
     cfg.mlfmm.max_exact_far_bytes = c.max_exact_far_bytes;
+    cfg.mlfmm.leaf_radius_quantile = c.leaf_radius_quantile;
     cfg.formulation = c.formulation;
     cfg.diagonal_preconditioner = c.jacobi;
     cfg.gmres.tolerance = c.tolerance;
@@ -302,6 +306,9 @@ struct Estimate {
     int levels = 0;               ///< octree levels incl. the root (after the leaf rule)
     Real leaf_edge = 0;           ///< [m]
     Index leaves = 0;
+    /// Basis functions per home level (local leaf rule; all on the leaf without elevated ones).
+    std::vector<Index> home_counts;
+    Index elevated = 0;           ///< basis functions above the leaf level
     std::size_t near_bytes = 0;   ///< mlfmm::estimate_near_bytes
     Index exact_pairs = 0;        ///< estimate_exact_pairs (ordered basis pairs of R2)
     std::size_t exact_bytes = 0;  ///< exact_pairs x 40 bytes
@@ -312,9 +319,11 @@ struct Estimate {
     /// Expansion levels per region (the leaf and the coarser levels whose order search is
     /// achievable, as in MlfmmFarOperator; the block check is not modelled).
     std::array<int, 2> expansion_levels{};
-    /// Leaf radiation patterns of both regions: N x 2 (L + 1)^2 directions x 2 components x 16
-    /// bytes per expanded region (the dominant part of the far memory).
+    /// Radiation patterns of both regions: the leaf-level functions x 2 (L + 1)^2 directions x 2
+    /// components x 16 bytes per expanded region (the dominant part of the far memory), plus the
+    /// elevated functions at the sampling of their home level (expansion levels only).
     std::size_t pattern_bytes = 0;
+    std::size_t elevated_pattern_bytes = 0;  ///< the elevated part of pattern_bytes
     /// Far tables of the expansion levels of both regions (MlfmmFarOperator::memory_bytes
     /// without the patterns and the exact parts): translators (one per distinct interaction
     /// offset, directions x 16 bytes), one apply workspace (2 x 4 fields x boxes x directions x
@@ -335,22 +344,41 @@ inline constexpr Real kPeakNearFactor = 1.5;
 /// search_truncation_order with the enlarged diagonal; stop at the first level whose search is
 /// not achievable or underflows), counting the translators of the distinct interaction offsets.
 struct FarTableEstimate {
-    int leaf_order = 0;  ///< leaf sampling order (0: no leaf expansion)
-    int levels = 0;      ///< expansion levels
-    std::size_t pattern_bytes = 0;
+    int leaf_order = 0;                      ///< leaf sampling order (0: no leaf expansion)
+    int levels = 0;                          ///< expansion levels
+    std::size_t pattern_bytes = 0;           ///< leaf and elevated patterns
+    std::size_t elevated_pattern_bytes = 0;  ///< elevated patterns (local leaf rule)
     std::size_t table_bytes = 0;
 };
+
+/// Largest support radius of the functions with home level >= l, per level (the radius in the
+/// enlarged diagonal of MlfmmFarOperator; r_max on every level without elevated functions).
+inline std::vector<Real> level_support_radii(const basis::RwgSpace& space,
+                                             const mlfmm::Octree& tree) {
+    const std::vector<Real> r = mlfmm::support_radii(space);
+    std::vector<Real> out(static_cast<std::size_t>(tree.levels()), 0.0);
+    for (Index p = 0; p < space.size(); ++p) {
+        auto& v = out[static_cast<std::size_t>(tree.home_level(p))];
+        v = std::max(v,
+                     r[static_cast<std::size_t>(tree.permutation()[static_cast<std::size_t>(p)])]);
+    }
+    for (int l = tree.leaf_level() - 1; l >= 0; --l)
+        out[static_cast<std::size_t>(l)] =
+            std::max(out[static_cast<std::size_t>(l)], out[static_cast<std::size_t>(l + 1)]);
+    return out;
+}
 
 inline FarTableEstimate estimate_far_tables(const basis::RwgSpace& space, const mlfmm::Octree& tree,
                                             Complex k, Real digits) {
     FarTableEstimate f;
-    const Real rmax = mlfmm::max_support_radius(space);
+    const std::vector<Real> rl = level_support_radii(space, tree);
     const int leaf = tree.leaf_level();
     for (int l = leaf; l >= 2; --l) {
         int sampling_order = 0;
+        const Real rmax = rl[static_cast<std::size_t>(l)];
         try {
             if (l == leaf) {
-                const mlfmm::LeafSampling ls = mlfmm::leaf_sampling(space, tree, k, digits);
+                const mlfmm::LeafSampling ls = mlfmm::leaf_sampling(tree, k, digits, rmax);
                 if (!ls.search.achievable)
                     break;
                 sampling_order = ls.sampling_order;
@@ -383,9 +411,14 @@ inline FarTableEstimate estimate_far_tables(const basis::RwgSpace& space, const 
         f.table_bytes += 2 * 4 * boxes.size() * dirs * sizeof(Complex);  // apply workspace
         if (l == leaf) {
             f.leaf_order = sampling_order;
-            f.pattern_bytes = static_cast<std::size_t>(space.size()) * dirs * 2 * sizeof(Complex);
+            const std::vector<Index> counts = tree.home_level_counts();
+            f.pattern_bytes = static_cast<std::size_t>(counts.back()) * dirs * 2 * sizeof(Complex);
         } else {
             f.table_bytes += 16 * dirs * sizeof(Complex);  // phase shifts at the parent
+            const std::size_t elevated =
+                tree.elevated_positions(l).size() * dirs * 2 * sizeof(Complex);
+            f.pattern_bytes += elevated;
+            f.elevated_pattern_bytes += elevated;
         }
         ++f.levels;
     }
@@ -434,11 +467,12 @@ inline Estimate estimate(const Geometry& geo, const Case& c) {
     e.depth = geo.depth;
     e.fine_depth = geo.fine_depth.value_or(0.0);
     e.max_support_radius = mlfmm::max_support_radius(space);
-    const mlfmm::OctreeParams op = mlfmm::leaf_rule_params(space, kLambda, cfg.mlfmm);
-    const mlfmm::Octree tree(space, kLambda, op);
+    const mlfmm::Octree tree = mlfmm::make_octree(space, kLambda, cfg.mlfmm);
     e.levels = tree.levels();
     e.leaf_edge = tree.box_size(tree.leaf_level());
     e.leaves = static_cast<Index>(tree.boxes_at_level(tree.leaf_level()).size());
+    e.home_counts = tree.home_level_counts();
+    e.elevated = space.size() - e.home_counts.back();
     e.near_bytes = mlfmm::estimate_near_bytes(tree);
     const auto near_pairs = static_cast<Index>(e.near_bytes / 96);
     const Real omega = 2.0 * constants::pi * constants::c0 / kLambda;
@@ -462,6 +496,7 @@ inline Estimate estimate(const Geometry& geo, const Case& c) {
         e.leaf_order[i] = f.leaf_order;
         e.expansion_levels[i] = f.levels;
         e.pattern_bytes += f.pattern_bytes;
+        e.elevated_pattern_bytes += f.elevated_pattern_bytes;
         e.far_table_bytes += f.table_bytes;
     }
     e.peak_setup_bytes = kPeakNearFactor * static_cast<Real>(e.near_bytes) +
@@ -597,7 +632,7 @@ inline std::string label(const Case& c) {
                : box_option(c))
        << (uses_fine_band(c) ? ", fine band" : ", no fine band") << ", " << beam_name(c)
        << " beam w0 = L/" << c.waist_factor << ", seed " << c.seed << ", d0 = " << c.digits
-       << ", tol = " << c.tolerance;
+       << ", leaf radius quantile " << c.leaf_radius_quantile << ", tol = " << c.tolerance;
     return os.str();
 }
 
@@ -619,12 +654,18 @@ inline std::string summary(const Estimate& e) {
        << e.depth * 1e6 << " um, fine band " << e.fine_depth * 1e6 << " um; 2N = " << e.unknowns
        << "; r_max " << e.max_support_radius * 1e9 << " nm; octree " << e.levels
        << " levels, leaf edge " << e.leaf_edge * 1e9 << " nm (lambda / " << kLambda / e.leaf_edge
-       << "), " << e.leaves << " leaves; near estimate " << gb(e.near_bytes)
-       << " GB, exact R2 estimate " << gb(e.exact_bytes) << " GB (" << e.exact_pairs
-       << " pairs), budget " << gb(e.exact_budget) << " GB; leaf orders " << e.leaf_order[0]
-       << " / " << e.leaf_order[1] << " (expansion levels " << e.expansion_levels[0] << " / "
-       << e.expansion_levels[1] << "), leaf patterns " << gb(e.pattern_bytes) << " GB, far tables "
-       << gb(e.far_table_bytes) << " GB; setup peak estimate " << gb(e.peak_setup_bytes) << " GB";
+       << "), " << e.leaves << " leaves; " << e.elevated << " elevated functions (home levels";
+    for (std::size_t l = 0; l < e.home_counts.size(); ++l) {
+        if (e.home_counts[l] > 0)
+            os << " " << l << ": " << e.home_counts[l];
+    }
+    os << "); near estimate " << gb(e.near_bytes) << " GB, exact R2 estimate " << gb(e.exact_bytes)
+       << " GB (" << e.exact_pairs << " pairs), budget " << gb(e.exact_budget)
+       << " GB; leaf orders " << e.leaf_order[0] << " / " << e.leaf_order[1]
+       << " (expansion levels " << e.expansion_levels[0] << " / " << e.expansion_levels[1]
+       << "), patterns " << gb(e.pattern_bytes) << " GB (elevated " << gb(e.elevated_pattern_bytes)
+       << " GB), far tables " << gb(e.far_table_bytes) << " GB; setup peak estimate "
+       << gb(e.peak_setup_bytes) << " GB";
     return os.str();
 }
 
@@ -656,9 +697,10 @@ inline std::string row(const Case& c, const Result& r) {
     os << "ROW material=" << c.material << " L_um=" << c.L * 1e6 << " box=" << box_option(c)
        << " fine=" << (uses_fine_band(c) ? 1 : 0) << " restart=" << c.restart
        << " h_nm=" << c.mesh_size * 1e9 << " waist=" << c.waist_factor << " beam=" << beam_name(c)
-       << " d0=" << c.digits << " tol=" << c.tolerance << " seed=" << c.seed
-       << " solved=" << (c.solve ? 1 : 0) << " N2=" << r.est.unknowns << " levels=" << r.est.levels
-       << " leaf_nm=" << r.est.leaf_edge * 1e9 << " rmax_nm=" << r.est.max_support_radius * 1e9
+       << " d0=" << c.digits << " tol=" << c.tolerance << " lq=" << c.leaf_radius_quantile
+       << " seed=" << c.seed << " solved=" << (c.solve ? 1 : 0) << " N2=" << r.est.unknowns
+       << " levels=" << r.est.levels << " leaf_nm=" << r.est.leaf_edge * 1e9
+       << " rmax_nm=" << r.est.max_support_radius * 1e9 << " elevated=" << r.est.elevated
        << " setup_s=" << r.assembly_s << " tree_s=" << r.tree_s << " far_s=" << r.far_s
        << " exact_s=" << r.exact_s << " near_s=" << r.near_s << " matvec_s=" << r.matvec_s
        << " near_mv_s=" << r.near_matvec_s << " far_mv_s=" << r.far_matvec_s

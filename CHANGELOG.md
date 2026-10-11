@@ -16,6 +16,34 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   (w₀ = L/5 > L cos 45°/4, measured edge loss 0.06–0.1 %) keep their parameters via
   `Case::allow_wide_beam` / `--allow-wide-beam`; `mlfmm_scaling` (normal incidence) unchanged
   in behaviour.
+- mlfmm / tests / python (WP21L): local leaf rule of the ADR 0008 amendment 2026-10-11, opt-in.
+  `MlfmmParams::leaf_radius_quantile` (default 1.0 = the WP21 rule with bitwise identical results,
+  until WP22b3 measures the local rule at large L; values < 1 only with `accuracy_digits` <= 3,
+  otherwise `std::invalid_argument` / Python ValueError, `kLocalLeafRuleMaxDigits`) sets the leaf
+  from the radius quantile r_q (`support_radius_quantile`, `support_radii`); `make_octree` gives every basis function a home level (`Octree` home-level
+  constructor, `home_level`, `elevated_positions` / `elevated_first` / `elevated_count`,
+  `active_elements`, `home_level_counts`): the leaf if r ≤ ratio(d₀) a_leaf, else the finest level
+  with r ≤ ratio(d₀) a_l / 2 (`kElevatedSupportRatioFactor`; the amendment's leaf ratio gave O(1e-2)
+  errors on a Si box: translators amplify interpolated child fields when the level order exceeds
+  k r_min); home level < 2 raises `TruncationOrderError` (`mesh_or_leaf_size`). Far operator:
+  elevated patterns sampled at the home level, aggregated after the children's interpolation and
+  received after the downward pass; per-level radii, block checks, extents, truncated / exact pairs
+  over the functions active on the level (`FarLevelInfo::home_functions`, `support_radius`,
+  `elevated_pattern_bytes`, `truncated_basis_pairs`); `leaf_sampling(tree, k, d0, radius)`.
+  Near field: a pair is near iff the ancestors on the coarser home level touch (`near_pattern`,
+  `estimate_near_bytes`); `RadiationPatterns` stores leaf-level functions only (`slot`,
+  `num_stored`). Python `mlfmm=dict(leaf_radius_quantile=...)`; `specklebem_mlfmm_scaling
+  --leaf-radius-quantile` with the elevated functions in the estimate. Tests
+  (`tests/unit/test_mlfmm_local_leaf.cpp`): home levels, near pattern vs brute force, partition of
+  every basis pair into near / expansion / exact / truncated, quantile-1 identity, elevated
+  columns / rows vs exact entries (3.6e-4 / 8.0e-5); validation-large graded box 1 × 1 × 4 µm vs
+  dense: d₀ = 3 Si 3.4e-4, Ag 2.5e-4 (global rule 2.1e-4 / 2.0e-4, d₀ = 5 global 4.5e-6 / 5.2e-6).
+  The local rule at d₀ = 5 missed 1e-5 (5.6e-5 / 6.4e-5) through the λ/2 leaves of a_min(5), not
+  the elevated functions (7e-7 / 1e-6), hence the d₀ ≤ 3 restriction (unit test of the rejection).
+  Elevated ratio ρ/2 (`kElevatedSupportRatioFactor`): with ρ the Si graded box gave 5.0e-2, with
+  ρ/2 1.5e-4. Si L = 1 µm solve with q = 0.8: peak 10.3 → 6.3 GB, same 154 iterations; estimates
+  Si L = 4 / 8 µm 55 → 35 / 84 → 60 GB with q = 0.8 (q = 0.99 elevates nothing there: coarse cells
+  are 7.7–10.5 % of the functions; `benchmarks/results/mlfmm_scaling.md`).
 - tests / tooling (WP22c, former WP12): flat-interface limit vs Fresnel (docs/05 row "Flat box,
   tapered beam, 0° and 45°", < 1 % on |r|²) — met for Ag and Si, 0° and 45°, p and s.
   `tests/support/fresnel_flat_support.hpp`: plane-wave Fresnel coefficients (exp(+jωt)), the

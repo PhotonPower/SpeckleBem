@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <cstdlib>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -73,6 +72,93 @@ Octree::Octree(const basis::RwgSpace& space, Real wavelength, const OctreeParams
     }
     build(space);
     build_lists();
+    assign_home_levels({}, 0.0, 0.0);
+}
+
+Octree::Octree(const basis::RwgSpace& space, Real wavelength, const OctreeParams& p,
+               std::span<const Real> support_radii, Real max_support_ratio,
+               Real elevated_support_ratio)
+    : Octree(space, wavelength, p) {
+    if (static_cast<Index>(support_radii.size()) != space.size()) {
+        throw std::invalid_argument("Octree: support_radii must have one entry per basis function");
+    }
+    for (const Real r : support_radii) {
+        if (!std::isfinite(r) || r < 0.0)
+            throw std::invalid_argument("Octree: support radii must be finite and >= 0");
+    }
+    if (!std::isfinite(max_support_ratio) || !(max_support_ratio > 0.0) ||
+        !std::isfinite(elevated_support_ratio) || !(elevated_support_ratio > 0.0)) {
+        throw std::invalid_argument("Octree: the support ratios must be positive and finite");
+    }
+    assign_home_levels(support_radii, max_support_ratio, elevated_support_ratio);
+}
+
+void Octree::assign_home_levels(std::span<const Real> radii, Real ratio, Real elevated_ratio) {
+    const std::size_t n = perm_.size();
+    const int leaf = leaf_level();
+    home_.assign(n, leaf);
+    if (!radii.empty()) {
+        std::vector<Real> limit(sz(levels_));
+        for (int l = 0; l < levels_; ++l)
+            limit[sz(l)] =
+                (l == leaf ? ratio : elevated_ratio) * box_size(l) * (1.0 + kHomeLevelTolerance);
+        for (std::size_t p = 0; p < n; ++p) {
+            const Real r = radii[sz(perm_[p])];
+            int l = leaf;
+            while (l > 0 && !(r <= limit[sz(l)])) --l;
+            home_[p] = l;
+        }
+    }
+    elevated_.assign(sz(levels_), {});
+    elevated_total_ = 0;
+    for (std::size_t p = 0; p < n; ++p) {
+        if (home_[p] < leaf) {
+            elevated_[sz(home_[p])].push_back(static_cast<Index>(p));
+            ++elevated_total_;
+        }
+    }
+    elevated_first_.assign(boxes_.size(), 0);
+    elevated_count_.assign(boxes_.size(), 0);
+    active_.assign(boxes_.size(), 0);
+    for (int l = 0; l < levels_; ++l) {
+        // Boxes of a level own ascending, disjoint position ranges (Morton order).
+        const std::vector<Index>& e = elevated_[sz(l)];
+        std::size_t i = 0;
+        for (const Index b : level_boxes_[sz(l)]) {
+            const Box& box = boxes_[sz(b)];
+            elevated_first_[sz(b)] = static_cast<Index>(i);
+            while (i < e.size() && e[i] < box.first_element + box.num_elements) ++i;
+            elevated_count_[sz(b)] = static_cast<Index>(i) - elevated_first_[sz(b)];
+        }
+    }
+    for (const Index b : level_boxes_[sz(leaf)]) {
+        const Box& box = boxes_[sz(b)];
+        Index count = 0;
+        for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p)
+            count += home_[sz(p)] == leaf ? 1 : 0;
+        active_[sz(b)] = count;
+    }
+    for (int l = leaf - 1; l >= 0; --l) {
+        for (const Index b : level_boxes_[sz(l)]) {
+            Index count = elevated_count_[sz(b)];
+            for (const Index c : boxes_[sz(b)].children) {
+                if (c >= 0)
+                    count += active_[sz(c)];
+            }
+            active_[sz(b)] = count;
+        }
+    }
+}
+
+std::vector<Index> Octree::home_level_counts() const {
+    std::vector<Index> counts(sz(levels_), 0);
+    for (const int h : home_) ++counts[sz(h)];
+    return counts;
+}
+
+const std::vector<Index>& Octree::elevated_positions(int level) const {
+    check_level(level);
+    return elevated_[sz(level)];
 }
 
 void Octree::check_level(int level) const {
@@ -286,6 +372,15 @@ std::string Octree::summary() const {
     os << "  elements per leaf: min " << lo << ", mean "
        << static_cast<Real>(perm_.size()) / static_cast<Real>(leaves.size()) << ", max " << hi
        << " (limit " << params_.max_elements_per_leaf << ")";
+    if (has_elevated()) {
+        const std::vector<Index> counts = home_level_counts();
+        os << "\n  home levels (local leaf rule):";
+        for (int l = 0; l < levels_; ++l) {
+            if (counts[sz(l)] > 0)
+                os << " level " << l << ": " << counts[sz(l)];
+        }
+        os << " (" << elevated_total_ << " elevated)";
+    }
     return os.str();
 }
 

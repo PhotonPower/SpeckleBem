@@ -26,6 +26,7 @@
 // exact-rows cases) exceeds 60 % of the physical memory.
 #include "specklebem/compression/mlfmm/far_operator.hpp"
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
+#include "specklebem/compression/mlfmm/octree.hpp"
 #include "specklebem/compression/mlfmm/patterns.hpp"
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/geometry/rough_surface.hpp"
@@ -403,5 +404,167 @@ TEST_CASE("mlfmm large: rough box 2N ~ 9e4 against exact rows", "[validation-lar
     const Setup s(rough_box(4e-6, 0.3e-6, 50e-9), material::silicon_500nm(), Kind::ICTF);
     CHECK(2 * s.space.size() > 80000);
     run_exact_rows("rough box 4 um, Si, ICTF", s, 9e9);
+#endif
+}
+
+namespace {
+
+/// Rough box with the graded walls of ADR 0006 (top 50 nm, coarse box cells 100 nm = lambda1 / 5,
+/// sigma 50 nm, Lc 500 nm, fixed seed): the coarse cells (support radii 112-141 nm) are the
+/// elevated functions of the local leaf rule, the top face has radii of ~56-70 nm.
+[[maybe_unused]] geometry::TriangleMesh graded_box(Real size, Real depth) {
+    geometry::RoughSurfaceParams p;
+    p.edge_length_L = size;
+    p.rms_roughness = 50e-9;
+    p.correlation_length = 500e-9;
+    p.mesh_size = 50e-9;
+    p.box_depth = depth;
+    p.box_mesh_size = 100e-9;
+    p.exterior_wavelength = kLambda;
+    p.seed = 1;
+    return geometry::make_rough_surface_mesh(p);
+}
+
+/// Leaf radius quantile that keeps the leaf at a_min(d0): the fraction of basis functions with
+/// r <= max_support_ratio(d0) a_min(d0) (1 - kMinBoxSizeTolerance) lambda (the top face of
+/// graded_box), so that every coarser box function is elevated.
+[[maybe_unused]] Real top_face_quantile(const basis::RwgSpace& space, Real digits) {
+    const Real a_min = digits <= 3.0 ? mlfmm::kLeafMinLambdaD3 : mlfmm::kLeafMinLambdaD5;
+    const Real limit =
+        mlfmm::max_support_ratio(digits) * a_min * (1.0 - mlfmm::kMinBoxSizeTolerance) * kLambda;
+    const std::vector<Real> r = mlfmm::support_radii(space);
+    const auto small = std::count_if(r.begin(), r.end(), [&](Real v) { return v <= limit; });
+    return static_cast<Real>(small) / static_cast<Real>(r.size());
+}
+
+/// One MLFMM configuration of run_local_leaf_case.
+struct LocalLeafConfig {
+    Real digits;
+    bool local;  ///< true: top_face_quantile (elevated functions; d0 <= 3), false: quantile 1
+};
+
+/// MLFMM configurations against one dense matrix: full matvec error over 3 random x (docs/05
+/// criterion), and for the local leaf rule the part of the error that involves elevated functions
+/// (|rows or columns of elevated functions of (Z_mlfmm - Z_dense) x| / |Z_dense x|, checked
+/// against 10^-d0 for every local configuration) next to the leaf-leaf part; home levels, memory,
+/// timings.
+[[maybe_unused]] void run_local_leaf_case(const std::string& name, const Setup& s,
+                                          const std::vector<LocalLeafConfig>& configs) {
+    const Index n = s.space.size();
+    const Index unknowns = 2 * n;
+    const Real dense_bytes = 16.0 * static_cast<Real>(unknowns) * static_cast<Real>(unknowns);
+    const Real phys = system_memory::physical_memory_bytes();
+    if (!(phys > 0.0) || dense_bytes + 8e9 > 0.6 * phys) {
+        SKIP(name << ": 2N = " << unknowns << " needs ~" << dense_bytes / 1e9
+                  << " GB for the dense matrix + ~8 GB, more than 60 % of the " << phys / 1e9
+                  << " GB");
+    }
+    auto t0 = std::chrono::steady_clock::now();
+    const std::shared_ptr<op::LinearOperator> Zd = op::DenseStrategy().build(s.problem);
+    const double dense_s = seconds_since(t0);
+    std::vector<VectorXc> x, yd;
+    for (std::uint64_t seed = 1; seed <= 3; ++seed) {
+        x.push_back(random_vector(unknowns, 20261011 + seed));
+        yd.push_back(*Zd * x.back());
+    }
+    WARN(name << ": " << s.mesh.num_triangles() << " triangles, 2N = " << unknowns << ", r_max = "
+              << mlfmm::max_support_radius(s.space) << " m; dense assembly " << dense_s << " s");
+    for (const LocalLeafConfig& c : configs) {
+        mlfmm::MlfmmParams p;
+        p.accuracy_digits = c.digits;
+        p.octree.max_elements_per_leaf = 4;  // the leaf rule decides the leaf size
+        p.leaf_radius_quantile = c.local ? top_face_quantile(s.space, c.digits) : 1.0;
+        std::ostringstream id;
+        id << name << ", d0 = " << c.digits << ", leaf radius quantile " << p.leaf_radius_quantile
+           << (c.local ? " (local leaf rule)" : " (global rule)");
+        INFO(id.str());
+        t0 = std::chrono::steady_clock::now();
+        const mlfmm::MlfmmOperator Zm(s.problem, p);
+        const double setup_s = seconds_since(t0);
+        const mlfmm::Octree& tree = Zm.octree();
+        CHECK(tree.has_elevated() == c.local);
+        std::ostringstream homes;
+        for (const Index k : tree.home_level_counts()) homes << " " << k;
+        Real err = 0.0;
+        VectorXc y;
+        t0 = std::chrono::steady_clock::now();
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            Zm.apply(x[i], y);
+            err = std::max(err, (y - yd[i]).norm() / yd[i].norm());
+        }
+        const double apply_s = seconds_since(t0) / 3.0;
+        // Split of the first random vector: elevated sources / rows vs leaf-leaf.
+        Real err_elevated = 0.0, err_leaf = 0.0;
+        if (c.local) {
+            std::vector<bool> elevated(static_cast<std::size_t>(n));
+            for (Index q = 0; q < n; ++q)
+                elevated[static_cast<std::size_t>(
+                    tree.permutation()[static_cast<std::size_t>(q)])] =
+                    tree.home_level(q) != tree.leaf_level();
+            VectorXc xe = x[0], xl = x[0];
+            for (Index i = 0; i < unknowns; ++i)
+                (elevated[static_cast<std::size_t>(i % n)] ? xl : xe)(i) = 0.0;
+            const VectorXc de = Zm * xe - *Zd * xe;
+            const VectorXc dl = Zm * xl - *Zd * xl;
+            Real e2 = de.squaredNorm(), l2 = 0.0;
+            for (Index i = 0; i < unknowns; ++i)
+                (elevated[static_cast<std::size_t>(i % n)] ? e2 : l2) += std::norm(dl(i));
+            err_elevated = std::sqrt(e2) / yd[0].norm();
+            err_leaf = std::sqrt(l2) / yd[0].norm();
+        }
+        std::ostringstream split;
+        if (c.local)
+            split << "; involving elevated functions " << err_elevated << ", leaf-leaf "
+                  << err_leaf;
+        WARN(id.str() << ": " << tree.levels()
+                      << " levels, leaf a = " << tree.box_size(tree.leaf_level()) / kLambda
+                      << " lambda0, functions per home level" << homes.str() << ": matvec error "
+                      << err << " (target " << std::pow(10.0, -c.digits) << ")" << split.str()
+                      << "; setup " << setup_s << " s, apply " << apply_s << " s; memory "
+                      << mb(Zm.memory_bytes()) << " MB (near "
+                      << mb(Zm.near_operator().memory_bytes()) << ", far "
+                      << mb(Zm.far_operator().memory_bytes()) << ")\n"
+                      << Zm.describe());
+        if (c.local)
+            CHECK(err_elevated < std::pow(10.0, -c.digits));
+        CHECK(err < std::pow(10.0, -c.digits));
+    }
+}
+
+}  // namespace
+
+// ADR 0008 amendment 2026-10-11 item 6 (WP21L): 1 um x 1 um graded box (top 50 nm, box cells
+// 100 nm), depth 4 um (root ~4 um: 6 levels with lambda / 4 leaves at d0 = 3, 5 levels with
+// lambda / 2 leaves at d0 = 5, so that the coarse box functions (54 % of the 6600 bases here) have
+// a home level >= 2 at both d0: level 3 / level 2). Measured 2026-10-11 (win-release, 2N = 13200):
+//   Si: d0 = 3: 3.4e-4 local (3530 elevated, 3.2 GB) / 2.1e-4 global (lambda leaves, 1.7 GB);
+//       d0 = 5: 5.6e-5 local (7.0 GB) / 4.5e-6 global (4.6 GB);
+//   Ag: d0 = 3: 2.5e-4 local (1.3 GB) / 2.0e-4 global (0.4 GB); d0 = 5: 6.4e-5 local / 5.2e-6.
+// d0 = 5 with the local rule misses 1e-5: the error is the leaf-leaf part of the vacuum region at
+// the lambda / 2 leaves of the WP21 rule a_min(5) (5.3e-5 for Si; far part ~8 % of |Z x| on this
+// tall box), not the elevated functions (6.8e-7). The global rule meets 1e-5 only because r_max
+// forces lambda leaves. Hence the local rule is accepted for d0 <= 3 only
+// (mlfmm::kLocalLeafRuleMaxDigits; leaf_rule_params rejects a quantile < 1 at d0 > 3, unit test
+// "rejected for accuracy_digits > 3"), and the d0 = 5 rows below use the global rule.
+
+TEST_CASE("mlfmm vs dense large: graded box Si with elevated functions (local leaf rule)",
+          "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    const Setup s(graded_box(1e-6, 4e-6), material::silicon_500nm(), Kind::PMCHWT);
+    run_local_leaf_case("graded box 1 x 4 um, Si, PMCHWT", s,
+                        {{3.0, true}, {3.0, false}, {5.0, false}});
+#endif
+}
+
+TEST_CASE("mlfmm vs dense large: graded box Ag with elevated functions (local leaf rule)",
+          "[validation-large][mlfmm]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    const Setup s(graded_box(1e-6, 4e-6), material::silver_500nm(), Kind::PMCHWT);
+    run_local_leaf_case("graded box 1 x 4 um, Ag, PMCHWT", s,
+                        {{3.0, true}, {3.0, false}, {5.0, false}});
 #endif
 }

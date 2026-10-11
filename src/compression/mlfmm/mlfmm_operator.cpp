@@ -12,8 +12,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <sstream>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace specklebem::mlfmm {
 
@@ -21,6 +24,26 @@ namespace {
 
 Real seconds_since(std::chrono::steady_clock::time_point t0) {
     return std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count();
+}
+
+/// "home levels: level 3: 120, level 4: 5000 (leaf); 120 elevated" (local leaf rule).
+std::string home_level_text(const Octree& t) {
+    std::ostringstream os;
+    const std::vector<Index> counts = t.home_level_counts();
+    os << "home levels (local leaf rule):";
+    Index elevated = 0;
+    bool first = true;
+    for (int l = 0; l < t.levels(); ++l) {
+        if (counts[static_cast<std::size_t>(l)] == 0)
+            continue;
+        os << (first ? " " : ", ") << "level " << l << ": " << counts[static_cast<std::size_t>(l)]
+           << (l == t.leaf_level() ? " (leaf)" : "");
+        first = false;
+        if (l < t.leaf_level())
+            elevated += counts[static_cast<std::size_t>(l)];
+    }
+    os << "; " << elevated << " elevated";
+    return os.str();
 }
 
 Real mb(std::size_t bytes) {
@@ -38,6 +61,25 @@ Real octree_wavelength(const op::Problem& problem) {
 
 OctreeParams leaf_rule_params(const basis::RwgSpace& space, Real wavelength,
                               const MlfmmParams& params) {
+    const Real q = params.leaf_radius_quantile;
+    if (!(q > 0.0 && q <= 1.0)) {
+        throw std::invalid_argument("leaf_rule_params: leaf_radius_quantile must lie in (0, 1]");
+    }
+    if (q < 1.0 && params.accuracy_digits > kLocalLeafRuleMaxDigits) {
+        std::ostringstream os;
+        os << "leaf_rule_params: the local leaf rule (leaf_radius_quantile = " << q
+           << " < 1) is validated for accuracy_digits <= " << kLocalLeafRuleMaxDigits
+           << " only, got accuracy_digits = " << params.accuracy_digits
+           << " (ADR 0008 amendment 2026-10-11: the lambda / 2 leaves it allows at d0 = 5 miss "
+              "10^-5); use leaf_radius_quantile = 1 or accuracy_digits <= "
+           << kLocalLeafRuleMaxDigits;
+        throw std::invalid_argument(os.str());
+    }
+    if (q < 1.0 && !params.automatic_leaf_size) {
+        throw std::invalid_argument(
+            "leaf_rule_params: leaf_radius_quantile < 1 (local leaf rule) requires "
+            "automatic_leaf_size = true");
+    }
     OctreeParams o = params.octree;
     if (!params.automatic_leaf_size)
         return o;
@@ -48,11 +90,35 @@ OctreeParams leaf_rule_params(const basis::RwgSpace& space, Real wavelength,
         throw std::invalid_argument("leaf_rule_params: wavelength must be positive and finite");
     }
     const Real a_min = params.accuracy_digits <= 3.0 ? kLeafMinLambdaD3 : kLeafMinLambdaD5;
-    // r_max / a <= max_support_ratio(d0) also with the octree's floor tolerance.
-    const Real a_rmax = max_support_radius(space) / (max_support_ratio(params.accuracy_digits) *
-                                                     (1.0 - kMinBoxSizeTolerance) * wavelength);
+    // r_q / a <= max_support_ratio(d0) also with the octree's floor tolerance.
+    const Real a_rmax =
+        support_radius_quantile(space, q) /
+        (max_support_ratio(params.accuracy_digits) * (1.0 - kMinBoxSizeTolerance) * wavelength);
     o.min_box_size_lambda = std::max({o.min_box_size_lambda, a_min, a_rmax});
     return o;
+}
+
+Real support_radius_quantile(const basis::RwgSpace& space, Real q) {
+    if (!(q > 0.0 && q <= 1.0))
+        throw std::invalid_argument("support_radius_quantile: the quantile must lie in (0, 1]");
+    std::vector<Real> r = support_radii(space);
+    if (q == 1.0)
+        return *std::max_element(r.begin(), r.end());
+    const auto n = static_cast<Real>(r.size());
+    // ceil(q N) with a guard against q N rounding just above an integer.
+    const auto count = static_cast<std::size_t>(std::ceil(q * n * (1.0 - 1e-12)));
+    const std::size_t k = std::clamp<std::size_t>(count, 1, r.size()) - 1;
+    std::nth_element(r.begin(), r.begin() + static_cast<std::ptrdiff_t>(k), r.end());
+    return r[k];
+}
+
+Octree make_octree(const basis::RwgSpace& space, Real wavelength, const MlfmmParams& params) {
+    const OctreeParams o = leaf_rule_params(space, wavelength, params);
+    if (!params.automatic_leaf_size)
+        return Octree(space, wavelength, o);
+    const std::vector<Real> r = support_radii(space);
+    const Real rho = max_support_ratio(params.accuracy_digits);
+    return Octree(space, wavelength, o, r, rho, kElevatedSupportRatioFactor * rho);
 }
 
 struct MlfmmOperator::Impl {
@@ -62,6 +128,8 @@ struct MlfmmOperator::Impl {
     Real lambda1 = 0;  ///< wavelength of R1, the octree's leaf-size reference
     Real digits = 0;
     Real user_floor = 0, floor = 0;  ///< min_box_size_lambda given / after the leaf rule
+    Real quantile = 1;               ///< leaf_radius_quantile
+    bool automatic = true;           ///< automatic_leaf_size
     Real tree_s = 0, far_s = 0, near_s = 0;
 };
 
@@ -77,11 +145,17 @@ MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& para
     if (m.floor > m.user_floor) {
         SBEM_INFO(
             "MlfmmOperator: leaf rule raises min_box_size_lambda from {:.3g} to {:.3g} "
-            "(d0 = {}, r_max = {:.3g} m)",
-            m.user_floor, m.floor, m.digits, max_support_radius(*problem.space));
+            "(d0 = {}, r_max = {:.3g} m, radius quantile {} = {:.3g} m)",
+            m.user_floor, m.floor, m.digits, max_support_radius(*problem.space),
+            params.leaf_radius_quantile,
+            support_radius_quantile(*problem.space, params.leaf_radius_quantile));
     }
-    m.tree = std::make_unique<Octree>(*problem.space, m.lambda1, oparams);
+    m.quantile = params.leaf_radius_quantile;
+    m.automatic = params.automatic_leaf_size;
+    m.tree = std::make_unique<Octree>(make_octree(*problem.space, m.lambda1, params));
     m.tree_s = seconds_since(t0);
+    if (m.tree->has_elevated())
+        SBEM_INFO("MlfmmOperator: {}", home_level_text(*m.tree));
     // Far part first: its order searches are cheap and reject unusable configurations (lossy
     // regions, coarse meshes) before the expensive near-field assembly.
     t0 = std::chrono::steady_clock::now();
@@ -131,6 +205,10 @@ std::string MlfmmOperator::describe() const {
        << t.box_size(t.leaf_level()) / m.lambda1 << " lambda1 (lambda1 = " << m.lambda1
        << " m), built in " << m.tree_s << " s; leaf floor " << m.floor << " lambda1 (given "
        << m.user_floor << (m.floor > m.user_floor ? ", raised by the leaf rule)" : ")");
+    if (m.automatic)
+        os << ", leaf radius quantile " << m.quantile;
+    if (t.has_elevated())
+        os << "\n  " << home_level_text(t);
     os << "\n  near: " << m.near->describe() << ", assembled in " << m.near_s << " s";
     os << "\n  far: " << m.far_s << " s setup, " << mb(m.far->memory_bytes()) << " MB\n  "
        << m.far->describe();
@@ -142,7 +220,9 @@ std::string MlfmmOperator::describe() const {
 std::size_t MlfmmOperator::octree_bytes() const {
     const Octree& t = *impl_->tree;
     std::size_t b = sizeof(Octree) + t.boxes().size() * sizeof(Box) +
-                    2 * t.permutation().size() * sizeof(Index);
+                    2 * t.permutation().size() * sizeof(Index) +
+                    t.home_levels().size() * sizeof(int) + 3 * t.boxes().size() * sizeof(Index);
+    for (int l = 0; l < t.levels(); ++l) b += t.elevated_positions(l).size() * sizeof(Index);
     for (const Box& box : t.boxes())
         b += (box.near_list.size() + box.interaction_list.size()) * sizeof(Index);
     return b;

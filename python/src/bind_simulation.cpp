@@ -210,7 +210,7 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
 
 /// mlfmm=dict(...) onto mlfmm::MlfmmParams (docs/10): accuracy_digits, max_elements_per_leaf,
 /// min_box_size_lambda (the octree keys of mlfmm::OctreeParams), automatic_leaf_size,
-/// max_exact_far_bytes.
+/// leaf_radius_quantile, max_exact_far_bytes.
 void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
     for (const auto& [k, v] : d) {
         const auto key = dict_key(k, "mlfmm");
@@ -222,6 +222,8 @@ void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
             p.octree.min_box_size_lambda = dict_value<Real>(v, key, "mlfmm");
         } else if (key == "automatic_leaf_size") {
             p.automatic_leaf_size = dict_value<bool>(v, key, "mlfmm");
+        } else if (key == "leaf_radius_quantile") {
+            p.leaf_radius_quantile = dict_value<Real>(v, key, "mlfmm");
         } else if (key == "max_exact_far_bytes") {
             // Python int >= 0 (a negative value fails the unsigned cast -> ValueError).
             p.max_exact_far_bytes = dict_value<std::size_t>(v, key, "mlfmm");
@@ -651,7 +653,10 @@ mlfmm : dict, optional
     ``max_elements_per_leaf`` (100), ``min_box_size_lambda`` (0.25; leaf-edge floor in
     exterior wavelengths, a lower bound of the automatic leaf rule),
     ``automatic_leaf_size`` (True: leaf edge >= max(lambda/4 for d0 <= 3, lambda/2 for d0 > 3,
-    r_max / 0.6 for d0 <= 3, r_max / 0.3 for d0 > 3); False uses min_box_size_lambda as given)
+    r_q / 0.6 for d0 <= 3, r_q / 0.3 for d0 > 3); False uses min_box_size_lambda as given),
+    ``leaf_radius_quantile`` (1.0 = the global rule with r_max; < 1: local leaf rule, r_q is
+    this quantile of the RWG support radii and larger functions live on coarser octree levels;
+    opt-in, accuracy_digits <= 3 only, otherwise ValueError)
     and ``max_exact_far_bytes`` (0 = automatic: max(2 x the near-field bytes, 1 GiB), at most
     the dense matrix bytes 16 (2N)^2; budget of the exactly evaluated far interactions of
     lossy regions, checked before allocation).
