@@ -19,10 +19,13 @@
 //            [--tol 1e-5] [--max-iter 6000] [--restart 0] [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--force]
 //            [--save-currents FILE] [--load-currents FILE] [--refine 1e-6,1e-7]
+//            [--row-check RADIUS]
 // --save-currents writes the solved [J; M] (raw complex<double>); --load-currents evaluates the
 // diagnostics of saved currents of the same case without assembly and solve. --refine adds
 // iterative-refinement steps x <- x + GMRES(Z, b - Z x) (left Jacobi) down to the listed true
 // relative residuals and prints a STAGE line (R, A, phase of M against J) after each.
+// --row-check compares the compressed operator with the exact Galerkin rows (op::assemble_sparse)
+// of the central top-face basis functions on the solution and prints the exact residual there.
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/solver/gmres.hpp"
@@ -53,6 +56,9 @@ struct Options {
     std::string load;  ///< --load-currents FILE: diagnostics of saved currents, no solve
     /// --refine T1,T2,...: iterative refinement to the true relative residuals T1, T2, ...
     std::vector<Real> refine;
+    /// --row-check RADIUS: exact system rows of the top-face basis functions within RADIUS of
+    /// the centre against the compressed operator (op::assemble_sparse) [m]
+    Real row_check_radius = 0;
 };
 
 Options parse(int argc, char** argv) {
@@ -104,6 +110,8 @@ Options parse(int argc, char** argv) {
             o.save = value();
         } else if (a == "--load-currents") {
             o.load = value();
+        } else if (a == "--row-check") {
+            o.row_check_radius = std::stod(value());
         } else if (a == "--refine") {
             std::stringstream ss(value());
             std::string item;
@@ -234,9 +242,25 @@ int main(int argc, char** argv) {
             d.top = aa::top_metrics(s, f, interp, geo.spacing, [](const Vec3&) { return true; }, 4);
             d.seconds = std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count();
         };
+        // Exact rows of the system at the patch centre against the compressed operator.
+        const auto do_row_check = [&](const Simulation& sim, const VectorXc& x) {
+            if (!(o.row_check_radius > 0.0))
+                return;
+            const std::vector<Index> rows =
+                aa::central_basis(*sim.problem().space, geo.spacing, o.row_check_radius);
+            const aa::RowCheck rc =
+                aa::row_check(sim.problem(), *sim.system_operator(), sim.rhs(), x, rows);
+            std::printf(
+                "ROWCHECK | %lld basis functions within %.3g um | op error J rows %.3e | "
+                "op error M rows %.3e | residual exact %.3e | residual compressed %.3e | "
+                "%.1f s\n",
+                static_cast<long long>(rc.rows), o.row_check_radius * 1e6, rc.op_error_j,
+                rc.op_error_m, rc.residual_exact, rc.residual_compr, rc.seconds);
+            std::fflush(stdout);
+        };
         if (!o.load.empty()) {
-            // Diagnostics of saved currents (no assembly, no solve).
-            const Simulation sim(geo.mesh, beam, make_config(c));
+            // Diagnostics of saved currents (no solve; assembly only for --row-check).
+            Simulation sim(geo.mesh, beam, make_config(c));
             const post::SurfaceSolution s{&sim.problem(),
                                           load_currents(o.load, sim.num_unknowns())};
             const Reference ref = reference(c, *beam, build_s);
@@ -257,6 +281,10 @@ int main(int argc, char** argv) {
             const std::string mi = metrics_line("inner", d.inner, P);
             const std::string mt = metrics_line("top", d.top, P);
             std::printf("%s\n%s\n%s\n", mc.c_str(), mi.c_str(), mt.c_str());
+            if (o.row_check_radius > 0.0) {
+                sim.assemble();
+                do_row_check(sim, s.currents);
+            }
             return 0;
         }
         // One summary line of a solution (after the solve or a refinement step).
@@ -286,6 +314,7 @@ int main(int argc, char** argv) {
         const Result r = run(c, geo, beam, build_s, [&](const Simulation& sim) {
             if (!o.save.empty())
                 save_currents(o.save, sim.solution().currents);
+            do_row_check(sim, sim.solution().currents);
             if (!o.refine.empty()) {
                 // Iterative refinement: x <- x + GMRES(Z, b - Z x) to the true residuals listed.
                 const op::LinearOperator& Z = *sim.system_operator();

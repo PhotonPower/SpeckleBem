@@ -28,8 +28,10 @@
 ///    . J_sim*, and the complex correlation c_X = int X_sim . X_ref* / int |X_ref|^2 (amplitude and
 ///    phase of the simulated current relative to the analytic one) and the relative L2 error of J
 ///    and M.
+#include <chrono>
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -331,6 +333,76 @@ inline TopMetrics top_metrics(const post::SurfaceSolution& s, const InterfaceFie
     m.err_m_int = std::sqrt(dmi / nmr);
     m.m_over_j = std::sqrt(nmr / njr);
     return m;
+}
+
+/// Top-face basis functions (both triangles on the top face) whose edge midpoint lies within
+/// `radius` of the origin.
+inline std::vector<Index> central_basis(const basis::RwgSpace& space, Real spacing, Real radius) {
+    const geometry::TriangleMesh& mesh = space.mesh();
+    std::vector<Index> rows;
+    for (Index n = 0; n < space.size(); ++n) {
+        if (part_of(mesh, space.plus_triangle(n), spacing) != Part::Top ||
+            part_of(mesh, space.minus_triangle(n), spacing) != Part::Top)
+            continue;
+        const Vec3 mid = 0.5 * (mesh.vertices().row(mesh.edges()(n, 0)).transpose() +
+                                mesh.vertices().row(mesh.edges()(n, 1)).transpose());
+        if (mid.norm() <= radius)
+            rows.push_back(n);
+    }
+    return rows;
+}
+
+/// Exact rows of the system against the compressed operator, for the rows m and N + m of the
+/// basis functions `rows` (op::assemble_sparse with all columns: the DenseStrategy entries).
+struct RowCheck {
+    Index rows = 0;           ///< basis functions checked (2 rows each)
+    Real op_error_j = 0;      ///< |(Z_c - Z_ex) x| / |Z_ex x| on the J rows (m)
+    Real op_error_m = 0;      ///< same on the M rows (N + m)
+    Real residual_exact = 0;  ///< |b - Z_ex x| / |b| on the checked rows
+    Real residual_compr = 0;  ///< |b - Z_c x| / |b| on the checked rows
+    Real seconds = 0;
+};
+
+inline RowCheck row_check(const op::Problem& p, const op::LinearOperator& Zc, const VectorXc& b,
+                          const VectorXc& x, const std::vector<Index>& rows) {
+    const auto t0 = std::chrono::steady_clock::now();
+    const Index N = p.space->size();
+    op::BasisPattern pat;
+    pat.group_of_row.assign(static_cast<std::size_t>(N), 0);  // group 0: no columns
+    pat.col_ptr = {0, 0, N};
+    pat.cols.resize(static_cast<std::size_t>(N));
+    for (Index n = 0; n < N; ++n) pat.cols[static_cast<std::size_t>(n)] = n;
+    for (const Index m : rows)
+        pat.group_of_row[static_cast<std::size_t>(m)] = 1;  // group 1: all columns
+    const std::shared_ptr<op::SparseOperator> Zex = op::assemble_sparse(p, pat);
+    VectorXc ye(2 * N), yc(2 * N);
+    Zex->apply(x, ye);
+    Zc.apply(x, yc);
+    Real dj = 0, dm = 0, nj = 0, nm = 0, re = 0, rc = 0, nb = 0;
+    for (const Index m : rows) {
+        for (const Index r : {m, N + m}) {
+            const Real d = std::norm(yc(r) - ye(r));
+            const Real e = std::norm(ye(r));
+            if (r < N) {
+                dj += d;
+                nj += e;
+            } else {
+                dm += d;
+                nm += e;
+            }
+            re += std::norm(b(r) - ye(r));
+            rc += std::norm(b(r) - yc(r));
+            nb += std::norm(b(r));
+        }
+    }
+    RowCheck c;
+    c.rows = static_cast<Index>(rows.size());
+    c.op_error_j = std::sqrt(dj / nj);
+    c.op_error_m = std::sqrt(dm / nm);
+    c.residual_exact = std::sqrt(re / nb);
+    c.residual_compr = std::sqrt(rc / nb);
+    c.seconds = std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count();
+    return c;
 }
 
 }  // namespace ag_absorption
