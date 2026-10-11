@@ -600,7 +600,8 @@ struct Result {
 
 /// Builds, assembles and solves a case and evaluates the reflected power. `geo` and `beam` from
 /// make_geometry / make_beam of the same case. `inspect` (optional) is called with the solved
-/// simulation before it is destroyed (further diagnostics, benchmarks/ag_absorption.cpp).
+/// simulation before it is destroyed (further diagnostics, benchmarks/ag_absorption.cpp), after
+/// Result::peak_rss has been sampled (the peak of the inspection is not included).
 inline Result run(const Case& c, const Geometry& geo,
                   const std::shared_ptr<excitation::AngularSpectrumBeam>& beam, Real beam_build_s,
                   const std::function<void(const Simulation&)>& inspect = {}) {
@@ -646,9 +647,11 @@ inline Result run(const Case& c, const Geometry& geo,
     r.p_abs = absorbed_power(sim.solution());
     r.post_s = std::chrono::duration<Real>(Clock::now() - t0).count();
     r.report = sim.report();
+    // Peak RSS of the case itself (assembly, solve, post-processing), sampled before `inspect` so
+    // that the diagnostics of a caller do not enter it.
+    r.peak_rss = system_memory::peak_rss_bytes();
     if (inspect)
         inspect(sim);
-    r.peak_rss = system_memory::peak_rss_bytes();
     return r;
 }
 

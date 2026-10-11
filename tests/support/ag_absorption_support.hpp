@@ -343,11 +343,13 @@ struct ProfileBin {
 };
 
 inline std::vector<ProfileBin> top_profile(const post::SurfaceSolution& s, const InterfaceFields& f,
-                                           const VectorXc& interp, Real spacing, Real L, int bins,
-                                           int axis, Real half_width) {
+                                           const VectorXc& interp, Real spacing, Real L,
+                                           Index bins, int axis, Real half_width) {
+    if (bins <= 0 || (axis != 0 && axis != 1))
+        throw std::invalid_argument("top_profile: bins must be positive and axis 0 or 1");
     std::vector<ProfileBin> out;
     const Real w = L / static_cast<Real>(bins);
-    for (int b = 0; b < bins; ++b) {
+    for (Index b = 0; b < bins; ++b) {
         const Real lo = -0.5 * L + w * static_cast<Real>(b);
         ProfileBin pb;
         pb.centre = lo + 0.5 * w;

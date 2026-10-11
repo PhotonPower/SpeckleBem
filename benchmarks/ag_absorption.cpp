@@ -15,11 +15,15 @@
 // appended to --summary FILE. Record: benchmarks/results/ag_absorption.md.
 //
 // Usage: specklebem_ag_absorption --material ag|si [--L 2e-6] [--w0 0.4e-6] [--theta 0]
-//            [--pol p|s] [--allow-wide-beam] [--mesh-size 50e-9] [--compression mlfmm|dense] [--digits|--d0 3]
+//            [--pol p|s] [--allow-wide-beam] [--mesh-size 50e-9]
+//            [--compression mlfmm|dense] [--digits|--d0 3]
 //            [--tol 1e-5] [--max-iter 6000] [--restart 0] [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--force]
-//            [--save-currents FILE] [--load-currents FILE] [--refine 1e-6,1e-7]
-//            [--row-check RADIUS] [--profile BINS] [--spectrum] [--strip-check HALF_WIDTH]
+//            [--save-currents FILE] [--refine 1e-6,1e-7] [--row-check RADIUS]
+//        or  ... --load-currents FILE [--row-check RADIUS] [--profile BINS]
+//            [--spectrum] [--spectrum-window rect|hann] [--strip-check HALF_WIDTH]
+// Options of the other mode (--save-currents / --refine with --load-currents; --profile,
+// --spectrum, --spectrum-window, --strip-check without it) are rejected.
 // --allow-wide-beam accepts w0 > L cos(theta) / 4 (check_beam_waist, ADR 0006 amendment
 // 2026-10-11) with a warning, as benchmarks/fresnel_flat.cpp: the recorded 45 deg cases use
 // w0 = L / 5 (the WP22c parameters, edge loss 0.06-0.1 %).
@@ -29,6 +33,10 @@
 // relative residuals and prints a STAGE line (R, A, phase of M against J) after each.
 // --row-check compares the compressed operator with the exact Galerkin rows (op::assemble_sparse)
 // of the central top-face basis functions on the solution and prints the exact residual there.
+// --spectrum prints the spatial spectrum along x of the J and M errors on the strip |y| <= L / 8,
+// raw (area-weighted DFT over the top-triangle centroids) and relative to the reference spectrum
+// at the specular wavenumber +k0 sin(theta); --spectrum-window hann tapers the strip with
+// cos^2(pi x / L) (default rect, the window of the recorded spectra).
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/solver/gmres.hpp"
@@ -63,9 +71,12 @@ struct Options {
     /// the centre against the compressed operator (op::assemble_sparse) [m]
     Real row_check_radius = 0;
     /// --profile BINS (with --load-currents): metrics in BINS strips along x and along y
-    int profile_bins = 0;
+    Index profile_bins = 0;
     /// --spectrum (with --load-currents): spatial spectrum along x of the current error
     bool spectrum = false;
+    /// --spectrum-window rect|hann (with --spectrum): window of the strip along x
+    bool hann = false;
+    bool window_given = false;
     /// --strip-check HALF_WIDTH (with --load-currents): compressed vs exact rows on the strip
     /// |y| <= HALF_WIDTH applied to the interpolated analytic currents [m]
     Real strip_half_width = 0;
@@ -126,8 +137,16 @@ Options parse(int argc, char** argv) {
             o.strip_half_width = std::stod(value());
         } else if (a == "--spectrum") {
             o.spectrum = true;
+        } else if (a == "--spectrum-window") {
+            const std::string w = value();
+            if (w != "rect" && w != "hann")
+                throw std::invalid_argument("--spectrum-window must be rect or hann");
+            o.hann = w == "hann";
+            o.window_given = true;
         } else if (a == "--profile") {
-            o.profile_bins = std::stoi(value());
+            o.profile_bins = static_cast<Index>(std::stoll(value()));
+            if (o.profile_bins <= 0)
+                throw std::invalid_argument("--profile needs a positive number of bins");
         } else if (a == "--row-check") {
             o.row_check_radius = std::stod(value());
         } else if (a == "--refine") {
@@ -141,6 +160,16 @@ Options parse(int argc, char** argv) {
         }
     }
     object_material(o.c.material);  // validates the name
+    // Options of the other mode are errors, not silently ignored.
+    if (o.load.empty()) {
+        if (o.profile_bins > 0 || o.spectrum || o.window_given || o.strip_half_width > 0.0)
+            throw std::invalid_argument(
+                "--profile, --spectrum, --spectrum-window and --strip-check need --load-currents");
+    } else if (!o.save.empty() || !o.refine.empty()) {
+        throw std::invalid_argument("--save-currents and --refine need a solve (no --load-currents)");
+    }
+    if (o.window_given && !o.spectrum)
+        throw std::invalid_argument("--spectrum-window needs --spectrum");
     return o;
 }
 
@@ -320,8 +349,11 @@ int main(int argc, char** argv) {
             }
             if (o.spectrum) {
                 // Spatial spectrum along x of the current error X_sim - X_ref on the strip
-                // |y| <= L / 8 (top-triangle centroids, area weights): which tangential wavenumber
-                // carries the error.
+                // |y| <= L / 8 (top-triangle centroids, area weights, optional Hann taper along
+                // x): which tangential wavenumber carries the error. The raw values are
+                // area-weighted sums [A m or V m]; the relative columns divide by the reference
+                // spectrum |X_ref| at the specular wavenumber +k0 sin(theta) (the reference
+                // currents vary as exp(-j kx x), so the specular peak sits at +k0 sin(theta)).
                 const aa::InterfaceFields f(*beam, 1.0, eps2);
                 const geometry::TriangleMesh& mesh = geo.mesh;
                 const Real k = 2.0 * constants::pi / kLambda;
@@ -334,15 +366,19 @@ int main(int argc, char** argv) {
                         continue;
                     const auto [Js, Ms] = aa::currents_at(s, t, cen);
                     const auto [Jr, Mr] = f.currents(cen.x(), cen.y());
+                    const Real taper = o.hann ? std::pow(std::cos(constants::pi * cen.x() / c.L), 2)
+                                              : 1.0;
                     xs.push_back(cen.x());
-                    ws.push_back(mesh.area(t));
+                    ws.push_back(taper * mesh.area(t));
                     ej.push_back(Js - Jr);
                     em.push_back(Ms - Mr);
                     rj.push_back(Jr);
                     rm.push_back(Mr);
                 }
-                for (int i = -30; i <= 30; ++i) {
-                    const Real kx = 0.05 * static_cast<Real>(i) * k;
+                struct Spec {
+                    Real ej = 0, em = 0, rj = 0, rm = 0;
+                };
+                const auto dft = [&](Real kx) {
                     Vec3c sej = Vec3c::Zero(), sem = Vec3c::Zero(), srj = Vec3c::Zero(),
                           srm = Vec3c::Zero();
                     for (std::size_t q = 0; q < xs.size(); ++q) {
@@ -352,18 +388,33 @@ int main(int argc, char** argv) {
                         srj += ph * rj[q];
                         srm += ph * rm[q];
                     }
+                    return Spec{sej.norm(), sem.norm(), srj.norm(), srm.norm()};
+                };
+                const Spec spec0 = dft(k * std::sin(th));
+                if (!(spec0.rj > 0.0) || !(spec0.rm > 0.0))
+                    throw std::runtime_error("--spectrum: vanishing reference spectrum");
+                std::printf(
+                    "SPECTRUM window %s | strip |y| <= %.3g um, %zu centroids | reference at "
+                    "+k0 sin(theta) = %+.4f k0: |J_ref| %.4e | |M_ref| %.4e\n",
+                    o.hann ? "hann" : "rect", c.L / 8.0 * 1e6, xs.size(), std::sin(th), spec0.rj,
+                    spec0.rm);
+                for (Index i = -30; i <= 30; ++i) {
+                    const Real kx = 0.05 * static_cast<Real>(i) * k;
+                    const Spec sp = dft(kx);
                     std::printf(
                         "SPECTRUM kx/k %+.2f | |J_err| %.3e | |M_err| %.3e | |J_ref| %.3e | "
-                        "|M_ref| %.3e\n",
-                        kx / k, sej.norm(), sem.norm(), srj.norm(), srm.norm());
+                        "|M_ref| %.3e | J_err/J_ref(+k0 sin) %.3e | M_err/M_ref(+k0 sin) %.3e\n",
+                        kx / k, sp.ej, sp.em, sp.rj, sp.rm, sp.ej / spec0.rj, sp.em / spec0.rm);
                 }
                 std::fflush(stdout);
             }
+            // The compressed operator, built once for --strip-check and --row-check.
+            if (o.strip_half_width > 0.0 || o.row_check_radius > 0.0)
+                sim.assemble();
             if (o.strip_half_width > 0.0) {
                 // Compressed vs exact rows along the strip |y| <= half width, applied to the RWG
                 // interpolant of the analytic currents (tangential wavenumber +k sin(theta) only):
                 // spatial spectrum along x of the operator error on the J and M rows.
-                sim.assemble();
                 const basis::RwgSpace& space = *sim.problem().space;
                 const geometry::TriangleMesh& mesh = space.mesh();
                 const Index N = space.size();
@@ -404,7 +455,7 @@ int main(int argc, char** argv) {
                     "STRIP | %zu basis functions with |y| <= %.3g um | relative operator "
                     "error on the interpolant %.3e\n",
                     rows.size(), o.strip_half_width * 1e6, std::sqrt(nd / ne));
-                for (int i = -30; i <= 30; ++i) {
+                for (Index i = -30; i <= 30; ++i) {
                     const Real kx = 0.05 * static_cast<Real>(i) * k;
                     Complex dj = 0, dm = 0, ej = 0, em = 0;
                     for (std::size_t q = 0; q < rows.size(); ++q) {
@@ -422,10 +473,7 @@ int main(int argc, char** argv) {
                 }
                 std::fflush(stdout);
             }
-            if (o.row_check_radius > 0.0) {
-                sim.assemble();
-                do_row_check(sim, s.currents);
-            }
+            do_row_check(sim, s.currents);  // no-op without --row-check
             return 0;
         }
         // One summary line of a solution (after the solve or a refinement step).
