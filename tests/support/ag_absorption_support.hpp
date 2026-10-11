@@ -335,6 +335,35 @@ inline TopMetrics top_metrics(const post::SurfaceSolution& s, const InterfaceFie
     return m;
 }
 
+/// Profile of the top-face metrics in `bins` strips along x (axis 0) or y (axis 1) of width
+/// L / bins, restricted to |other coordinate| <= half_width.
+struct ProfileBin {
+    Real centre = 0;  ///< strip centre [m]
+    TopMetrics m;
+};
+
+inline std::vector<ProfileBin> top_profile(const post::SurfaceSolution& s, const InterfaceFields& f,
+                                           const VectorXc& interp, Real spacing, Real L, int bins,
+                                           int axis, Real half_width) {
+    std::vector<ProfileBin> out;
+    const Real w = L / static_cast<Real>(bins);
+    for (int b = 0; b < bins; ++b) {
+        const Real lo = -0.5 * L + w * static_cast<Real>(b);
+        ProfileBin pb;
+        pb.centre = lo + 0.5 * w;
+        pb.m = top_metrics(
+            s, f, interp, spacing,
+            [&](const Vec3& p) {
+                const Real u = axis == 0 ? p.x() : p.y();
+                const Real v = axis == 0 ? p.y() : p.x();
+                return u >= lo && u < lo + w && std::abs(v) <= half_width;
+            },
+            4);
+        out.push_back(pb);
+    }
+    return out;
+}
+
 /// Top-face basis functions (both triangles on the top face) whose edge midpoint lies within
 /// `radius` of the origin.
 inline std::vector<Index> central_basis(const basis::RwgSpace& space, Real spacing, Real radius) {

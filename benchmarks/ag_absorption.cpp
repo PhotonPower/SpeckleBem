@@ -19,7 +19,7 @@
 //            [--tol 1e-5] [--max-iter 6000] [--restart 0] [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--force]
 //            [--save-currents FILE] [--load-currents FILE] [--refine 1e-6,1e-7]
-//            [--row-check RADIUS]
+//            [--row-check RADIUS] [--profile BINS]
 // --save-currents writes the solved [J; M] (raw complex<double>); --load-currents evaluates the
 // diagnostics of saved currents of the same case without assembly and solve. --refine adds
 // iterative-refinement steps x <- x + GMRES(Z, b - Z x) (left Jacobi) down to the listed true
@@ -59,6 +59,8 @@ struct Options {
     /// --row-check RADIUS: exact system rows of the top-face basis functions within RADIUS of
     /// the centre against the compressed operator (op::assemble_sparse) [m]
     Real row_check_radius = 0;
+    /// --profile BINS (with --load-currents): metrics in BINS strips along x and along y
+    int profile_bins = 0;
 };
 
 Options parse(int argc, char** argv) {
@@ -110,6 +112,8 @@ Options parse(int argc, char** argv) {
             o.save = value();
         } else if (a == "--load-currents") {
             o.load = value();
+        } else if (a == "--profile") {
+            o.profile_bins = std::stoi(value());
         } else if (a == "--row-check") {
             o.row_check_radius = std::stod(value());
         } else if (a == "--refine") {
@@ -281,6 +285,25 @@ int main(int argc, char** argv) {
             const std::string mi = metrics_line("inner", d.inner, P);
             const std::string mt = metrics_line("top", d.top, P);
             std::printf("%s\n%s\n%s\n", mc.c_str(), mi.c_str(), mt.c_str());
+            if (o.profile_bins > 0) {
+                const aa::InterfaceFields f(*beam, 1.0, eps2);
+                const VectorXc interp =
+                    aa::interpolate_reference(*s.problem->space, f, geo.spacing);
+                for (const int axis : {0, 1}) {
+                    for (const aa::ProfileBin& b : aa::top_profile(
+                             s, f, interp, geo.spacing, c.L, o.profile_bins, axis, c.L / 8.0)) {
+                        std::printf(
+                            "PROFILE %s %+.3f um | A_ref/P %.3e | sim/ref-1 %+.4f | "
+                            "int/ref-1 %+.4f | |c_J| %.5f | |c_M| %.5f | dphi(M-J) "
+                            "%+.3f mrad | err_J %.3e | err_M %.3e\n",
+                            axis == 0 ? "x" : "y", b.centre * 1e6, b.m.p_ref / ref.power,
+                            b.m.p_sim / b.m.p_ref - 1.0, b.m.p_int / b.m.p_ref - 1.0,
+                            std::abs(b.m.c_j), std::abs(b.m.c_m),
+                            1e3 * (std::arg(b.m.c_m) - std::arg(b.m.c_j)), b.m.err_j, b.m.err_m);
+                    }
+                }
+                std::fflush(stdout);
+            }
             if (o.row_check_radius > 0.0) {
                 sim.assemble();
                 do_row_check(sim, s.currents);
