@@ -27,10 +27,25 @@
 //            [--digits 3] [--leaf-radius-quantile 1] [--tol 1e-3] [--max-iter 3000] [--restart
 //            0] [--matvecs 5]
 //            [--exact-budget-gb G] [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--no-solve]
-//            [--estimate-only] [--force]
+//            [--estimate-only] [--force] [--sigma 50e-9] [--history] [--far-field 1]
+//            [--far-field-degree 6]
 //
 // --no-solve stops after the setup and the timed matvecs (no GMRES): the matvec and setup scaling
 // at sizes whose full-GMRES solve does not fit the time budget.
+//
+// Large-area runs (WP22d, scripts/server_run_kit/): --sigma sets the RMS height (default 50 nm,
+// the recorded series; the Phase 4 Si 30 x 30 um target uses 100 nm); --history prints one line
+// "HIST it=<k> res=<monitored residual> t_s=<seconds since the solve started>" per GMRES
+// iteration (flushed, so a log shows the progress of a multi-hour solve); --far-field <dtheta>
+// adds the power summary after the solve (reflectance R = P_refl / P_inc on a reflection
+// hemisphere grid with polar spacing dtheta [deg] and on the grid with half the nodes,
+// absorbed fraction A from the currents; needs --beam angular-spectrum; --far-field-degree sets
+// the source quadrature, default 6; cost ~ directions x triangles: L = 2 um at 0.5 deg 80 s on 24
+// cores, 1 deg is converged to 6 digits there). R, R_coarse, A and post_s are appended to the ROW
+// line. The far-field options are validated before the assembly (validate_power_summary: spacing
+// <= 25.7 deg so that the half-node grid has n_phi >= 4, a positive-interior degree); an error in
+// the post-processing itself is logged, the ROW line is printed without R / A and with
+// post_error=1, and the exit status is 4 (0: done, 1: error, 2: memory guard).
 #include "specklebem/formulation/formulation.hpp"
 
 #include <cstdio>
@@ -49,6 +64,7 @@ struct Options {
     Case c;
     bool estimate_only = false;
     bool force = false;
+    bool history = false;
 };
 
 Options parse(int argc, char** argv) {
@@ -77,6 +93,14 @@ Options parse(int argc, char** argv) {
             }
         } else if (a == "--fine-band") {
             o.c.fine_band = std::stoi(value()) != 0;
+        } else if (a == "--sigma") {
+            o.c.sigma = std::stod(value());
+        } else if (a == "--history") {
+            o.history = true;
+        } else if (a == "--far-field") {
+            o.c.far_field_dtheta_deg = std::stod(value());  // 0 = off; checked below
+        } else if (a == "--far-field-degree") {
+            o.c.far_field_degree = std::stoi(value());
         } else if (a == "--mesh-size") {
             o.c.mesh_size = std::stod(value());
         } else if (a == "--seed") {
@@ -126,6 +150,10 @@ Options parse(int argc, char** argv) {
     }
     if (o.c.matvecs < 1)
         throw std::invalid_argument("--matvecs must be >= 1");
+    // --far-field / --far-field-degree / --beam: both hemisphere grids, the quadrature degree and
+    // the beam are checked here, before the estimate and the assembly, so that a bad option
+    // cannot surface only after a multi-hour solve.
+    validate_power_summary(o.c);
     return o;
 }
 
@@ -144,10 +172,11 @@ int main(int argc, char** argv) {
         if (o.estimate_only) {
             std::printf("ESTIMATE %s\n%s\n", label(o.c).c_str(), summary(e).c_str());
             std::printf(
-                "EST material=%s L_um=%g box=%s N2=%lld levels=%d leaf_nm=%g near_gb=%g "
+                "EST material=%s L_um=%g sigma_nm=%g box=%s N2=%lld levels=%d leaf_nm=%g "
+                "near_gb=%g "
                 "exact_est_gb=%g pattern_gb=%g elevated_pattern_gb=%g far_table_gb=%g "
                 "peak_setup_est_gb=%g lq=%g elevated=%lld\n",
-                o.c.material.c_str(), o.c.L * 1e6, box_option(o.c).c_str(),
+                o.c.material.c_str(), o.c.L * 1e6, o.c.sigma * 1e9, box_option(o.c).c_str(),
                 static_cast<long long>(e.unknowns), e.levels, e.leaf_edge * 1e9, gb(e.near_bytes),
                 gb(e.exact_bytes), gb(e.pattern_bytes), gb(e.elevated_pattern_bytes),
                 gb(e.far_table_bytes), gb(e.peak_setup_bytes), o.c.leaf_radius_quantile,
@@ -161,9 +190,24 @@ int main(int argc, char** argv) {
                          gb(e.peak_setup_bytes), available / 1e9);
             return 2;
         }
-        const Result r = run(geo, o.c, e);
+        IterationLog log;
+        if (o.history)
+            log = [](int k, Real res, Real t) {
+                std::printf("HIST it=%d res=%.6e t_s=%.3f\n", k, res, t);
+                std::fflush(stdout);
+            };
+        const Result r = run(geo, o.c, e, log);
         std::printf("RESULT %s\n%s\n%s\n\n%s\n\n%s\n", label(o.c).c_str(), summary(r).c_str(),
                     row(o.c, r).c_str(), r.describe.c_str(), r.report.c_str());
+        std::fflush(stdout);
+        if (!r.post_error.empty()) {
+            // The solve and its ROW line are kept (post_error=1, no R / A); exit 4 flags it.
+            std::fprintf(stderr,
+                         "mlfmm_scaling: power summary failed after the solve: %s (ROW line "
+                         "printed without R / A, post_error=1)\n",
+                         r.post_error.c_str());
+            return 4;
+        }
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "mlfmm_scaling: %s\n", e.what());

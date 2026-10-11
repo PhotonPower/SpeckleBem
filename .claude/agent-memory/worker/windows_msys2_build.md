@@ -48,6 +48,11 @@ workers / Windows"; the non-obvious ones:
   study running); rerun them alone before reporting.
 - A background command is stopped after 2 h: split multi-hour studies into one process per
   case (e.g. per formulation) so a stop loses at most one case.
+- Testing POSIX shell scripts locally: MSYS2 has `/c/msys64/usr/bin/dash`. Git Bash and MSYS2
+  are two different msys runtimes: a `kill` from Git's sh does not reach a dash/bash started
+  from MSYS2 (signal only seen at exit); run the whole test harness under MSYS2's dash. For a
+  native .exe, `/proc/<pid>/status` has VmRSS but no VmHWM, and MSYS `/proc/meminfo` has no
+  MemAvailable (WP22d kit test).
 
 **Why:** these cost several iterations in WP-W1 and WP2c.
 **How to apply:** any WP that builds or tests on this Windows machine.

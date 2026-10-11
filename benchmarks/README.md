@@ -44,6 +44,11 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
   cells, Si fine band), fitted exponents, the automatic box rule at two sizes, and the analysis of
   what limits the range (`mlfmm_scaling.cpp`, `mlfmm_scaling_fit.py`).
 
+- [`results/si_large_area.md`](results/si_large_area.md) — large-area Si (WP22d, Phase 4 target
+  "Si 30×30 µm²"): the largest Si patch solved on the 128 GB machine (proxy), memory and time per
+  component, extrapolation and `--estimate-only` numbers for L = 20–32 µm, and the template for
+  the server results of `scripts/server_run_kit/`.
+
 ## Executables (`-DSPECKLEBEM_BUILD_BENCHMARKS=ON`)
 
 - `specklebem_mlfmm_scaling` (`mlfmm_scaling.cpp`): the WP22b1 study, one case per process.
@@ -54,7 +59,11 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
   only), `--estimate-only` (2N, octree, near-field / leaf-pattern / Ag exact-part estimates and the
   setup peak model, no assembly), `--force` (skip the available-memory guard). Prints a `ROW`
   line per case; `python benchmarks/mlfmm_scaling_fit.py <logs>` tabulates the rows and fits the
-  exponents.
+  exponents. WP22d options: `--sigma <m>` (RMS height, default 50 nm; series key `sigma_nm`),
+  `--history` (one `HIST it= res= t_s=` line per GMRES iteration), `--far-field <deg>` (after
+  the solve: R = P_refl / P_inc on a reflection-hemisphere grid and on the grid with half the
+  nodes, A = P_abs / P_inc from the currents; rigorous beam only), `--far-field-degree`.
+  `scripts/server_run_kit/run_large_area.sh` wraps one case with a memory check and logging.
 
 - `specklebem_ag_sphere_mlfmm` (`ag_sphere_mlfmm.cpp`): the WP22a study, one case per process.
   Options `--mesh octa|ico`, `--n <subdivisions>`, `--d <diameter m>`, `--digits <d0>`,

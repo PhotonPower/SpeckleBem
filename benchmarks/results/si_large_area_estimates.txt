@@ -1,0 +1,40 @@
+# WP22d --estimate-only lines of specklebem_mlfmm_scaling (2026-10-11, estimator of main a65381a,
+# unchanged in f848a50; win-release). Si / Ag at 500 nm, Lc = 500 nm, h = 50 nm, seed 1,
+# --beam angular-spectrum, d0 = 3. box=50: uniform box (--box-mesh-size 50e-9); box=100: graded
+# lambda1/5 box (M = 1, Si with the fine band). lq = leaf radius quantile. Sizes and the memory
+# model only (no assembly; 1-11 s per line). Read by benchmarks/si_large_area_extrapolation.py
+# (record benchmarks/results/si_large_area.md; server run list scripts/server_run_kit/README.md).
+# Run list and proxy:
+EST material=si L_um=2 sigma_nm=100 box=50.000000 N2=127680 levels=6 leaf_nm=183.358 near_gb=2.69031 exact_est_gb=0 pattern_gb=6.70065 elevated_pattern_gb=0 far_table_gb=1.38003 peak_setup_est_gb=13.9242 lq=1 elevated=0
+EST material=si L_um=10.5 sigma_nm=100 box=50.000000 N2=1098720 levels=7 leaf_nm=164.063 near_gb=16.3209 exact_est_gb=0 pattern_gb=54.5668 elevated_pattern_gb=0 far_table_gb=16.3942 peak_setup_est_gb=103.538 lq=1 elevated=0
+EST material=ag L_um=17.5 sigma_nm=50 box=100.000000 N2=1017450 levels=7 leaf_nm=273.438 near_gb=32.1614 exact_est_gb=0 pattern_gb=11.7536 elevated_pattern_gb=0 far_table_gb=1.87258 peak_setup_est_gb=64.2308 lq=1 elevated=0
+# Si sigma = 100 nm (the Phase 4 target):
+EST material=si L_um=20 sigma_nm=100 box=50.000000 N2=3004800 levels=8 leaf_nm=156.25 near_gb=39.3733 exact_est_gb=0 pattern_gb=152.403 elevated_pattern_gb=0 far_table_gb=51.8578 peak_setup_est_gb=284.747 lq=1 elevated=0
+EST material=si L_um=20 sigma_nm=100 box=100.000000 N2=2056800 levels=8 leaf_nm=156.25 near_gb=43.4271 exact_est_gb=0 pattern_gb=156.866 elevated_pattern_gb=61.7289 far_table_gb=53.6177 peak_setup_est_gb=297.672 lq=0.8 elevated=110800
+EST material=si L_um=25 sigma_nm=100 box=50.000000 N2=4356000 levels=8 leaf_nm=195.313 near_gb=88.4709 exact_est_gb=0 pattern_gb=270.002 elevated_pattern_gb=0 far_table_gb=62.0999 peak_setup_est_gb=499.019 lq=1 elevated=0
+EST material=si L_um=25 sigma_nm=100 box=100.000000 N2=2964000 levels=8 leaf_nm=195.313 near_gb=54.9519 exact_est_gb=0 pattern_gb=215.105 elevated_pattern_gb=0.921508 far_table_gb=68.901 peak_setup_est_gb=395.835 lq=0.8 elevated=1195
+EST material=si L_um=30 sigma_nm=100 box=50.000000 N2=5947200 levels=8 leaf_nm=234.375 near_gb=175.073 exact_est_gb=0 pattern_gb=434.098 elevated_pattern_gb=0 far_table_gb=74.3187 peak_setup_est_gb=822.868 lq=1 elevated=0
+EST material=si L_um=30 sigma_nm=100 box=100.000000 N2=3999600 levels=8 leaf_nm=234.375 near_gb=104.03 exact_est_gb=0 pattern_gb=344.286 elevated_pattern_gb=0 far_table_gb=82.764 peak_setup_est_gb=626.8 lq=0.8 elevated=0
+EST material=si L_um=32 sigma_nm=100 box=50.000000 N2=6650880 levels=8 leaf_nm=250.001 near_gb=221.794 exact_est_gb=0 pattern_gb=531.645 elevated_pattern_gb=0 far_table_gb=82.2706 peak_setup_est_gb=1009 lq=1 elevated=0
+EST material=si L_um=32 sigma_nm=100 box=50.000000 N2=6650880 levels=9 leaf_nm=125 near_gb=56.2811 exact_est_gb=0 pattern_gb=274.331 elevated_pattern_gb=1.09251 far_table_gb=144.83 peak_setup_est_gb=546.498 lq=0.8 elevated=2988
+EST material=si L_um=32 sigma_nm=100 box=100.000000 N2=4458240 levels=9 leaf_nm=125 near_gb=59.1474 exact_est_gb=0 pattern_gb=270.934 elevated_pattern_gb=108.978 far_table_gb=149.082 peak_setup_est_gb=551.738 lq=0.8 elevated=259807
+# Si sigma = 50 nm (the WP22b3 scaling series surface), for comparison:
+EST material=si L_um=20 sigma_nm=50 box=50.000000 N2=3004800 levels=8 leaf_nm=156.25 near_gb=39.249 exact_est_gb=0 pattern_gb=132.788 elevated_pattern_gb=0 far_table_gb=45.6183 peak_setup_est_gb=256.121 lq=1 elevated=0
+EST material=si L_um=20 sigma_nm=50 box=100.000000 N2=2008800 levels=8 leaf_nm=156.25 near_gb=41.949 exact_est_gb=0 pattern_gb=152.542 elevated_pattern_gb=62.2203 far_table_gb=50.0183 peak_setup_est_gb=286.74 lq=0.8 elevated=114000
+EST material=si L_um=25 sigma_nm=50 box=50.000000 N2=4356000 levels=8 leaf_nm=195.313 near_gb=89.7743 exact_est_gb=0 pattern_gb=228.603 elevated_pattern_gb=0 far_table_gb=52.9939 peak_setup_est_gb=445.418 lq=1 elevated=0
+EST material=si L_um=25 sigma_nm=50 box=100.000000 N2=2904000 levels=8 leaf_nm=195.313 near_gb=52.3852 exact_est_gb=0 pattern_gb=210.075 elevated_pattern_gb=0.0712294 far_table_gb=64.6287 peak_setup_est_gb=381.752 lq=0.8 elevated=94
+EST material=si L_um=30 sigma_nm=50 box=50.000000 N2=5947200 levels=8 leaf_nm=234.375 near_gb=175.359 exact_est_gb=0 pattern_gb=378.527 elevated_pattern_gb=0 far_table_gb=65.5334 peak_setup_est_gb=752.505 lq=1 elevated=0
+EST material=si L_um=30 sigma_nm=50 box=100.000000 N2=3927600 levels=8 leaf_nm=234.375 near_gb=100.397 exact_est_gb=0 pattern_gb=325.897 elevated_pattern_gb=0 far_table_gb=76.7048 peak_setup_est_gb=594.457 lq=0.8 elevated=0
+EST material=si L_um=32 sigma_nm=50 box=50.000000 N2=6650880 levels=9 leaf_nm=125 near_gb=54.8803 exact_est_gb=0 pattern_gb=266.035 elevated_pattern_gb=0 far_table_gb=130.957 peak_setup_est_gb=520.012 lq=1 elevated=0
+EST material=si L_um=32 sigma_nm=50 box=100.000000 N2=4381440 levels=9 leaf_nm=125 near_gb=57.7861 exact_est_gb=0 pattern_gb=265.051 elevated_pattern_gb=106.413 far_table_gb=137.878 peak_setup_est_gb=530.9 lq=0.8 elevated=261761
+# Checks of the record's statements (WP22d finish, 2026-10-11, same estimator; comment lines, not
+# read by the extrapolation script): L = 11 um exceeds the 110 GB proxy limit, the graded box with
+# q = 0.8 needs more than the uniform box at L = 10 um, and q = 0.8 elevates nothing on the
+# uniform box at L = 10.5 / 20 / 25 / 30 um (identical to the q = 1 lines above).
+# EST material=si L_um=11 sigma_nm=100 box=50.000000 N2=1177440 levels=7 leaf_nm=171.875 near_gb=18.937 exact_est_gb=0 pattern_gb=65.2961 elevated_pattern_gb=0 far_table_gb=17.6783 peak_setup_est_gb=120.677 lq=1 elevated=0
+# EST material=si L_um=10 sigma_nm=100 box=50.000000 N2=1022400 levels=7 leaf_nm=156.25 near_gb=13.5558 exact_est_gb=0 pattern_gb=51.8561 elevated_pattern_gb=0 far_table_gb=16.448 peak_setup_est_gb=96.4681 lq=1 elevated=0
+# EST material=si L_um=10 sigma_nm=100 box=100.000000 N2=733200 levels=7 leaf_nm=156.25 near_gb=16.2773 exact_est_gb=0 pattern_gb=55.6082 elevated_pattern_gb=19.722 far_table_gb=17.2946 peak_setup_est_gb=105.609 lq=0.8 elevated=35400
+# EST material=si L_um=10.5 sigma_nm=100 box=50.000000 N2=1098720 levels=7 leaf_nm=164.063 near_gb=16.3209 exact_est_gb=0 pattern_gb=54.5668 elevated_pattern_gb=0 far_table_gb=16.3942 peak_setup_est_gb=103.538 lq=0.8 elevated=0
+# EST material=si L_um=20 sigma_nm=100 box=50.000000 N2=3004800 levels=8 leaf_nm=156.25 near_gb=39.3733 exact_est_gb=0 pattern_gb=152.403 elevated_pattern_gb=0 far_table_gb=51.8578 peak_setup_est_gb=284.747 lq=0.8 elevated=0
+# EST material=si L_um=25 sigma_nm=100 box=50.000000 N2=4356000 levels=8 leaf_nm=195.313 near_gb=88.4709 exact_est_gb=0 pattern_gb=270.002 elevated_pattern_gb=0 far_table_gb=62.0999 peak_setup_est_gb=499.019 lq=0.8 elevated=0
+# EST material=si L_um=30 sigma_nm=100 box=50.000000 N2=5947200 levels=8 leaf_nm=234.375 near_gb=175.073 exact_est_gb=0 pattern_gb=434.098 elevated_pattern_gb=0 far_table_gb=74.3187 peak_setup_est_gb=822.868 lq=0.8 elevated=0

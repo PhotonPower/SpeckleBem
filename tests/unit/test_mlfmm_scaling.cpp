@@ -7,7 +7,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -62,6 +64,163 @@ TEST_CASE("mlfmm_scaling: geometry follows the ADR 0006 box parameters", "[mlfmm
     bad = si;
     bad.seed = 0;
     CHECK_THROWS_AS(make_geometry(bad), std::invalid_argument);
+}
+
+TEST_CASE("mlfmm_scaling: sigma sets the surface, the fine band and the labels",
+          "[mlfmm_scaling]") {
+    Case c;
+    c.material = "si";
+    c.L = 0.6e-6;
+    const Geometry g50 = make_geometry(c);
+    c.sigma = 100e-9;  // the Phase 4 Si 30 x 30 um target (WP22d)
+    const Geometry g100 = make_geometry(c);
+    REQUIRE(g100.fine_depth.has_value());
+    // Fine band 3 delta + 3 sigma: 150 nm deeper for sigma 100 nm than for 50 nm.
+    CHECK_THAT(*g100.fine_depth - *g50.fine_depth, Catch::Matchers::WithinRel(150e-9, 1e-9));
+    CHECK_THAT(*g100.fine_depth,
+               Catch::Matchers::WithinRel(
+                   default_box_fine_depth(material::silicon_500nm(), kLambda, 100e-9), 1e-12));
+    // Same grid, rougher top face: same triangle count, larger height spread.
+    CHECK(g100.top_triangles == g50.top_triangles);
+    const auto rms_top = [](const Geometry& g) {
+        // Top-face triangles: normal out of R2 (z > xi) into R1, i.e. n_z < 0 (the walls have
+        // n_z ~ 0, the bottom n_z > 0). RMS of their centroid heights.
+        Real sum = 0.0;
+        Index count = 0;
+        for (Index t = 0; t < g.mesh.num_triangles(); ++t) {
+            if (g.mesh.normal(t).z() > -0.5)
+                continue;
+            Real z = 0.0;
+            for (int k = 0; k < 3; ++k) z += g.mesh.vertices()(g.mesh.triangles()(t, k), 2) / 3.0;
+            sum += z * z;
+            ++count;
+        }
+        return std::sqrt(sum / static_cast<Real>(std::max<Index>(count, 1)));
+    };
+    CHECK(rms_top(g100) > 1.5 * rms_top(g50));
+    CHECK(label(c).find("sigma = 100 nm") != std::string::npos);
+    c.sigma = 0.0;
+    CHECK_THROWS_AS(make_geometry(c), std::invalid_argument);
+    c.sigma = 100e-9;
+    c.box_depth = 0.0;  // a set box depth must be positive
+    CHECK_THROWS_AS(make_geometry(c), std::invalid_argument);
+}
+
+TEST_CASE("mlfmm_scaling: the power summary needs the angular-spectrum beam", "[mlfmm_scaling]") {
+    Case c;
+    c.material = "ag";
+    c.L = 0.4e-6;
+    c.far_field_dtheta_deg = 5.0;  // beam paraxial: refused before any assembly
+    const Geometry geo = make_geometry(c);
+    CHECK_THROWS_AS(run(geo, c, Estimate{}), std::invalid_argument);
+}
+
+TEST_CASE("mlfmm_scaling: power-summary options are validated before the assembly",
+          "[mlfmm_scaling]") {
+    Case c;
+    c.material = "ag";
+    c.L = 0.4e-6;
+    c.beam = Beam::angular_spectrum;
+    CHECK_NOTHROW(validate_power_summary(c));  // 0 = off
+    for (const Real d : {1.0, 6.0, 25.0}) {
+        // 25 deg: half-node grid n_theta = round(1.8) = 2, n_phi = round(3.6) = 4.
+        c.far_field_dtheta_deg = d;
+        CHECK_NOTHROW(validate_power_summary(c));
+    }
+    // Too coarse for the half-node grid (n_phi = round(3.46) = 3) or for both; negative,
+    // non-finite or absurdly fine spacings.
+    for (const Real d : {26.0, 60.0, 200.0, -1.0, 1e-4, std::numeric_limits<Real>::quiet_NaN(),
+                         std::numeric_limits<Real>::infinity()}) {
+        c.far_field_dtheta_deg = d;
+        INFO("dtheta = " << d);
+        CHECK_THROWS_AS(validate_power_summary(c), std::invalid_argument);
+    }
+    c.far_field_dtheta_deg = 1.0;
+    for (const int degree : {1, 2, 4, 6, 8, 10}) {
+        c.far_field_degree = degree;
+        CHECK_NOTHROW(validate_power_summary(c));
+    }
+    // Outside 1..20, or negative weights / points outside the triangle (3, 7, 11).
+    for (const int degree : {0, -2, 21, 3, 7, 11}) {
+        c.far_field_degree = degree;
+        INFO("degree = " << degree);
+        CHECK_THROWS_AS(validate_power_summary(c), std::invalid_argument);
+    }
+    c.far_field_degree = 6;
+    c.beam = Beam::paraxial;  // no exact P_inc
+    CHECK_THROWS_AS(validate_power_summary(c), std::invalid_argument);
+    c.far_field_dtheta_deg = 0.0;
+    CHECK_NOTHROW(validate_power_summary(c));
+
+    // run() checks the options before building the Simulation (no assembly: immediate).
+    c.beam = Beam::angular_spectrum;
+    c.far_field_dtheta_deg = 30.0;
+    const Geometry geo = make_geometry(c);
+    CHECK_THROWS_AS(run(geo, c, Estimate{}), std::invalid_argument);
+    c.far_field_dtheta_deg = 1.0;
+    c.far_field_degree = 3;
+    CHECK_THROWS_AS(run(geo, c, Estimate{}), std::invalid_argument);
+}
+
+TEST_CASE("mlfmm_scaling: a failing power summary keeps the solve result", "[mlfmm_scaling]") {
+    Case c;
+    c.material = "si";
+    c.beam = Beam::angular_spectrum;
+    c.far_field_dtheta_deg = 1.0;
+    Result r;
+    r.est.triangles = 300;
+    r.est.top_triangles = 200;
+    r.est.unknowns = 420;
+    r.iterations = 7;
+    r.converged = true;
+    r.solve_s = 12.5;
+
+    run_power_summary(
+        [&] {
+            r.p_inc = 2.0;
+            r.p_refl = 0.7;
+            r.p_refl_coarse = 0.7;
+            r.p_abs = 1.2;
+            r.post_s = 3.0;
+        },
+        r);
+    CHECK(r.post_error.empty());
+    CHECK(r.p_inc == 2.0);
+    std::string line = row(c, r);
+    CHECK(line.find(" R=0.35 ") != std::string::npos);
+    CHECK(line.find(" A=0.6 ") != std::string::npos);
+    CHECK(line.find("post_error") == std::string::npos);
+
+    // A throw after a partial result: the partial power fields are discarded, the solve fields
+    // stay, and the ROW line is still produced, without R / A and with post_error=1.
+    run_power_summary(
+        [&] {
+            r.p_inc = 2.0;
+            r.p_refl = 0.5;
+            throw std::runtime_error("far field failed");
+        },
+        r);
+    CHECK(r.post_error == "far field failed");
+    CHECK(r.p_inc == 0.0);
+    CHECK(r.p_refl == 0.0);
+    CHECK(r.p_abs == 0.0);
+    CHECK(r.post_s == 0.0);
+    CHECK(r.iterations == 7);
+    CHECK(r.solve_s == 12.5);
+    line = row(c, r);
+    CHECK(line.rfind("ROW material=si", 0) == 0);
+    CHECK(line.find(" it=7 ") != std::string::npos);
+    CHECK(line.find(" conv=1 ") != std::string::npos);
+    CHECK(line.find(" R=") == std::string::npos);
+    CHECK(line.find(" A=") == std::string::npos);
+    CHECK(line.size() >= 12);
+    CHECK(line.compare(line.size() - 12, 12, "post_error=1") == 0);
+    CHECK(summary(r).find("post-processing failed after the solve: far field failed") !=
+          std::string::npos);
+
+    Result r2;
+    run_power_summary([] { throw 42; }, r2);  // not a std::exception
+    CHECK(r2.post_error == "non-standard exception");
 }
 
 TEST_CASE("mlfmm_scaling: the waist rule w0 <= L/4 is enforced", "[mlfmm_scaling]") {
@@ -193,5 +352,74 @@ TEST_CASE("mlfmm_scaling: one tiny Ag case runs end to end", "[mlfmm_scaling]") 
     CHECK(line.rfind("ROW material=ag", 0) == 0);
     CHECK(line.find(" N2=" + std::to_string(r.est.unknowns) + " ") != std::string::npos);
     CHECK(line.find(" beam=paraxial ") != std::string::npos);
+    CHECK(line.find(" sigma_nm=50 ") != std::string::npos);
+    CHECK(line.find(" R=") == std::string::npos);  // no power summary requested
+    CHECK(r.p_inc == 0.0);
+#endif
+}
+
+TEST_CASE("mlfmm_scaling: iteration log and power summary of a tiny Ag case", "[mlfmm_scaling]") {
+#ifndef NDEBUG
+    SKIP("unoptimised build: the end-to-end MLFMM run is checked in release");
+#else
+    // Ag (the Si box is 5.65 um deep), rigorous beam, power summary on a coarse hemisphere grid.
+    // Kept small for a fast smoke test of the code path (672 unknowns, ~1 s; the far operator is
+    // exercised by the case above): 100 nm mesh with the uniform 100 nm box, box depth 0.5 um
+    // (20 decay lengths of Ag, instead of the 2 um default: the near-field assembly of the walls
+    // dominated the cost), waist L / 2 (allow_wide_beam) and tolerance 1e-1. The beam lights
+    // the walls, so only physical bounds are checked, not the reflectance of a large patch
+    // (benchmarks/results/si_large_area.md).
+    Case c;
+    c.material = "ag";
+    c.L = 0.4e-6;
+    c.mesh_size = 100e-9;
+    c.box_depth = 0.5e-6;
+    c.waist_factor = 2.0;
+    c.allow_wide_beam = true;
+    c.matvecs = 1;
+    c.tolerance = 1e-1;
+    c.max_iter = 300;
+    c.beam = Beam::angular_spectrum;
+    c.far_field_dtheta_deg = 15.0;
+    c.far_field_degree = 2;
+    const Geometry geo = make_geometry(c);
+    CHECK_THAT(geo.depth, Catch::Matchers::WithinRel(0.5e-6, 1e-12));
+    std::vector<int> its;
+    std::vector<Real> res;
+    std::vector<Real> times;
+    const Result r = run(geo, c, estimate(geo, c), [&](int k, Real rr, Real t) {
+        its.push_back(k);
+        res.push_back(rr);
+        times.push_back(t);
+    });
+    REQUIRE(r.converged);
+    REQUIRE(static_cast<int>(its.size()) == r.iterations);
+    for (std::size_t i = 0; i < its.size(); ++i) {
+        CHECK(its[i] == static_cast<int>(i) + 1);
+        if (i > 0)
+            CHECK(times[i] >= times[i - 1]);
+    }
+    CHECK(res.back() <= c.tolerance);
+    CHECK(times.back() <= r.solve_s + 1e-3);
+    CHECK(r.p_inc > 0.0);
+    const Real R = r.p_refl / r.p_inc;
+    const Real A = r.p_abs / r.p_inc;
+    INFO("R = " << R << ", A = " << A << ", R_coarse = " << r.p_refl_coarse / r.p_inc);
+    // Flat Ag at normal incidence: R = |(1 - n) / (1 + n)|^2 = 0.98; the rough tiny box scatters
+    // part of the beam sideways (walls, forward hemisphere). Bounds only.
+    CHECK(R > 0.4);
+    CHECK(R < 1.05);
+    CHECK(A > 0.0);
+    CHECK(A < 0.3);
+    CHECK(R + A < 1.1);
+    CHECK_THAT(r.p_refl_coarse, Catch::Matchers::WithinRel(r.p_refl, 0.1));
+    CHECK(r.post_s > 0.0);
+    const std::string line = row(c, r);
+    CHECK(line.find(" R=") != std::string::npos);
+    CHECK(line.find(" A=") != std::string::npos);
+    CHECK(line.find(" beam=angular_spectrum ") != std::string::npos);
+    CHECK(line.find(" depth_um=0.5 ") != std::string::npos);  // non-default depth recorded
+    CHECK(line.find("post_error") == std::string::npos);
+    CHECK(label(c).find(", depth 0.5") != std::string::npos);
 #endif
 }

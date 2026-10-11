@@ -6,11 +6,13 @@ the setup time, the time per matvec (and its near / far parts), the GMRES iterat
 time, the time per iteration and the memory. The exponent does not depend on whether N or 2N is
 used.
 
-Grouping: one series per (material, box option, fine band, restart, h, waist factor, beam, d0,
-tol, leaf radius quantile lq); rows written before these fields existed get the study defaults
-(h = 50 nm, w0 = L/4, paraxial beam, d0 = 3, tol = 1e-3, lq = 1: the global leaf rule). Repeated runs of one size (same series and 2N) are merged by
-taking, per quantity, the minimum over the runs that measured it (timings on a shared machine
-carry load noise that only ever adds time; memory and iterations are deterministic).
+Grouping: one series per (material, box option, fine band, restart, h, sigma, waist factor, beam,
+d0, tol, leaf radius quantile lq, machine); rows written before these fields existed get the
+study defaults (h = 50 nm, sigma = 50 nm, w0 = L/4, paraxial beam, d0 = 3, tol = 1e-3, lq = 1:
+the global leaf rule; machine = dev, the development machine; the server run kit writes
+machine=server). Repeated runs of one size (same series and 2N) are merged by taking, per
+quantity, the minimum over the runs that measured it (timings on a shared machine carry load
+noise that only ever adds time; memory and iterations are deterministic).
 
 Filters: iterations, solve time and time per iteration enter only from solved, converged rows
 (``solved=1 conv=1``); setup, matvec and memory from every row. A row may carry
@@ -61,8 +63,15 @@ DEFAULTS = {
     "tol": "0.001",
     "fine": "0",
     "lq": "1",  # leaf radius quantile; rows before WP21L used the global leaf rule
+    "sigma_nm": "50",  # RMS height; rows before WP22d all used 50 nm
+    # Machine annotation of the server run kit (machine=server); every other row was measured on
+    # the development machine. Own series, so the per-size minimum never mixes two machines.
+    "machine": "dev",
 }
-GROUP_KEYS = ("material", "box", "fine", "restart", "h_nm", "waist", "beam", "d0", "tol", "lq")
+GROUP_KEYS = (
+    "material", "box", "fine", "restart", "h_nm", "sigma_nm", "waist", "beam", "d0", "tol", "lq",
+    "machine",
+)
 
 
 def parse_rows(paths: list[str], rows_only: bool) -> list[dict[str, str]]:
@@ -77,7 +86,7 @@ def parse_rows(paths: list[str], rows_only: bool) -> list[dict[str, str]]:
                 for k, v in DEFAULTS.items():
                     fields.setdefault(k, v)
                 # Normalise numeric group fields ("4" and "4.0" are the same series).
-                for k in ("h_nm", "waist", "d0", "tol", "lq"):
+                for k in ("h_nm", "sigma_nm", "waist", "d0", "tol", "lq"):
                     fields[k] = f"{float(fields[k]):g}"
                 it = int(fields.get("it", "0"))
                 solve = float(fields.get("solve_s", "0"))

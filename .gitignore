@@ -32,6 +32,8 @@ results/
 !benchmarks/results/
 benchmarks/results/*.json
 *.log
+# Run directories of scripts/server_run_kit/run_large_area.sh (sent back as tarballs)
+server_runs/
 
 # Secrets — never commit tokens or credentials
 *.token

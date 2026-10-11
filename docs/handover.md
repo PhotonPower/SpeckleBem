@@ -35,12 +35,14 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   (scaling: **Si met** with the uniform 50 nm box, γ_solve 1.09 over 2N = 5.9·10⁴ … 1.02·10⁶, 954 s / 75 GB at
   10⁶; **Ag measured** γ 1.40 over 7·10⁴ … 4.2·10⁵, full window projected 1.40–1.51; default leaf quantile stays 1,
   ADR 0008 decision 2026-10-11).
-- **In flight:** WP22d (Si large-area proxy on 128 GB + run kit for the lead's 1 TB server, incl. the converged
-  Ag L = 17.5 µm solve that would close the Ag scaling by measurement), WP-A2 (origin of the Ag near-null mode).
+- **WP22d merged:** Si proxy L = 10.5 µm (2N = 1.1·10⁶, 1 464 s, 89.5 GB); L = 30 µm extrapolated 600–720 GB,
+  3.2–7.1 h; run kit `scripts/server_run_kit/` for the lead's 1 TB server (Si 20/30 µm + server Ag series
+  L = 4–17.5 µm). **Waiting for the lead's server results** (record template in `benchmarks/results/si_large_area.md`).
+- **In flight:** WP-A2 (origin of the Ag near-null mode), WP-V2 (box validity at MLFMM sizes).
   They share the machine via a lock directory in the session scratchpad (WP22d holds it for timed runs).
 - **Next:** WP-V2 (box validity at MLFMM sizes, graded vs uniform box), WP22b2 (formulation sweep with MLFMM),
   then Phases 5/6. A stronger preconditioner than Jacobi would address the Ag iteration growth.
-- Test counts on `main`: 402 ctest (`-LE "validation-large|slow"`), 93 pytest; labels `slow`, `validation`
+- Test counts on `main`: 407 ctest (`-LE "validation-large|slow"`), 93 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

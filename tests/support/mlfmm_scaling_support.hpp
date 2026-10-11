@@ -6,17 +6,18 @@
 /// tests/unit/test_mlfmm_scaling.cpp, so it must not depend on Catch2.
 ///
 /// Setup (docs/06, ADR 0006 with its 2026-10-10 amendment, ADR 0008): Gaussian rough surface
-/// (sigma = 50 nm, Lc = 500 nm, mesh 50 nm, fixed seed) on an L x L patch, closed by the graded
-/// box chosen by rough_surface_box_params (simulation.hpp): depth default_box_depth (Si 5.65 um,
-/// Ag 2 um), lambda1 = 500 nm and, for Si, the fine band 3 delta + 3 sigma. The coarse spacing is
-/// explicit, box_mesh_size = 100 nm = lambda1 / 5 by default (the recorded series); unset, the
-/// generator's automatic rule capped at lambda1 / 5 applies; `uncapped_box` reproduces the
-/// record's "auto" series (the automatic rule without the cap). The waist rule check_beam_waist
-/// (w0 <= L / 4) is enforced unless allow_wide_beam. Object Si (eps_r = 18.478 - 0.606j) or Ag
-/// (-9.794 - 0.313j) in vacuum, lambda = 500 nm; Gaussian beam at normal incidence (travelling
-/// +z, focus at the origin, E along x, waist w0 = L / 4): the paraxial excitation::GaussianBeam
-/// of the recorded series, or the rigorous excitation::AngularSpectrumBeam
-/// (Beam::angular_spectrum, controlled ball covering the mesh). Simulation with compression
+/// (sigma = 50 nm by default, Case::sigma; Lc = 500 nm, mesh 50 nm, fixed seed) on an L x L patch,
+/// closed by the graded box chosen by rough_surface_box_params (simulation.hpp): depth
+/// default_box_depth (Si 5.65 um, Ag 2 um), lambda1 = 500 nm and, for Si, the fine band
+/// 3 delta + 3 sigma. The coarse spacing is explicit, box_mesh_size = 100 nm = lambda1 / 5 by
+/// default (the recorded series); unset, the generator's automatic rule capped at lambda1 / 5
+/// applies; `uncapped_box` reproduces the record's "auto" series (the automatic rule without the
+/// cap). The waist rule check_beam_waist (w0 <= L / 4) is enforced unless allow_wide_beam. Object
+/// Si (eps_r = 18.478 - 0.606j) or Ag (-9.794 - 0.313j) in vacuum, lambda = 500 nm; Gaussian
+/// beam at normal incidence (travelling +z, focus at the origin, E along x, waist w0 = L / 4):
+/// the paraxial excitation::GaussianBeam of the recorded series, or the rigorous
+/// excitation::AngularSpectrumBeam (Beam::angular_spectrum, controlled ball covering the
+/// mesh). Simulation with compression
 /// "mlfmm" (d0 = 3, automatic leaf rule and exact-part budget), formulation per
 /// formulation::recommend (Si: ICTF, Ag: ICTF + left Jacobi), full GMRES with tolerance 1e-3.
 ///
@@ -32,11 +33,13 @@
 #include "specklebem/compression/mlfmm/octree.hpp"
 #include "specklebem/compression/mlfmm/patterns.hpp"
 #include "specklebem/compression/mlfmm/plane_wave.hpp"
+#include "specklebem/core/logging.hpp"
 #include "specklebem/core/types.hpp"
 #include "specklebem/excitation/angular_spectrum_beam.hpp"
 #include "specklebem/excitation/excitation.hpp"
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/geometry/rough_surface.hpp"
+#include "specklebem/kernels/quadrature.hpp"
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/sparse_operator.hpp"
 #include "specklebem/simulation.hpp"
@@ -47,7 +50,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <random>
@@ -58,6 +63,7 @@
 #include <utility>
 #include <vector>
 
+#include "fresnel_flat_support.hpp"
 #include "system_memory.hpp"
 
 namespace mlfmm_scaling {
@@ -82,7 +88,10 @@ enum class Beam {
 struct Case {
     std::string material = "si";  ///< "si" or "ag"
     Real L = 4e-6;                ///< patch edge [m]
-    Real mesh_size = kMeshSize;   ///< top-face spacing [m]
+    /// RMS height sigma of the Gaussian surface [m] (the recorded series: 50 nm; the Phase 4
+    /// Si 30 x 30 um target of docs/01: 100 nm). Also enters the fine band 3 delta + 3 sigma.
+    Real sigma = kSigma;
+    Real mesh_size = kMeshSize;  ///< top-face spacing [m]
     std::uint64_t seed = 1;
     /// Coarse spacing of the closing box [m]; empty: the automatic rule of
     /// geometry::RoughSurfaceParams capped at lambda1 / 5 (rough_surface_box_params).
@@ -93,6 +102,10 @@ struct Case {
     bool uncapped_box = false;
     /// ADR 0006 fine band 3 delta + 3 sigma; empty: as rough_surface_box_params (Si yes, Ag no).
     std::optional<bool> fine_band;
+    /// Box depth [m]; empty: default_box_depth (Si 5.65 um, Ag 2 um), as in every recorded row.
+    /// Set only by the fast smoke tests (fewer wall unknowns; no benchmark option); a set depth
+    /// is named in the label and the ROW line (depth_um).
+    std::optional<Real> box_depth;
     Real waist_factor = 4.0;       ///< w0 = L / waist_factor
     bool allow_wide_beam = false;  ///< check_beam_waist(L, w0, {.allow_wide = allow_wide_beam})
     Beam beam = Beam::paraxial;
@@ -108,6 +121,11 @@ struct Case {
     Real leaf_radius_quantile = mlfmm::MlfmmParams{}.leaf_radius_quantile;
     std::optional<formulation::Kind> formulation;
     std::optional<bool> jacobi;
+    /// > 0: after the solve, the reflectance R = P_refl / P_inc and the absorbed fraction A =
+    /// P_abs / P_inc (reflected_power; needs Beam::angular_spectrum for P_inc) on a reflection
+    /// hemisphere grid with this polar spacing [deg]; 0: off (the recorded scaling rows).
+    Real far_field_dtheta_deg = 0.0;
+    int far_field_degree = 6;  ///< Dunavant degree of the far-field source quadrature
 };
 
 inline material::Material object_material(const std::string& name) {
@@ -124,12 +142,14 @@ inline material::Material object_material(const std::string& name) {
 inline RoughBoxParams box_params(const Case& c) {
     const material::Material object = object_material(c.material);
     RoughBoxParams b =
-        rough_surface_box_params(object, material::vacuum(), kLambda, kSigma, c.mesh_size);
+        rough_surface_box_params(object, material::vacuum(), kLambda, c.sigma, c.mesh_size);
     if (c.box_mesh_size)
         b.box_mesh_size = *c.box_mesh_size;
+    if (c.box_depth)
+        b.box_depth = *c.box_depth;
     if (c.fine_band) {
         if (*c.fine_band)
-            b.box_fine_depth = default_box_fine_depth(object, kLambda, kSigma);
+            b.box_fine_depth = default_box_fine_depth(object, kLambda, c.sigma);
         else
             b.box_fine_depth.reset();
     }
@@ -152,14 +172,15 @@ struct Geometry {
 /// Builds the rough box of a case. Validates the case and the waist rule
 /// check_beam_waist(L, L / waist_factor, {.allow_wide = allow_wide_beam}) (ADR 0006 amendment:
 /// w0 <= L / 4 at the normal incidence of the study).
-/// @throws std::invalid_argument for L, mesh_size or waist_factor not > 0, seed 0, an unknown
-///         material, uncapped_box with an explicit box_mesh_size, or a waist above L / 4
-///         without allow_wide_beam.
+/// @throws std::invalid_argument for L, mesh_size, sigma, waist_factor or a set box_depth not
+///         > 0, seed 0, an unknown material, uncapped_box with an explicit box_mesh_size, or a
+///         waist above L / 4 without allow_wide_beam.
 inline Geometry make_geometry(const Case& c) {
-    if (!(c.L > 0.0) || !(c.mesh_size > 0.0) || !(c.waist_factor > 0.0) || c.seed == 0)
+    if (!(c.L > 0.0) || !(c.mesh_size > 0.0) || !(c.sigma > 0.0) || !(c.waist_factor > 0.0) ||
+        c.seed == 0 || (c.box_depth && !(*c.box_depth > 0.0)))
         throw std::invalid_argument(
-            "mlfmm_scaling: need L > 0, mesh_size > 0, waist_factor > 0 "
-            "and a fixed seed > 0");
+            "mlfmm_scaling: need L > 0, mesh_size > 0, sigma > 0, waist_factor > 0, "
+            "box_depth > 0 (if set) and a fixed seed > 0");
     if (c.uncapped_box && c.box_mesh_size)
         throw std::invalid_argument(
             "mlfmm_scaling: uncapped_box needs the automatic rule (box_mesh_size unset)");
@@ -167,7 +188,7 @@ inline Geometry make_geometry(const Case& c) {
     const RoughBoxParams b = box_params(c);
     geometry::RoughSurfaceParams rp;
     rp.edge_length_L = c.L;
-    rp.rms_roughness = kSigma;
+    rp.rms_roughness = c.sigma;
     rp.correlation_length = kCorrelationLength;
     rp.mesh_size = c.mesh_size;
     rp.seed = c.seed;
@@ -446,7 +467,15 @@ struct Result {
     std::array<Index, 2> exact_pairs{};
     std::size_t far_bytes = 0;  ///< far operator without the exact parts (tables, workspaces)
     std::size_t operator_bytes = 0;
-    Real krylov_bytes = 0;    ///< (iterations + 1) 2N 16 bytes (full GMRES)
+    Real krylov_bytes = 0;  ///< (iterations + 1) 2N 16 bytes (full GMRES)
+    /// Power summary (Case::far_field_dtheta_deg > 0, else all 0): incident beam power
+    /// AngularSpectrumBeam::power(), reflected power on the primary hemisphere grid and on the
+    /// grid with half the nodes per direction (convergence check), absorbed power from the
+    /// currents [W], and the wall time of this post-processing [s].
+    Real p_inc = 0, p_refl = 0, p_refl_coarse = 0, p_abs = 0, post_s = 0;
+    /// Non-empty if the power summary threw after the solve (run_power_summary): the message;
+    /// the p_* fields are then 0 and the ROW line carries post_error=1 instead of R / A.
+    std::string post_error;
     Real peak_setup_rss = 0;  ///< peak working set after Simulation::assemble [bytes]
     Real peak_rss = 0;        ///< at the end [bytes]
     std::string describe;     ///< MlfmmOperator::describe()
@@ -537,13 +566,121 @@ inline Real median(std::vector<Real> t) {
     return t.size() % 2 == 1 ? t[m] : 0.5 * (t[m - 1] + t[m]);
 }
 
+/// Called once per GMRES iteration with (k, monitored residual, seconds since the solve
+/// started).
+using IterationLog = std::function<void(int iter, Real residual, Real seconds)>;
+
+/// Power summary of a solved case (Result::p_*): P_inc = AngularSpectrumBeam::power(), P_refl
+/// = (1 / 2 eta1) int |F|^2 dOmega of the scattered far field over the reflection hemisphere
+/// k_z < 0 (Gauss-Legendre in theta x trapezoid in phi, fresnel_flat::hemisphere_grid, polar
+/// spacing dtheta_deg; also on the grid with half the nodes per direction), P_abs = 1/2 Re
+/// oint (n x M) . J* dS from the currents (fresnel_flat::absorbed_power). For a closed box under
+/// a beam that the top face intercepts, 1 - R - A is the power scattered into the forward
+/// hemisphere around the box plus the discretisation and solver error.
+/// @throws std::invalid_argument for a non-positive spacing or degree, or a beam that is not an
+///         AngularSpectrumBeam (no exact P_inc).
+inline void reflected_power(const Simulation& sim, const excitation::Excitation& beam,
+                            Real dtheta_deg, int degree, Result& r) {
+    if (!(dtheta_deg > 0.0) || degree < 1)
+        throw std::invalid_argument("mlfmm_scaling::reflected_power: need dtheta > 0, degree >= 1");
+    const auto* as = dynamic_cast<const excitation::AngularSpectrumBeam*>(&beam);
+    if (as == nullptr)
+        throw std::invalid_argument(
+            "mlfmm_scaling::reflected_power: needs the angular-spectrum beam (exact P_inc)");
+    const auto t0 = std::chrono::steady_clock::now();
+    const Real omega = 2.0 * constants::pi * constants::c0 / kLambda;
+    const Real eta1 = material::vacuum().wave_impedance(omega).real();
+    const Vec3 specular(0.0, 0.0, -1.0);  // normal incidence
+    const Real cone = 3.0 * kLambda / (constants::pi * as->params().waist_radius);
+    r.p_inc = as->power();
+    r.p_refl = fresnel_flat::hemisphere_power(sim.solution(),
+                                              fresnel_flat::hemisphere_grid(-1.0, dtheta_deg),
+                                              degree, eta1, specular, cone)
+                   .total;
+    r.p_refl_coarse = fresnel_flat::hemisphere_power(
+                          sim.solution(), fresnel_flat::hemisphere_grid(-1.0, dtheta_deg, 2),
+                          degree, eta1, specular, cone)
+                          .total;
+    r.p_abs = fresnel_flat::absorbed_power(sim.solution());
+    r.post_s = std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count();
+}
+
+/// Smallest polar spacing of the power summary [deg] (n_phi = 180 000 on the primary grid).
+inline constexpr Real kMinFarFieldSpacingDeg = 1e-3;
+
+/// Checks the power-summary options of a case (Case::far_field_dtheta_deg,
+/// Case::far_field_degree, Case::beam) before any assembly, so that a bad option fails in
+/// seconds instead of after a multi-hour solve. No-op for far_field_dtheta_deg == 0 (off). Both
+/// hemisphere grids of reflected_power (fresnel_flat::hemisphere_grid: n_theta =
+/// round(90 / (c dtheta)) >= 1, n_phi = round(180 / (c dtheta)) >= 4 for c = 1 and the half-node
+/// grid c = 2) must be valid, i.e. dtheta <= 25.7 deg, and the source quadrature must be a
+/// positive-interior Dunavant rule (post::FieldOptions::quad_degree: 1, 2, 4, 5, 6, 8, 9, 10,
+/// ...).
+/// @throws std::invalid_argument for a negative or non-finite spacing, a spacing below
+///         kMinFarFieldSpacingDeg or too coarse for either grid, a degree outside 1..20 or not
+///         positive-interior, or a power summary without the angular-spectrum beam.
+inline void validate_power_summary(const Case& c) {
+    const Real d = c.far_field_dtheta_deg;
+    if (!std::isfinite(d) || d < 0.0)
+        throw std::invalid_argument(
+            "mlfmm_scaling: the far-field spacing must be finite and >= 0 (0 = off)");
+    if (d == 0.0)
+        return;
+    if (d < kMinFarFieldSpacingDeg)
+        throw std::invalid_argument("mlfmm_scaling: far-field spacing below 1e-3 deg");
+    for (const int coarsening : {1, 2}) {
+        const long long nt = std::llround(90.0 / (d * coarsening));
+        const long long np = std::llround(180.0 / (d * coarsening));
+        if (nt < 1 || np < 4)
+            throw std::invalid_argument(
+                "mlfmm_scaling: far-field spacing " + std::to_string(d) + " deg too coarse: the " +
+                (coarsening == 1 ? "primary" : "half-node") +
+                " hemisphere grid needs n_theta >= 1 and n_phi >= 4 (spacing <= 25.7 deg)");
+    }
+    if (c.far_field_degree < 1 || c.far_field_degree > 20 ||
+        !kernels::triangle_rule_is_positive_interior(c.far_field_degree))
+        throw std::invalid_argument(
+            "mlfmm_scaling: far-field degree " + std::to_string(c.far_field_degree) +
+            " is not a positive-interior Dunavant rule (1, 2, 4, 5, 6, 8, 9, 10, ...)");
+    if (c.beam != Beam::angular_spectrum)
+        throw std::invalid_argument(
+            "mlfmm_scaling: the power summary needs the angular-spectrum beam (exact P_inc)");
+}
+
+/// Runs the power summary `post` (reflected_power) after a finished solve. An exception there
+/// must not lose the solve: it is logged with SBEM_ERROR, the power fields are reset to 0 (the
+/// ROW line then has no R / A) and Result::post_error keeps the message (ROW annotation
+/// post_error=1).
+inline void run_power_summary(const std::function<void()>& post, Result& r) {
+    const auto fail = [&r](const std::string& what) {
+        r.p_inc = r.p_refl = r.p_refl_coarse = r.p_abs = r.post_s = 0.0;
+        r.post_error = what.empty() ? std::string("unknown error") : what;
+        SBEM_ERROR(
+            "mlfmm_scaling: power summary failed after the solve ({}); the solve result is "
+            "kept, R and A are omitted",
+            r.post_error);
+    };
+    try {
+        post();
+    } catch (const std::exception& e) {
+        fail(e.what());
+    } catch (...) {
+        fail("non-standard exception");
+    }
+}
+
 /// Assembles and solves the case through Simulation (compression "mlfmm"), timing the matvec.
-/// `est` is the case's estimate(geo, c) (computed once by the caller).
-inline Result run(const Geometry& geo, const Case& c, const Estimate& est) {
+/// `est` is the case's estimate(geo, c) (computed once by the caller); `on_iteration`
+/// (optional) is called once per GMRES iteration (the residual / timestamp history of the
+/// server run kit, printed live by the benchmark).
+inline Result run(const Geometry& geo, const Case& c, const Estimate& est,
+                  const IterationLog& on_iteration = {}) {
     using Clock = std::chrono::steady_clock;
     Result r;
     r.est = est;
-    Simulation sim(geo.mesh, make_beam(c, geo), make_config(c));
+    validate_power_summary(c);  // before the assembly: a bad option must not cost a solve
+    const std::shared_ptr<excitation::Excitation> beam = make_beam(c, geo);
+    Simulation sim(geo.mesh, beam, make_config(c));
     r.formulation = formulation::make_formulation(sim.formulation_kind())->name();
     r.jacobi = sim.diagonal_preconditioner();
     {
@@ -594,7 +731,14 @@ inline Result run(const Geometry& geo, const Case& c, const Estimate& est) {
         r.far_matvec_s = median(t[2]);
     }
     if (c.solve) {
-        const solver::GmresResult g = sim.solve();
+        const auto solve_start = Clock::now();
+        solver::IterationCallback cb;
+        if (on_iteration)
+            cb = [&](int k, Real res) {
+                on_iteration(k, res,
+                             std::chrono::duration<Real>(Clock::now() - solve_start).count());
+            };
+        const solver::GmresResult g = sim.solve(cb);
         r.iterations = g.iterations;
         r.converged = g.converged;
         r.final_residual = g.residual_history.empty() ? 0.0 : g.residual_history.back();
@@ -604,6 +748,10 @@ inline Result run(const Geometry& geo, const Case& c, const Estimate& est) {
         r.krylov_bytes = static_cast<Real>(basis + 1) * static_cast<Real>(sim.num_unknowns()) *
                          static_cast<Real>(sizeof(Complex));
         r.report = sim.report();
+        if (c.far_field_dtheta_deg > 0.0)
+            run_power_summary(
+                [&] { reflected_power(sim, *beam, c.far_field_dtheta_deg, c.far_field_degree, r); },
+                r);
     }
     r.far_bytes = op->far_operator().memory_bytes() - exact_total;
     r.operator_bytes = op->memory_bytes();
@@ -626,13 +774,16 @@ inline std::string beam_name(const Case& c) {
 /// Case label, e.g. "si L = 4 um, h = 50 nm, box 100 nm, fine band, paraxial beam w0 = L/4, ...".
 inline std::string label(const Case& c) {
     std::ostringstream os;
-    os << c.material << " L = " << c.L * 1e6 << " um, h = " << c.mesh_size * 1e9 << " nm, box "
+    os << c.material << " L = " << c.L * 1e6 << " um, sigma = " << c.sigma * 1e9
+       << " nm, h = " << c.mesh_size * 1e9 << " nm, box "
        << (c.box_mesh_size
                ? std::to_string(static_cast<int>(std::lround(*c.box_mesh_size * 1e9))) + " nm"
                : box_option(c))
-       << (uses_fine_band(c) ? ", fine band" : ", no fine band") << ", " << beam_name(c)
-       << " beam w0 = L/" << c.waist_factor << ", seed " << c.seed << ", d0 = " << c.digits
-       << ", leaf radius quantile " << c.leaf_radius_quantile << ", tol = " << c.tolerance;
+       << (uses_fine_band(c) ? ", fine band" : ", no fine band")
+       << (c.box_depth ? ", depth " + std::to_string(*c.box_depth * 1e6) + " um" : std::string())
+       << ", " << beam_name(c) << " beam w0 = L/" << c.waist_factor << ", seed " << c.seed
+       << ", d0 = " << c.digits << ", leaf radius quantile " << c.leaf_radius_quantile
+       << ", tol = " << c.tolerance;
     return os.str();
 }
 
@@ -686,6 +837,13 @@ inline std::string summary(const Result& r) {
        << " GB (" << r.exact_pairs[1] << " pairs), far " << gb(r.far_bytes) << " GB, operator "
        << gb(r.operator_bytes) << " GB, Krylov " << gb(r.krylov_bytes) << " GB, peak after setup "
        << gb(r.peak_setup_rss) << " GB, peak " << gb(r.peak_rss) << " GB";
+    if (r.p_inc > 0.0)
+        os << "\npower: P_inc " << r.p_inc << " W, R = P_refl / P_inc " << r.p_refl / r.p_inc
+           << " (half the nodes: " << r.p_refl_coarse / r.p_inc << "), A = P_abs / P_inc "
+           << r.p_abs / r.p_inc << ", 1 - R - A " << 1.0 - (r.p_refl + r.p_abs) / r.p_inc
+           << "; post-processing " << r.post_s << " s";
+    if (!r.post_error.empty())
+        os << "\npower: post-processing failed after the solve: " << r.post_error;
     return os.str();
 }
 
@@ -695,16 +853,19 @@ inline std::string row(const Case& c, const Result& r) {
     std::ostringstream os;
     os.precision(6);
     os << "ROW material=" << c.material << " L_um=" << c.L * 1e6 << " box=" << box_option(c)
-       << " fine=" << (uses_fine_band(c) ? 1 : 0) << " restart=" << c.restart
-       << " h_nm=" << c.mesh_size * 1e9 << " waist=" << c.waist_factor << " beam=" << beam_name(c)
-       << " d0=" << c.digits << " tol=" << c.tolerance << " lq=" << c.leaf_radius_quantile
-       << " seed=" << c.seed << " solved=" << (c.solve ? 1 : 0) << " N2=" << r.est.unknowns
-       << " levels=" << r.est.levels << " leaf_nm=" << r.est.leaf_edge * 1e9
-       << " rmax_nm=" << r.est.max_support_radius * 1e9 << " elevated=" << r.est.elevated
-       << " setup_s=" << r.assembly_s << " tree_s=" << r.tree_s << " far_s=" << r.far_s
-       << " exact_s=" << r.exact_s << " near_s=" << r.near_s << " matvec_s=" << r.matvec_s
-       << " near_mv_s=" << r.near_matvec_s << " far_mv_s=" << r.far_matvec_s
-       << " it=" << r.iterations << " conv=" << (r.converged ? 1 : 0) << " res=" << r.final_residual
+       << " fine=" << (uses_fine_band(c) ? 1 : 0);
+    if (c.box_depth)
+        os << " depth_um=" << *c.box_depth * 1e6;
+    os << " restart=" << c.restart << " h_nm=" << c.mesh_size * 1e9 << " sigma_nm=" << c.sigma * 1e9
+       << " waist=" << c.waist_factor << " beam=" << beam_name(c) << " d0=" << c.digits
+       << " tol=" << c.tolerance << " lq=" << c.leaf_radius_quantile << " seed=" << c.seed
+       << " solved=" << (c.solve ? 1 : 0) << " N2=" << r.est.unknowns << " levels=" << r.est.levels
+       << " leaf_nm=" << r.est.leaf_edge * 1e9 << " rmax_nm=" << r.est.max_support_radius * 1e9
+       << " elevated=" << r.est.elevated << " setup_s=" << r.assembly_s << " tree_s=" << r.tree_s
+       << " far_s=" << r.far_s << " exact_s=" << r.exact_s << " near_s=" << r.near_s
+       << " matvec_s=" << r.matvec_s << " near_mv_s=" << r.near_matvec_s
+       << " far_mv_s=" << r.far_matvec_s << " it=" << r.iterations
+       << " conv=" << (r.converged ? 1 : 0) << " res=" << r.final_residual
        << " true_res=" << r.true_residual << " solve_s=" << r.solve_s
        << " near_gb=" << gb(r.near_bytes) << " exact_gb=" << gb(r.exact_bytes[0] + r.exact_bytes[1])
        << " exact_est_gb=" << gb(r.est.exact_bytes) << " pattern_est_gb=" << gb(r.est.pattern_bytes)
@@ -712,6 +873,11 @@ inline std::string row(const Case& c, const Result& r) {
        << " peak_est_gb=" << gb(r.est.peak_setup_bytes) << " far_gb=" << gb(r.far_bytes)
        << " krylov_gb=" << gb(r.krylov_bytes) << " peak_setup_gb=" << gb(r.peak_setup_rss)
        << " peak_gb=" << gb(r.peak_rss);
+    if (r.p_inc > 0.0)
+        os << " R=" << r.p_refl / r.p_inc << " R_coarse=" << r.p_refl_coarse / r.p_inc
+           << " A=" << r.p_abs / r.p_inc << " post_s=" << r.post_s;
+    if (!r.post_error.empty())
+        os << " post_error=1";
     return os.str();
 }
 

@@ -1,4 +1,4 @@
-- [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython registry, ctest -j oversubscription, shared-machine timing, CRLF worktrees, Catch2 hidden cases, cp1252 I/O, GCC16 false positive, UTF-8 paths/argv
+- [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython registry, ctest -j oversubscription, shared-machine timing, CRLF worktrees, Catch2 hidden cases, cp1252 I/O, GCC16 false positive, UTF-8 paths/argv, dash + signals across msys runtimes
 - [Windows build pitfalls](build_pitfalls_windows.md) — GCC null-deref false positives (GCC 13 CI repro via winlibs), debug -O0 timings, WP7b quadrature cost, ctest -R case
 - [GMRES observations](gmres_observations.md) — measured iteration counts/residuals (sphere, 2e4 rough box) for test budgets
 - [Touching-pair quadrature findings](touching_quadrature_findings.md) — Duffy error sources (rays, obtuse apex, radial), reference n at sharp folds
@@ -20,3 +20,4 @@
 - [Flat interface vs Fresnel](fresnel_flat_findings.md) — WP22c errors vs R_beam (Ag/Si, 0/45 deg), Ag needs GMRES tol 1e-5, w0 <= L/5 at 45 deg, GL hemisphere
 - [GMRES orthogonalisation findings](gmres_orthogonalization_findings.md) — WP-G1: 0.7 criterion fires ~always, 5900X bandwidth cap, BLAS-thread nondeterminism in test ops
 - [Ag absorption findings](ag_absorption_findings.md) — WP-A1: local (n x M).J* -43 % at L = 4 um 45 deg (non-radiating +-k mode?), A_ext = P_ext - P_sca correct
+- [Si large-area findings](si_large_area_findings.md) — WP22d: proxy 10.5 um, sigma 100 vs 50 costs, leaf L/2^k, 256 GB reasoning, matvec timing cost, Ag series

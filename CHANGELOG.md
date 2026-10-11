@@ -5,6 +5,38 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / tooling / docs (WP22d): large-area Si for the Phase 4 target "Si 30×30 µm²".
+  **Proxy measured** on the 128 GB machine (`benchmarks/results/si_large_area.md`): Si L = 10.5 µm,
+  σ = 100 nm, 2N = 1 098 720, uniform 50 nm box, rigorous beam, ICTF, d₀ = 3, tol 1e-3: 90
+  iterations, setup 225 s, solve 1 464 s, peak 89.5 GB (near 16.3, far 71.0, Krylov 1.6 GB),
+  R = 0.365, A = 0.634 (tol 1e-3, not a quantitative reflectance; balance 1e-3); σ = 100 nm
+  points at L = 4 / 6 µm against the σ = 50 nm series (iterations +23 / +33 %, solve +48 / +49 %,
+  peak +9 / +5 %). **Extrapolated, not measured** (component model for memory and setup, union
+  with a power law for the solve) to L = 30 µm: 2N = 5.95·10⁶, model 823 GB, peak 600–720 GB,
+  setup 27–53 min, solve 2.2–5.6 h on the 12-core machine (3.2–7.1 h total with the timing
+  matvecs and the power summary); fits the 1 TB server, not a 256 GB node: docs/01's "≈ 2.2 M"
+  counts the top face only (open 600 × 600 grid: 2N ≈ 2.16 M), the closing box now adds
+  85–175 % instead of the few percent ADR 0006 expected (λ₁/5 cells and the mandatory Si fine
+  band of the 2026-10-10 amendment, the 5.65 µm Si depth, the uniform-box recommendation of
+  ADR 0008), and at the 234 nm leaf the model needs ≈ 138 kB per unknown, which puts even the
+  top face alone near 256 GB. `--estimate-only` table for L = 20–32 µm (uniform and graded
+  box), showing that the octree root quantisation sets the leaf (234 nm at 30 µm, 125 nm at 32 µm: L = 32 µm with
+  q = 0.8 needs less memory than 30 µm). Benchmark options (`specklebem_mlfmm_scaling`):
+  `--sigma` (series key `sigma_nm` in the ROW line and in `mlfmm_scaling_fit.py`, default 50 nm),
+  `--history` (per-iteration residual and timestamp), `--far-field <deg>` (R = P_refl / P_inc and
+  A = P_abs / P_inc after the solve; the options are validated before the assembly, and a
+  post-processing error keeps the solve: ROW line without R / A, `post_error=1`, exit 4);
+  `mlfmm_scaling_fit.py` also groups by the `machine` annotation. **Server run kit**
+  `scripts/server_run_kit/` (Linux build incl. offline dependencies, thread / NUMA settings
+  (physical cores, `OMP_PLACES=cores`), run list with memory and wall-time estimates (setup,
+  timing matvecs, solve, post, total): smoke test, L = 20 µm, L = 30 µm with the graded q = 0.8
+  alternative, a server Ag series L = 4 / 7 / 11 / 17.5 µm whose own γ_solve closes the Ag
+  scaling DoD by measurement on one machine, and L = 32 µm; what to send back;
+  `run_large_area.sh`: estimate, memory check incl. the smallest cgroup limit on the path to the
+  root (v2) or the hierarchical limit (v1), with `--force-memory`, logged solve with VmHWM
+  sampling and signal forwarding, summary row, `--matvecs`, series via `--L a,b,c`;
+  smoke-tested locally with dash and bash at L = 1 µm). `benchmarks/si_large_area_extrapolation.py`,
+  `server_runs/` ignored.
 - tests / docs (WP22b3): MLFMM scaling DoD runs with the CGS2 GMRES, `--beam angular-spectrum`
   and exclusive machine time (`benchmarks/results/mlfmm_scaling.md`, rows block "WP22b3").
   **Si (uniform 50 nm box): γ_solve = 1.09 ± 0.04 over 2N = 5.9·10⁴ … 1.02·10⁶** (7 solved
