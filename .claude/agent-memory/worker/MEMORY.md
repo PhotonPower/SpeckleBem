@@ -17,3 +17,4 @@
 - [Angular-spectrum beam findings](angular_spectrum_beam_findings.md) — WP-E1 wave counts, aliasing beyond R (controlled ball), grid convergence, CODATA 3e-11 floor, f^2 coefficients
 - [MLFMM scaling findings](mlfmm_scaling_findings.md) — WP22b1 rough boxes: box r_max sets leaves, Si memory limit, uniform box route, Ag MGS share, far-table peak model
 - [Flat interface vs Fresnel](fresnel_flat_findings.md) — WP22c errors vs R_beam (Ag/Si, 0/45 deg), Ag needs GMRES tol 1e-5, w0 <= L/5 at 45 deg, GL hemisphere
+- [GMRES orthogonalisation findings](gmres_orthogonalization_findings.md) — WP-G1: 0.7 criterion fires ~always, 5900X bandwidth cap, BLAS-thread nondeterminism in test ops

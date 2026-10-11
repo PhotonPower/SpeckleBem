@@ -140,7 +140,17 @@ PreconditionerSide parse_side(const std::string& side) {
     throw py::value_error("side: expected \"left\" or \"right\"");
 }
 
-/// gmres=dict(tol, max_iter, restart (None = full GMRES), side, verbose) onto GmresParams.
+solver::Orthogonalization parse_orthogonalization(const std::string& name) {
+    const std::string s = to_lower(name);
+    if (s == "cgs2")
+        return solver::Orthogonalization::CGS2;
+    if (s == "mgs")
+        return solver::Orthogonalization::MGS;
+    throw py::value_error("gmres['orthogonalization']: expected \"cgs2\" or \"mgs\"");
+}
+
+/// gmres=dict(tol, max_iter, restart (None = full GMRES), side, verbose, orthogonalization)
+/// onto GmresParams.
 void apply_gmres(GmresParams& p, const py::dict& d) {
     for (const auto& [k, v] : d) {
         const auto key = dict_key(k, "gmres");
@@ -156,6 +166,10 @@ void apply_gmres(GmresParams& p, const py::dict& d) {
             p.side = parse_side(dict_value<std::string>(v, key, "gmres"));
         } else if (key == "verbose") {
             p.verbose = dict_value<bool>(v, key, "gmres");
+        } else if (key == "orthogonalization") {
+            if (!py::isinstance<py::str>(v))
+                throw py::value_error("gmres['orthogonalization']: expected a str");
+            p.orthogonalization = parse_orthogonalization(dict_value<std::string>(v, key, "gmres"));
         } else {
             throw py::value_error("gmres: unknown key '" + key + "'");
         }
@@ -530,6 +544,10 @@ true_relative_residual : float
     |b - Z x| / |b| of the returned solution, computed explicitly.
 wall_seconds : float
     Solve time [s] (assembly excluded).
+orthogonalization_seconds : float
+    Part of wall_seconds spent in the GMRES Gram-Schmidt steps (0 for the direct solver).
+reorthogonalizations : int
+    GMRES steps with a second Gram-Schmidt pass ("cgs2": every step; 0 for the direct solver).
 x : ndarray of complex128, shape (2N,)
     The solution [J; M] (read-only view kept alive by this result; J in A/m, M in V/m).
 )doc")
@@ -537,6 +555,8 @@ x : ndarray of complex128, shape (2N,)
         .def_readonly("converged", &GmresResult::converged)
         .def_readonly("true_relative_residual", &GmresResult::true_relative_residual)
         .def_readonly("wall_seconds", &GmresResult::wall_seconds)
+        .def_readonly("orthogonalization_seconds", &GmresResult::orthogonalization_seconds)
+        .def_readonly("reorthogonalizations", &GmresResult::reorthogonalizations)
         .def_readonly("x", &GmresResult::x)
         .def_property_readonly("residual_history",
                                [](const GmresResult& r) {
@@ -616,7 +636,9 @@ compression : str
     exactly evaluated far part would exceed ``max_exact_far_bytes``.
 gmres : dict, optional
     Keys ``tol`` (1e-3), ``max_iter`` (2000), ``restart`` (None = full GMRES), ``side``
-    ("left" / "right") and ``verbose`` (True: progress via the C++ log).
+    ("left" / "right"), ``verbose`` (True: progress via the C++ log) and
+    ``orthogonalization`` ("cgs2": parallel classical Gram-Schmidt with re-orthogonalisation,
+    default; "mgs": serial modified Gram-Schmidt).
 kernels : dict, optional
     Quadrature options (kernels::OperatorOptions member names): quad_degree_far,
     quad_degree_near, quad_degree_sing, outer_grading_levels, near_distance_factor,

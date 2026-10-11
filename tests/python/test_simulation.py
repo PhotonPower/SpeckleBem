@@ -66,6 +66,29 @@ def test_gmres_equals_direct(direct):
     assert sim.num_unknowns == 240 and "converged" in sim.report()
 
 
+def test_gmres_orthogonalization(direct):
+    # WP-G1: gmres['orthogonalization'] selects the Gram-Schmidt variant (case-insensitive).
+    res_direct = direct.solve()
+    assert res_direct.orthogonalization_seconds == 0 and res_direct.reorthogonalizations == 0
+    for name in ("cgs2", "MGS"):
+        sim = make_sim(formulation="PMCHWT", gmres=dict(verbose=False, orthogonalization=name))
+        res = sim.solve(tol=1e-10)
+        assert res.converged
+        assert rel(sim.currents, direct.currents) < 1e-7
+        assert 0 < res.orthogonalization_seconds <= res.wall_seconds
+        if name == "cgs2":
+            assert res.reorthogonalizations == res.iterations  # always two passes
+        else:
+            assert 0 <= res.reorthogonalizations <= res.iterations
+        with pytest.raises(AttributeError):  # read-only
+            res.reorthogonalizations = 0
+        with pytest.raises(AttributeError):
+            res.orthogonalization_seconds = 0.0
+    for bad in ("cgs", "", 2):
+        with pytest.raises(ValueError):
+            make_sim(gmres=dict(orthogonalization=bad))
+
+
 def test_auto_selection_and_overrides():
     si, ag = make_sim(sb.silicon_500nm()), make_sim(sb.silver_500nm())
     assert (si.formulation, si.preconditioner) == (sb.Formulation.ICTF, "none")

@@ -198,6 +198,7 @@ sim.assemble()                          # idempotent; GIL released
 res = sim.solve(tol=None, max_iter=None, restart=None, side=None, callback=None)  # SolveResult
 res.iterations, res.converged, res.residual_history, res.true_relative_residual,
 res.wall_seconds, res.x                 # residual_history: float64 copy; x: read-only view
+res.orthogonalization_seconds, res.reorthogonalizations  # GMRES Gram-Schmidt time / 2nd passes
 sim.report()                            # str
 sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "diagonal" | "none"
 sim.solver, sim.wavelength, sim.num_unknowns
@@ -245,7 +246,9 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   exact part exceeds the budget (the message names the region and the remedy: finer mesh /
   larger leaves, fewer digits, a larger `max_exact_far_bytes`, or "dense"). `gmres` keys: `tol`
   (`tolerance`),
-  `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`. `kernels`
+  `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`,
+  `orthogonalization` ("cgs2" = default, parallel CGS2; "mgs" = serial modified Gram-Schmidt;
+  `GmresParams::orthogonalization`, WP-G1). `kernels`
   keys are the `kernels::OperatorOptions` member names (`quad_degree_far`, `quad_degree_near`,
   `quad_degree_sing`, `outer_grading_levels`, `near_distance_factor`,
   `symmetrize_touching_above_kh`, `target_accuracy`, `quad_degree_rhs`, `fold_adaptive`,
