@@ -166,7 +166,8 @@ Options parse(int argc, char** argv) {
             throw std::invalid_argument(
                 "--profile, --spectrum, --spectrum-window and --strip-check need --load-currents");
     } else if (!o.save.empty() || !o.refine.empty()) {
-        throw std::invalid_argument("--save-currents and --refine need a solve (no --load-currents)");
+        throw std::invalid_argument(
+            "--save-currents and --refine need a solve (no --load-currents)");
     }
     if (o.window_given && !o.spectrum)
         throw std::invalid_argument("--spectrum-window needs --spectrum");
@@ -366,8 +367,8 @@ int main(int argc, char** argv) {
                         continue;
                     const auto [Js, Ms] = aa::currents_at(s, t, cen);
                     const auto [Jr, Mr] = f.currents(cen.x(), cen.y());
-                    const Real taper = o.hann ? std::pow(std::cos(constants::pi * cen.x() / c.L), 2)
-                                              : 1.0;
+                    const Real taper =
+                        o.hann ? std::pow(std::cos(constants::pi * cen.x() / c.L), 2) : 1.0;
                     xs.push_back(cen.x());
                     ws.push_back(taper * mesh.area(t));
                     ej.push_back(Js - Jr);
