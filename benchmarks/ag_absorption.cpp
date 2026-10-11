@@ -18,17 +18,24 @@
 //            [--pol p|s] [--mesh-size 50e-9] [--compression mlfmm|dense] [--digits|--d0 3]
 //            [--tol 1e-5] [--max-iter 6000] [--restart 0] [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--force]
-//            [--save-currents FILE] [--load-currents FILE]
+//            [--save-currents FILE] [--load-currents FILE] [--refine 1e-6,1e-7]
 // --save-currents writes the solved [J; M] (raw complex<double>); --load-currents evaluates the
-// diagnostics of saved currents of the same case without assembly and solve.
+// diagnostics of saved currents of the same case without assembly and solve. --refine adds
+// iterative-refinement steps x <- x + GMRES(Z, b - Z x) (left Jacobi) down to the listed true
+// relative residuals and prints a STAGE line (R, A, phase of M against J) after each.
 #include "specklebem/formulation/formulation.hpp"
+#include "specklebem/operator/assembler.hpp"
+#include "specklebem/solver/gmres.hpp"
+#include "specklebem/solver/preconditioner.hpp"
 
 #include <chrono>
 #include <cstdio>
 #include <exception>
 #include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "ag_absorption_support.hpp"
 #include "fresnel_flat_support.hpp"
@@ -44,6 +51,8 @@ struct Options {
     bool force = false;
     std::string save;  ///< --save-currents FILE: raw [J; M] (complex<double>) after the solve
     std::string load;  ///< --load-currents FILE: diagnostics of saved currents, no solve
+    /// --refine T1,T2,...: iterative refinement to the true relative residuals T1, T2, ...
+    std::vector<Real> refine;
 };
 
 Options parse(int argc, char** argv) {
@@ -95,6 +104,10 @@ Options parse(int argc, char** argv) {
             o.save = value();
         } else if (a == "--load-currents") {
             o.load = value();
+        } else if (a == "--refine") {
+            std::stringstream ss(value());
+            std::string item;
+            while (std::getline(ss, item, ',')) o.refine.push_back(std::stod(item));
         } else if (a == "--force") {
             o.force = true;
         } else {
@@ -246,9 +259,57 @@ int main(int argc, char** argv) {
             std::printf("%s\n%s\n%s\n", mc.c_str(), mi.c_str(), mt.c_str());
             return 0;
         }
+        // One summary line of a solution (after the solve or a refinement step).
+        const auto stage = [&](const std::string& name, const post::SurfaceSolution& s,
+                               Real true_res) {
+            const Real eta1 = material::vacuum().wave_impedance(beam->omega()).real();
+            const Vec3 specular(std::sin(th), 0.0, -std::cos(th));
+            const Real p_refl = hemisphere_power(s, hemisphere_grid(-1.0, c.ff_dtheta_deg),
+                                                 c.ff_degree, eta1, specular, 0.1)
+                                    .total;
+            diagnose(s);
+            const Real P = beam->power();
+            const Real r_beam = beam_reflectance(*beam, 1.0, eps2).reflectance;
+            std::printf(
+                "STAGE %s | true_res %.3e | R_sim/R_beam-1 %+.5f %% | A_sim %.6f | A_ext "
+                "%.6f | A_beam %.6f | walls %+.2e | centre %+.4f | inner %+.4f | top "
+                "%+.4f | dphi(M-J) centre %+.3f inner %+.3f top %+.3f mrad\n",
+                name.c_str(), true_res, 100.0 * (p_refl / P / r_beam - 1.0), d.deg2.total() / P,
+                (d.p_ext - p_refl - d.p_fwd_full) / P, d.a_beam, d.deg2.walls / P,
+                d.centre.p_sim / d.centre.p_ref - 1.0, d.inner.p_sim / d.inner.p_ref - 1.0,
+                d.top.p_sim / d.top.p_ref - 1.0,
+                1e3 * (std::arg(d.centre.c_m) - std::arg(d.centre.c_j)),
+                1e3 * (std::arg(d.inner.c_m) - std::arg(d.inner.c_j)),
+                1e3 * (std::arg(d.top.c_m) - std::arg(d.top.c_j)));
+            std::fflush(stdout);
+        };
         const Result r = run(c, geo, beam, build_s, [&](const Simulation& sim) {
             if (!o.save.empty())
                 save_currents(o.save, sim.solution().currents);
+            if (!o.refine.empty()) {
+                // Iterative refinement: x <- x + GMRES(Z, b - Z x) to the true residuals listed.
+                const op::LinearOperator& Z = *sim.system_operator();
+                const VectorXc& b = sim.rhs();
+                const solver::DiagonalPreconditioner jac(op::assemble_diagonal(sim.problem()));
+                VectorXc x = sim.solution().currents;
+                VectorXc zx(x.size());
+                Z.apply(x, zx);
+                stage("solve", sim.solution(), (b - zx).norm() / b.norm());
+                for (const Real target : o.refine) {
+                    const VectorXc res = b - zx;
+                    solver::GmresParams gp;
+                    gp.tolerance = target * b.norm() / res.norm();
+                    gp.max_iter = c.max_iter;
+                    gp.verbose = true;
+                    const solver::GmresResult g = solver::gmres(Z, res, jac, gp);
+                    x += g.x;
+                    Z.apply(x, zx);
+                    const Real tr = (b - zx).norm() / b.norm();
+                    char name[64];
+                    std::snprintf(name, sizeof(name), "refine %.0e (%d it)", target, g.iterations);
+                    stage(name, post::SurfaceSolution{&sim.problem(), x}, tr);
+                }
+            }
             diagnose(sim.solution());
         });
         const Real P = r.ref.power;
