@@ -9,6 +9,7 @@
 #include "specklebem/simulation.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 #include <spdlog/spdlog.h>
@@ -923,16 +924,55 @@ TEST_CASE("simulation: beam waist check (ADR 0006 amendment)", "[simulation]") {
     CHECK_NOTHROW(check_beam_waist(L, L / 4));  // the limit itself is allowed
     CHECK_THROWS_AS(check_beam_waist(L, L / 3), std::invalid_argument);
     CHECK_THROWS_AS(check_beam_waist(L, 2.6e-6), std::invalid_argument);
+    CHECK_NOTHROW(check_beam_waist(L, L / 4, {.incidence_angle = 0.0}));  // 0 deg unchanged
     {
         BoxWarningCounter warnings;
-        CHECK_NOTHROW(check_beam_waist(L, L / 3, true));
+        CHECK_NOTHROW(check_beam_waist(L, L / 3, {.allow_wide = true}));
         CHECK(warnings.count() == 1);
-        CHECK_NOTHROW(check_beam_waist(L, L / 4, true));  // within the rule: no warning
+        CHECK_NOTHROW(check_beam_waist(L, L / 4, {.allow_wide = true}));  // within: no warning
         CHECK(warnings.count() == 1);
     }
     for (const Real bad : {0.0, -1e-6, std::nan(""), HUGE_VAL}) {
         CHECK_THROWS_AS(check_beam_waist(bad, 1e-6), std::invalid_argument);
         CHECK_THROWS_AS(check_beam_waist(L, bad), std::invalid_argument);
-        CHECK_THROWS_AS(check_beam_waist(L, bad, true), std::invalid_argument);
+        CHECK_THROWS_AS(check_beam_waist(L, bad, {.allow_wide = true}), std::invalid_argument);
+    }
+}
+
+TEST_CASE("simulation: beam waist check at oblique incidence (ADR 0006 amendment 2026-10-11)",
+          "[simulation]") {
+    using Catch::Matchers::ContainsSubstring;
+    constexpr Real L = 4e-6;
+    const Real theta = constants::pi / 4.0;
+    const Real limit = L * std::cos(theta) / 4.0;  // 0.707 um
+    // 45 deg boundary: the limit itself passes, slightly above throws; the sign of the angle
+    // does not matter.
+    CHECK_NOTHROW(check_beam_waist(L, limit, {.incidence_angle = theta}));
+    CHECK_NOTHROW(check_beam_waist(L, limit, {.incidence_angle = -theta}));
+    CHECK_THROWS_AS(check_beam_waist(L, limit * (1.0 + 1e-9), {.incidence_angle = theta}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(check_beam_waist(L, limit * (1.0 + 1e-9), {.incidence_angle = -theta}),
+                    std::invalid_argument);
+    // L / 4 passes at 0 deg but not at 45 deg; the message states the rule and the numbers.
+    CHECK_THROWS_WITH(check_beam_waist(L, L / 4, {.incidence_angle = theta}),
+                      ContainsSubstring("L cos(theta_in) / 4") &&
+                          ContainsSubstring("7.07107e-07") && ContainsSubstring("4e-06") &&
+                          ContainsSubstring("0.785398") && ContainsSubstring("allow_wide"));
+    // The recorded Fresnel cases at 45 deg (w0 = L / 5) need allow_wide: warns exactly once.
+    {
+        BoxWarningCounter warnings;
+        CHECK_NOTHROW(check_beam_waist(L, L / 5, {.incidence_angle = theta, .allow_wide = true}));
+        CHECK(warnings.count("exceeds L cos(theta_in) / 4") == 1);
+        CHECK(warnings.count() == 1);
+        CHECK_NOTHROW(check_beam_waist(L, limit, {.incidence_angle = theta, .allow_wide = true}));
+        CHECK(warnings.count() == 1);
+    }
+    // Invalid angles throw even with allow_wide and a waist within any limit.
+    for (const Real bad :
+         {constants::pi / 2.0, -constants::pi / 2.0, 2.0, std::nan(""), HUGE_VAL, -HUGE_VAL}) {
+        CHECK_THROWS_AS(check_beam_waist(L, 0.1e-6, {.incidence_angle = bad}),
+                        std::invalid_argument);
+        CHECK_THROWS_AS(check_beam_waist(L, 0.1e-6, {.incidence_angle = bad, .allow_wide = true}),
+                        std::invalid_argument);
     }
 }

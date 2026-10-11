@@ -223,3 +223,12 @@ Decision (replaces item 5 of the WP21 amendment for meshes with a spread of supp
 6. Results with `leaf_radius_quantile = 1` (no elevated functions) must be bitwise unchanged; the matvec
    error criteria of docs/05 (d₀ = 3 / 5) must hold for meshes with elevated functions (box with 100 nm
    cells, Si and Ag).
+
+Implementation (WP21L, 2026-10-11): above the leaf the elevated functions use **ρ_e = ρ/2** (with the leaf
+ratio ρ the graded-box matvec error was 5.0e-2, with ρ/2 1.5e-4: the level orders exceed k·r_min and the
+translators amplify the interpolation error of the children's fields), so elevated functions sit at least
+two levels above the leaf. The default `leaf_radius_quantile` stays **1.0** (WP21 rule, bitwise unchanged)
+until WP22b3 measures the local rule at large L (0.8 is needed to elevate the 100 nm box cells; Si L = 1 µm:
+peak 10.3 → 6.3 GB, same iterations). The local rule is **restricted to d₀ ≤ 3**: at d₀ = 5 the λ/2 leaves it
+admits miss 1e-5 on a graded box (5.6e-5 Si, 6.4e-5 Ag, leaf-to-leaf vacuum interactions; the global rule
+passed only because r_max forced λ leaves); quantile < 1 with d₀ > 3 is rejected.

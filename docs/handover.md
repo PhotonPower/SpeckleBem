@@ -1,7 +1,6 @@
 # Handover: state of the project and how to continue
 
-Updated by the coordinator agent at the end of the second multi-agent session (2026-10-10, first session
-on the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`.
+Updated by the coordinator agent on 2026-10-11 (second session on the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`.
 
 ## Where things stand
 
@@ -24,30 +23,29 @@ on the Windows machine). Read this first, then `CLAUDE.md` and `docs/backlog.md`
   with `Simulation`/Python `compression="mlfmm"`. docs/05 MLFMM criteria met for dielectric and Si
   interiors (d₀ = 3 ≤ 2.9e-4 with λ/4 leaves; d₀ = 5 ≤ 6.7e-6 with λ/2 leaves; up to 2N = 8.8·10⁴). Also
   merged: WP-P2 dense assembly performance (Ag box ×35, Si box ×6 faster), WP7d kernel polish.
-- **Merged since:** WP21 (lossy-region policy, ADR 0008 WP21 amendment: Ag matvec vs dense 1.0e-4 / 4.1e-6)
-  and WP21f (per-region jump test, dense cap on the automatic exact-part budget).
-- **In flight (2026-10-10):**
-  - `wp/22a-ag-sphere-4um` (pushed, in review): Ag sphere 4 µm with MLFMM on the paper's 393 216-unknown
-    mesh (octahedron-based sphere, mean edge λ/16.5): worker-reported ε_rr 0.023 % / 0.016 % at tol 1e-3,
-    442 iterations, 15.6 min, peak 33.8 GB — Phase 4 DoD (≤ 0.5 %) met if the review confirms. Includes a
-    `SparseOperator` copy fix (−12 GB peak). Merged (e586d9a); follow-ups merged as WP22a-f (peak 2.75 → 1.80 × near
-    field). Open: the d₀ = 5 run needs exclusive use of the machine.
-  - `wp/v1-box-validity` (record `benchmarks/results/box_validity.md` written; two Si L = 1.5 µm runs
-    pending): docs/05 depth and edge checks fail at dense-feasible sizes; 400 nm box cells are a 1.5–2 %
-    far-field error (100 nm: 0.17 %); Si needs the fine band; w₀ = L/3 too wide; the paraxial beam is 2.8 %
-    off. Seven proposed ADR 0006 changes **await the project lead's decision** (asked 2026-10-10).
-- Test counts on `main`: 350 ctest (`-LE "validation-large|slow"`), 83 pytest; labels `slow`, `validation`
+- **Phase 4 merged since (2026-10-10/11):** WP21 + WP21f (lossy-region policy), **WP22a** (Ag sphere 4 µm,
+  393 216 unknowns: ε_rr 0.023 % / 0.016 % ≤ 0.5 %, DoD met) + WP22a-f, **WP-V1** (closing-box validity study),
+  **ADR 0006 amendments** (box cells ≤ λ₁/5, Si fine band, w₀ ≤ L cos θ/4, rigorous beam, metric, GMRES tol ≤ 1e-5
+  for quantitative Ag), WP-B1 (box defaults) + WP-B2 (angle-aware waist check), **WP-E1** (rigorous
+  angular-spectrum beam, `Excitation::controlled_radius` checked by `Simulation`), **WP22b1** (scaling: DoD
+  partially demonstrated — Si γ 0.73–0.88 to 2N = 5.2·10⁵, Ag γ 1.2 to 2.9·10⁵), **WP22c** (Fresnel: all 8
+  cases < 1 %, DoD met), **WP-G1** (CGS2 GMRES, 1.6–4.7× faster orthogonalisation).
+- **In flight:** WP21L (local leaf rule, ADR 0008 amendment 2026-10-11; fix round: default quantile 1.0,
+  d₀ ≤ 3 only), WP-A1 (Ag absorbed power at 45° ≈ 40 % low while R is right).
+- **Next:** WP22b3 (complete the scaling DoD to 2N = 10⁶: Ag solves with CGS2, Si with the uniform box or the
+  local leaf rule; needs exclusive machine time), WP-V2 (box validity at MLFMM sizes), then the Phase 4 Si
+  30×30 µm² target (needs memory reductions: local leaf rule, pattern recompute/single precision).
+- Test counts on `main`: 391 ctest (`-LE "validation-large|slow"`), 93 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
 
-1. **WP-V1 (important, decision pending):** see `benchmarks/results/box_validity.md` (recommendations for
-   ADR 0006: box cells ≤ λ₁/5 where illuminated, Si fine band mandatory, w₀ ≤ L/4, docs/05 checks at
-   L ≥ 6–11 µm with MLFMM, rigorous angular-spectrum beam before quantitative rough-surface results,
-   state the docs/05 metric, keep default depths).
-2. **WP15 deviations from Fu et al.:** PMCHWT converges and Jacobi is slowest for Ag at 2N ≈ 3·10⁴; a
-   size sweep with MLFMM is needed.
-3. **WP12 Fresnel** and the **Ag λ/20 sphere** remain deferred (size).
+1. **Box validity at realistic sizes (WP-V2)** is the remaining physics gate before quantitative speckle
+   results: λ₁/5 box cells are necessary, not shown sufficient.
+2. **Ag absorption at oblique incidence** (WP-A1) — R is validated, A is not.
+3. **Phase 4 target "Si 30×30 µm² on a 256 GB node"**: this machine has 128 GB; the graded box adds ~50 % unknowns
+   at L = 30 µm; feasible only with the local leaf rule plus pattern memory reductions (Phase 7 recompute mode).
+4. WP15 deviations from Fu et al. (formulation sweep with MLFMM, WP22b2) and the Ag λ/20 sphere (size) remain open.
 
 ## How the workflow runs on this machine
 

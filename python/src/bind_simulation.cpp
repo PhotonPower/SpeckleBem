@@ -140,7 +140,17 @@ PreconditionerSide parse_side(const std::string& side) {
     throw py::value_error("side: expected \"left\" or \"right\"");
 }
 
-/// gmres=dict(tol, max_iter, restart (None = full GMRES), side, verbose) onto GmresParams.
+solver::Orthogonalization parse_orthogonalization(const std::string& name) {
+    const std::string s = to_lower(name);
+    if (s == "cgs2")
+        return solver::Orthogonalization::CGS2;
+    if (s == "mgs")
+        return solver::Orthogonalization::MGS;
+    throw py::value_error("gmres['orthogonalization']: expected \"cgs2\" or \"mgs\"");
+}
+
+/// gmres=dict(tol, max_iter, restart (None = full GMRES), side, verbose, orthogonalization)
+/// onto GmresParams.
 void apply_gmres(GmresParams& p, const py::dict& d) {
     for (const auto& [k, v] : d) {
         const auto key = dict_key(k, "gmres");
@@ -156,6 +166,10 @@ void apply_gmres(GmresParams& p, const py::dict& d) {
             p.side = parse_side(dict_value<std::string>(v, key, "gmres"));
         } else if (key == "verbose") {
             p.verbose = dict_value<bool>(v, key, "gmres");
+        } else if (key == "orthogonalization") {
+            if (!py::isinstance<py::str>(v))
+                throw py::value_error("gmres['orthogonalization']: expected a str");
+            p.orthogonalization = parse_orthogonalization(dict_value<std::string>(v, key, "gmres"));
         } else {
             throw py::value_error("gmres: unknown key '" + key + "'");
         }
@@ -196,7 +210,7 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
 
 /// mlfmm=dict(...) onto mlfmm::MlfmmParams (docs/10): accuracy_digits, max_elements_per_leaf,
 /// min_box_size_lambda (the octree keys of mlfmm::OctreeParams), automatic_leaf_size,
-/// max_exact_far_bytes.
+/// leaf_radius_quantile, max_exact_far_bytes.
 void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
     for (const auto& [k, v] : d) {
         const auto key = dict_key(k, "mlfmm");
@@ -208,6 +222,8 @@ void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
             p.octree.min_box_size_lambda = dict_value<Real>(v, key, "mlfmm");
         } else if (key == "automatic_leaf_size") {
             p.automatic_leaf_size = dict_value<bool>(v, key, "mlfmm");
+        } else if (key == "leaf_radius_quantile") {
+            p.leaf_radius_quantile = dict_value<Real>(v, key, "mlfmm");
         } else if (key == "max_exact_far_bytes") {
             // Python int >= 0 (a negative value fails the unsigned cast -> ValueError).
             p.max_exact_far_bytes = dict_value<std::size_t>(v, key, "mlfmm");
@@ -494,11 +510,20 @@ Returns
 -------
 RoughBoxParams
 )doc");
-    m.def("check_beam_waist", &check_beam_waist, py::arg("patch_length"), py::arg("waist"),
-          py::arg("allow_wide") = false, R"doc(
-Beam-waist rule of rough patches (ADR 0006 amendment 2026-10-10): waist <= patch_length / 4.
-Raises ValueError for a wider waist unless allow_wide=True (then a warning is logged).
-Rough-surface drivers must call it: Simulation cannot determine the patch size from a mesh.
+    m.def(
+        "check_beam_waist",
+        [](Real patch_length, Real waist, Real incidence_angle, bool allow_wide) {
+            check_beam_waist(patch_length, waist,
+                             {.incidence_angle = incidence_angle, .allow_wide = allow_wide});
+        },
+        py::arg("patch_length"), py::arg("waist"), py::kw_only(), py::arg("incidence_angle") = 0.0,
+        py::arg("allow_wide") = false, R"doc(
+Beam-waist rule of rough patches (ADR 0006 amendments 2026-10-10 and 2026-10-11):
+waist <= patch_length * cos(incidence_angle) / 4, incidence_angle [rad] with
+|incidence_angle| < pi / 2 (the footprint on z = 0 is 1 / cos longer at oblique incidence).
+Raises ValueError for a wider waist unless allow_wide=True (then a warning is logged), and for
+non-positive sizes or an invalid angle. Rough-surface drivers must call it: Simulation cannot
+determine the patch size from a mesh.
 )doc");
 }
 
@@ -521,6 +546,10 @@ true_relative_residual : float
     |b - Z x| / |b| of the returned solution, computed explicitly.
 wall_seconds : float
     Solve time [s] (assembly excluded).
+orthogonalization_seconds : float
+    Part of wall_seconds spent in the GMRES Gram-Schmidt steps (0 for the direct solver).
+reorthogonalizations : int
+    GMRES steps with a second Gram-Schmidt pass ("cgs2": every step; 0 for the direct solver).
 x : ndarray of complex128, shape (2N,)
     The solution [J; M] (read-only view kept alive by this result; J in A/m, M in V/m).
 )doc")
@@ -528,6 +557,8 @@ x : ndarray of complex128, shape (2N,)
         .def_readonly("converged", &GmresResult::converged)
         .def_readonly("true_relative_residual", &GmresResult::true_relative_residual)
         .def_readonly("wall_seconds", &GmresResult::wall_seconds)
+        .def_readonly("orthogonalization_seconds", &GmresResult::orthogonalization_seconds)
+        .def_readonly("reorthogonalizations", &GmresResult::reorthogonalizations)
         .def_readonly("x", &GmresResult::x)
         .def_property_readonly("residual_history",
                                [](const GmresResult& r) {
@@ -607,7 +638,9 @@ compression : str
     exactly evaluated far part would exceed ``max_exact_far_bytes``.
 gmres : dict, optional
     Keys ``tol`` (1e-3), ``max_iter`` (2000), ``restart`` (None = full GMRES), ``side``
-    ("left" / "right") and ``verbose`` (True: progress via the C++ log).
+    ("left" / "right"), ``verbose`` (True: progress via the C++ log) and
+    ``orthogonalization`` ("cgs2": parallel classical Gram-Schmidt with re-orthogonalisation,
+    default; "mgs": serial modified Gram-Schmidt).
 kernels : dict, optional
     Quadrature options (kernels::OperatorOptions member names): quad_degree_far,
     quad_degree_near, quad_degree_sing, outer_grading_levels, near_distance_factor,
@@ -620,7 +653,10 @@ mlfmm : dict, optional
     ``max_elements_per_leaf`` (100), ``min_box_size_lambda`` (0.25; leaf-edge floor in
     exterior wavelengths, a lower bound of the automatic leaf rule),
     ``automatic_leaf_size`` (True: leaf edge >= max(lambda/4 for d0 <= 3, lambda/2 for d0 > 3,
-    r_max / 0.6 for d0 <= 3, r_max / 0.3 for d0 > 3); False uses min_box_size_lambda as given)
+    r_q / 0.6 for d0 <= 3, r_q / 0.3 for d0 > 3); False uses min_box_size_lambda as given),
+    ``leaf_radius_quantile`` (1.0 = the global rule with r_max; < 1: local leaf rule, r_q is
+    this quantile of the RWG support radii and larger functions live on coarser octree levels;
+    opt-in, accuracy_digits <= 3 only, otherwise ValueError)
     and ``max_exact_far_bytes`` (0 = automatic: max(2 x the near-field bytes, 1 GiB), at most
     the dense matrix bytes 16 (2N)^2; budget of the exactly evaluated far interactions of
     lossy regions, checked before allocation).

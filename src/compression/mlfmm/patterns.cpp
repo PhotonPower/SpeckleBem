@@ -242,30 +242,46 @@ int pattern_quadrature_degree(Real kh, Real target_accuracy) {
     return kDegrees.back();
 }
 
-Real max_support_radius(const basis::RwgSpace& space) {
+std::vector<Real> support_radii(const basis::RwgSpace& space) {
     if (space.size() == 0) {
-        throw std::invalid_argument("max_support_radius: empty RWG space");
+        throw std::invalid_argument("support_radii: empty RWG space");
     }
     const geometry::TriangleMesh& mesh = space.mesh();
     const Vertices& v = mesh.vertices();
-    Real r = 0.0;
+    std::vector<Real> r(static_cast<std::size_t>(space.size()));
     for (Index n = 0; n < space.size(); ++n) {
         const Vec3 a = v.row(mesh.edges()(n, 0)).transpose();
         const Vec3 b = v.row(mesh.edges()(n, 1)).transpose();
         const Vec3 mid = 0.5 * (a + b);
         const Vec3 pp = v.row(space.plus_free_vertex(n)).transpose();
         const Vec3 pm = v.row(space.minus_free_vertex(n)).transpose();
-        r = std::max({r, (a - mid).norm(), (pp - mid).norm(), (pm - mid).norm()});
+        r[static_cast<std::size_t>(n)] =
+            std::max({(a - mid).norm(), (pp - mid).norm(), (pm - mid).norm()});
     }
     return r;
+}
+
+Real max_support_radius(const basis::RwgSpace& space) {
+    if (space.size() == 0) {
+        throw std::invalid_argument("max_support_radius: empty RWG space");
+    }
+    const std::vector<Real> r = support_radii(space);
+    return *std::max_element(r.begin(), r.end());
 }
 
 LeafSampling leaf_sampling(const basis::RwgSpace& space, const Octree& tree, Complex k,
                            Real digits) {
     check_k(k, "leaf_sampling");
+    return leaf_sampling(tree, k, digits, max_support_radius(space));
+}
+
+LeafSampling leaf_sampling(const Octree& tree, Complex k, Real digits, Real support_radius) {
+    check_k(k, "leaf_sampling");
+    if (!std::isfinite(support_radius) || support_radius < 0.0)
+        throw std::invalid_argument("leaf_sampling: support_radius must be finite and >= 0");
     LeafSampling s;
     const Real a = tree.box_size(tree.leaf_level());
-    s.enlarged_diagonal = std::sqrt(3.0) * a + 2.0 * max_support_radius(space);
+    s.enlarged_diagonal = std::sqrt(3.0) * a + 2.0 * support_radius;
     TruncationSearchOptions opt;
     opt.box_diagonal = s.enlarged_diagonal;
     s.search = search_truncation_order(k, a, digits, opt);
@@ -290,7 +306,14 @@ RadiationPatterns::RadiationPatterns(const basis::RwgSpace& space, const Octree&
     // Sizes in std::size_t from clamped values (GCC -O3 -Wnull-dereference false positives).
     const auto nbasis = static_cast<std::size_t>(std::max<Index>(num_basis_, 1));
     const auto ndir = static_cast<std::size_t>(std::max<Index>(nd, 1));
-    data_.assign(nbasis * ndir * 2, Complex(0.0, 0.0));
+    // Slots of the functions whose home level is the leaf level, in permuted order.
+    slot_.assign(nbasis, -1);
+    for (std::size_t p = 0; p < static_cast<std::size_t>(num_basis_); ++p) {
+        if (tree.home_level(static_cast<Index>(p)) == tree.leaf_level())
+            slot_[p] = num_stored_++;
+    }
+    const auto nstored = static_cast<std::size_t>(std::max<Index>(num_stored_, 1));
+    data_.assign(nstored * ndir * 2, Complex(0.0, 0.0));
     leaf_box_.assign(nbasis, -1);
 
     // Antipodal map: theta -> pi - theta (GL nodes are symmetric), phi -> phi + pi.
@@ -324,12 +347,25 @@ RadiationPatterns::RadiationPatterns(const basis::RwgSpace& space, const Octree&
         try {
             const Box& box =
                 tree.boxes()[static_cast<std::size_t>(leaves[static_cast<std::size_t>(ib)])];
-            const std::span<const Index> bases(perm.data() + box.first_element,
-                                               static_cast<std::size_t>(box.num_elements));
-            compute_patterns(
-                space, bases, box.center, k, sampling_,
-                [&](Index t) { return degree[static_cast<std::size_t>(t)]; },
-                data_.data() + static_cast<std::size_t>(box.first_element) * ndir * 2);
+            // The stored (leaf-home) bases of a leaf have consecutive slots.
+            std::span<const Index> bases(perm.data() + box.first_element,
+                                         static_cast<std::size_t>(box.num_elements));
+            std::vector<Index> stored;
+            if (tree.has_elevated()) {
+                for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p) {
+                    if (slot_[static_cast<std::size_t>(p)] >= 0)
+                        stored.push_back(perm[static_cast<std::size_t>(p)]);
+                }
+                bases = stored;
+            }
+            if (!bases.empty()) {
+                const Index first = slot_[static_cast<std::size_t>(
+                    tree.inverse_permutation()[static_cast<std::size_t>(bases.front())])];
+                compute_patterns(
+                    space, bases, box.center, k, sampling_,
+                    [&](Index t) { return degree[static_cast<std::size_t>(t)]; },
+                    data_.data() + static_cast<std::size_t>(first) * ndir * 2);
+            }
             for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p)
                 leaf_box_[static_cast<std::size_t>(p)] = leaves[static_cast<std::size_t>(ib)];
         } catch (...) {
@@ -367,6 +403,10 @@ FarBlock far_block(const RadiationPatterns& patterns, Index box_a, Index box_b,
     const Box& B = tree.boxes()[static_cast<std::size_t>(box_b)];
     if (A.level != tree.leaf_level() || B.level != tree.leaf_level()) {
         throw std::invalid_argument("far_block: both boxes must be leaf boxes");
+    }
+    if (tree.has_elevated()) {
+        throw std::invalid_argument(
+            "far_block: the octree has elevated basis functions (no leaf patterns for them)");
     }
     if (!std::binary_search(A.interaction_list.begin(), A.interaction_list.end(), box_b)) {
         throw std::invalid_argument("far_block: box_b is not in the interaction list of box_a");

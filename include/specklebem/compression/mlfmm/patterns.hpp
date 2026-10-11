@@ -55,6 +55,12 @@ struct PatternOptions {
 /// @throws std::invalid_argument for an empty space.
 [[nodiscard]] Real max_support_radius(const basis::RwgSpace& space);
 
+/// Support radius of every RWG function (index = basis index): the distance from the midpoint of
+/// edge n to the farthest of the four vertices of its support triangles [m]; max_support_radius
+/// is their maximum (the same values). Input of the local leaf rule (Octree home levels).
+/// @throws std::invalid_argument for an empty space.
+[[nodiscard]] std::vector<Real> support_radii(const basis::RwgSpace& space);
+
 /// Truncation and sampling order of the leaf level of `tree` for one region.
 struct LeafSampling {
     Real enlarged_diagonal = 0;  ///< sqrt(3) a_leaf + 2 max_support_radius [m]
@@ -77,13 +83,23 @@ struct LeafSampling {
 ///         space; std::underflow_error from search_truncation_order.
 [[nodiscard]] LeafSampling leaf_sampling(const basis::RwgSpace& space, const Octree& tree,
                                          Complex k, Real digits);
+/// The same with an explicit support radius in the enlarged diagonal sqrt(3) a_leaf + 2
+/// support_radius (local leaf rule: the largest support radius of the functions whose home level
+/// is the leaf level). leaf_sampling(space, tree, k, digits) = this with max_support_radius.
+/// @throws as above, and std::invalid_argument for a negative or non-finite support_radius.
+[[nodiscard]] LeafSampling leaf_sampling(const Octree& tree, Complex k, Real digits,
+                                         Real support_radius);
 
-/// Radiation patterns of every RWG function of one region on the leaf level of an Octree.
+/// Radiation patterns of the RWG functions of one region on the leaf level of an Octree: every
+/// function whose home level is the leaf level (all of them unless the octree has elevated
+/// functions, octree.hpp "Home levels"; the far operator samples elevated functions at their home
+/// level separately).
 ///
 /// Storage (ADR 0005): one contiguous array indexed (basis, direction, component), basis in the
-/// permuted (Morton) order of the octree: entry ((p * num_directions() + q) * 2 + c) holds the
-/// theta_hat (c = 0) or phi_hat (c = 1) component of V_{perm[p]}(khat_q) relative to the
-/// centre of the leaf box containing permuted position p.
+/// permuted (Morton) order of the octree, elevated positions skipped: entry
+/// ((slot(p) * num_directions() + q) * 2 + c) holds the theta_hat (c = 0) or phi_hat (c = 1)
+/// component of V_{perm[p]}(khat_q) relative to the centre of the leaf box containing permuted
+/// position p. Without elevated functions slot(p) = p.
 ///
 /// Quadrature: per leaf box and direction, the moments int e^{+jk khat.(r - c)} dS and
 /// int (r - c) e^{+jk khat.(r - c)} dS of every support triangle are formed with the Dunavant
@@ -107,15 +123,20 @@ public:
     [[nodiscard]] const Octree& octree() const { return tree_; }
     [[nodiscard]] const SphereSampling& sampling() const { return sampling_; }
     [[nodiscard]] Index num_basis() const { return num_basis_; }
+    /// Number of stored patterns (the functions with home level = leaf level).
+    [[nodiscard]] Index num_stored() const { return num_stored_; }
     [[nodiscard]] Index num_directions() const { return sampling_.size(); }
     /// Largest Dunavant degree used on a triangle.
     [[nodiscard]] int max_quad_degree() const { return max_degree_; }
-    /// All patterns, size num_basis() * num_directions() * 2 (layout above).
+    /// All patterns, size num_stored() * num_directions() * 2 (layout above).
     [[nodiscard]] std::span<const Complex> data() const { return data_; }
+    /// Storage slot of permuted position p; -1 for an elevated function (not stored).
+    [[nodiscard]] Index slot(Index p) const { return slot_[static_cast<std::size_t>(p)]; }
 
-    /// Component c (0: theta_hat, 1: phi_hat) of V at permuted position p, direction q.
+    /// Component c (0: theta_hat, 1: phi_hat) of V at permuted position p (stored, slot(p) >= 0),
+    /// direction q.
     [[nodiscard]] Complex radiation(Index p, Index q, int c) const {
-        return data_[static_cast<std::size_t>((p * num_directions() + q) * 2 + c)];
+        return data_[static_cast<std::size_t>((slot(p) * num_directions() + q) * 2 + c)];
     }
     /// Component c of R_p(khat_q) = V_p(-khat_q) in the (theta_hat, phi_hat) basis of khat_q.
     /// The antipode q' of q has theta' = pi - theta, phi' = phi + pi; there theta_hat(q') =
@@ -134,10 +155,12 @@ private:
     const Octree& tree_;
     SphereSampling sampling_;
     Index num_basis_ = 0;
+    Index num_stored_ = 0;
     int max_degree_ = 0;
     std::vector<Complex> data_;
     std::vector<Index> antipode_;
     std::vector<Index> leaf_box_;
+    std::vector<Index> slot_;
 };
 
 /// Radiation patterns V_n of the given basis functions relative to an arbitrary `center` at the
@@ -167,8 +190,9 @@ struct FarBlock {
 /// directions. Cost O(|A| |B| num_directions) (two complex matrix products).
 /// @throws std::out_of_range for box indices outside the octree;
 ///         std::invalid_argument if a box is not a leaf, box_b is not in box_a's interaction
-///         list, truncation_order is outside 0..sampling().order(), or region.k differs from
-///         patterns.k() (relative 1e-12) or omega / mu are not finite; std::overflow_error
+///         list, truncation_order is outside 0..sampling().order(), region.k differs from
+///         patterns.k() (relative 1e-12), omega / mu are not finite, or the octree has elevated
+///         basis functions (leaf blocks need every pattern); std::overflow_error
 ///         from translator.
 [[nodiscard]] FarBlock far_block(const RadiationPatterns& patterns, Index box_a, Index box_b,
                                  int truncation_order, const kernels::RegionParams& region);

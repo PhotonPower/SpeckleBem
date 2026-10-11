@@ -95,7 +95,8 @@ p.box_depth, p.box_fine_depth (None: no band), p.box_mesh_size (None: automatic,
 p.exterior_wavelength, p.uniform_fallback, p.kwargs()
 sb.default_box_depth(object, wavelength), sb.default_box_fine_depth(object, wavelength, sigma)
 sb.default_box_mesh_size(background, wavelength, mesh_size), sb.exterior_wavelength(background, wavelength)
-sb.check_beam_waist(patch_length, waist, allow_wide=False)   # ValueError if waist > L / 4
+sb.check_beam_waist(patch_length, waist, *, incidence_angle=0.0, allow_wide=False)
+                                        # ValueError if waist > L cos(incidence_angle) / 4
 sb.field_decay_length(material, wavelength) / sb.field_decay_length(eps_r, wavelength)
 sb.DispersiveMaterial(wavelengths, refractive_indices)   # n - jk; .at(wl) == .at_wavelength(wl)
 sb.PlaneWave(wavelength, direction, polarization, background=sb.vacuum())
@@ -137,9 +138,14 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
   `uniform_fallback = True`, logged as a warning. Without `exterior_wavelength` and
   `box_mesh_size` the old automatic rule (min(depth / 2, L / 8, 10 h)) is used with a warning
   (not validated under illumination). lambda_1 / 5 is necessary, not shown sufficient (WP-V2).
-- Beam waist: rough-surface drivers must call `check_beam_waist(L, waist)` (w0 <= L / 4,
-  ADR 0006 amendment); `Simulation` cannot determine the patch size from a mesh.
-  `allow_wide=True` accepts a wider waist with a warning.
+- Beam waist: rough-surface drivers must call
+  `check_beam_waist(L, waist, incidence_angle=theta_in)` (w0 <= L cos(theta_in) / 4, ADR 0006
+  amendments 2026-10-10 and 2026-10-11: the footprint on z = 0 is 1 / cos(theta_in) longer, and
+  w0 = L / 4 at 45 deg loses 0.63 % of the beam power past the patch); `Simulation` cannot
+  determine the patch size from a mesh. `incidence_angle` [rad] is that of the beam
+  (`GaussianBeam` / `AngularSpectrumBeam`), |theta_in| < pi / 2 (else `ValueError`).
+  `allow_wide=True` accepts a wider waist with a warning. Both are keyword-only (C++:
+  `check_beam_waist(L, w0, {.incidence_angle = theta, .allow_wide = false})`).
 - `PlaneWave.direction` is `k_hat` (normalised by the constructor), `polarization` the complex
   amplitude `e0` [V/m] (transverse). `GaussianBeam.waist` is `Params::waist_radius` (1/e^2
   intensity radius); `polarization` is `"p"`, `"s"` (any case) or `sb.Polarization.P/S`.
@@ -192,6 +198,7 @@ sim.assemble()                          # idempotent; GIL released
 res = sim.solve(tol=None, max_iter=None, restart=None, side=None, callback=None)  # SolveResult
 res.iterations, res.converged, res.residual_history, res.true_relative_residual,
 res.wall_seconds, res.x                 # residual_history: float64 copy; x: read-only view
+res.orthogonalization_seconds, res.reorthogonalizations  # GMRES Gram-Schmidt time / 2nd passes
 sim.report()                            # str
 sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "diagonal" | "none"
 sim.solver, sim.wavelength, sim.num_unknowns
@@ -228,8 +235,13 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   r_max / ratio(d0)) with a_min = lambda/4 for d0 <= 3 and lambda/2 for d0 > 3, ratio = 0.6 for
   d0 <= 3 and 0.3 for d0 > 3 (`mlfmm::max_support_ratio`), r_max the largest RWG support radius,
   so `accuracy_digits=5` needs no manual leaf choice; the user value acts as a lower bound; False
-  uses `min_box_size_lambda` as given, for experiments), `max_exact_far_bytes` (int, 0 =
-  automatic: max(2 x the near-field bytes, 1 GiB), at most 16 (2N)^2; WP21 review, WP21f).
+  uses `min_box_size_lambda` as given, for experiments), `leaf_radius_quantile` (1.0 = the
+  global rule; < 1: local leaf rule of ADR 0008, WP21L: r_max in the leaf rule is replaced by this
+  quantile r_q of the support radii, and the larger functions live on a coarser octree level,
+  r <= ratio(d0) a / 2 there; opt-in until measured at large L (WP22b3), the WP22b1 Si boxes need
+  ~0.8 to elevate their coarse box cells; only with `accuracy_digits` <= 3, a value < 1 with
+  d0 > 3 raises ValueError because the lambda/2 leaves it allows miss 1e-5), `max_exact_far_bytes` (int, 0 = automatic: max(2 x the
+  near-field bytes, 1 GiB), at most 16 (2N)^2; WP21 review, WP21f).
   Lossy interiors such as silver use the ADR 0008 §6 policy (WP21): no expansion where it is inaccurate, far pairs truncated by
   the decay bound (1 + alpha d) e^{-alpha d} <= 10^-(d0+1) or evaluated exactly (40 bytes per
   basis pair; allowed only if the exact pairs stay within 4 box edges, x*(d0) / alpha <= 4 a,
@@ -239,7 +251,9 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   exact part exceeds the budget (the message names the region and the remedy: finer mesh /
   larger leaves, fewer digits, a larger `max_exact_far_bytes`, or "dense"). `gmres` keys: `tol`
   (`tolerance`),
-  `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`. `kernels`
+  `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`,
+  `orthogonalization` ("cgs2" = default, parallel CGS2; "mgs" = serial modified Gram-Schmidt;
+  `GmresParams::orthogonalization`, WP-G1). `kernels`
   keys are the `kernels::OperatorOptions` member names (`quad_degree_far`, `quad_degree_near`,
   `quad_degree_sing`, `outer_grading_levels`, `near_distance_factor`,
   `symmetrize_touching_above_kh`, `target_accuracy`, `quad_degree_rhs`, `fold_adaptive`,

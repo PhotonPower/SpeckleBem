@@ -52,6 +52,11 @@ target_link_libraries(specklebem_mlfmm_scaling PRIVATE SpeckleBem::specklebem sp
 add_executable(specklebem_fresnel_flat fresnel_flat.cpp)
 target_link_libraries(specklebem_fresnel_flat PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
 
+# GMRES orthogonalisation cost (WP-G1): time per iteration vs Krylov dimension for MGS and CGS2 on
+# a synthetic operator with a cheap matvec. Run by hand (n = 2e5, 1000 iterations: ~3.2 GB), see
+# benchmarks/results/gmres_orthogonalization.md.
+add_executable(specklebem_gmres_orthogonalization gmres_orthogonalization.cpp)
+target_link_libraries(specklebem_gmres_orthogonalization PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
 
 # Absorbed power of the flat box (WP-A1, follow-up of WP22c): the fresnel_flat case with
 # diagnostics of P_abs from the currents (parts, extinction, analytic interface currents); one
