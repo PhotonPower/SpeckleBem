@@ -146,6 +146,11 @@ TEST_CASE("Absorbed power parts, RWG interpolant and top-face metrics are consis
     c.waist = 0.125e-6;
     c.theta_deg = 30.0;
     c.pol = excitation::Polarization::S;
+    // w0 = L / 4 exceeds the oblique-incidence limit L cos(30 deg) / 4 = 0.108 um of
+    // check_beam_waist (ADR 0006 amendment 2026-10-11): accepted deliberately, the case checks
+    // only the internal consistency of the diagnostics on the RWG interpolant (no solve, no
+    // comparison with the beam reflectance), for which the edge loss is irrelevant.
+    c.allow_wide_beam = true;
     const Geometry geo = make_geometry(c);
     const auto beam = make_beam(c, geo.r_max);
     const Simulation sim(geo.mesh, beam, make_config(c));
