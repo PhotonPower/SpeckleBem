@@ -35,6 +35,13 @@ excitation::AngularSpectrumBeam make_test_beam(Real w0, Real theta_deg,
     return excitation::AngularSpectrumBeam(p, material::vacuum());
 }
 
+// Not inlined: GCC 16 -O3 otherwise speculatively devirtualises the excitation calls of the test
+// body to the (final, inline) AngularSpectrumBeam members of this translation unit and warns
+// (-Warray-bounds false positive) against the visible PlaneWave allocation.
+[[gnu::noinline]] std::shared_ptr<excitation::Excitation> x_polarised_plane_wave(Real lambda) {
+    return std::make_shared<excitation::PlaneWave>(lambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0));
+}
+
 }  // namespace
 
 TEST_CASE("Interface fields of a wide beam: impedance of the transmitted wave at the focus",
@@ -107,8 +114,7 @@ TEST_CASE("Extinction integral equals the optical theorem for arbitrary currents
     // theorem -(4 pi / k) Im[F(k_inc) . e0*] |E0|^2 / (2 eta) applied to the same currents, so
     // random currents (fixed seed) must agree to rounding (both use Dunavant degree 6).
     const Real lambda = 500e-9;
-    const auto wave =
-        std::make_shared<excitation::PlaneWave>(lambda, Vec3::UnitZ(), Vec3c(1.0, 0.0, 0.0));
+    const std::shared_ptr<excitation::Excitation> wave = x_polarised_plane_wave(lambda);
     SimulationConfig cfg;
     cfg.wavelength = lambda;
     cfg.object = material::silver_500nm();
