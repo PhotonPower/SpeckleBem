@@ -19,5 +19,6 @@
 - [Flat interface vs Fresnel](fresnel_flat_findings.md) — WP22c errors vs R_beam (Ag/Si, 0/45 deg), Ag needs GMRES tol 1e-5, w0 <= L/5 at 45 deg, GL hemisphere
 - [GMRES orthogonalisation findings](gmres_orthogonalization_findings.md) — WP-G1: 0.7 criterion fires ~always, 5900X bandwidth cap, BLAS-thread nondeterminism in test ops
 - [Ag absorption findings](ag_absorption_findings.md) — WP-A1: local (n x M).J* -43 % at L = 4 um 45 deg (non-radiating +-k mode?), A_ext = P_ext - P_sca correct
+- [Box validity MLFMM findings](box_validity_mlfmm_findings.md) — WP-V2: Si passes w/ uniform box at w0<=L/6 (1 seed); Ag fails, cause open (SPP vs WP-A2 cavity); floors
 - [Si large-area findings](si_large_area_findings.md) — WP22d: proxy 10.5 um, sigma 100 vs 50 costs, leaf L/2^k, 256 GB reasoning, matvec timing cost, Ag series
 - [Ag near-null mode verdict](ag_null_mode_findings.md) — WP-A2: intrinsic box cavity mode, d0=5 (2.5 um only) deciding, E2/E3 caveats, detector levels, Ritz cost

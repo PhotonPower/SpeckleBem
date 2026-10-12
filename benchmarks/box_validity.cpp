@@ -46,7 +46,20 @@
 //            [--tol 1e-6] [--max-iter 6000] [--max-gb 60] [--ff-degree 10] [--tag NAME]
 //            [--out DIR] [--summary FILE] [--reference DIR]... [--mesh-only]
 //            [--allow-unconverged]
+//            [--compression dense|mlfmm] [--d0 3] [--leaf-quantile 1] [--jacobi auto|0|1]
+//            [--estimate-only]
+//            [--force] [--parts 0|1] [--history FILE]
 //        specklebem_box_validity --compare DIR_A DIR_B [DIR_C ...] [--allow-unconverged]
+//
+// MLFMM (WP-V2, `--compression mlfmm`): Simulation with compression "mlfmm" (accuracy digits
+// `--d0`, global leaf rule, automatic exact-part budget), ICTF, Jacobi per formulation::recommend
+// unless `--jacobi` (Ag: left Jacobi, so the GMRES tolerance applies to the preconditioned
+// residual; the true residual is printed). The memory guard of the MLFMM scaling study
+// (tests/support/mlfmm_scaling_support.hpp: near + far + exact part setup peak model) plus the
+// full-GMRES Krylov basis at --max-iter must stay below --max-gb, and the setup peak plus 10 GB
+// below the available memory (else refused unless --force); `--estimate-only` prints the estimate
+// and stops. The dense path (default) is unchanged from WP-V1. `--parts 0` skips the PARTS
+// diagnostic, `--history FILE` writes the GMRES residual history (one value per line).
 #include "specklebem/basis/rwg.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/core/path.hpp"
@@ -79,7 +92,12 @@
 #include <utility>
 #include <vector>
 
+#include "box_validity_support.hpp"
+#include "mlfmm_scaling_support.hpp"
+#include "system_memory.hpp"
+
 using namespace specklebem;
+using namespace box_validity;
 
 namespace {
 
@@ -87,123 +105,7 @@ constexpr Real kLambda = 500e-9;
 constexpr Real kSigma = 50e-9;
 constexpr Real kCorrelationLength = 500e-9;
 constexpr Real kMeshSize = 50e-9;
-constexpr Real kDeg = constants::pi / 180.0;
-
-// Far-field grids (see the file comment).
-constexpr int kHemiTheta = 90;
-constexpr int kHemiPhi = 120;
-constexpr Real kHemiDTheta = 1.0;  // deg
-constexpr Real kHemiDPhi = 3.0;    // deg
-constexpr int kCut = 359;
-constexpr Real kCutStep = 0.5;  // deg
-constexpr Real kOffSpecularTheta = 30.0;
-
-using FieldMatrix = Eigen::Matrix<Complex, Eigen::Dynamic, 3>;
-
-struct Options {
-    std::string material = "ag";
-    Real L = 2e-6;
-    std::optional<Real> L_gen;
-    std::uint64_t seed = 1;
-    std::optional<Real> waist;
-    Real waist_factor = 3.0;
-    Real depth_factor = 1.0;
-    std::optional<Real> depth;
-    std::string box_mesh_size = "400e-9";
-    bool fine_band = false;
-    std::optional<Real> eps_imag;  // diagnostic: override Im(eps_r) of the object
-    std::string beam = "spectrum";
-    Real tol = 1e-6;
-    int max_iter = 6000;
-    Real max_gb = 60.0;
-    int ff_degree = 10;
-    std::string tag;
-    std::string out_dir;
-    std::string summary;
-    std::vector<std::string> references;
-    std::vector<std::string> compare;
-    bool mesh_only = false;
-    bool allow_unconverged = false;
-};
-
-Options parse(int argc, char** argv) {
-    Options o;
-    for (int i = 1; i < argc; ++i) {
-        const std::string a = argv[i];
-        auto value = [&]() -> std::string {
-            if (i + 1 >= argc)
-                throw std::invalid_argument("missing value after " + a);
-            return argv[++i];
-        };
-        if (a == "--material") {
-            o.material = value();
-        } else if (a == "--L") {
-            o.L = std::stod(value());
-        } else if (a == "--L-gen") {
-            o.L_gen = std::stod(value());
-        } else if (a == "--seed") {
-            o.seed = std::stoull(value());
-        } else if (a == "--waist") {
-            o.waist = std::stod(value());
-        } else if (a == "--waist-factor") {
-            o.waist_factor = std::stod(value());
-        } else if (a == "--depth-factor") {
-            o.depth_factor = std::stod(value());
-        } else if (a == "--depth") {
-            o.depth = std::stod(value());
-        } else if (a == "--box-mesh-size") {
-            o.box_mesh_size = value();
-        } else if (a == "--eps-imag") {
-            o.eps_imag = std::stod(value());
-        } else if (a == "--fine-band") {
-            o.fine_band = true;
-        } else if (a == "--beam") {
-            o.beam = value();
-        } else if (a == "--tol") {
-            o.tol = std::stod(value());
-        } else if (a == "--max-iter") {
-            o.max_iter = std::stoi(value());
-        } else if (a == "--max-gb") {
-            o.max_gb = std::stod(value());
-        } else if (a == "--ff-degree") {
-            o.ff_degree = std::stoi(value());
-        } else if (a == "--tag") {
-            o.tag = value();
-        } else if (a == "--out") {
-            o.out_dir = value();
-        } else if (a == "--summary") {
-            o.summary = value();
-        } else if (a == "--reference") {
-            o.references.push_back(value());
-        } else if (a == "--compare") {
-            while (i + 1 < argc && std::strncmp(argv[i + 1], "--", 2) != 0)
-                o.compare.emplace_back(argv[++i]);
-        } else if (a == "--mesh-only") {
-            o.mesh_only = true;
-        } else if (a == "--allow-unconverged") {
-            o.allow_unconverged = true;
-        } else {
-            throw std::invalid_argument("unknown argument " + a);
-        }
-    }
-    if (!o.compare.empty()) {
-        if (o.compare.size() < 2)
-            throw std::invalid_argument("--compare needs at least two directories");
-        return o;
-    }
-    if (!(o.L > 0) || (o.L_gen && !(*o.L_gen >= o.L)) || o.seed == 0 ||
-        (o.waist && !(*o.waist > 0)) || !(o.waist_factor > 0) || !(o.depth_factor > 0) ||
-        (o.depth && !(*o.depth > 0)) || !(o.tol > 0) || o.max_iter < 1 || !(o.max_gb > 0)) {
-        throw std::invalid_argument(
-            "need L > 0, L-gen >= L, seed > 0 (fixed), waist > 0, waist-factor > 0, depth(-factor) "
-            "> 0, tol > 0, max-iter >= 1, max-gb > 0");
-    }
-    if (o.eps_imag && !(*o.eps_imag < 0))
-        throw std::invalid_argument("--eps-imag must be negative (passive, exp(+jwt))");
-    if (o.beam != "spectrum" && o.beam != "paraxial")
-        throw std::invalid_argument("--beam must be spectrum or paraxial");
-    return o;
-}
+// Far-field grids, metrics and options: tests/support/box_validity_support.hpp.
 
 material::Material material_by_name(const std::string& name) {
     if (name == "si")
@@ -389,46 +291,6 @@ private:
 // ---------------------------------------------------------------------------------------------
 // Far-field grids, .npy storage and comparison.
 
-Vertices hemisphere_directions(Real z_sign) {
-    Vertices d(kHemiTheta * kHemiPhi, 3);
-    for (int i = 0; i < kHemiTheta; ++i) {
-        const Real t = (i + 0.5) * kHemiDTheta * kDeg;
-        for (int j = 0; j < kHemiPhi; ++j) {
-            const Real p = j * kHemiDPhi * kDeg;
-            const Index row = static_cast<Index>(i) * kHemiPhi + j;
-            d(row, 0) = std::sin(t) * std::cos(p);
-            d(row, 1) = std::sin(t) * std::sin(p);
-            d(row, 2) = z_sign * std::cos(t);
-        }
-    }
-    return d;
-}
-
-Vertices cut_directions(bool yz) {
-    Vertices d(kCut, 3);
-    for (int m = 0; m < kCut; ++m) {
-        const Real t = (-89.5 + m * kCutStep) * kDeg;
-        d(m, 0) = yz ? 0.0 : std::sin(t);
-        d(m, 1) = yz ? std::sin(t) : 0.0;
-        d(m, 2) = -std::cos(t);
-    }
-    return d;
-}
-
-MatrixXr intensity(const FieldMatrix& F, Index rows, Index cols) {
-    MatrixXr I(rows, cols);
-    for (Index r = 0; r < rows; ++r)
-        for (Index c = 0; c < cols; ++c) I(r, c) = F.row(r * cols + c).squaredNorm();
-    return I;
-}
-
-struct FarField {
-    MatrixXr refl;    // kHemiTheta x kHemiPhi
-    MatrixXr fwd;     // kHemiTheta x kHemiPhi
-    MatrixXr cut_xz;  // kCut x 1
-    MatrixXr cut_yz;  // kCut x 1
-};
-
 /// Minimal reader for the '<f8' C-order .npy files written by io::open_npy_directory.
 MatrixXr read_npy_real(const std::filesystem::path& path) {
     std::ifstream f(path, std::ios::binary);
@@ -547,55 +409,6 @@ StoredRun load_run(const std::string& dir, bool allow_unconverged) {
     s.ff.cut_xz = read_npy_real(d / "cut_xz_intensity.npy");
     s.ff.cut_yz = read_npy_real(d / "cut_yz_intensity.npy");
     return s;
-}
-
-struct Metrics {
-    Real l2_refl = 0, l2_off30 = 0, l2_fwd = 0, dP_refl = 0, eps_xz = 0, eps_yz = 0;
-};
-
-/// Relative L2 difference over a hemisphere grid with solid-angle weights sin(theta), only rows
-/// with theta >= theta_min_deg.
-Real hemi_l2(const MatrixXr& t, const MatrixXr& r, Real theta_min_deg) {
-    Real num = 0, den = 0;
-    for (Index i = 0; i < r.rows(); ++i) {
-        const Real th = (static_cast<Real>(i) + 0.5) * kHemiDTheta;
-        if (th < theta_min_deg)
-            continue;
-        const Real w = std::sin(th * kDeg);
-        for (Index j = 0; j < r.cols(); ++j) {
-            num += w * (t(i, j) - r(i, j)) * (t(i, j) - r(i, j));
-            den += w * r(i, j) * r(i, j);
-        }
-    }
-    return std::sqrt(num / den);
-}
-
-Real hemi_power(const MatrixXr& I) {
-    Real p = 0;
-    for (Index i = 0; i < I.rows(); ++i) {
-        const Real w = std::sin((static_cast<Real>(i) + 0.5) * kHemiDTheta * kDeg);
-        p += w * I.row(i).sum();
-    }
-    return p * (kHemiDTheta * kDeg) * (kHemiDPhi * kDeg);
-}
-
-Real eps_rr(const MatrixXr& t, const MatrixXr& r) {
-    const Real rms = std::sqrt((t - r).squaredNorm() / static_cast<Real>(r.size()));
-    return rms / r.maxCoeff();
-}
-
-Metrics compare(const FarField& t, const FarField& r) {
-    if (t.refl.rows() != r.refl.rows() || t.refl.cols() != r.refl.cols() ||
-        t.cut_xz.size() != r.cut_xz.size())
-        throw std::runtime_error("far-field grids differ");
-    Metrics m;
-    m.l2_refl = hemi_l2(t.refl, r.refl, 0.0);
-    m.l2_off30 = hemi_l2(t.refl, r.refl, kOffSpecularTheta);
-    m.l2_fwd = hemi_l2(t.fwd, r.fwd, 0.0);
-    m.dP_refl = hemi_power(t.refl) / hemi_power(r.refl) - 1.0;
-    m.eps_xz = eps_rr(t.cut_xz, r.cut_xz);
-    m.eps_yz = eps_rr(t.cut_yz, r.cut_yz);
-    return m;
 }
 
 /// One COMPARE line; `flags` marks UNCONVERGED / DIAGNOSTIC inputs (empty for a plain comparison).
@@ -797,15 +610,53 @@ int run(const Options& o) {
     std::fflush(stdout);
     if (o.mesh_only)
         return 0;
-    if (z_gb > o.max_gb)
-        throw std::runtime_error("dense Z of " + std::to_string(z_gb) + " GB exceeds --max-gb");
+    const bool mlfmm = o.compression == "mlfmm";
+    Real peak_est_gb = 0.0;  // MLFMM setup peak model + Krylov basis at --max-iter
+    if (mlfmm) {
+        // Memory guard of the MLFMM scaling study (same octree / leaf rule / budget as the solve).
+        mlfmm_scaling::Case c;
+        c.material = o.material;
+        c.L = o.L;
+        c.digits = o.digits;
+        c.leaf_radius_quantile = o.leaf_quantile;
+        c.tolerance = o.tol;
+        c.max_iter = o.max_iter;
+        const mlfmm_scaling::Geometry geo{mesh, depth, fine_depth, g, top};
+        const mlfmm_scaling::Estimate e = mlfmm_scaling::estimate(geo, c);
+        const Real krylov_gb = krylov_basis_gb(o.max_iter, 2 * n_edges);
+        const Real setup_gb = mlfmm_scaling::gb(e.peak_setup_bytes);
+        peak_est_gb = setup_gb + krylov_gb;
+        const Real available_gb = system_memory::available_memory_bytes() / 1e9;
+        std::printf(
+            "ESTIMATE | %s | d0 %g | leaf quantile %g | %s | Krylov at max-iter %d: %.2f GB | peak "
+            "estimate %.2f GB "
+            "| available %.1f GB\n",
+            tag.c_str(), o.digits, o.leaf_quantile, mlfmm_scaling::summary(e).c_str(), o.max_iter,
+            krylov_gb, peak_est_gb, available_gb);
+        std::fflush(stdout);
+        if (o.estimate_only)
+            return 0;
+        check_memory_guard(setup_gb, krylov_gb, available_gb, o.max_gb, o.force);
+    } else {
+        if (o.estimate_only)
+            return 0;
+        if (z_gb > o.max_gb)
+            throw std::runtime_error("dense Z of " + std::to_string(z_gb) + " GB exceeds --max-gb");
+    }
 
     SimulationConfig cfg;
     cfg.wavelength = kLambda;
     cfg.exterior = material::vacuum();
     cfg.object = object;
     cfg.formulation = formulation::Kind::ICTF;
-    cfg.diagonal_preconditioner = false;
+    if (mlfmm) {
+        cfg.compression = "mlfmm";
+        cfg.mlfmm.accuracy_digits = o.digits;
+        cfg.mlfmm.leaf_radius_quantile = o.leaf_quantile;
+        cfg.diagonal_preconditioner = o.jacobi;  // empty: formulation::recommend
+    } else {
+        cfg.diagonal_preconditioner = o.jacobi.value_or(false);
+    }
     cfg.gmres.tolerance = o.tol;
     cfg.gmres.max_iter = o.max_iter;
     cfg.gmres.restart = 0;
@@ -814,7 +665,23 @@ int run(const Options& o) {
     const auto t0 = std::chrono::steady_clock::now();
     sim.assemble();
     const double t_asm = seconds_since(t0);
+    const Real peak_setup_gb = system_memory::peak_rss_bytes() / 1e9;
+    const Real operator_gb = static_cast<Real>(sim.system_operator()->memory_bytes()) / 1e9;
     const solver::GmresResult res = sim.solve();
+    const bool jacobi = sim.diagonal_preconditioner();
+    if (!o.history.empty()) {
+        std::ofstream h(core::path_from_utf8(o.history), std::ios::binary);
+        if (!h)
+            throw std::runtime_error("cannot open " + o.history);
+        h << "# " << tag << " GMRES residual history (" << (jacobi ? "left Jacobi, " : "")
+          << "monitored relative residual per iteration; true residual "
+          << res.true_relative_residual << ")\n";
+        char buf[32];
+        for (const Real r : res.residual_history) {
+            std::snprintf(buf, sizeof(buf), "%.6e\n", r);
+            h << buf;
+        }
+    }
 
     const auto tf = std::chrono::steady_clock::now();
     post::FieldOptions fo;
@@ -850,6 +717,14 @@ int run(const Options& o) {
         o.beam.c_str(), static_cast<long long>(2 * n_edges), res.iterations,
         res.converged ? "yes" : "no", res.true_relative_residual, t_asm, res.wall_seconds, t_ff,
         ff_check, p_refl, p_fwd);
+    char extra[512];
+    std::snprintf(
+        extra, sizeof(extra),
+        " | compression %s | d0 %g | lq %g | jacobi %s | tol %.1e | operator %.2f GB | peak "
+        "after setup %.2f GB | peak %.2f GB | peak estimate %.2f GB",
+        o.compression.c_str(), mlfmm ? o.digits : 0.0, o.leaf_quantile, jacobi ? "yes" : "no",
+        o.tol, operator_gb, peak_setup_gb, system_memory::peak_rss_bytes() / 1e9, peak_est_gb);
+    std::strncat(line, extra, sizeof(line) - std::strlen(line) - 1);
     std::printf("%s\n", line);
     std::fflush(stdout);
     append_summary(o.summary, line);
@@ -859,10 +734,12 @@ int run(const Options& o) {
             "GMRES did not converge (" + std::to_string(res.iterations) +
             " iterations); nothing written or compared (--allow-unconverged to override)");
     }
-    const std::string parts = part_shares(sim.solution(), mesh, fo, p_refl);
-    std::printf("PARTS | %s | P_part / P_refl%s\n", tag.c_str(), parts.c_str());
-    std::fflush(stdout);
-    append_summary(o.summary, "PARTS | " + tag + " | P_part / P_refl" + parts);
+    if (o.parts) {
+        const std::string parts = part_shares(sim.solution(), mesh, fo, p_refl);
+        std::printf("PARTS | %s | P_part / P_refl%s\n", tag.c_str(), parts.c_str());
+        std::fflush(stdout);
+        append_summary(o.summary, "PARTS | " + tag + " | P_part / P_refl" + parts);
+    }
 
     if (!o.out_dir.empty()) {
         auto w = io::open_npy_directory(o.out_dir);
@@ -896,6 +773,10 @@ int run(const Options& o) {
         w->write_attribute("iterations", static_cast<Real>(res.iterations));
         w->write_attribute("converged", res.converged ? "yes" : "no");
         w->write_attribute("gmres_tolerance", o.tol);
+        w->write_attribute("compression", o.compression);
+        w->write_attribute("accuracy_digits", mlfmm ? o.digits : 0.0);
+        w->write_attribute("jacobi", jacobi ? "yes" : "no");
+        w->write_attribute("leaf_radius_quantile", o.leaf_quantile);
         w->write_attribute("true_residual", res.true_relative_residual);
         w->write_attribute("assembly_seconds", t_asm);
         w->write_attribute("solve_seconds", res.wall_seconds);
@@ -916,7 +797,7 @@ int run(const Options& o) {
 
 int main(int argc, char** argv) {
     try {
-        const Options o = parse(argc, argv);
+        const Options o = parse_options(std::vector<std::string>(argv + 1, argv + argc));
         if (!o.compare.empty()) {
             const StoredRun ref = load_run(o.compare[0], o.allow_unconverged);
             for (std::size_t i = 1; i < o.compare.size(); ++i) {

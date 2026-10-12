@@ -283,6 +283,13 @@ smallest waist (0.89 vs 0.54 %).
 
 ## What could not be tested at feasible sizes
 
+> **Follow-up (WP-V2, MLFMM):** the checks below were run at L = 3–5.4 µm in
+> `box_validity_mlfmm.md`. Si with the uniform box passes depth ×2 at w₀/L ≤ 1/4 and L ×1.2 at
+> 1/6 (one seed, one roughness); at w₀/L = 1/4 the λ₁/5 graded box does not suffice; Ag fails both
+> checks at every waist tried, and the rim illumination by the incident beam does not control its
+> box sensitivity. Its cause is consistent with surface plasmons but not separated from the box
+> cavity resonances found by WP-A2 (`ag_absorption.md`, ADR 0006 amendment 2026-10-12).
+
 - The docs/05 checks themselves under realistic illumination (dark rim, w₀ ≤ L/4 or smaller, at
   waists where the beam model is near-paraxial): needs larger L than a dense operator allows, i.e.
   the MLFMM (Phase 4); how large is open (recommendation 4). The study executable runs unchanged

@@ -16,10 +16,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math")
 endif()
 
-# Validity of the graded closing box under beam illumination (WP-V1, ADR 0006): far field in the
-# reflection hemisphere of one rough-box configuration (depth, grading, fine band, L), dense
-# operator + GMRES; --compare evaluates the differences. Run by hand (one configuration per
-# process, up to ~60 GB), see benchmarks/results/box_validity.md.
+# Validity of the graded closing box under beam illumination (WP-V1, WP-V2, ADR 0006): far field
+# in the reflection hemisphere of one rough-box configuration (depth, grading, fine band, L), dense
+# operator or MLFMM (--compression mlfmm) + GMRES; --compare evaluates the differences. Run by
+# hand (one configuration per process, up to ~60 GB), see benchmarks/results/box_validity.md and
+# box_validity_mlfmm.md.
 add_executable(specklebem_box_validity box_validity.cpp)
 target_link_libraries(specklebem_box_validity PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -35,6 +36,9 @@ endif()
 if(NOT TARGET specklebem_test_support)
     add_subdirectory(${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_BINARY_DIR}/test_support)
 endif()
+# The box-validity study (above) uses the MLFMM memory guard of the scaling study (WP-V2) and the
+# shared metric/option code (tests/support/box_validity_support.hpp).
+target_link_libraries(specklebem_box_validity PRIVATE specklebem_test_support)
 add_executable(specklebem_ag_sphere_mlfmm ag_sphere_mlfmm.cpp)
 target_link_libraries(specklebem_ag_sphere_mlfmm PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
 

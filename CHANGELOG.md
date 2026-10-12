@@ -5,6 +5,24 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / docs (WP-V2): closing-box validity at MLFMM sizes (`benchmarks/results/box_validity_mlfmm.md`,
+  raw lines `box_validity_mlfmm_rows.txt`). `specklebem_box_validity` gains `--compression mlfmm`,
+  `--d0`, `--leaf-quantile`, `--jacobi`, the MLFMM memory guard (`--estimate-only`, `--force`),
+  `--parts` and `--history`; grids, docs/05 metric, options and the memory guard decision
+  (`krylov_basis_gb`, `check_memory_guard`) moved to `tests/support/box_validity_support.hpp` with
+  unit tests (`[box_validity]`). Noise floor: d₀ = 5 vs 3 2e-5; GMRES tol 1e-5 (Si, floor 4e-5) /
+  1e-4 (Ag screening, floor 1.8e-4 for one case). **Si with the uniform box passes depth ×2
+  (0.032 % at w₀/L = 1/4, 0.007 % at 1/6) and L ×1.2 at w₀/L = 1/6 (0.19 %; 1.28 % at 1/4) — one
+  seed, one roughness, one L ×1.2 pair; at w₀/L = 1/4 the λ₁/5 graded box does not suffice (0.085 %
+  from uniform, depth ×2 0.14 %; 1/6 untested).** **Ag fails both checks at every waist tried**
+  (depth ×2 0.82–1.89 %, L ×1.2 4.5–8.2 % at L = 4 µm, w₀/L = 1/4 and 1/8; uniform and graded box
+  alike; ≥ 8× the thresholds). The Ag sensitivity and its slow GMRES are consistent with surface
+  plasmons but not separated from the WP-A2 box cavity resonances (ADR 0006 amendment 2026-10-12),
+  which the Im ε = −6 diagnostic (depth ×2 0.093 %, at the threshold within the noise) damps too;
+  four discriminating experiments are listed, none run. WP-V1's hypothesis (rim illumination by the
+  incident beam) holds for Si only. ADR 0006 recommendations (uniform box, Si w₀ ≤ L/6; for metals
+  an SPP-absorbing termination only if the follow-ups show SPP-dominated box currents, otherwise a
+  resonance-free formulation) proposed, not applied.
 - solver / python / tests (WP-A2): `GmresParams::keep_hessenberg` returns the unrotated
   (k + 1) x k Arnoldi Hessenberg of the last GMRES cycle in `GmresResult::hessenberg` (default
   off, iterates bitwise unchanged); Python `gmres=dict(keep_hessenberg=True)` and

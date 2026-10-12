@@ -40,17 +40,20 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   L = 4–17.5 µm). **Waiting for the lead's server results** (record template in `benchmarks/results/si_large_area.md`).
 - **WP-A2 merged:** the Ag near-null mode is an intrinsic cavity resonance of the closed box (not MLFMM);
   Ag absorption only as A_ext (ADR 0006 amendment 2026-10-12); diagnostic follow-up WP-A3.
-- **In flight:** WP-V2 (box validity at MLFMM sizes).
+- **WP-V2 merged:** Si passes the docs/05 box checks with the uniform box at w₀/L = 1/6 (one configuration);
+  Ag fails at every waist, cause open (SPPs vs WP-A2 cavity resonances) → WP-V3. ADR 0006 rule changes
+  (uniform box for quantitative runs, w₀ ≤ L/6 for Si) proposed to the lead.
+- **In flight:** WP22b2 (formulation sweep with MLFMM, L = 3.2–10 µm).
   They share the machine via a lock directory in the session scratchpad (WP22d holds it for timed runs).
 - **Next:** WP-V2 (box validity at MLFMM sizes, graded vs uniform box), WP22b2 (formulation sweep with MLFMM),
   then Phases 5/6. A stronger preconditioner than Jacobi would address the Ag iteration growth.
-- Test counts on `main`: 413 ctest (`-LE "validation-large|slow"`), 94 pytest; labels `slow`, `validation`
+- Test counts on `main`: 420 ctest (`-LE "validation-large|slow"`), 94 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
 
-1. **Box validity at realistic sizes (WP-V2)** is the remaining physics gate before quantitative speckle
-   results: λ₁/5 box cells are necessary, not shown sufficient.
+1. **Box validity (WP-V2):** Si is fine with the uniform box and w₀ ≤ L/6; **Ag rough surfaces do not pass**
+   the docs/05 box checks at L = 4 µm (0.8–8 %); quantitative Ag speckle needs WP-V3 (mechanism and remedy).
 2. **Ag absorption**: use A_ext (far field + extinction) only; the local formula is spoiled by intrinsic box
    cavity resonances (WP-A2). A resonance-free formulation would be a larger design change (open).
 3. **Phase 4 target "Si 30×30 µm²"**: lead decision — proxy on this 128 GB machine plus a run kit; the lead runs
