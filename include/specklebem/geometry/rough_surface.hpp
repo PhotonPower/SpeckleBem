@@ -59,9 +59,11 @@ struct RoughSurfaceParams {
     /// necessary, but not shown sufficient: the graded box counts as validated only once the
     /// docs/05 sensitivity checks pass at MLFMM sizes (WP-V2). An explicit box_mesh_size whose
     /// coarse spacing exceeds lambda_1 / 5 is accepted with an SBEM_WARN when
-    /// exterior_wavelength is set. rough_surface_box_params() (simulation.hpp) applies this
-    /// rule for given materials: it sets exterior_wavelength and leaves box_mesh_size unset,
-    /// so the cap uses the actual grid spacing.
+    /// exterior_wavelength is set. Since the ADR 0006 amendment 2026-10-12b (WP-V2) the
+    /// uniform box (box_mesh_size = mesh_size) is the default for quantitative rough-surface
+    /// runs and the graded box an explicit option: rough_surface_box_params() (simulation.hpp)
+    /// sets exterior_wavelength and box_mesh_size = mesh_size by default, and leaves
+    /// box_mesh_size unset for BoxGradingMode::Graded, so the cap uses the actual grid spacing.
     ///
     /// Physics contract, object side (decay-based). The coarse part does not resolve the
     /// field; it is valid only where the field transmitted into the object has decayed, i.e.
@@ -142,7 +144,8 @@ HeightMap generate_gaussian_height_map(const RoughSurfaceParams& p);
 /// coarsened row about one h_g below it (2 h_g + e, see the object-side contract of
 /// RoughSurfaceParams::box_mesh_size). An object whose field has not decayed to e^-3 there,
 /// 3 delta > kNoBandCoarseningDepth * h, is weakly absorbing and needs the fine band
-/// (ADR 0006 amendment); rough_surface_box_params() (simulation.hpp) applies this rule.
+/// (ADR 0006 amendment); is_weakly_absorbing() (simulation.hpp) applies this rule, which also
+/// selects the tighter beam waist L cos(theta_in) / 6 (amendment 2026-10-12b).
 inline constexpr Real kNoBandCoarseningDepth = 2.0;
 
 /// Coarse cells per exterior wavelength of the closing box (ADR 0006 amendment 2026-10-10):

@@ -181,12 +181,48 @@ Real exterior_wavelength(const material::Material& background, Real wavelength) 
     return wavelength / std::abs(n);
 }
 
-Real default_box_mesh_size(const material::Material& background, Real wavelength, Real mesh_size) {
+const char* to_string(BoxGradingMode mode) {
+    switch (mode) {
+        case BoxGradingMode::Uniform:
+            return "uniform";
+        case BoxGradingMode::Graded:
+            return "graded";
+    }
+    throw std::invalid_argument("BoxGradingMode: invalid value");
+}
+
+Real graded_box_mesh_size(const material::Material& background, Real wavelength, Real mesh_size) {
     if (!(std::isfinite(mesh_size) && mesh_size > 0.0)) {
-        throw std::invalid_argument("default_box_mesh_size: mesh_size must be finite and > 0");
+        throw std::invalid_argument("graded_box_mesh_size: mesh_size must be finite and > 0");
     }
     return geometry::box_spacing_for_exterior_wavelength(
         exterior_wavelength(background, wavelength), mesh_size);
+}
+
+bool is_weakly_absorbing(const material::Material& object, Real wavelength, Real mesh_size) {
+    if (!(std::isfinite(mesh_size) && mesh_size > 0.0)) {
+        throw std::invalid_argument("is_weakly_absorbing: mesh_size must be finite and > 0");
+    }
+    if (object.eps_r.imag() > 0.0 || object.mu_r.imag() > 0.0) {
+        throw std::invalid_argument(
+            "is_weakly_absorbing: Im(eps_r) > 0 or Im(mu_r) > 0 is an active medium in the "
+            "exp(+jwt) convention (docs/06)");
+    }
+    // +infinity for a lossless dielectric: weakly absorbing (the comparison holds).
+    const Real delta = material::field_decay_length(object, wavelength);
+    return 3.0 * delta > geometry::kNoBandCoarseningDepth * mesh_size;
+}
+
+bool is_plasmonic(const material::Material& object) {
+    if (!(std::isfinite(object.eps_r.real()) && std::isfinite(object.eps_r.imag()))) {
+        throw std::invalid_argument("is_plasmonic: eps_r must be finite");
+    }
+    return object.eps_r.real() < 0.0;
+}
+
+Real beam_waist_fraction(const material::Material& object, Real wavelength, Real mesh_size) {
+    return is_weakly_absorbing(object, wavelength, mesh_size) ? kWeakAbsorberBeamWaistFraction
+                                                              : kMaxBeamWaistFraction;
 }
 
 void RoughBoxParams::apply_to(geometry::RoughSurfaceParams& p) const {
@@ -198,23 +234,37 @@ void RoughBoxParams::apply_to(geometry::RoughSurfaceParams& p) const {
 
 RoughBoxParams rough_surface_box_params(const material::Material& object,
                                         const material::Material& background, Real wavelength,
-                                        Real sigma, Real mesh_size) {
+                                        Real sigma, Real mesh_size, BoxGradingMode grading) {
     if (!(std::isfinite(mesh_size) && mesh_size > 0.0)) {
         throw std::invalid_argument("rough_surface_box_params: mesh_size must be finite and > 0");
     }
+    if (grading != BoxGradingMode::Uniform && grading != BoxGradingMode::Graded) {
+        throw std::invalid_argument("rough_surface_box_params: invalid grading value");
+    }
     RoughBoxParams b;
+    b.grading = grading;
     b.box_depth = default_box_depth(object, wavelength);
     const Real fine_depth = default_box_fine_depth(object, wavelength, sigma);
-    // box_mesh_size stays unset: the generator caps its automatic rule at lambda_1 / 5 with
-    // the actual grid spacing L / round(L / h), which mesh_size does not know.
     b.exterior_wavelength = exterior_wavelength(background, wavelength);
-    const Real delta = material::field_decay_length(object, wavelength);
-    const bool weakly_absorbing = 3.0 * delta > geometry::kNoBandCoarseningDepth * mesh_size;
-    if (!weakly_absorbing)
+    b.beam_waist_fraction = beam_waist_fraction(object, wavelength, mesh_size);
+    // Uniform: box cells = top-face cells. Graded: box_mesh_size stays unset, the generator
+    // caps its automatic rule at lambda_1 / 5 with the actual grid spacing L / round(L / h),
+    // which mesh_size does not know.
+    if (grading == BoxGradingMode::Uniform)
+        b.box_mesh_size = mesh_size;
+    if (sigma > 0.0 && is_plasmonic(object)) {
+        SBEM_WARN(
+            "rough_surface_box_params: plasmonic object (Re(eps_r) = {:.4g} < 0) under a rough "
+            "surface: no quantitative rough-surface results for plasmonic metals until WP-V3 "
+            "(ADR 0006 amendment 2026-10-12b: the docs/05 box checks fail for Ag); flat "
+            "reflectance and A_ext remain validated",
+            object.eps_r.real());
+    }
+    if (!is_weakly_absorbing(object, wavelength, mesh_size))
         return b;
     if (fine_depth < b.box_depth) {
         b.box_fine_depth = fine_depth;
-    } else {
+    } else if (grading == BoxGradingMode::Graded) {
         SBEM_WARN(
             "rough_surface_box_params: the fine band 3 delta + 3 sigma = {:.3g} m reaches the "
             "bottom plate at {:.3g} m; using the uniform box (box_mesh_size = mesh_size), "
@@ -223,14 +273,38 @@ RoughBoxParams rough_surface_box_params(const material::Material& object,
         b.box_mesh_size = mesh_size;
         b.uniform_fallback = true;
     }
+    // Uniform with a band reaching the bottom: no band, the box has the top-face spacing.
     return b;
 }
+
+namespace {
+
+/// "/ 4" for a fraction 1 / n with integer n (relative 1e-9), "* f" otherwise.
+std::string fraction_text(Real f) {
+    std::ostringstream os;
+    const Real inv = 1.0 / f;
+    const Real n = std::round(inv);
+    if (n >= 1.0 && std::abs(inv - n) <= 1e-9 * n)
+        os << "/ " << static_cast<long long>(n);
+    else
+        os << "* " << f;
+    return os.str();
+}
+
+}  // namespace
 
 void check_beam_waist(Real patch_length, Real waist, const BeamWaistOptions& options) {
     if (!(std::isfinite(patch_length) && patch_length > 0.0) ||
         !(std::isfinite(waist) && waist > 0.0)) {
         throw std::invalid_argument(
             "check_beam_waist: patch_length and waist must be finite and > 0");
+    }
+    const Real fraction = options.max_fraction;
+    if (!(std::isfinite(fraction) && fraction > 0.0 && fraction <= kMaxBeamWaistFraction)) {
+        std::ostringstream os;
+        os << "check_beam_waist: max_fraction must lie in (0, 1/4], got " << fraction
+           << " (a wider waist needs allow_wide)";
+        throw std::invalid_argument(os.str());
     }
     const Real theta = options.incidence_angle;
     if (!(std::isfinite(theta) && std::abs(theta) < 0.5 * constants::pi)) {
@@ -239,15 +313,17 @@ void check_beam_waist(Real patch_length, Real waist, const BeamWaistOptions& opt
            << theta << " rad";
         throw std::invalid_argument(os.str());
     }
-    const Real limit = kMaxBeamWaistFraction * patch_length * std::cos(theta);
+    const Real limit = fraction * patch_length * std::cos(theta);
     if (!(waist > limit * (1.0 + 1e-12)))
         return;
     std::ostringstream os;
-    os << "beam waist " << waist << " m exceeds L cos(theta_in) / 4 = " << limit
-       << " m for the patch edge L = " << patch_length << " m and theta_in = " << theta
-       << " rad (ADR 0006 amendments 2026-10-10/11: w0 <= L cos(theta_in) / 4; past the patch "
-          "edges the beam carries 0.6-0.9 % of its power at L / 3 and 0 deg, 0.63 % at L / 4 "
-          "and 45 deg)";
+    os << "beam waist " << waist << " m exceeds L cos(theta_in) " << fraction_text(fraction)
+       << " = " << limit << " m for the patch edge L = " << patch_length
+       << " m and theta_in = " << theta
+       << " rad (ADR 0006 amendments 2026-10-10/11/12b: w0 <= L cos(theta_in) / 4, / 6 for "
+          "weakly absorbing objects such as Si; past the patch edges the beam carries 0.6-0.9 % "
+          "of its power at L / 3 and 0 deg, 0.63 % at L / 4 and 45 deg; Si at L / 4 fails the "
+          "L x 1.2 check with 1.28 %)";
     if (!options.allow_wide)
         throw std::invalid_argument("check_beam_waist: " + os.str() +
                                     "; set allow_wide to accept it");

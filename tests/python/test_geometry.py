@@ -210,7 +210,7 @@ def test_rough_surface_invalid_exterior_wavelength():
 
 
 def test_box_defaults_adr0006_amendment():
-    """Closing-box defaults of the ADR 0006 amendment 2026-10-10 (WP-B1)."""
+    """Graded closing box of the ADR 0006 amendment 2026-10-10 (WP-B1), now an explicit option."""
     lam = 500e-9
     si, ag, vac = sb.silicon_500nm(), sb.silver_500nm(), sb.vacuum()
     assert sb.exterior_wavelength(vac, lam) == lam
@@ -223,13 +223,16 @@ def test_box_defaults_adr0006_amendment():
             sb.exterior_wavelength(metal, lam)
         with pytest.raises(ValueError):
             sb.rough_surface_box_params(si, metal, lam, 50e-9, 50e-9)
-    # Largest 2^M h <= lambda_1 / 5: 100 nm for 50 nm, uniform (h) for 60 nm.
-    assert sb.default_box_mesh_size(vac, lam, 50e-9) == 2 * 50e-9
-    assert sb.default_box_mesh_size(background=vac, wavelength=lam, mesh_size=60e-9) == 60e-9
+    # Largest 2^M h <= lambda_1 / 5: 100 nm for 50 nm, 80 nm for 20 nm, uniform (h) for 60 nm.
+    assert sb.graded_box_mesh_size(vac, lam, 50e-9) == 2 * 50e-9
+    assert sb.graded_box_mesh_size(vac, lam, 20e-9) == 4 * 20e-9
+    assert sb.graded_box_mesh_size(background=vac, wavelength=lam, mesh_size=60e-9) == 60e-9
     with pytest.raises(ValueError):
-        sb.default_box_mesh_size(vac, lam, 0.0)
+        sb.graded_box_mesh_size(vac, lam, 0.0)
+    assert not hasattr(sb, "default_box_mesh_size")  # renamed (WP-B3), no silent change
     # Si: mandatory fine band 3 delta + 3 sigma; Ag: none.
-    p_si = sb.rough_surface_box_params(si, vac, lam, 50e-9, 50e-9)
+    p_si = sb.rough_surface_box_params(si, vac, lam, 50e-9, 50e-9, grading="graded")
+    assert p_si.grading == sb.BoxGradingMode.Graded
     assert p_si.box_depth == sb.default_box_depth(si, lam)
     assert p_si.box_fine_depth == sb.default_box_fine_depth(si, lam, 50e-9)
     assert p_si.box_fine_depth == pytest.approx(3.54e-6, abs=0.01e-6)
@@ -237,7 +240,12 @@ def test_box_defaults_adr0006_amendment():
     assert p_si.box_mesh_size is None and p_si.exterior_wavelength == lam
     assert p_si.uniform_fallback is False
     p_ag = sb.rough_surface_box_params(
-        object=ag, background=vac, wavelength=lam, sigma=50e-9, mesh_size=50e-9
+        object=ag,
+        background=vac,
+        wavelength=lam,
+        sigma=50e-9,
+        mesh_size=50e-9,
+        grading=sb.BoxGradingMode.Graded,
     )
     assert p_ag.box_depth == 2e-6 and p_ag.box_fine_depth is None
     assert p_ag.kwargs() == dict(
@@ -249,7 +257,7 @@ def test_box_defaults_adr0006_amendment():
     assert "box_mesh_size=None" in r and "uniform_fallback=False" in r, r
     assert f"box_fine_depth={p_si.box_fine_depth:.6g}" in repr(p_si), repr(p_si)  # 6 digits
     # Very rough Si: the band would reach the bottom plate -> uniform box (warned).
-    p_fb = sb.rough_surface_box_params(si, vac, lam, 1e-6, 50e-9)
+    p_fb = sb.rough_surface_box_params(si, vac, lam, 1e-6, 50e-9, grading="Graded")
     assert p_fb.uniform_fallback is True and p_fb.box_fine_depth is None
     assert p_fb.box_mesh_size == 50e-9 and p_fb.kwargs()["box_mesh_size"] == 50e-9
     assert "box_mesh_size=5e-08" in repr(p_fb) and "uniform_fallback=True" in repr(p_fb)
@@ -264,6 +272,66 @@ def test_box_defaults_adr0006_amendment():
     hm = surf.heights
     from_map = sb.make_mesh_from_height_map(hm, box_depth=2e-6, exterior_wavelength=lam)
     np.testing.assert_array_equal(from_map.triangles, surf.mesh.triangles)
+
+
+def test_box_uniform_default_adr0006_amendment_2026_10_12b():
+    """Uniform closing box by default, waist fraction by material (WP-B3)."""
+    lam, h, sigma = 500e-9, 50e-9, 50e-9
+    si, ag, vac = sb.silicon_500nm(), sb.silver_500nm(), sb.vacuum()
+    p = sb.rough_surface_box_params(si, vac, lam, sigma, h)
+    assert p.grading == sb.BoxGradingMode.Uniform
+    assert p.box_mesh_size == h and p.kwargs()["box_mesh_size"] == h
+    g = sb.rough_surface_box_params(si, vac, lam, sigma, h, grading="graded")
+    assert (p.box_depth, p.box_fine_depth, p.exterior_wavelength) == (
+        g.box_depth,
+        g.box_fine_depth,
+        g.exterior_wavelength,
+    )
+    assert p.uniform_fallback is False
+    assert p.beam_waist_fraction == pytest.approx(1 / 6) == g.beam_waist_fraction
+    r = repr(p)
+    assert "grading=uniform" in r and "box_mesh_size=5e-08" in r, r
+    assert "beam_waist_fraction=0.166667" in r, r
+    assert sb.rough_surface_box_params(si, vac, lam, sigma, 20e-9).box_mesh_size == 20e-9
+    # Very rough Si: the band reaches the bottom; the uniform box simply drops it.
+    p_rough = sb.rough_surface_box_params(si, vac, lam, 1e-6, h)
+    assert p_rough.box_fine_depth is None and p_rough.box_mesh_size == h
+    assert p_rough.uniform_fallback is False
+    # Ag (plasmonic): parameters returned (a warning is logged for sigma > 0), no exception.
+    p_ag = sb.rough_surface_box_params(ag, vac, lam, sigma, h)
+    assert p_ag.box_depth == 2e-6 and p_ag.box_mesh_size == h
+    assert p_ag.beam_waist_fraction == 0.25
+    for bad in ("coarse", 1, None):
+        with pytest.raises((ValueError, TypeError)):
+            sb.rough_surface_box_params(si, vac, lam, sigma, h, grading=bad)
+    with pytest.raises(TypeError):  # keyword-only
+        sb.rough_surface_box_params(si, vac, lam, sigma, h, "graded")
+    # The uniform box builds a closed mesh with the top-face spacing on the walls (M = 0).
+    surf = sb.RoughSurface(**ROUGH, **sb.rough_surface_box_params(si, vac, lam, sigma, h).kwargs())
+    graded = sb.RoughSurface(
+        **ROUGH, **sb.rough_surface_box_params(si, vac, lam, sigma, h, grading="graded").kwargs()
+    )
+    assert surf.mesh.is_closed()
+    assert surf.mesh.num_triangles >= graded.mesh.num_triangles
+
+
+def test_weakly_absorbing_plasmonic_and_waist_fraction():
+    lam, h = 500e-9, 50e-9
+    si, ag = sb.silicon_500nm(), sb.silver_500nm()
+    assert sb.MAX_BEAM_WAIST_FRACTION == 0.25
+    assert sb.WEAK_ABSORBER_BEAM_WAIST_FRACTION == pytest.approx(1 / 6)
+    assert sb.is_weakly_absorbing(si, lam, h) is True
+    assert sb.is_weakly_absorbing(object=ag, wavelength=lam, mesh_size=h) is False
+    assert sb.beam_waist_fraction(si, lam, h) == sb.WEAK_ABSORBER_BEAM_WAIST_FRACTION
+    assert sb.beam_waist_fraction(ag, lam, h) == 0.25
+    assert sb.beam_waist_fraction(ag, lam, 20e-9) == sb.WEAK_ABSORBER_BEAM_WAIST_FRACTION
+    assert sb.is_plasmonic(ag) and sb.is_plasmonic(sb.Material(eps_r=-4.0))
+    assert not sb.is_plasmonic(si) and not sb.is_plasmonic(sb.vacuum())
+    for bad in (0.0, -1e-9, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            sb.beam_waist_fraction(si, lam, bad)
+    with pytest.raises(ValueError):
+        sb.is_weakly_absorbing(sb.Material(eps_r=18.478 + 0.606j), lam, h)  # active
 
 
 def test_check_beam_waist():
@@ -289,3 +357,22 @@ def test_check_beam_waist_incidence_angle():
             sb.check_beam_waist(L, 0.1e-6, incidence_angle=bad)
     with pytest.raises(TypeError):  # keyword-only: a positional bool is not an angle
         sb.check_beam_waist(L, L / 4, True)
+
+
+def test_check_beam_waist_max_fraction():
+    L, theta = 6e-6, np.pi / 4
+    f_si = sb.beam_waist_fraction(sb.silicon_500nm(), 500e-9, 50e-9)
+    sb.check_beam_waist(L, L / 6, max_fraction=f_si)
+    sb.check_beam_waist(L, L / 4)  # default 1/4 unchanged
+    with pytest.raises(ValueError, match=r"L cos\(theta_in\) / 6"):
+        sb.check_beam_waist(L, L / 4, max_fraction=f_si)
+    limit = L * np.cos(theta) / 6
+    sb.check_beam_waist(L, limit, incidence_angle=theta, max_fraction=f_si)
+    with pytest.raises(ValueError, match="/ 6"):
+        sb.check_beam_waist(L, L / 6, incidence_angle=theta, max_fraction=f_si)
+    sb.check_beam_waist(L, L / 4, incidence_angle=theta, max_fraction=f_si, allow_wide=True)
+    for bad in (0.0, -0.1, 0.3, float("nan")):
+        with pytest.raises(ValueError, match="max_fraction"):
+            sb.check_beam_waist(L, 0.1e-6, max_fraction=bad)
+    with pytest.raises(TypeError):  # keyword-only
+        sb.check_beam_waist(L, L / 6, 0.0, False, f_si)

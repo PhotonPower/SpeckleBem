@@ -3,14 +3,17 @@
 //
 // One case per process (a background command is limited in time, and the peak memory of a case
 // should be its own): Gaussian rough surface (sigma = 50 nm, Lc = 500 nm, mesh 50 nm, seed 1) on
-// an L x L patch with the ADR 0006 closing box of rough_surface_box_params (coarse spacing
-// --box-mesh-size, default 100 nm = lambda1 / 5; "auto": the automatic rule capped at lambda1 /
-// 5; "uncapped": without the cap, the record's "auto" series; Si with the fine band 3 delta + 3
-// sigma), Si or Ag at 500 nm, Gaussian beam w0 = L / 4 at normal incidence (paraxial by default,
-// --beam angular-spectrum for the rigorous beam; check_beam_waist refuses w0 > L / 4 unless
-// --allow-wide-beam); Simulation with compression "mlfmm" (d0 = 3, automatic leaf rule and
-// exact-part budget), formulation per formulation::recommend, full GMRES with tolerance 1e-3.
-// The case code is shared with the smoke test
+// an L x L patch with the ADR 0006 closing box of rough_surface_box_params (graded option;
+// coarse spacing --box-mesh-size, default 100 nm = lambda1 / 5, 50e-9 = the uniform box that is
+// the library default since the ADR 0006 amendment 2026-10-12b; "auto": the automatic rule
+// capped at lambda1 / 5; "uncapped": without the cap, the record's "auto" series; Si with the
+// fine band 3 delta + 3 sigma), Si or Ag at 500 nm, Gaussian beam at normal incidence, w0 =
+// L / --waist-factor, by default the material's limit (beam_waist_fraction: L / 6 for Si, L / 4
+// for Ag; the recorded WP22b/WP22d Si rows used L / 4, i.e. --waist-factor 4 --allow-wide-beam)
+// (paraxial by default, --beam angular-spectrum for the rigorous beam; check_beam_waist refuses
+// a wider waist unless --allow-wide-beam); Simulation with compression "mlfmm" (d0 = 3, automatic
+// leaf rule and exact-part budget), formulation per formulation::recommend, full GMRES with
+// tolerance 1e-3. The case code is shared with the smoke test
 // (tests/support/mlfmm_scaling_support.hpp). Output (stdout): the setup, a summary (2N, octree,
 // setup time split, time per matvec, iterations, solve time, memory per component, peak working
 // set), a machine-readable ROW line (benchmarks/mlfmm_scaling_fit.py fits the exponents), the
@@ -23,7 +26,7 @@
 //
 // Usage: specklebem_mlfmm_scaling --material si|ag --L 4e-6
 //            [--box-mesh-size 100e-9|auto|uncapped] [--fine-band 0|1] [--mesh-size 50e-9]
-//            [--seed 1] [--waist-factor 4] [--allow-wide-beam] [--beam paraxial|angular-spectrum]
+//            [--seed 1] [--waist-factor 6|4] [--allow-wide-beam] [--beam paraxial|angular-spectrum]
 //            [--digits 3] [--leaf-radius-quantile 1] [--tol 1e-3] [--max-iter 3000] [--restart
 //            0] [--matvecs 5]
 //            [--exact-budget-gb G] [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--no-solve]

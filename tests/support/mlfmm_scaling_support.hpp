@@ -7,14 +7,18 @@
 ///
 /// Setup (docs/06, ADR 0006 with its 2026-10-10 amendment, ADR 0008): Gaussian rough surface
 /// (sigma = 50 nm by default, Case::sigma; Lc = 500 nm, mesh 50 nm, fixed seed) on an L x L patch,
-/// closed by the graded box chosen by rough_surface_box_params (simulation.hpp): depth
-/// default_box_depth (Si 5.65 um, Ag 2 um), lambda1 = 500 nm and, for Si, the fine band
-/// 3 delta + 3 sigma. The coarse spacing is explicit, box_mesh_size = 100 nm = lambda1 / 5 by
-/// default (the recorded series); unset, the generator's automatic rule capped at lambda1 / 5
-/// applies; `uncapped_box` reproduces the record's "auto" series (the automatic rule without the
-/// cap). The waist rule check_beam_waist (w0 <= L / 4) is enforced unless allow_wide_beam. Object
-/// Si (eps_r = 18.478 - 0.606j) or Ag (-9.794 - 0.313j) in vacuum, lambda = 500 nm; Gaussian
-/// beam at normal incidence (travelling +z, focus at the origin, E along x, waist w0 = L / 4):
+/// closed by the graded box chosen by rough_surface_box_params(..., BoxGradingMode::Graded)
+/// (simulation.hpp): depth default_box_depth (Si 5.65 um, Ag 2 um), lambda1 = 500 nm and, for
+/// Si, the fine band 3 delta + 3 sigma. The coarse spacing is explicit, box_mesh_size = 100 nm =
+/// lambda1 / 5 by default (the recorded series; box_mesh_size = mesh_size gives the uniform box,
+/// the library default since the ADR 0006 amendment 2026-10-12b); unset, the generator's
+/// automatic rule capped at lambda1 / 5 applies; `uncapped_box` reproduces the record's "auto"
+/// series (the automatic rule without the cap). The waist rule check_beam_waist with the
+/// material's fraction (beam_waist_fraction: w0 <= L / 6 for Si, L / 4 for Ag; ADR 0006
+/// amendment 2026-10-12b) is enforced unless allow_wide_beam. Object Si (eps_r = 18.478 -
+/// 0.606j) or Ag (-9.794 - 0.313j) in vacuum, lambda = 500 nm; Gaussian beam at normal incidence
+/// (travelling +z, focus at the origin, E along x, waist w0 = L / waist_factor_of(case), by
+/// default L / 6 for Si and L / 4 for Ag; the recorded WP22b/WP22d series used L / 4 for both):
 /// the paraxial excitation::GaussianBeam of the recorded series, or the rigorous
 /// excitation::AngularSpectrumBeam (Beam::angular_spectrum, controlled ball covering the
 /// mesh). Simulation with compression
@@ -106,8 +110,12 @@ struct Case {
     /// Set only by the fast smoke tests (fewer wall unknowns; no benchmark option); a set depth
     /// is named in the label and the ROW line (depth_um).
     std::optional<Real> box_depth;
-    Real waist_factor = 4.0;       ///< w0 = L / waist_factor
-    bool allow_wide_beam = false;  ///< check_beam_waist(L, w0, {.allow_wide = allow_wide_beam})
+    /// w0 = L / waist_factor; empty: 1 / beam_waist_fraction of the object (Si 6, Ag 4 at
+    /// h = 50 nm; ADR 0006 amendment 2026-10-12b). The recorded WP22b/WP22d rows used 4 for both
+    /// materials (Si: reproduce with waist_factor = 4 and allow_wide_beam).
+    std::optional<Real> waist_factor;
+    /// check_beam_waist(L, w0, {.allow_wide = ..., .max_fraction = beam_waist_fraction}).
+    bool allow_wide_beam = false;
     Beam beam = Beam::paraxial;
     Real digits = 3.0;  ///< accuracy_digits d0
     Real tolerance = 1e-3;
@@ -137,12 +145,23 @@ inline material::Material object_material(const std::string& name) {
                                 "\"");
 }
 
-/// Closing-box parameters of a case: rough_surface_box_params (vacuum background) with the
+/// Beam-waist fraction of a case's object: beam_waist_fraction (1/6 Si, 1/4 Ag at 50 nm).
+inline Real waist_fraction(const Case& c) {
+    return beam_waist_fraction(object_material(c.material), kLambda, c.mesh_size);
+}
+
+/// w0 = L / waist_factor_of(c): the case's waist_factor, or 1 / waist_fraction(c) (6 or 4).
+inline Real waist_factor_of(const Case& c) {
+    return c.waist_factor ? *c.waist_factor : std::round(1.0 / waist_fraction(c));
+}
+
+/// Closing-box parameters of a case: rough_surface_box_params (vacuum background, graded
+/// option: the study's coarse spacing is explicit or the generator's capped rule) with the
 /// case's overrides (explicit coarse spacing, fine band on / off).
 inline RoughBoxParams box_params(const Case& c) {
     const material::Material object = object_material(c.material);
-    RoughBoxParams b =
-        rough_surface_box_params(object, material::vacuum(), kLambda, c.sigma, c.mesh_size);
+    RoughBoxParams b = rough_surface_box_params(object, material::vacuum(), kLambda, c.sigma,
+                                                c.mesh_size, BoxGradingMode::Graded);
     if (c.box_mesh_size)
         b.box_mesh_size = *c.box_mesh_size;
     if (c.box_depth)
@@ -170,21 +189,24 @@ struct Geometry {
 };
 
 /// Builds the rough box of a case. Validates the case and the waist rule
-/// check_beam_waist(L, L / waist_factor, {.allow_wide = allow_wide_beam}) (ADR 0006 amendment:
-/// w0 <= L / 4 at the normal incidence of the study).
+/// check_beam_waist(L, L / waist_factor_of(c), {.allow_wide = allow_wide_beam, .max_fraction =
+/// waist_fraction(c)}) (ADR 0006 amendments: w0 <= L / 6 for Si, L / 4 for Ag at the normal
+/// incidence of the study).
 /// @throws std::invalid_argument for L, mesh_size, sigma, waist_factor or a set box_depth not
 ///         > 0, seed 0, an unknown material, uncapped_box with an explicit box_mesh_size, or a
-///         waist above L / 4 without allow_wide_beam.
+///         waist above the material's limit without allow_wide_beam.
 inline Geometry make_geometry(const Case& c) {
-    if (!(c.L > 0.0) || !(c.mesh_size > 0.0) || !(c.sigma > 0.0) || !(c.waist_factor > 0.0) ||
-        c.seed == 0 || (c.box_depth && !(*c.box_depth > 0.0)))
+    if (!(c.L > 0.0) || !(c.mesh_size > 0.0) || !(c.sigma > 0.0) ||
+        (c.waist_factor && !(*c.waist_factor > 0.0)) || c.seed == 0 ||
+        (c.box_depth && !(*c.box_depth > 0.0)))
         throw std::invalid_argument(
             "mlfmm_scaling: need L > 0, mesh_size > 0, sigma > 0, waist_factor > 0, "
             "box_depth > 0 (if set) and a fixed seed > 0");
     if (c.uncapped_box && c.box_mesh_size)
         throw std::invalid_argument(
             "mlfmm_scaling: uncapped_box needs the automatic rule (box_mesh_size unset)");
-    check_beam_waist(c.L, c.L / c.waist_factor, {.allow_wide = c.allow_wide_beam});
+    check_beam_waist(c.L, c.L / waist_factor_of(c),
+                     {.allow_wide = c.allow_wide_beam, .max_fraction = waist_fraction(c)});
     const RoughBoxParams b = box_params(c);
     geometry::RoughSurfaceParams rp;
     rp.edge_length_L = c.L;
@@ -212,7 +234,7 @@ inline std::shared_ptr<excitation::Excitation> make_beam(const Case& c, const Ge
     if (c.beam == Beam::angular_spectrum) {
         excitation::AngularSpectrumBeam::Params ap;
         ap.wavelength = kLambda;
-        ap.waist_radius = c.L / c.waist_factor;
+        ap.waist_radius = c.L / waist_factor_of(c);
         ap.focus = Vec3::Zero();
         ap.incidence_angle = 0.0;
         ap.polarization = excitation::Polarization::P;  // E along x at normal incidence
@@ -221,7 +243,7 @@ inline std::shared_ptr<excitation::Excitation> make_beam(const Case& c, const Ge
     }
     excitation::GaussianBeam::Params bp;
     bp.wavelength = kLambda;
-    bp.waist_radius = c.L / c.waist_factor;
+    bp.waist_radius = c.L / waist_factor_of(c);
     bp.focus = Vec3::Zero();
     bp.incidence_angle = 0.0;
     bp.polarization = excitation::Polarization::P;  // E along x at normal incidence
@@ -781,7 +803,7 @@ inline std::string label(const Case& c) {
                : box_option(c))
        << (uses_fine_band(c) ? ", fine band" : ", no fine band")
        << (c.box_depth ? ", depth " + std::to_string(*c.box_depth * 1e6) + " um" : std::string())
-       << ", " << beam_name(c) << " beam w0 = L/" << c.waist_factor << ", seed " << c.seed
+       << ", " << beam_name(c) << " beam w0 = L/" << waist_factor_of(c) << ", seed " << c.seed
        << ", d0 = " << c.digits << ", leaf radius quantile " << c.leaf_radius_quantile
        << ", tol = " << c.tolerance;
     return os.str();
@@ -857,7 +879,7 @@ inline std::string row(const Case& c, const Result& r) {
     if (c.box_depth)
         os << " depth_um=" << *c.box_depth * 1e6;
     os << " restart=" << c.restart << " h_nm=" << c.mesh_size * 1e9 << " sigma_nm=" << c.sigma * 1e9
-       << " waist=" << c.waist_factor << " beam=" << beam_name(c) << " d0=" << c.digits
+       << " waist=" << waist_factor_of(c) << " beam=" << beam_name(c) << " d0=" << c.digits
        << " tol=" << c.tolerance << " lq=" << c.leaf_radius_quantile << " seed=" << c.seed
        << " solved=" << (c.solve ? 1 : 0) << " N2=" << r.est.unknowns << " levels=" << r.est.levels
        << " leaf_nm=" << r.est.leaf_edge * 1e9 << " rmax_nm=" << r.est.max_support_radius * 1e9

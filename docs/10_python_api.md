@@ -90,13 +90,19 @@ sb.make_rough_surface_mesh(*, L, sigma, Lc, mesh_size, seed=0, box_depth=None,
 sb.RoughSurface(L, sigma, Lc, mesh_size, seed=0, *, box_depth=None, box_mesh_size=None,
                 box_fine_depth=None, exterior_wavelength=None, use_fft=True)
                                         # .mesh (lazy), .height_map, .heights, .dx, .dy
-sb.rough_surface_box_params(object, background, wavelength, sigma, mesh_size)  # sb.RoughBoxParams
-p.box_depth, p.box_fine_depth (None: no band), p.box_mesh_size (None: automatic, capped),
-p.exterior_wavelength, p.uniform_fallback, p.kwargs()
+sb.rough_surface_box_params(object, background, wavelength, sigma, mesh_size, *,
+                            grading="uniform")  # sb.RoughBoxParams; "graded" / sb.BoxGradingMode
+p.box_depth, p.box_fine_depth (None: no band), p.box_mesh_size (mesh_size: uniform; None: graded,
+automatic, capped), p.exterior_wavelength, p.uniform_fallback, p.grading, p.beam_waist_fraction,
+p.kwargs()
 sb.default_box_depth(object, wavelength), sb.default_box_fine_depth(object, wavelength, sigma)
-sb.default_box_mesh_size(background, wavelength, mesh_size), sb.exterior_wavelength(background, wavelength)
-sb.check_beam_waist(patch_length, waist, *, incidence_angle=0.0, allow_wide=False)
-                                        # ValueError if waist > L cos(incidence_angle) / 4
+sb.graded_box_mesh_size(background, wavelength, mesh_size), sb.exterior_wavelength(background, wavelength)
+sb.is_weakly_absorbing(object, wavelength, mesh_size), sb.is_plasmonic(object)
+sb.beam_waist_fraction(object, wavelength, mesh_size)   # 1/6 weakly absorbing (Si), else 1/4 (Ag)
+sb.MAX_BEAM_WAIST_FRACTION (1/4), sb.WEAK_ABSORBER_BEAM_WAIST_FRACTION (1/6)
+sb.check_beam_waist(patch_length, waist, *, incidence_angle=0.0, allow_wide=False,
+                    max_fraction=sb.MAX_BEAM_WAIST_FRACTION)
+                                        # ValueError if waist > L cos(incidence_angle) * max_fraction
 sb.field_decay_length(material, wavelength) / sb.field_decay_length(eps_r, wavelength)
 sb.DispersiveMaterial(wavelengths, refractive_indices)   # n - jk; .at(wl) == .at_wavelength(wl)
 sb.PlaneWave(wavelength, direction, polarization, background=sb.vacuum())
@@ -120,32 +126,50 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
   (`L` = `edge_length_L`, `sigma` = `rms_roughness`, `Lc` = `correlation_length`); `seed=0`
   draws a non-deterministic seed. `RoughSurface` validates the box keywords when `.mesh` is
   first built.
-- Closing box (ADR 0006 with the 2026-10-10 amendment): `rough_surface_box_params` chooses the
-  box from the materials and is the recommended way to build a rough patch for a simulation:
+- Closing box (ADR 0006 with the amendments 2026-10-10 and 2026-10-12b): `rough_surface_box_params`
+  chooses the box from the materials and is the recommended way to build a rough patch for a
+  simulation:
   `sb.RoughSurface(L, sigma, Lc, h, seed, **sb.rough_surface_box_params(obj, bg, wl, sigma, h).kwargs())`.
   It sets the depth (`default_box_depth`), `exterior_wavelength` (lambda_1 = wavelength /
   |n_1|, conservative for a lossy background; a metallic background, Re(eps_r) <= 0, raises
-  `ValueError`) and, for weakly absorbing objects, the mandatory fine band 3 delta + 3 sigma.
-  "Weakly absorbing" is 3 delta > 2 h: it mirrors the grading contract (the walls without a
-  band start to coarsen 2 top-face spacings below a smooth rim); Si yes, Ag no at 500 nm and
-  h = 50 nm. `box_mesh_size` stays `None`: with `exterior_wavelength` the generator caps its
-  automatic coarse spacing at the largest 2^M h <= lambda_1 / 5 with the actual grid spacing
-  h = L / round(L / mesh_size) (100 nm at 500 nm in vacuum with h = 50 nm), so the coarse
-  spacing never exceeds lambda_1 / 5 and no warning is logged. `default_box_mesh_size` gives
-  the nominal value for `mesh_size`; do not pass it as `box_mesh_size` (for L not a multiple
-  of h it can exceed lambda_1 / 5 slightly, which warns). If the band would reach the bottom
-  plate (very rough surfaces), the uniform box is chosen: `box_mesh_size = mesh_size`,
-  `uniform_fallback = True`, logged as a warning. Without `exterior_wavelength` and
-  `box_mesh_size` the old automatic rule (min(depth / 2, L / 8, 10 h)) is used with a warning
-  (not validated under illumination). lambda_1 / 5 is necessary, not shown sufficient (WP-V2).
+  `ValueError`), for weakly absorbing objects the mandatory fine band 3 delta + 3 sigma, and
+  `beam_waist_fraction`. "Weakly absorbing" (`is_weakly_absorbing`) is 3 delta > 2 h: it mirrors
+  the grading contract (the walls of a graded box without a band start to coarsen 2 top-face
+  spacings below a smooth rim); Si yes, Ag no at 500 nm and h = 50 nm.
+  - `grading="uniform"` (default since the amendment 2026-10-12b, `sb.BoxGradingMode.Uniform`):
+    `box_mesh_size = mesh_size`, the walls and the bottom have the top-face cells (M = 0). The
+    graded lambda_1 / 5 box failed the depth check for Si at w0 = L / 4 and costs more at MLFMM
+    sizes (WP-V2). The fine band does not change a uniform box but is kept, so both gradings
+    carry the same parameters; if it would reach the bottom plate it is dropped (no warning).
+  - `grading="graded"` (explicit option for cheaper dense studies and convergence checks):
+    `box_mesh_size = None`; with `exterior_wavelength` the generator caps its automatic coarse
+    spacing at the largest 2^M h <= lambda_1 / 5 with the actual grid spacing
+    h = L / round(L / mesh_size) (100 nm at 500 nm in vacuum with h = 50 nm), so the coarse
+    spacing never exceeds lambda_1 / 5 and no warning is logged. `graded_box_mesh_size`
+    (renamed from `default_box_mesh_size`, WP-B3) gives the nominal value for `mesh_size`; do not
+    pass it as `box_mesh_size` (for L not a multiple of h it can exceed lambda_1 / 5 slightly,
+    which warns). If the band would reach the bottom plate (very rough surfaces), the uniform box
+    is chosen: `box_mesh_size = mesh_size`, `uniform_fallback = True`, logged as a warning.
+  - Without `exterior_wavelength` and `box_mesh_size` the generator's old automatic rule
+    (min(depth / 2, L / 8, 10 h)) is used with a warning (not validated under illumination).
+  - Plasmonic objects (`is_plasmonic`: Re(eps_r) < 0, e.g. Ag): no quantitative rough-surface
+    results until WP-V3 (the docs/05 box checks fail for Ag, ADR 0006 amendment 2026-10-12b).
+    `rough_surface_box_params` logs one warning per call for sigma > 0 and returns the
+    parameters as usual; a flat patch (sigma = 0: validated reflectance and A_ext) logs nothing.
 - Beam waist: rough-surface drivers must call
-  `check_beam_waist(L, waist, incidence_angle=theta_in)` (w0 <= L cos(theta_in) / 4, ADR 0006
-  amendments 2026-10-10 and 2026-10-11: the footprint on z = 0 is 1 / cos(theta_in) longer, and
-  w0 = L / 4 at 45 deg loses 0.63 % of the beam power past the patch); `Simulation` cannot
-  determine the patch size from a mesh. `incidence_angle` [rad] is that of the beam
-  (`GaussianBeam` / `AngularSpectrumBeam`), |theta_in| < pi / 2 (else `ValueError`).
-  `allow_wide=True` accepts a wider waist with a warning. Both are keyword-only (C++:
-  `check_beam_waist(L, w0, {.incidence_angle = theta, .allow_wide = false})`).
+  `check_beam_waist(L, waist, incidence_angle=theta_in, max_fraction=box.beam_waist_fraction)`:
+  w0 <= L cos(theta_in) * max_fraction, with `beam_waist_fraction(object, wavelength,
+  mesh_size)` = 1/6 for weakly absorbing objects (Si; ADR 0006 amendment 2026-10-12b,
+  provisional: at L / 4 the L x 1.2 check fails with 1.28 %, at L / 6 both checks pass) and 1/4
+  otherwise (Ag; amendments 2026-10-10 and 2026-10-11: the footprint on z = 0 is
+  1 / cos(theta_in) longer, and w0 = L / 4 at 45 deg loses 0.63 % of the beam power past the
+  patch). `max_fraction` defaults to 1/4 and must lie in (0, 1/4] (a wider beam needs
+  `allow_wide`); the error message names the fraction. `Simulation` cannot determine the patch
+  size from a mesh. `incidence_angle` [rad] is that of the beam (`GaussianBeam` /
+  `AngularSpectrumBeam`), |theta_in| < pi / 2 (else `ValueError`). `allow_wide=True` accepts a
+  wider waist with a warning. All three are keyword-only (C++:
+  `check_beam_waist(L, w0, {.incidence_angle = theta, .allow_wide = false, .max_fraction = f})`;
+  `max_fraction` is the last member of `BeamWaistOptions`).
 - `PlaneWave.direction` is `k_hat` (normalised by the constructor), `polarization` the complex
   amplitude `e0` [V/m] (transverse). `GaussianBeam.waist` is `Params::waist_radius` (1/e^2
   intensity radius); `polarization` is `"p"`, `"s"` (any case) or `sb.Polarization.P/S`.

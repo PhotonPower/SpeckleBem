@@ -687,7 +687,7 @@ Index box_triangles(Index n, const geometry::detail::BoxGrading& g) {
 
 }  // namespace
 
-TEST_CASE("simulation: exterior wavelength and default box mesh size", "[simulation]") {
+TEST_CASE("simulation: exterior wavelength and graded box mesh size", "[simulation]") {
     constexpr Real lambda = 500e-9;
     CHECK(exterior_wavelength(material::vacuum(), lambda) == lambda);
     // n_1 = 1.5: lambda_1 = 333 nm, lambda_1 / 5 = 66.7 nm.
@@ -700,22 +700,22 @@ TEST_CASE("simulation: exterior wavelength and default box mesh size", "[simulat
     CHECK(std::abs(exterior_wavelength(lossy, lambda) -
                    lambda / std::sqrt(std::hypot(2.25, 0.3))) <= 1e-12 * lambda);
     // Vacuum, 500 nm, h = 50 nm -> 100 nm (M = 1, ADR 0006 amendment); h = 20 nm -> 80 nm.
-    CHECK(default_box_mesh_size(material::vacuum(), lambda, 50e-9) == 2.0 * 50e-9);
-    CHECK(default_box_mesh_size(material::vacuum(), lambda, 20e-9) == 4.0 * 20e-9);
+    CHECK(graded_box_mesh_size(material::vacuum(), lambda, 50e-9) == 2.0 * 50e-9);
+    CHECK(graded_box_mesh_size(material::vacuum(), lambda, 20e-9) == 4.0 * 20e-9);
     // M = 0 (lambda_1 / 5 < 2 h): the top-face spacing, i.e. the uniform box.
-    CHECK(default_box_mesh_size(material::vacuum(), lambda, 60e-9) == 60e-9);
-    CHECK(default_box_mesh_size(material::vacuum(), lambda, 100e-9) == 100e-9);
+    CHECK(graded_box_mesh_size(material::vacuum(), lambda, 60e-9) == 60e-9);
+    CHECK(graded_box_mesh_size(material::vacuum(), lambda, 100e-9) == 100e-9);
     // n_1 = 1.5: h = 10 nm -> 40 nm (M = 2), h = 20 nm -> 40 nm (M = 1), h = 50 nm -> 50 nm.
-    CHECK(default_box_mesh_size(medium(2.25), lambda, 10e-9) == 4.0 * 10e-9);
-    CHECK(default_box_mesh_size(medium(2.25), lambda, 20e-9) == 2.0 * 20e-9);
-    CHECK(default_box_mesh_size(medium(2.25), lambda, 50e-9) == 50e-9);
+    CHECK(graded_box_mesh_size(medium(2.25), lambda, 10e-9) == 4.0 * 10e-9);
+    CHECK(graded_box_mesh_size(medium(2.25), lambda, 20e-9) == 2.0 * 20e-9);
+    CHECK(graded_box_mesh_size(medium(2.25), lambda, 50e-9) == 50e-9);
     // Water-like n_1 = 1.33 at 633 nm: lambda_1 / 5 = 95.2 nm, h = 20 nm -> 80 nm.
-    CHECK(default_box_mesh_size(medium(1.33 * 1.33), 633e-9, 20e-9) == 4.0 * 20e-9);
+    CHECK(graded_box_mesh_size(medium(1.33 * 1.33), 633e-9, 20e-9) == 4.0 * 20e-9);
     // Invalid input.
     for (const Real bad : {0.0, -50e-9, std::nan(""), HUGE_VAL}) {
-        CHECK_THROWS_AS(default_box_mesh_size(material::vacuum(), lambda, bad),
+        CHECK_THROWS_AS(graded_box_mesh_size(material::vacuum(), lambda, bad),
                         std::invalid_argument);
-        CHECK_THROWS_AS(default_box_mesh_size(material::vacuum(), bad, 50e-9),
+        CHECK_THROWS_AS(graded_box_mesh_size(material::vacuum(), bad, 50e-9),
                         std::invalid_argument);
         CHECK_THROWS_AS(exterior_wavelength(material::vacuum(), bad), std::invalid_argument);
     }
@@ -733,15 +733,18 @@ TEST_CASE("simulation: exterior wavelength and default box mesh size", "[simulat
                     std::invalid_argument);
 }
 
-TEST_CASE("simulation: rough-surface box parameters for Si and Ag", "[simulation]") {
+TEST_CASE("simulation: rough-surface box parameters for Si and Ag (graded option)",
+          "[simulation]") {
     constexpr Real lambda = 500e-9;
     constexpr Real sigma = 50e-9;
     constexpr Real h = 50e-9;
+    constexpr BoxGradingMode graded = BoxGradingMode::Graded;
     const material::Material si = material::silicon_500nm();
     const material::Material ag = material::silver_500nm();
     const material::Material vac = material::vacuum();
     // Si (delta = 1.13 um, weakly absorbing): mandatory fine band 3 delta + 3 sigma.
-    const RoughBoxParams b_si = rough_surface_box_params(si, vac, lambda, sigma, h);
+    const RoughBoxParams b_si = rough_surface_box_params(si, vac, lambda, sigma, h, graded);
+    CHECK(b_si.grading == graded);
     CHECK(b_si.box_depth == default_box_depth(si, lambda));
     REQUIRE(b_si.box_fine_depth.has_value());
     CHECK(*b_si.box_fine_depth == default_box_fine_depth(si, lambda, sigma));
@@ -750,24 +753,27 @@ TEST_CASE("simulation: rough-surface box parameters for Si and Ag", "[simulation
     CHECK_FALSE(b_si.box_mesh_size.has_value());
     CHECK(b_si.exterior_wavelength == lambda);
     CHECK_FALSE(b_si.uniform_fallback);
+    CHECK(b_si.beam_waist_fraction == kWeakAbsorberBeamWaistFraction);
     // Ag (delta = 25 nm, 3 delta = 76 nm < 2 h): no fine band.
-    const RoughBoxParams b_ag = rough_surface_box_params(ag, vac, lambda, sigma, h);
+    const RoughBoxParams b_ag = rough_surface_box_params(ag, vac, lambda, sigma, h, graded);
     CHECK(b_ag.box_depth == kMinBoxDepth);
     CHECK_FALSE(b_ag.box_fine_depth.has_value());
     CHECK_FALSE(b_ag.box_mesh_size.has_value());
     CHECK(b_ag.exterior_wavelength == lambda);
     CHECK_FALSE(b_ag.uniform_fallback);
+    CHECK(b_ag.beam_waist_fraction == kMaxBeamWaistFraction);
     // The "weakly absorbing" rule mirrors the grading contract: 3 delta > 2 h.
     CHECK(geometry::kNoBandCoarseningDepth == 2.0);
     // Ag at h = 20 nm: the no-band walls would coarsen 40 nm < 3 delta below the rim -> band.
-    const RoughBoxParams b_ag20 = rough_surface_box_params(ag, vac, lambda, sigma, 20e-9);
+    const RoughBoxParams b_ag20 = rough_surface_box_params(ag, vac, lambda, sigma, 20e-9, graded);
     REQUIRE(b_ag20.box_fine_depth.has_value());
     CHECK(*b_ag20.box_fine_depth == default_box_fine_depth(ag, lambda, sigma));
     CHECK_FALSE(b_ag20.box_mesh_size.has_value());
+    CHECK(b_ag20.beam_waist_fraction == kWeakAbsorberBeamWaistFraction);
     // Si under a very rough surface: the band would reach the bottom -> uniform box, warned.
     {
         BoxWarningCounter warnings;
-        const RoughBoxParams b_rough = rough_surface_box_params(si, vac, lambda, 1e-6, h);
+        const RoughBoxParams b_rough = rough_surface_box_params(si, vac, lambda, 1e-6, h, graded);
         CHECK(b_rough.uniform_fallback);
         CHECK_FALSE(b_rough.box_fine_depth.has_value());
         REQUIRE(b_rough.box_mesh_size.has_value());
@@ -775,10 +781,12 @@ TEST_CASE("simulation: rough-surface box parameters for Si and Ag", "[simulation
         CHECK(b_rough.box_depth == default_box_depth(si, lambda));
         CHECK(warnings.count() == 1);
         CHECK(warnings.count("using the uniform box") == 1);
-        // The regular paths log no warning.
-        (void)rough_surface_box_params(si, vac, lambda, sigma, h);
-        (void)rough_surface_box_params(ag, vac, lambda, sigma, h);
+        // The regular Si path logs no warning; rough Ag logs the plasmonic one (2026-10-12b).
+        (void)rough_surface_box_params(si, vac, lambda, sigma, h, graded);
         CHECK(warnings.count() == 1);
+        (void)rough_surface_box_params(ag, vac, lambda, sigma, h, graded);
+        CHECK(warnings.count() == 2);
+        CHECK(warnings.count("plasmonic") == 1);
     }
     // apply_to sets the four box fields only.
     geometry::RoughSurfaceParams p;
@@ -799,16 +807,155 @@ TEST_CASE("simulation: rough-surface box parameters for Si and Ag", "[simulation
     fallback.uniform_fallback = true;
     fallback.apply_to(p);
     CHECK(p.box_mesh_size == std::optional<Real>(h));
-    // Invalid input is rejected as by the single helpers.
-    CHECK_THROWS_AS(rough_surface_box_params(lossless_n15(), vac, lambda, sigma, h),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(rough_surface_box_params(si, vac, lambda, -1e-9, h), std::invalid_argument);
-    CHECK_THROWS_AS(rough_surface_box_params(si, vac, lambda, sigma, 0.0), std::invalid_argument);
-    CHECK_THROWS_AS(rough_surface_box_params(si, medium(-4.0), lambda, sigma, h),
-                    std::invalid_argument);
+    // Invalid input is rejected as by the single helpers, for both gradings.
+    for (const BoxGradingMode mode : {BoxGradingMode::Uniform, graded}) {
+        CAPTURE(to_string(mode));
+        CHECK_THROWS_AS(rough_surface_box_params(lossless_n15(), vac, lambda, sigma, h, mode),
+                        std::invalid_argument);
+        CHECK_THROWS_AS(rough_surface_box_params(si, vac, lambda, -1e-9, h, mode),
+                        std::invalid_argument);
+        CHECK_THROWS_AS(rough_surface_box_params(si, vac, lambda, sigma, 0.0, mode),
+                        std::invalid_argument);
+        CHECK_THROWS_AS(rough_surface_box_params(si, medium(-4.0), lambda, sigma, h, mode),
+                        std::invalid_argument);
+    }
+    CHECK_THROWS_AS(
+        rough_surface_box_params(si, vac, lambda, sigma, h, static_cast<BoxGradingMode>(7)),
+        std::invalid_argument);
 }
 
-TEST_CASE("simulation: closing box of the defaults at L = 10 um (Ag, Si)", "[simulation]") {
+TEST_CASE("simulation: uniform closing box by default (ADR 0006 amendment 2026-10-12b)",
+          "[simulation]") {
+    constexpr Real lambda = 500e-9;
+    constexpr Real sigma = 50e-9;
+    const material::Material si = material::silicon_500nm();
+    const material::Material ag = material::silver_500nm();
+    const material::Material vac = material::vacuum();
+    CHECK(std::string(to_string(BoxGradingMode::Uniform)) == "uniform");
+    CHECK(std::string(to_string(BoxGradingMode::Graded)) == "graded");
+    CHECK(RoughBoxParams{}.grading == BoxGradingMode::Uniform);
+    for (const Real h : {50e-9, 20e-9}) {
+        CAPTURE(h);
+        // Box spacing = top-face spacing; the graded option and the graded nominal value
+        // (2 h at 50 nm, 4 h at 20 nm) are unchanged.
+        const RoughBoxParams b_si = rough_surface_box_params(si, vac, lambda, sigma, h);
+        CHECK(b_si.grading == BoxGradingMode::Uniform);
+        REQUIRE(b_si.box_mesh_size.has_value());
+        CHECK(*b_si.box_mesh_size == h);
+        CHECK(graded_box_mesh_size(vac, lambda, h) == (h == 50e-9 ? 2.0 : 4.0) * h);
+        // Same depth, exterior wavelength, fine band and waist fraction as the graded option.
+        const RoughBoxParams g_si =
+            rough_surface_box_params(si, vac, lambda, sigma, h, BoxGradingMode::Graded);
+        CHECK(b_si.box_depth == g_si.box_depth);
+        CHECK(b_si.box_fine_depth == g_si.box_fine_depth);
+        CHECK(b_si.exterior_wavelength == g_si.exterior_wavelength);
+        CHECK(b_si.beam_waist_fraction == g_si.beam_waist_fraction);
+        CHECK(b_si.beam_waist_fraction == kWeakAbsorberBeamWaistFraction);
+        CHECK_FALSE(b_si.uniform_fallback);
+        const RoughBoxParams b_ag = rough_surface_box_params(ag, vac, lambda, sigma, h);
+        REQUIRE(b_ag.box_mesh_size.has_value());
+        CHECK(*b_ag.box_mesh_size == h);
+        CHECK(b_ag.box_fine_depth.has_value() == (h == 20e-9));  // 3 delta > 2 h at 20 nm
+    }
+    // Very rough Si: the band reaches the bottom plate. Uniform: no band, no fallback flag and
+    // no warning (the box is already uniform).
+    {
+        BoxWarningCounter warnings;
+        const RoughBoxParams b = rough_surface_box_params(si, vac, lambda, 1e-6, 50e-9);
+        CHECK_FALSE(b.box_fine_depth.has_value());
+        CHECK(b.box_mesh_size == std::optional<Real>(50e-9));
+        CHECK_FALSE(b.uniform_fallback);
+        CHECK(warnings.count() == 0);
+    }
+    // The uniform box from the defaults: M = 0, with or without the fine band the same mesh
+    // (L = 1 um, h = 50 nm, Si; the band does not change a uniform box).
+    geometry::RoughSurfaceParams p;
+    p.edge_length_L = 1e-6;
+    p.mesh_size = 50e-9;
+    p.rms_roughness = sigma;
+    p.correlation_length = 200e-9;
+    p.seed = 3;
+    const RoughBoxParams b = rough_surface_box_params(si, vac, lambda, sigma, p.mesh_size);
+    REQUIRE(b.box_fine_depth.has_value());
+    b.apply_to(p);
+    const geometry::HeightMap hm = geometry::generate_gaussian_height_map(p);
+    const geometry::detail::BoxGrading g = geometry::detail::box_grading(
+        hm, b.box_depth, b.box_mesh_size, b.box_fine_depth, b.exterior_wavelength);
+    CHECK(g.levels == 0);
+    BoxWarningCounter warnings;
+    const geometry::TriangleMesh with_band = geometry::make_rough_surface_mesh(p);
+    p.box_fine_depth.reset();
+    const geometry::TriangleMesh without_band = geometry::make_rough_surface_mesh(p);
+    CHECK(with_band.is_closed());
+    REQUIRE(with_band.num_vertices() == without_band.num_vertices());
+    REQUIRE(with_band.num_triangles() == without_band.num_triangles());
+    CHECK(with_band.vertices() == without_band.vertices());
+    CHECK(with_band.triangles() == without_band.triangles());
+    CHECK(warnings.count() == 0);
+}
+
+TEST_CASE("simulation: weakly absorbing, plasmonic and the beam-waist fraction", "[simulation]") {
+    constexpr Real lambda = 500e-9;
+    constexpr Real h = 50e-9;
+    const material::Material si = material::silicon_500nm();
+    const material::Material ag = material::silver_500nm();
+    // ADR 0006 amendment 2026-10-12b: 1/6 for Si, 1/4 for Ag at 500 nm and h = 50 nm.
+    CHECK(kWeakAbsorberBeamWaistFraction == 1.0 / 6.0);
+    CHECK(is_weakly_absorbing(si, lambda, h));
+    CHECK_FALSE(is_weakly_absorbing(ag, lambda, h));
+    CHECK(beam_waist_fraction(si, lambda, h) == 1.0 / 6.0);
+    CHECK(beam_waist_fraction(ag, lambda, h) == 0.25);
+    // Threshold 3 delta > 2 h: Ag (delta = 25.4 nm) is weakly absorbing for h < 38 nm.
+    const Real d_ag = material::field_decay_length(ag, lambda);
+    CHECK(is_weakly_absorbing(ag, lambda, 1.49 * d_ag));
+    CHECK_FALSE(is_weakly_absorbing(ag, lambda, 1.5 * d_ag));
+    CHECK(beam_waist_fraction(ag, lambda, 20e-9) == 1.0 / 6.0);
+    // A lossless dielectric does not decay at all: weakly absorbing (tighter waist).
+    CHECK(is_weakly_absorbing(lossless_n15(), lambda, h));
+    CHECK(beam_waist_fraction(lossless_n15(), lambda, h) == 1.0 / 6.0);
+    // Plasmonic: Re(eps_r) < 0 (also lossless metals); Si, glass and vacuum are not.
+    CHECK(is_plasmonic(ag));
+    CHECK(is_plasmonic(medium(-4.0)));
+    CHECK_FALSE(is_plasmonic(si));
+    CHECK_FALSE(is_plasmonic(lossless_n15()));
+    CHECK_FALSE(is_plasmonic(material::vacuum()));
+    CHECK_FALSE(is_plasmonic(medium(0.0)));
+    // Invalid input.
+    for (const Real bad : {0.0, -50e-9, std::nan(""), HUGE_VAL}) {
+        CHECK_THROWS_AS(is_weakly_absorbing(si, lambda, bad), std::invalid_argument);
+        CHECK_THROWS_AS(beam_waist_fraction(si, lambda, bad), std::invalid_argument);
+        CHECK_THROWS_AS(is_weakly_absorbing(si, bad, h), std::invalid_argument);
+    }
+    material::Material gain = si;
+    gain.eps_r = std::conj(si.eps_r);
+    CHECK_THROWS_AS(is_weakly_absorbing(gain, lambda, h), std::invalid_argument);
+    CHECK_THROWS_AS(is_plasmonic(medium(Complex(std::nan(""), 0.0))), std::invalid_argument);
+}
+
+TEST_CASE("simulation: plasmonic objects warn once for rough patches, not for flat ones",
+          "[simulation]") {
+    constexpr Real lambda = 500e-9;
+    const material::Material ag = material::silver_500nm();
+    const material::Material vac = material::vacuum();
+    for (const BoxGradingMode mode : {BoxGradingMode::Uniform, BoxGradingMode::Graded}) {
+        CAPTURE(to_string(mode));
+        BoxWarningCounter warnings;
+        RoughBoxParams b;
+        CHECK_NOTHROW(b = rough_surface_box_params(ag, vac, lambda, 50e-9, 50e-9, mode));
+        CHECK(b.box_depth == kMinBoxDepth);  // parameters returned as usual
+        CHECK(warnings.count() == 1);
+        CHECK(warnings.count("plasmonic") == 1);
+        CHECK(warnings.count("WP-V3") == 1);
+        CHECK(warnings.count("2026-10-12b") == 1);
+        // Flat patch (sigma = 0: the validated Fresnel reflectance and A_ext): no warning.
+        CHECK_NOTHROW((void)rough_surface_box_params(ag, vac, lambda, 0.0, 50e-9, mode));
+        // Si is not plasmonic.
+        (void)rough_surface_box_params(material::silicon_500nm(), vac, lambda, 50e-9, 50e-9, mode);
+        CHECK(warnings.count() == 1);
+    }
+}
+
+TEST_CASE("simulation: graded closing box at L = 10 um (Ag, Si)", "[simulation]") {
     // L = 10 um, h = 50 nm, sigma = 50 nm, Lc = 500 nm, seed 1, 500 nm in vacuum (layout
     // only). Old automatic rule (Ag, depth 2 um): M = 3, closing box 7.19 % of the top face.
     constexpr Real lambda = 500e-9;
@@ -828,9 +975,9 @@ TEST_CASE("simulation: closing box of the defaults at L = 10 um (Ag, Si)", "[sim
     CHECK(old.levels == 3);
     for (const bool silicon : {false, true}) {
         CAPTURE(silicon);
-        const RoughBoxParams b =
-            rough_surface_box_params(silicon ? material::silicon_500nm() : material::silver_500nm(),
-                                     material::vacuum(), lambda, p.rms_roughness, p.mesh_size);
+        const RoughBoxParams b = rough_surface_box_params(
+            silicon ? material::silicon_500nm() : material::silver_500nm(), material::vacuum(),
+            lambda, p.rms_roughness, p.mesh_size, BoxGradingMode::Graded);
         const geometry::detail::BoxGrading g = geometry::detail::box_grading(
             hm, b.box_depth, b.box_mesh_size, b.box_fine_depth, b.exterior_wavelength);
         // Same layout as the explicit coarse spacing 100 nm (dx = 50 nm here).
@@ -858,7 +1005,7 @@ TEST_CASE("simulation: closing box of the defaults at L = 10 um (Ag, Si)", "[sim
     }
 }
 
-TEST_CASE("simulation: box defaults for L not a multiple of the mesh size", "[simulation]") {
+TEST_CASE("simulation: box options for L not a multiple of the mesh size", "[simulation]") {
     // The generator's spacing is L / round(L / h): L = 1.07 um, h = 50 nm -> 50.95 nm, so an
     // explicit 2 h = 100 nm would give 101.9 nm coarse cells (> lambda_1 / 5, warned). The
     // defaults leave box_mesh_size unset and the generator caps with the actual spacing.
@@ -882,7 +1029,7 @@ TEST_CASE("simulation: box defaults for L not a multiple of the mesh size", "[si
             p.seed = 7;
             const RoughBoxParams b = rough_surface_box_params(
                 silicon ? material::silicon_500nm() : material::silver_500nm(), material::vacuum(),
-                lambda, p.rms_roughness, p.mesh_size);
+                lambda, p.rms_roughness, p.mesh_size, BoxGradingMode::Graded);
             REQUIRE_FALSE(b.box_mesh_size.has_value());
             b.apply_to(p);
             const geometry::HeightMap hm = geometry::generate_gaussian_height_map(p);
@@ -899,9 +1046,22 @@ TEST_CASE("simulation: box defaults for L not a multiple of the mesh size", "[si
             const geometry::TriangleMesh mesh = geometry::make_rough_surface_mesh(p);
             CHECK(mesh.is_closed());
             CHECK(warnings.count() == 0);
+            // The uniform default (box_mesh_size = nominal h): M = 0 for the actual spacing.
+            const RoughBoxParams u = rough_surface_box_params(
+                silicon ? material::silicon_500nm() : material::silver_500nm(), material::vacuum(),
+                lambda, p.rms_roughness, p.mesh_size);
+            CHECK(u.box_mesh_size == std::optional<Real>(c.h));
+            CHECK(geometry::detail::box_grading(hm, u.box_depth, u.box_mesh_size, u.box_fine_depth,
+                                                u.exterior_wavelength)
+                      .levels == 0);
+            u.apply_to(p);
+            const geometry::TriangleMesh uniform = geometry::make_rough_surface_mesh(p);
+            CHECK(uniform.is_closed());
+            CHECK(uniform.num_triangles() >= mesh.num_triangles());
+            CHECK(warnings.count() == (silicon ? 0U : 1U));  // Ag: the plasmonic warning
         }
     }
-    // The nominal default_box_mesh_size passed explicitly overshoots for L = 1.07 um.
+    // The nominal graded_box_mesh_size passed explicitly overshoots for L = 1.07 um.
     geometry::RoughSurfaceParams p;
     p.edge_length_L = 1.07e-6;
     p.mesh_size = 50e-9;
@@ -909,9 +1069,9 @@ TEST_CASE("simulation: box defaults for L not a multiple of the mesh size", "[si
     p.correlation_length = 200e-9;
     p.seed = 7;
     rough_surface_box_params(material::silver_500nm(), material::vacuum(), lambda, p.rms_roughness,
-                             p.mesh_size)
+                             p.mesh_size, BoxGradingMode::Graded)
         .apply_to(p);
-    p.box_mesh_size = default_box_mesh_size(material::vacuum(), lambda, p.mesh_size);
+    p.box_mesh_size = graded_box_mesh_size(material::vacuum(), lambda, p.mesh_size);
     CHECK(*p.box_mesh_size == 100e-9);
     BoxWarningCounter warnings;
     (void)geometry::make_rough_surface_mesh(p);
@@ -973,6 +1133,63 @@ TEST_CASE("simulation: beam waist check at oblique incidence (ADR 0006 amendment
         CHECK_THROWS_AS(check_beam_waist(L, 0.1e-6, {.incidence_angle = bad}),
                         std::invalid_argument);
         CHECK_THROWS_AS(check_beam_waist(L, 0.1e-6, {.incidence_angle = bad, .allow_wide = true}),
+                        std::invalid_argument);
+    }
+}
+
+TEST_CASE("simulation: beam waist check with the material fraction (ADR 0006 2026-10-12b)",
+          "[simulation]") {
+    using Catch::Matchers::ContainsSubstring;
+    constexpr Real L = 6e-6;
+    constexpr Real lambda = 500e-9;
+    const Real f_si = beam_waist_fraction(material::silicon_500nm(), lambda, 50e-9);
+    REQUIRE(f_si == 1.0 / 6.0);
+    // max_fraction is the last member: positional initialisers keep the pre-WP-B3 order
+    // {theta_in, allow_wide} (review W2).
+    {
+        const BeamWaistOptions positional{0.25, true, 0.2};
+        CHECK(positional.incidence_angle == 0.25);
+        CHECK(positional.allow_wide);
+        CHECK(positional.max_fraction == 0.2);
+    }
+    // Normal incidence: L / 6 passes, L / 4 (fine for Ag) throws for Si, naming "/ 6".
+    CHECK_NOTHROW(check_beam_waist(L, L / 6, {.max_fraction = f_si}));
+    CHECK_THROWS_AS(check_beam_waist(L, L / 6 * (1.0 + 1e-9), {.max_fraction = f_si}),
+                    std::invalid_argument);
+    CHECK_THROWS_WITH(
+        check_beam_waist(L, L / 4, {.max_fraction = f_si}),
+        ContainsSubstring("L cos(theta_in) / 6 = 1e-06") && ContainsSubstring("allow_wide"));
+    CHECK_NOTHROW(check_beam_waist(L, L / 4, {.max_fraction = kMaxBeamWaistFraction}));
+    // Oblique incidence: L cos(theta) / 6.
+    const Real theta = constants::pi / 4.0;
+    const Real limit = L * std::cos(theta) / 6.0;
+    CHECK_NOTHROW(check_beam_waist(L, limit, {.incidence_angle = theta, .max_fraction = f_si}));
+    CHECK_NOTHROW(check_beam_waist(L, limit, {.incidence_angle = -theta, .max_fraction = f_si}));
+    CHECK_THROWS_AS(
+        check_beam_waist(L, limit * (1.0 + 1e-9), {.incidence_angle = theta, .max_fraction = f_si}),
+        std::invalid_argument);
+    CHECK_THROWS_AS(check_beam_waist(L, L / 6, {.incidence_angle = theta, .max_fraction = f_si}),
+                    std::invalid_argument);
+    // allow_wide: accepted with one warning naming the fraction; within the limit no warning.
+    {
+        BoxWarningCounter warnings;
+        CHECK_NOTHROW(check_beam_waist(
+            L, L / 4, {.incidence_angle = theta, .allow_wide = true, .max_fraction = f_si}));
+        CHECK(warnings.count("exceeds L cos(theta_in) / 6") == 1);
+        CHECK(warnings.count() == 1);
+        CHECK_NOTHROW(check_beam_waist(
+            L, limit, {.incidence_angle = theta, .allow_wide = true, .max_fraction = f_si}));
+        CHECK(warnings.count() == 1);
+    }
+    // A fraction that is not 1 / n is printed as a factor.
+    CHECK_THROWS_WITH(check_beam_waist(L, L / 4, {.max_fraction = 0.15}),
+                      ContainsSubstring("L cos(theta_in) * 0.15"));
+    // max_fraction must lie in (0, 1/4]: a wider beam needs allow_wide, also with allow_wide.
+    for (const Real bad : {0.0, -0.1, 0.26, 1.0 / 3.0, std::nan(""), HUGE_VAL}) {
+        CAPTURE(bad);
+        CHECK_THROWS_WITH(check_beam_waist(L, 0.1e-6, {.max_fraction = bad}),
+                          ContainsSubstring("max_fraction"));
+        CHECK_THROWS_AS(check_beam_waist(L, 0.1e-6, {.allow_wide = true, .max_fraction = bad}),
                         std::invalid_argument);
     }
 }

@@ -2,7 +2,7 @@
 - [Windows build pitfalls](build_pitfalls_windows.md) — GCC null-deref false positives (GCC 13 CI repro via winlibs), debug -O0 timings, WP7b quadrature cost, ctest -R case
 - [GMRES observations](gmres_observations.md) — measured iteration counts/residuals (sphere, 2e4 rough box) for test budgets
 - [Touching-pair quadrature findings](touching_quadrature_findings.md) — Duffy error sources (rays, obtuse apex, radial), reference n at sharp folds
-- [Rough box grading facts](rough_box_grading.md) — anchor row, relaxation band, safety net, box %, WP-B1 lambda_1/5 defaults (M rounding, Ag/Si %)
+- [Rough box grading facts](rough_box_grading.md) — anchor row, relaxation band, safety net, box %, WP-B1 lambda_1/5, WP-B3 uniform default + Si L/6
 - [MLFMM plane-wave accuracy](mlfmm_plane_wave_accuracy.md) — ADR truncation vs box size, corner worst case, Lagrange p, Hankel refs, Eigen dot
 - [Assembly performance](assembly_performance.md) — box cost drivers, schedule, GCC vectorisation flags, fast-math accuracy, timing method
 - [Python bindings pitfalls](python_bindings.md) — flags order, vectorize, views, exceptions, GIL callbacks, Simulation lock design, test sensitivity
@@ -22,3 +22,4 @@
 - [Box validity MLFMM findings](box_validity_mlfmm_findings.md) — WP-V2: Si passes w/ uniform box at w0<=L/6 (1 seed); Ag fails, cause open (SPP vs WP-A2 cavity); floors
 - [Si large-area findings](si_large_area_findings.md) — WP22d: proxy 10.5 um, sigma 100 vs 50 costs, leaf L/2^k, 256 GB reasoning, matvec timing cost, Ag series
 - [Ag near-null mode verdict](ag_null_mode_findings.md) — WP-A2: intrinsic box cavity mode, d0=5 (2.5 um only) deciding, E2/E3 caveats, detector levels, Ritz cost
+- [Server kit waist](server_kit_waist.md) — run kit pins w0 = L/4 (Si + --allow-wide-beam); pre-WP-B3 Si commands need the waist explicit

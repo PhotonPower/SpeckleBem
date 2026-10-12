@@ -721,6 +721,35 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - Documentation: project plan, architecture, SIE and MLFMM theory, validation, conventions, coding guidelines, GPU strategy, compression survey, Python API, ADRs.
 
 ### Changed
+- core / python / tests (WP-B3, ADR 0006 amendment 2026-10-12b): **uniform closing box by
+  default.** `rough_surface_box_params(object, background, wavelength, sigma, mesh_size,
+  grading = BoxGradingMode::Uniform)` returns `box_mesh_size = mesh_size` (box cells = top-face
+  cells, M = 0); `BoxGradingMode::Graded` keeps the λ₁/5 box of the 2026-10-10 amendment
+  (`box_mesh_size` unset, generator cap, uniform fallback). The fine band is set for weakly
+  absorbing objects in both modes (with the uniform box it does not change the mesh; dropped
+  without a warning if it would reach the bottom). `RoughBoxParams` gains `grading` and
+  `beam_waist_fraction`. **`default_box_mesh_size` is renamed `graded_box_mesh_size`** (same
+  values; removed under the old name in C++ and Python so that no caller silently reads the
+  graded value as the default). New `is_weakly_absorbing(object, wavelength, mesh_size)` (3δ > 2h,
+  the fine-band criterion), `is_plasmonic(object)` (Re ε_r < 0), `beam_waist_fraction(object,
+  wavelength, mesh_size)` (1/6 weakly absorbing, e.g. Si; 1/4 otherwise, e.g. Ag) and
+  `kWeakAbsorberBeamWaistFraction`. `BeamWaistOptions::max_fraction` (last member, so that a positional
+  `{theta_in, allow_wide}` keeps its meaning; default
+  `kMaxBeamWaistFraction` = 1/4, must lie in (0, 1/4]); the error and warning name the fraction
+  ("L cos(theta_in) / 6"). `rough_surface_box_params` logs one SBEM_WARN for a plasmonic object
+  with sigma > 0 (no quantitative rough-surface results until WP-V3; flat patches, sigma = 0, stay
+  silent, no exception). Python mirrors all of it (`grading="uniform"|"graded"` or
+  `sb.BoxGradingMode`, keyword-only; `check_beam_waist(..., max_fraction=...)`;
+  `sb.MAX_BEAM_WAIST_FRACTION`, `sb.WEAK_ABSORBER_BEAM_WAIST_FRACTION`). Callers: the Fresnel flat
+  support (`fresnel_flat_support.hpp`, WP22c/WP-A1 records) pins `Graded` and checks the waist with
+  the material fraction (the recorded Si validation-large cases at L/4 now pass `allow_wide`); the
+  MLFMM scaling support pins `Graded` (its coarse spacing stays explicit) and its `waist_factor`
+  is optional, defaulting to 1 / `beam_waist_fraction` (Si L/6, Ag L/4; the recorded Si rows used
+  L/4: `--waist-factor 4 --allow-wide-beam`); example 02 uses the Si fraction. The WP22d server
+  run kit keeps L/4 for every run (coordinator decision: a scaling measurement comparable with
+  the proxy and the WP22b3 series): `run_large_area.sh --waist-factor` (default 4) is always
+  forwarded, with `--allow-wide-beam` for Si below a factor of 6; the recorded Si reproduce
+  commands in `benchmarks/results/` name the waist explicitly.
 - kernels (WP7d): the fold-adaptive rule classifies right angles at shared vertices (rough
   top faces, box rim) with a relative tolerance of 1e-6 instead of exact sign / distance tests,
   so exact and +-1e-9-perturbed right angles select the same rule (that of acute angles);

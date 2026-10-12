@@ -2,8 +2,8 @@
 // tapered beam, 0 deg and 45 deg | Fresnel r_p, r_s | rel on |r|^2 | < 1 %"; ctest label
 // `validation-large`, release only, manual: `ctest --preset win-release -L validation-large -R
 // "Flat interface"`). Flat patch (sigma = 0) of edge L closed by the ADR 0006 box
-// (rough_surface_box_params: lambda_1 / 5 cells, Si fine band), rigorous angular-spectrum beam
-// focused on the surface centre, Simulation with compression "mlfmm" (d0 = 3), formulation per
+// (rough_surface_box_params, graded: lambda_1 / 5 cells, Si fine band), rigorous angular-spectrum
+// beam focused on the surface centre, Simulation with compression "mlfmm" (d0 = 3), formulation per
 // formulation::recommend, full GMRES at tolerance 1e-4 (Si) / 1e-5 (Ag). The reflected power
 // fraction R_sim (flux of the scattered far field through the reflection hemisphere over
 // AngularSpectrumBeam::power()) is compared with the beam reflectance R_beam of an infinite
@@ -73,7 +73,10 @@ Case make_case(const std::string& material, Real L, Real w0, Real theta_deg,
     // The 45 deg cases use w0 = L / 5 > L cos(45 deg) / 4 (ADR 0006 amendment 2026-10-11); their
     // measured edge loss 0.06-0.1 % is within the error budget (benchmarks/results/
     // fresnel_flat.md), so they keep their recorded parameters with the waist check's warning.
-    c.allow_wide_beam = theta_deg != 0.0;
+    // The Si cases (w0 = L / 4 at 0 deg, L / 5 at 45 deg) predate the Si limit L cos(theta) / 6
+    // of the ADR 0006 amendment 2026-10-12b (derived from the rough-surface L x 1.2 check); the
+    // flat Si reflectance met its criterion at these waists, so they keep them as well.
+    c.allow_wide_beam = theta_deg != 0.0 || material == "si";
     return c;
 }
 

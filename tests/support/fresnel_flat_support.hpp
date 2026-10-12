@@ -30,9 +30,12 @@
 ///    differs from the plane-wave |r(theta_0)|^2 at the central angle by O((lambda / (pi w0))^2).
 ///
 /// Simulation: flat patch (sigma = 0) of edge L, grid spacing L / round(L / h) (h = 50 nm), closed
-/// by the box of rough_surface_box_params() (ADR 0006 with the 2026-10-10 amendment: depth
-/// default_box_depth, coarse cells <= lambda_1 / 5, Si fine band 3 delta), rigorous beam
-/// (AngularSpectrumBeam, waist w0 <= L / 4, focus at the origin = surface centre, incidence about
+/// by the graded box of rough_surface_box_params(..., BoxGradingMode::Graded) (ADR 0006 with the
+/// 2026-10-10 amendment: depth default_box_depth, coarse cells <= lambda_1 / 5, Si fine band
+/// 3 delta; the recorded and validated WP22c cases, kept graded although the library default is
+/// the uniform box since the amendment 2026-10-12b), rigorous beam (AngularSpectrumBeam, waist
+/// w0 <= L cos(theta) / 4 for Ag and / 6 for Si (beam_waist_fraction; the recorded Si cases
+/// predate the / 6 rule and pass allow_wide), focus at the origin = surface centre, incidence about
 /// y, region_radius >= the farthest mesh vertex and >= 5 w0 / cos(theta) for the flux check),
 /// Simulation with compression "mlfmm" (d0, automatic leaf rule and exact-part budget),
 /// formulation per formulation::recommend, full GMRES.
@@ -233,10 +236,12 @@ inline PlaneFlux incident_flux_z0(const excitation::Excitation& inc, Real L, Rea
 struct Case {
     std::string material = "ag";  ///< "ag" (silver_500nm) or "si" (silicon_500nm)
     Real L = 4e-6;                ///< patch edge [m] (a multiple of mesh_size)
-    Real waist = 1e-6;            ///< w0 [m] (<= L cos(theta) / 4, check_beam_waist)
-    Real theta_deg = 0.0;         ///< incidence angle about y [deg]
-    /// Accept w0 > L cos(theta) / 4 with a warning (check_beam_waist allow_wide): the recorded
-    /// 45 deg cases use w0 = L / 5 (edge loss 0.06-0.1 %, benchmarks/results/fresnel_flat.md).
+    /// w0 [m] (<= L cos(theta) * beam_waist_fraction: / 4 for Ag, / 6 for Si, check_beam_waist)
+    Real waist = 1e-6;
+    Real theta_deg = 0.0;  ///< incidence angle about y [deg]
+    /// Accept a wider waist with a warning (check_beam_waist allow_wide): the recorded 45 deg
+    /// cases use w0 = L / 5 (edge loss 0.06-0.1 %, benchmarks/results/fresnel_flat.md), the
+    /// recorded Si cases w0 <= L / 4 (before the / 6 rule of the ADR 0006 amendment 2026-10-12b).
     bool allow_wide_beam = false;
     excitation::Polarization pol = excitation::Polarization::P;
     Real mesh_size = 50e-9;             ///< top-face spacing h [m]
@@ -301,12 +306,15 @@ inline geometry::HeightMap flat_height_map(Real L, Real h) {
     return m;
 }
 
-/// Mesh of a case: the flat patch closed by the box of rough_surface_box_params (sigma = 0).
+/// Mesh of a case: the flat patch closed by the graded box of rough_surface_box_params (sigma =
+/// 0, so no plasmonic warning for Ag: flat reflectance is validated). Graded explicitly: the
+/// WP22c/WP-A1 records and the validation tests were computed with it (the uniform default of
+/// the ADR 0006 amendment 2026-10-12b would change every case's mesh and cost).
 inline Geometry make_geometry(const Case& c) {
     const material::Material object = object_material(c.material);
     const geometry::HeightMap hm = flat_height_map(c.L, c.mesh_size);
-    RoughBoxParams box =
-        rough_surface_box_params(object, material::vacuum(), kLambda, 0.0, c.mesh_size);
+    RoughBoxParams box = rough_surface_box_params(object, material::vacuum(), kLambda, 0.0,
+                                                  c.mesh_size, BoxGradingMode::Graded);
     if (c.box_depth) {
         if (!(*c.box_depth > 0.0) || !std::isfinite(*c.box_depth))
             throw std::invalid_argument("fresnel_flat: box depth must be finite and > 0");
@@ -335,8 +343,11 @@ inline Real beam_region_radius(const Case& c, Real r_max) {
 }
 
 inline std::shared_ptr<excitation::AngularSpectrumBeam> make_beam(const Case& c, Real r_max) {
-    check_beam_waist(c.L, c.waist,
-                     {.incidence_angle = c.theta_deg * kDeg, .allow_wide = c.allow_wide_beam});
+    check_beam_waist(
+        c.L, c.waist,
+        {.incidence_angle = c.theta_deg * kDeg,
+         .allow_wide = c.allow_wide_beam,
+         .max_fraction = beam_waist_fraction(object_material(c.material), kLambda, c.mesh_size)});
     excitation::AngularSpectrumBeam::Params bp;
     bp.wavelength = kLambda;
     bp.waist_radius = c.waist;

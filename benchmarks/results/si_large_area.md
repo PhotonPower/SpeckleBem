@@ -295,12 +295,14 @@ A_ext here).
 ```bash
 cmake --preset win-release -DSPECKLEBEM_BUILD_BENCHMARKS=ON && cmake --build --preset win-release
 B=build/win-release/benchmarks/specklebem_mlfmm_scaling
+# all rows used w0 = L / 4; since WP-B3 the Si default is L / 6, so the waist is explicit
+W="--waist-factor 4 --allow-wide-beam"
 # proxy and the sigma = 100 nm points (one case per process, quiet machine)
-$B --material si --L 10.5e-6 --sigma 100e-9 --box-mesh-size 50e-9 --beam angular-spectrum --history --far-field 1
-$B --material si --L 4e-6 --sigma 100e-9 --box-mesh-size 50e-9 --beam angular-spectrum --history --far-field 1  # also 6e-6
+$B --material si --L 10.5e-6 --sigma 100e-9 --box-mesh-size 50e-9 --beam angular-spectrum $W --history --far-field 1
+$B --material si --L 4e-6 --sigma 100e-9 --box-mesh-size 50e-9 --beam angular-spectrum $W --history --far-field 1  # also 6e-6
 # estimates (seconds each): uniform box and graded box with the local leaf rule
-$B --material si --L 30e-6 --sigma 100e-9 --box-mesh-size 50e-9 --beam angular-spectrum --estimate-only
-$B --material si --L 30e-6 --sigma 100e-9 --leaf-radius-quantile 0.8 --beam angular-spectrum --estimate-only
+$B --material si --L 30e-6 --sigma 100e-9 --box-mesh-size 50e-9 --beam angular-spectrum $W --estimate-only
+$B --material si --L 30e-6 --sigma 100e-9 --leaf-radius-quantile 0.8 --beam angular-spectrum $W --estimate-only
 python benchmarks/si_large_area_extrapolation.py
 # server (Linux): scripts/server_run_kit/README.md
 ```

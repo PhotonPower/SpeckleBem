@@ -223,7 +223,7 @@ TEST_CASE("mlfmm_scaling: a failing power summary keeps the solve result", "[mlf
     CHECK(r2.post_error == "non-standard exception");
 }
 
-TEST_CASE("mlfmm_scaling: the waist rule w0 <= L/4 is enforced", "[mlfmm_scaling]") {
+TEST_CASE("mlfmm_scaling: the waist rule (L/4 Ag, L/6 Si) is enforced", "[mlfmm_scaling]") {
     Case c;
     c.material = "ag";
     c.L = 0.4e-6;
@@ -234,6 +234,23 @@ TEST_CASE("mlfmm_scaling: the waist rule w0 <= L/4 is enforced", "[mlfmm_scaling
     c.allow_wide_beam = false;
     c.waist_factor = 4.0;
     CHECK_NOTHROW(make_geometry(c));
+    c.waist_factor.reset();  // default: 1 / beam_waist_fraction = 4 for Ag
+    CHECK(waist_factor_of(c) == 4.0);
+    CHECK(label(c).find("w0 = L/4,") != std::string::npos);
+
+    // Si (weakly absorbing): w0 <= L / 6 since the ADR 0006 amendment 2026-10-12b.
+    c.material = "si";
+    c.L = 0.6e-6;
+    CHECK(waist_fraction(c) == 1.0 / 6.0);
+    CHECK(waist_factor_of(c) == 6.0);
+    CHECK(label(c).find("w0 = L/6,") != std::string::npos);
+    CHECK_NOTHROW(make_geometry(c));
+    c.waist_factor = 4.0;  // the recorded WP22b/WP22d Si rows: needs allow_wide_beam now
+    CHECK_THROWS_AS(make_geometry(c), std::invalid_argument);
+    c.allow_wide_beam = true;
+    CHECK_NOTHROW(make_geometry(c));
+    c.waist_factor = 0.0;
+    CHECK_THROWS_AS(make_geometry(c), std::invalid_argument);
 }
 
 TEST_CASE("mlfmm_scaling: the angular-spectrum beam covers the mesh", "[mlfmm_scaling]") {

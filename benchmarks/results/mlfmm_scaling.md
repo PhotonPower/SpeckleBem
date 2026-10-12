@@ -556,18 +556,20 @@ Si configuration, the local rule the opt-in memory option for graded boxes).
 ```bash
 cmake --preset win-release -DSPECKLEBEM_BUILD_BENCHMARKS=ON && cmake --build --preset win-release
 B=build/win-release/benchmarks/specklebem_mlfmm_scaling
+# all rows used w0 = L / 4 (Ag default); since WP-B3 the Si default is L / 6, so Si sets it:
+W="--waist-factor 4 --allow-wide-beam"
 # WP22b3 (CGS2 is the GMRES default; one case per process on a quiet machine)
 $B --material ag --L 11e-6 --beam angular-spectrum --max-iter 6000      # Ag: L = 3 4 5 7 9 11 um
 $B --material ag --L 15e-6 --beam angular-spectrum --max-iter 2100      # capped (17.5 um: 1450)
-$B --material si --L 10e-6 --box-mesh-size 50e-9 --beam angular-spectrum   # Si: L = 1 2 3 4 6 8 10
-$B --material si --L 8e-6 --leaf-radius-quantile 0.8 --beam angular-spectrum  # local rule (and q = 1)
+$B --material si --L 10e-6 --box-mesh-size 50e-9 --beam angular-spectrum $W   # Si: L = 1 2 3 4 6 8 10
+$B --material si --L 8e-6 --leaf-radius-quantile 0.8 --beam angular-spectrum $W  # local rule (and q = 1)
 # WP22b1
-$B --material si --L 8e-6 --estimate-only           # 2N, octree, memory estimates (seconds)
-$B --material si --L 4e-6 > si_L4.log               # Si sweep: L = 1 2 3 4 7 8 um
+$B --material si --L 8e-6 $W --estimate-only        # 2N, octree, memory estimates (seconds)
+$B --material si --L 4e-6 $W > si_L4.log            # Si sweep: L = 1 2 3 4 7 8 um
 $B --material ag --L 9e-6 --max-iter 6000 > ag_L9.log   # Ag sweep: L = 3 4 5 7 9 um
 $B --material ag --L 17.5e-6 --no-solve > ag_L17p5.log  # setup + matvec only: L = 11 15 17.5 um
 $B --material ag --L 4e-6 --box-mesh-size uncapped   # automatic box rule without the cap
-$B --material si --L 10e-6 --box-mesh-size 50e-9 --estimate-only   # uniform box
+$B --material si --L 10e-6 --box-mesh-size 50e-9 $W --estimate-only   # uniform box
 python benchmarks/mlfmm_scaling_fit.py si_L*.log     # tables and exponents
 # from the committed data (no runs needed)
 python benchmarks/mlfmm_scaling_fit.py benchmarks/results/mlfmm_scaling_rows.txt   # all fits

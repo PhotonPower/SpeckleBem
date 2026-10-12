@@ -32,6 +32,14 @@ Graded rough box (src/geometry/rough_surface.cpp, WP2c + review fix 2026-10-09):
   Any lambda-based cap must use the actual h_b, i.e. pass exterior_wavelength and leave
   box_mesh_size unset; precompute nothing from mesh_size. lambda_1 = lambda_0 / |n_1|.
 
+- WP-B3 (2026-10-12, ADR 0006 amendment 2026-10-12b): the library default is now the UNIFORM
+  box (rough_surface_box_params -> box_mesh_size = h); graded is BoxGradingMode::Graded. A
+  uniform box with a fine band gives the bit-identical mesh to one without (band ignored at
+  M = 0), but the generator still throws if box_fine_depth >= depth, so the helper drops it.
+  Si waist limit L cos(theta)/6, Ag L/4; rough Ag (sigma > 0) logs a plasmonic warning, so
+  warning-count tests with rough Ag must expect +1. Studies that reproduce recorded rows
+  (Fresnel flat, MLFMM scaling) pin Graded explicitly.
+
 **Why:** these numbers drove kMaxRelaxationEdge, kAspectSlack, kMinColumnScale and the test bounds.
 **How to apply:** when touching the box grading or its tests, re-run the hidden
 `[.stats]` test in test_rough_surface.cpp before changing a constant.

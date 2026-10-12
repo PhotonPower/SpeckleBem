@@ -205,7 +205,20 @@ running case and with it the series.
 ## 4. Run list
 
 Same settings as the proxy unless stated: Si, σ = 100 nm, Lc = 500 nm, h = 50 nm, uniform 50 nm
-closing box with the fine band, rigorous beam w₀ = L/4, ICTF, d₀ = 3, GMRES tol 1e-3, seed 1.
+closing box with the fine band, rigorous beam w₀ = L/4 (column w₀), ICTF, d₀ = 3, GMRES tol 1e-3,
+seed 1.
+
+**Waist: every run uses w₀ = L/4**, Si and Ag. The script always forwards the waist explicitly
+(`--waist-factor`, default 4) and, for Si with a factor below 6, also `--allow-wide-beam`, so the
+commands below mean the same at every commit. ADR 0006 (amendment 2026-10-12b) asks for
+w₀ ≤ L/6 in quantitative Si work, and the benchmark's own default has followed it since WP-B3;
+this kit keeps L/4 on purpose. It is a scaling and feasibility measurement that must stay
+comparable with the desktop proxy, the WP22b3 series and the estimates below, all made at L/4;
+the waist changes neither the cost (mesh, octree, near field, patterns) nor the iteration
+behaviour materially for this purpose. The reflectance R and absorptance A in `row.txt` are
+consistency checks here, not quantitative results (tol 1e-3 and the wide Si beam). Do not pass a
+different `--waist-factor` unless the coordinator asks for it.
+
 **Memory and times are extrapolations from the development machine, not measurements**
 (`si_large_area.md`, "Extrapolation"; Ag: the WP22b3 rows and projection in
 `benchmarks/results/mlfmm_scaling.md`). "Check needs" = model + Krylov basis + margin, the figure
@@ -215,18 +228,18 @@ measures. Timing matvecs = the 2 (matvecs + 1) full-matvec equivalents before GM
 `--far-field 1` power summary, which scales with directions × triangles (324 s at the proxy,
 2N = 1.1·10⁶, so ≈ 324 s × 2N / 1.1·10⁶); total = setup + timing matvecs + solve + post.
 
-| # | case | command (after `scripts/server_run_kit/run_large_area.sh`) | 2N | model [GB] | check needs [GB] | expected peak [GB] | setup | timing matvecs | solve (desktop) | post | **total (desktop)** | purpose |
-|---|---|---|---:|---:|---:|---:|---|---|---|---|---|---|
-| 1 | smoke: Si L = 2 µm | `--L 2e-6 --label smoke` | 127 680 | 14 | 47 | 10–12 | < 1 min | < 1 min | 2–5 min | ~40 s | **3–7 min** | build, environment, output files |
-| 2 | Si L = 20 µm | `--L 20e-6 --label L20` | 3 004 800 | 285 | 325 | 210–250 | 8–15 min | 8–12 min (12 × 42–62 s) | 1.0–2.2 h | ~15 min | **1.5–2.9 h** | server speed vs desktop; checks the extrapolation |
-| 3 | **Si L = 30 µm (target)** | `--matvecs 1 --label target` (L = 30 µm is the default) | 5 947 200 | 823 | 870 | 600–720 | 27–53 min | 5–11 min (4 × 82–158 s) | 2.2–5.6 h | ~30 min | **3.2–7.1 h** | the Phase 4 target |
-| 3b | Si L = 30 µm, graded box, q = 0.8 (alternative) | `--L 30e-6 --box 100e-9 --lq 0.8 --matvecs 1 --label graded` | 3 999 600 | 627 | 670 | 460–550 | 18–36 min | 6–9 min (4 × 94–131 s) | 2.9–6.8 h | ~20 min | **3.6–7.9 h** | only if 3 does not fit (fewer unknowns, ~1.4 × the iterations) |
-| 4 | **Ag series, server** (recommended): 4a–4d in one call | `--material ag --L 4e-6,7e-6,11e-6,17.5e-6 --max-iter 4000 --label agseries` | see below | | | | | | | | **5.2–7.0 h** | closes the Ag scaling DoD by measurement on one machine |
-| 4a | Ag L = 4 µm | (series) | 69 600 | 4.5 | 42 | ≈ 4.2 | 13 s | 2 s | 348 s (1 394 it) | ~20 s | **6 min** | |
-| 4b | Ag L = 7 µm | (series) | 186 480 | 9.1 | 54 | ≈ 10.9 | 33 s | 5 s | 993 s (1 518 it) | ~1 min | **18 min** | |
-| 4c | Ag L = 11 µm | (series) | 422 400 | 39.5 | 100 | ≈ 43 | 85 s | 14 s | 4 748 s (2 272 it) | ~2 min | **1.4 h** | |
-| 4d | Ag L = 17.5 µm | (series) | 1 017 450 | 64 | 162 | 87–101 | 3 min | 0.5 min | 3.3–5.1 h projected (2 530–3 360 it) | ~5 min | **3.4–5.2 h** | |
-| 5 | Si L = 32 µm, q = 0.8 (optional) | `--L 32e-6 --lq 0.8 --matvecs 1 --label L32q08` | 6 650 880 | 546 | 595 | 400–480 | 13–26 min | 6–12 min (4 × 91–185 s) | 2.0–5.0 h | ~33 min | **2.9–6.2 h** | octree quantisation: larger L, less memory than 30 µm |
+| # | case | w₀ | command (after `scripts/server_run_kit/run_large_area.sh`) | 2N | model [GB] | check needs [GB] | expected peak [GB] | setup | timing matvecs | solve (desktop) | post | **total (desktop)** | purpose |
+|---|---|---|---|---:|---:|---:|---:|---|---|---|---|---|---|
+| 1 | smoke: Si L = 2 µm | L/4 | `--L 2e-6 --label smoke` | 127 680 | 14 | 47 | 10–12 | < 1 min | < 1 min | 2–5 min | ~40 s | **3–7 min** | build, environment, output files |
+| 2 | Si L = 20 µm | L/4 | `--L 20e-6 --label L20` | 3 004 800 | 285 | 325 | 210–250 | 8–15 min | 8–12 min (12 × 42–62 s) | 1.0–2.2 h | ~15 min | **1.5–2.9 h** | server speed vs desktop; checks the extrapolation |
+| 3 | **Si L = 30 µm (target)** | L/4 | `--matvecs 1 --label target` (L = 30 µm is the default) | 5 947 200 | 823 | 870 | 600–720 | 27–53 min | 5–11 min (4 × 82–158 s) | 2.2–5.6 h | ~30 min | **3.2–7.1 h** | the Phase 4 target |
+| 3b | Si L = 30 µm, graded box, q = 0.8 (alternative) | L/4 | `--L 30e-6 --box 100e-9 --lq 0.8 --matvecs 1 --label graded` | 3 999 600 | 627 | 670 | 460–550 | 18–36 min | 6–9 min (4 × 94–131 s) | 2.9–6.8 h | ~20 min | **3.6–7.9 h** | only if 3 does not fit (fewer unknowns, ~1.4 × the iterations) |
+| 4 | **Ag series, server** (recommended): 4a–4d in one call | L/4 | `--material ag --L 4e-6,7e-6,11e-6,17.5e-6 --max-iter 4000 --label agseries` | see below | | | | | | | | **5.2–7.0 h** | closes the Ag scaling DoD by measurement on one machine |
+| 4a | Ag L = 4 µm | L/4 | (series) | 69 600 | 4.5 | 42 | ≈ 4.2 | 13 s | 2 s | 348 s (1 394 it) | ~20 s | **6 min** | |
+| 4b | Ag L = 7 µm | L/4 | (series) | 186 480 | 9.1 | 54 | ≈ 10.9 | 33 s | 5 s | 993 s (1 518 it) | ~1 min | **18 min** | |
+| 4c | Ag L = 11 µm | L/4 | (series) | 422 400 | 39.5 | 100 | ≈ 43 | 85 s | 14 s | 4 748 s (2 272 it) | ~2 min | **1.4 h** | |
+| 4d | Ag L = 17.5 µm | L/4 | (series) | 1 017 450 | 64 | 162 | 87–101 | 3 min | 0.5 min | 3.3–5.1 h projected (2 530–3 360 it) | ~5 min | **3.4–5.2 h** | |
+| 5 | Si L = 32 µm, q = 0.8 (optional) | L/4 | `--L 32e-6 --lq 0.8 --matvecs 1 --label L32q08` | 6 650 880 | 546 | 595 | 400–480 | 13–26 min | 6–12 min (4 × 91–185 s) | 2.0–5.0 h | ~33 min | **2.9–6.2 h** | octree quantisation: larger L, less memory than 30 µm |
 
 Notes:
 
@@ -318,6 +331,10 @@ machine available), with MSYS2's `dash` (POSIX sh) and `bash`, output to a scrat
   non-numeric `--far-field` stop with exit 2; `--far-field 30` is refused by the benchmark at the
   estimate (the half-node grid would have n_φ = 3); `--far-field 0.0` switches the power summary
   off;
+- the explicit waist (WP-B3 review, 2026-10-12): `--L 1e-6 --dry-run` forwards
+  `--waist-factor 4 --allow-wide-beam` for Si (estimate: "w0 = L/4", one waist warning, "allowed
+  by the caller") and `--waist-factor 4` alone for Ag; Si with `--waist-factor 6` forwards no
+  `--allow-wide-beam`; `--waist-factor abc` and `0` stop with exit 2;
 - the Ag series as one call, `--material ag --L 4e-6,7e-6,11e-6,17.5e-6 --dry-run`: four run
   directories, L = 17.5 µm refused locally (need 145 GB with the 16 GB margin), exit 3;
 - a full Si run at L = 1 µm, σ = 100 nm (59 040 unknowns; 116 iterations, R = 0.311,

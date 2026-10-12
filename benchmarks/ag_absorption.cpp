@@ -29,9 +29,10 @@
 // Options of the other mode (--save-currents / --refine / --hessenberg with --load-currents;
 // --profile, --strip-check without it) are rejected. --perturb works in both modes (with
 // --load-currents it assembles the operator and perturbs the loaded solution).
-// --allow-wide-beam accepts w0 > L cos(theta) / 4 (check_beam_waist, ADR 0006 amendment
-// 2026-10-11) with a warning, as benchmarks/fresnel_flat.cpp: the recorded 45 deg cases use
-// w0 = L / 5 (the WP22c parameters, edge loss 0.06-0.1 %).
+// --allow-wide-beam accepts w0 > L cos(theta) / 4 (Ag; / 6 for Si: check_beam_waist with
+// beam_waist_fraction, ADR 0006 amendments 2026-10-11 and 2026-10-12b) with a warning, as
+// benchmarks/fresnel_flat.cpp: the recorded 45 deg cases use w0 = L / 5 (the WP22c parameters, edge
+// loss 0.06-0.1 %).
 // --save-currents writes the solved [J; M] (raw complex<double>); --load-currents evaluates the
 // diagnostics of saved currents of the same case without assembly and solve. --refine adds
 // iterative-refinement steps x <- x + GMRES(Z, b - Z x) (left Jacobi) down to the listed true

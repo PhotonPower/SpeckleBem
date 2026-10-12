@@ -233,9 +233,10 @@ L, sigma, Lc, mesh_size, seed, use_fft) closed by a box below it.
 The object occupies z > xi(x, y); light comes from z < 0. box_depth [m] (bottom plate at
 z = +box_depth), box_mesh_size [m] (coarse box spacing) and box_fine_depth [m] (fine band
 below z = 0) default to the automatic rules of make_mesh_from_height_map, and
-exterior_wavelength [m] (lambda_1 in R1) caps the automatic coarse spacing at lambda_1 / 5
-(ADR 0006 amendment; rough_surface_box_params chooses all four from the materials). seed=0
-draws a random seed that is only logged.
+exterior_wavelength [m] (lambda_1 in R1) caps the automatic coarse spacing at lambda_1 / 5.
+rough_surface_box_params chooses all four from the materials (ADR 0006 amendment
+2026-10-12b): uniform box by default (box cells = top-face cells), graded lambda_1 / 5 on
+request (grading=). seed=0 draws a random seed that is only logged.
 )doc");
     m.def("make_mesh_from_height_map", &geometry::make_mesh_from_height_map, py::arg("height_map"),
           py::kw_only(), py::arg("box_depth") = py::none(), py::arg("box_mesh_size") = py::none(),
@@ -252,7 +253,10 @@ validated under illumination, ADR 0006 amendment). box_fine_depth [m]: the walls
 top-face spacing down to this z (None: no fine band); size it as 3 delta + 3 sigma with
 delta = field_decay_length (mandatory for weakly absorbing objects such as Si).
 exterior_wavelength [m]: lambda_1 = lambda_0 / |n_1| in R1 (sb.exterior_wavelength).
-rough_surface_box_params chooses all four from the materials.
+rough_surface_box_params chooses all four from the materials: uniform box by default (box cells
+= top-face cells), graded lambda_1 / 5 on request (grading=). A caller who takes uniform
+parameters and then sets a coarse box_mesh_size must re-check box_fine_depth (the uniform
+parameters drop the band when it would reach the bottom plate).
 )doc");
 }
 

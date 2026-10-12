@@ -17,8 +17,11 @@ class RoughSurface:
     select the height map (``generate_gaussian_height_map``); ``box_depth``, ``box_mesh_size``,
     ``box_fine_depth`` and ``exterior_wavelength`` the closing box
     (``make_mesh_from_height_map``, None = automatic). ``rough_surface_box_params(...).kwargs()``
-    gives all four for the materials (ADR 0006 amendment: coarse spacing <= lambda_1 / 5,
-    mandatory fine band for weakly absorbing objects).
+    gives all four for the materials (ADR 0006 amendment 2026-10-12b): uniform box by default
+    (box cells = top-face cells), graded lambda_1 / 5 box on request (``grading=``), fine band
+    3 delta + 3 sigma for weakly absorbing objects. ``box_fine_depth``: with uniform parameters
+    the band is dropped when it would reach the bottom plate; if you then set a coarse
+    ``box_mesh_size`` yourself, re-check the fine band (``default_box_fine_depth``).
     ``seed=0`` draws a random seed that is only logged by the C++ core (reproducible only via
     the logged seed); pass a non-zero seed for reproducible surfaces.
     """

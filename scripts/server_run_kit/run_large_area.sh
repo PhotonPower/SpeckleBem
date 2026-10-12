@@ -18,6 +18,8 @@ lq=1              # leaf radius quantile (1 = global leaf rule)
 digits=3
 tol=1e-3
 max_iter=""       # empty: si 1000, ag 4000 (WP22b3 Ag L = 17.5 um: 2 530-3 360 projected)
+waist_factor=4    # beam waist w0 = L / waist_factor for both materials (the WP22b/WP22d series;
+                  # Si gets --allow-wide-beam for factors below 6, README section 4)
 far_field=1       # polar spacing of the reflection-hemisphere grid [deg]; 0 = off
 matvecs=5         # timed matvec rounds before GMRES (each round: full + near + far apply)
 threads=""        # empty: $OMP_NUM_THREADS if set, else all hardware threads (nproc)
@@ -46,6 +48,9 @@ Options (SI units, metres):
   --digits <d0>         MLFMM accuracy digits (default 3)
   --tol <t>             GMRES tolerance (default 1e-3)
   --max-iter <n>        GMRES iteration cap (default si 1000, ag 4000)
+  --waist-factor <f>    beam waist w0 = L / f, always forwarded (default 4 for both materials,
+                        as in the proxy and the WP22b3 series; Si with f < 6 also gets
+                        --allow-wide-beam, since ADR 0006 asks for L/6 in quantitative Si work)
   --far-field <deg>     power summary grid spacing, 0 = off (default 1)
   --matvecs <n>         timed matvec rounds before GMRES, each full + near + far (default 5;
                         1 for the large cases: the ROW matvec times are then single applies)
@@ -107,7 +112,7 @@ while [ $# -gt 0 ]; do
         --dry-run) dry_run=1; shift; continue ;;
         -h | --help) usage; exit 0 ;;
         --L | --material | --sigma | --box | --lq | --digits | --tol | --max-iter | --far-field | \
-            --matvecs | --threads | --krylov-iters | --margin-gb | --numa | --build-dir | \
+            --waist-factor | --matvecs | --threads | --krylov-iters | --margin-gb | --numa | --build-dir | \
             --out-dir | --label | --extra | --sample)
             [ $# -ge 2 ] || die "missing value after $1"
             # A value that looks like an option means the value was left out ("--L --dry-run").
@@ -123,6 +128,7 @@ while [ $# -gt 0 ]; do
         --digits) digits=$2 ;;
         --tol) tol=$2 ;;
         --max-iter) max_iter=$2 ;;
+        --waist-factor) waist_factor=$2 ;;
         --far-field) far_field=$2 ;;
         --matvecs) matvecs=$2 ;;
         --threads) threads=$2 ;;
@@ -149,6 +155,18 @@ case "$material" in
     *) die "--material must be si or ag" ;;
 esac
 case "$numa" in auto | interleave | none) ;; *) die "--numa must be auto, interleave or none" ;; esac
+# Waist: w0 = L / waist_factor is always passed explicitly, so the meaning of a run does not
+# depend on the benchmark's default (since WP-B3 the material's limit: L/6 for Si, L/4 for Ag).
+# The kit measures scaling at L/4 for both materials (comparable with the desktop proxy and the
+# WP22b3 series); a Si waist wider than L/6 needs --allow-wide-beam (check_beam_waist).
+awk -v f="$waist_factor" 'BEGIN {
+    if (f !~ /^[+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/) exit 1
+    exit !(f + 0 > 0)
+}' || die "--waist-factor must be a positive number, got '$waist_factor'"
+waist_args="--waist-factor $waist_factor"
+if [ "$material" = si ] && awk -v f="$waist_factor" 'BEGIN {exit !(f + 0 < 6)}'; then
+    waist_args="$waist_args --allow-wide-beam"
+fi
 
 # ------------------------------------------------------------------------------------------
 # Locations (relative to the repository; no machine-specific paths)
@@ -216,7 +234,7 @@ fi
 
 case_args="--material $material --L $L --sigma $sigma --box-mesh-size $box \
 --leaf-radius-quantile $lq --digits $digits --tol $tol --max-iter $max_iter \
---beam angular-spectrum"
+--beam angular-spectrum $waist_args"
 # --far-field: numeric comparison (0, 0.0 and 0e0 are all "off"); the benchmark validates the
 # spacing (both hemisphere grids) and the degree before the estimate, so the estimate call below
 # gets the same post-processing options and a bad value fails in seconds.

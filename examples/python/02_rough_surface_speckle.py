@@ -3,12 +3,13 @@
     import specklebem as sb
     L, sigma, Lc, h, wl = 30e-6, 100e-9, 1e-6, 50e-9, 500e-9
     si, vac = sb.silicon_500nm(), sb.vacuum()
-    # Closing box from the materials (ADR 0006, amendment 2026-10-10): depth, coarse spacing
-    # <= lambda_1 / 5 and the mandatory fine band 3 delta + 3 sigma for Si.
+    # Closing box from the materials (ADR 0006, amendments 2026-10-10 and 2026-10-12b): depth,
+    # uniform box (box cells = top-face cells, the default) and the mandatory fine band
+    # 3 delta + 3 sigma for Si.
     box = sb.rough_surface_box_params(si, vac, wl, sigma, h)
     surf = sb.RoughSurface(L=L, sigma=sigma, Lc=Lc, mesh_size=h, seed=42, **box.kwargs())
-    waist = L / 4                    # 7.5 um: w0 <= L / 4 (ADR 0006 amendment)
-    sb.check_beam_waist(L, waist)    # raises ValueError for a wider waist
+    waist = L * box.beam_waist_fraction   # 5 um: w0 <= L / 6 for Si (ADR 0006 2026-10-12b)
+    sb.check_beam_waist(L, waist, max_fraction=box.beam_waist_fraction)  # ValueError if wider
     beam = sb.GaussianBeam(wavelength=wl, waist=waist, polarization="p")
     sim  = sb.Simulation(surf.mesh, beam, object=si, formulation="ICTF")
     sim.solve(tol=1e-3)
@@ -31,5 +32,5 @@ import specklebem as sb
 
 L, sigma, h, wl = 30e-6, 100e-9, 50e-9, 500e-9
 box = sb.rough_surface_box_params(sb.silicon_500nm(), sb.vacuum(), wl, sigma, h)
-sb.check_beam_waist(L, L / 4)
+sb.check_beam_waist(L, L * box.beam_waist_fraction, max_fraction=box.beam_waist_fraction)
 print(sb.__version__, box)

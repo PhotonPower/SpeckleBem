@@ -6,8 +6,10 @@
 //
 // One case per process (a background command is limited in time and the peak memory of a case
 // should be its own): Ag (eps_r = -9.794 - 0.313j) or Si (18.478 - 0.606j) at lambda = 500 nm in
-// vacuum, patch edge --L (multiple of the 50 nm spacing), waist --w0 (<= L cos(theta) / 4 unless
-// --allow-wide-beam: check_beam_waist, ADR 0006 amendment 2026-10-11), incidence --theta
+// vacuum, patch edge --L (multiple of the 50 nm spacing), graded closing box (the recorded
+// WP22c box), waist --w0 (<= L cos(theta) / 4 for Ag, / 6 for Si unless --allow-wide-beam:
+// check_beam_waist with beam_waist_fraction, ADR 0006 amendments 2026-10-11 and 2026-10-12b;
+// the recorded Si cases need --allow-wide-beam), incidence --theta
 // [deg] about y from z < 0, polarisation p or s; Simulation with compression "mlfmm" (d0 =
 // --digits), formulation per formulation::recommend, full GMRES (--tol). Output (stdout): SETUP
 // (mesh, octree and memory estimate, beam reference), the solve and a RESULT line; the RESULT line

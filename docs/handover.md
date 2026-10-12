@@ -43,11 +43,14 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **WP-V2 merged:** Si passes the docs/05 box checks with the uniform box at w₀/L = 1/6 (one configuration);
   Ag fails at every waist, cause open (SPPs vs WP-A2 cavity resonances) → WP-V3. ADR 0006 rule changes
   (uniform box for quantitative runs, w₀ ≤ L/6 for Si) proposed to the lead.
-- **In flight:** WP22b2 (formulation sweep with MLFMM, L = 3.2–10 µm).
+- **ADR 0006 amendment 2026-10-12b (lead decision) + WP-B3 merged:** uniform box by default, w₀ ≤ L cos θ/6 for
+  weakly absorbing objects (provisional, WP-V2b), no quantitative rough Ag until WP-V3.
+- **Server runs:** the lead runs the WP22d kit at commit 1be8f2b (w₀ = L/4, pre-WP-B3); results pending.
+- **In flight:** WP22b2 (formulation sweep with MLFMM, L = 3.2–10 µm); after it, WP-V3 and WP-V2b (machine-exclusive).
   They share the machine via a lock directory in the session scratchpad (WP22d holds it for timed runs).
 - **Next:** WP-V2 (box validity at MLFMM sizes, graded vs uniform box), WP22b2 (formulation sweep with MLFMM),
   then Phases 5/6. A stronger preconditioner than Jacobi would address the Ag iteration growth.
-- Test counts on `main`: 420 ctest (`-LE "validation-large|slow"`), 94 pytest; labels `slow`, `validation`
+- Test counts on `main`: 424 ctest (`-LE "validation-large|slow"`), 97 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

@@ -6,6 +6,7 @@
 #include <pybind11/stl.h>
 
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <iomanip>
 #include <memory>
@@ -431,8 +432,30 @@ std::string result_repr(const GmresResult& r) {
 
 namespace {
 
-/// Closing-box defaults of truncated rough patches (ADR 0006 with the 2026-10-10 amendment).
+/// "uniform" / "graded" (any case) or a BoxGradingMode value; ValueError otherwise.
+BoxGradingMode parse_grading(const py::object& obj) {
+    if (py::isinstance<py::str>(obj)) {
+        std::string s = obj.cast<std::string>();
+        for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (s == "uniform")
+            return BoxGradingMode::Uniform;
+        if (s == "graded")
+            return BoxGradingMode::Graded;
+    } else if (py::isinstance<BoxGradingMode>(obj)) {
+        return obj.cast<BoxGradingMode>();
+    }
+    throw py::value_error("grading: expected \"uniform\", \"graded\" or a BoxGradingMode value");
+}
+
+/// Closing-box defaults of truncated rough patches (ADR 0006 with the amendments 2026-10-10 and
+/// 2026-10-12b) and the beam-waist rule.
 void bind_box_defaults(py::module_& m) {
+    py::enum_<BoxGradingMode>(m, "BoxGradingMode",
+                              "Closing box of a rough patch (ADR 0006 amendment 2026-10-12b): "
+                              "Uniform (box cells = top-face cells, the default) or Graded (the "
+                              "lambda_1 / 5 box of the amendment 2026-10-10, explicit option).")
+        .value("Uniform", BoxGradingMode::Uniform)
+        .value("Graded", BoxGradingMode::Graded);
     m.def("default_box_depth", &default_box_depth, py::arg("object"), py::arg("wavelength"),
           "Default closing-box depth [m] max(5 delta, 2 um) below z = 0 (ADR 0006); raises "
           "ValueError for a lossless dielectric object.");
@@ -442,30 +465,58 @@ void bind_box_defaults(py::module_& m) {
     m.def("exterior_wavelength", &exterior_wavelength, py::arg("background"), py::arg("wavelength"),
           "Wavelength lambda_0 / |n_1| [m] in the exterior medium R1 (conservative for a lossy "
           "background); raises ValueError for a metallic background (Re(eps_r) <= 0).");
-    m.def("default_box_mesh_size", &default_box_mesh_size, py::arg("background"),
+    m.def("graded_box_mesh_size", &graded_box_mesh_size, py::arg("background"),
           py::arg("wavelength"), py::arg("mesh_size"), R"doc(
-Nominal coarse spacing [m] of the graded closing box (ADR 0006 amendment 2026-10-10): the
-largest 2^M * mesh_size <= lambda_1 / 5 (M >= 0; M = 0 returns mesh_size, the uniform box).
-500 nm in vacuum with mesh_size = 50 nm gives 100 nm. Informational: the generator's grid
-spacing L / round(L / mesh_size) differs from mesh_size, so pass exterior_wavelength (as
-rough_surface_box_params does) rather than this value as box_mesh_size. Necessary under
-illumination, not shown sufficient.
+Nominal coarse spacing [m] of the graded closing box (BoxGradingMode.Graded, ADR 0006 amendment
+2026-10-10): the largest 2^M * mesh_size <= lambda_1 / 5 (M >= 0; M = 0 returns mesh_size, the
+uniform box). 500 nm in vacuum with mesh_size = 50 nm gives 100 nm. Renamed from
+default_box_mesh_size (WP-B3): the default box is uniform since the amendment 2026-10-12b.
+Informational: the generator's grid spacing L / round(L / mesh_size) differs from mesh_size, so
+pass exterior_wavelength (as rough_surface_box_params(..., grading="graded") does) rather than
+this value as box_mesh_size.
+)doc");
+    m.def("is_weakly_absorbing", &is_weakly_absorbing, py::arg("object"), py::arg("wavelength"),
+          py::arg("mesh_size"), R"doc(
+"Weakly absorbing" object of ADR 0006: 3 delta > 2 mesh_size (delta = field_decay_length).
+Such objects need the fine band and the beam waist L cos(theta_in) / 6. At 500 nm and
+mesh_size = 50 nm: Si True, Ag False. A lossless dielectric counts as weakly absorbing.
+)doc");
+    m.def("is_plasmonic", &is_plasmonic, py::arg("object"), R"doc(
+Plasmonic metal: Re(eps_r) < 0 (Ag at 500 nm). ADR 0006 amendment 2026-10-12b: no quantitative
+rough-surface results for such objects until WP-V3; flat reflectance and A_ext stay validated.
+)doc");
+    m.attr("MAX_BEAM_WAIST_FRACTION") = kMaxBeamWaistFraction;
+    m.attr("WEAK_ABSORBER_BEAM_WAIST_FRACTION") = kWeakAbsorberBeamWaistFraction;
+    m.def("beam_waist_fraction", &beam_waist_fraction, py::arg("object"), py::arg("wavelength"),
+          py::arg("mesh_size"), R"doc(
+Largest beam waist relative to L cos(theta_in) for an object (ADR 0006 amendment 2026-10-12b):
+1/6 for weakly absorbing objects (is_weakly_absorbing; Si), 1/4 otherwise (Ag). Pass it as
+check_beam_waist(..., max_fraction=...).
 )doc");
     py::class_<RoughBoxParams>(m, "RoughBoxParams",
                                "Closing-box parameters chosen by rough_surface_box_params "
                                "(lengths in metres).")
         .def_readonly("box_depth", &RoughBoxParams::box_depth)
         .def_readonly("box_fine_depth", &RoughBoxParams::box_fine_depth,
-                      "Fine band (None for strongly absorbing objects).")
+                      "Fine band 3 delta + 3 sigma [m] (None for strongly absorbing objects and "
+                      "when the band would reach the bottom plate). With the uniform box the band "
+                      "does not change the mesh, so grading='uniform' drops it there silently: a "
+                      "caller who takes uniform parameters and then sets a coarse box_mesh_size "
+                      "must re-check the fine band (default_box_fine_depth; or request "
+                      "grading='graded', which handles this case).")
         .def_readonly("box_mesh_size", &RoughBoxParams::box_mesh_size,
-                      "Explicit coarse spacing: None (the generator caps its automatic rule at "
-                      "lambda_1 / 5 with the actual grid spacing), mesh_size for the uniform-box "
-                      "fallback.")
+                      "Explicit coarse spacing: mesh_size for the uniform box (the default and "
+                      "the graded fallback), None for the graded box (the generator caps its "
+                      "automatic rule at lambda_1 / 5 with the actual grid spacing).")
         .def_readonly("exterior_wavelength", &RoughBoxParams::exterior_wavelength,
                       "lambda_1 = wavelength / |n_1| in R1.")
         .def_readonly("uniform_fallback", &RoughBoxParams::uniform_fallback,
-                      "True if the fine band would reach the bottom plate and the uniform box "
-                      "was chosen instead (logged as a warning).")
+                      "Graded only: True if the fine band would reach the bottom plate and the "
+                      "uniform box was chosen instead (logged as a warning).")
+        .def_readonly("grading", &RoughBoxParams::grading, "The requested BoxGradingMode.")
+        .def_readonly("beam_waist_fraction", &RoughBoxParams::beam_waist_fraction,
+                      "beam_waist_fraction(object, wavelength, mesh_size): pass it as "
+                      "check_beam_waist(..., max_fraction=...).")
         .def(
             "kwargs",
             [](const RoughBoxParams& b) {
@@ -487,25 +538,41 @@ illumination, not shown sufficient.
                 else
                     os << "None";
             };
-            os << "<RoughBoxParams box_depth=" << b.box_depth << " box_fine_depth=";
+            os << "<RoughBoxParams grading=" << to_string(b.grading) << " box_depth=" << b.box_depth
+               << " box_fine_depth=";
             opt(b.box_fine_depth);
             os << " box_mesh_size=";
             opt(b.box_mesh_size);
             os << " exterior_wavelength=" << b.exterior_wavelength
-               << " uniform_fallback=" << (b.uniform_fallback ? "True" : "False") << ">";
+               << " uniform_fallback=" << (b.uniform_fallback ? "True" : "False")
+               << " beam_waist_fraction=" << b.beam_waist_fraction << ">";
             return os.str();
         });
-    m.def("rough_surface_box_params", &rough_surface_box_params, py::arg("object"),
-          py::arg("background"), py::arg("wavelength"), py::arg("sigma"), py::arg("mesh_size"),
-          R"doc(
-Closing-box parameters of a rough patch from the materials (ADR 0006, amendment 2026-10-10):
-box_depth = default_box_depth(object), exterior_wavelength = lambda_1 = wavelength / |n_1|,
-box_mesh_size = None (the generator caps its automatic coarse spacing at the largest
-2^M h <= lambda_1 / 5 with the actual grid spacing h), and the mandatory fine band
-3 delta + 3 sigma for weakly absorbing objects (3 delta > 2 mesh_size, mirroring the grading
-contract; Si yes, Ag no at 500 nm and 50 nm). If the band would reach the bottom plate, the
-uniform box is chosen (box_mesh_size = mesh_size, uniform_fallback = True, warning logged).
-Raises ValueError for a metallic background (Re(eps_r) <= 0). Use as
+    m.def(
+        "rough_surface_box_params",
+        [](const material::Material& object, const material::Material& background, Real wavelength,
+           Real sigma, Real mesh_size, const py::object& grading) {
+            return rough_surface_box_params(object, background, wavelength, sigma, mesh_size,
+                                            parse_grading(grading));
+        },
+        py::arg("object"), py::arg("background"), py::arg("wavelength"), py::arg("sigma"),
+        py::arg("mesh_size"), py::kw_only(), py::arg("grading") = "uniform",
+        R"doc(
+Closing-box parameters of a rough patch from the materials (ADR 0006, amendments 2026-10-10 and
+2026-10-12b): box_depth = default_box_depth(object), exterior_wavelength = lambda_1 =
+wavelength / |n_1|, the mandatory fine band 3 delta + 3 sigma for weakly absorbing objects
+(3 delta > 2 mesh_size; Si yes, Ag no at 500 nm and 50 nm) and beam_waist_fraction (1/6 Si,
+1/4 Ag).
+
+grading : {"uniform", "graded"} or BoxGradingMode, keyword-only
+    "uniform" (default): box_mesh_size = mesh_size, box cells = top-face cells.
+    "graded": box_mesh_size = None, the generator caps its automatic coarse spacing at the
+    largest 2^M h <= lambda_1 / 5 with the actual grid spacing h; if the fine band would reach
+    the bottom plate, the uniform box is chosen (uniform_fallback = True, warning logged).
+
+A plasmonic object (Re(eps_r) < 0, e.g. Ag) with sigma > 0 logs a warning: no quantitative
+rough-surface results until WP-V3 (flat patches, sigma = 0, stay validated). Raises ValueError
+for a metallic background (Re(eps_r) <= 0). Use as
 ``RoughSurface(L, sigma, Lc, mesh_size, seed, **p.kwargs())``.
 
 Returns
@@ -514,18 +581,23 @@ RoughBoxParams
 )doc");
     m.def(
         "check_beam_waist",
-        [](Real patch_length, Real waist, Real incidence_angle, bool allow_wide) {
+        [](Real patch_length, Real waist, Real incidence_angle, bool allow_wide,
+           Real max_fraction) {
             check_beam_waist(patch_length, waist,
-                             {.incidence_angle = incidence_angle, .allow_wide = allow_wide});
+                             {.incidence_angle = incidence_angle,
+                              .allow_wide = allow_wide,
+                              .max_fraction = max_fraction});
         },
         py::arg("patch_length"), py::arg("waist"), py::kw_only(), py::arg("incidence_angle") = 0.0,
-        py::arg("allow_wide") = false, R"doc(
-Beam-waist rule of rough patches (ADR 0006 amendments 2026-10-10 and 2026-10-11):
-waist <= patch_length * cos(incidence_angle) / 4, incidence_angle [rad] with
+        py::arg("allow_wide") = false, py::arg("max_fraction") = kMaxBeamWaistFraction, R"doc(
+Beam-waist rule of rough patches (ADR 0006 amendments 2026-10-10, 2026-10-11 and 2026-10-12b):
+waist <= max_fraction * patch_length * cos(incidence_angle), incidence_angle [rad] with
 |incidence_angle| < pi / 2 (the footprint on z = 0 is 1 / cos longer at oblique incidence).
-Raises ValueError for a wider waist unless allow_wide=True (then a warning is logged), and for
-non-positive sizes or an invalid angle. Rough-surface drivers must call it: Simulation cannot
-determine the patch size from a mesh.
+max_fraction in (0, 1/4]: 1/4 (default, strongly absorbing objects) or
+beam_waist_fraction(object, wavelength, mesh_size) (1/6 for weakly absorbing objects such as
+Si). Raises ValueError for a wider waist unless allow_wide=True (then a warning is logged), and
+for non-positive sizes, an invalid angle or max_fraction. Rough-surface drivers must call it:
+Simulation cannot determine the patch size from a mesh.
 )doc");
 }
 
