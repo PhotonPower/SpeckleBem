@@ -5,6 +5,19 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- docs (WP22e part 1): WP22d server results of the Si runs 1–3 (lead's 1 TB server, 2 × 8-core
+  EPYC 9015, commit 1be8f2b, w₀ = L/4) in `benchmarks/results/si_large_area.md` ("Server results"
+  and assessment) and the three `row.txt` lines in `mlfmm_scaling_rows.txt` (block "WP22d server").
+  **Si 30 × 30 µm², σ = 100 nm, 2N = 5 947 200 solved**: 95 iterations (tol 1e-3), setup 79 min,
+  solve 5.56 h, wall 8.0 h, peak 697 GB (extrapolated 600–720 GB); L = 20 µm: 95 iterations, peak
+  250.4 GB (Si 30 µm solved on the 1 TB server; docs/01 "256 GB node" wording not met, closure is
+  the lead's decision). (peak − Krylov) / model 0.79 / 0.86 / 0.84; the server is about 2 × slower
+  than the desktop for Si (far matvec 2.5 ×, power summary 1.9–2.5 × per unit of work; cause
+  untested: both machines ran 2 threads per core, so SMT alone does not distinguish them; pinning,
+  two sockets with interleave, clock and compiler differ; thread count and NUMA policy not
+  varied); the component-model
+  extrapolation overestimated the 20 → 30 µm time growth by ≈ 35 %; R vs R_coarse differ by 2.1 % at
+  L = 30 µm (far-field grid too coarse for the narrow beam). Ag series (run 4) pending.
 - tests / docs (WP-V2): closing-box validity at MLFMM sizes (`benchmarks/results/box_validity_mlfmm.md`,
   raw lines `box_validity_mlfmm_rows.txt`). `specklebem_box_validity` gains `--compression mlfmm`,
   `--d0`, `--leaf-quantile`, `--jacobi`, the MLFMM memory guard (`--estimate-only`, `--force`),

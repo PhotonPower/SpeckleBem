@@ -37,7 +37,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   ADR 0008 decision 2026-10-11).
 - **WP22d merged:** Si proxy L = 10.5 µm (2N = 1.1·10⁶, 1 464 s, 89.5 GB); L = 30 µm extrapolated 600–720 GB,
   3.2–7.1 h; run kit `scripts/server_run_kit/` for the lead's 1 TB server (Si 20/30 µm + server Ag series
-  L = 4–17.5 µm). **Waiting for the lead's server results** (record template in `benchmarks/results/si_large_area.md`).
+  L = 4–17.5 µm). Server Si results recorded (WP22e part 1, below).
 - **WP-A2 merged:** the Ag near-null mode is an intrinsic cavity resonance of the closed box (not MLFMM);
   Ag absorption only as A_ext (ADR 0006 amendment 2026-10-12); diagnostic follow-up WP-A3.
 - **WP-V2 merged:** Si passes the docs/05 box checks with the uniform box at w₀/L = 1/6 (one configuration);
@@ -45,7 +45,10 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   (uniform box for quantitative runs, w₀ ≤ L/6 for Si) proposed to the lead.
 - **ADR 0006 amendment 2026-10-12b (lead decision) + WP-B3 merged:** uniform box by default, w₀ ≤ L cos θ/6 for
   weakly absorbing objects (provisional, WP-V2b), no quantitative rough Ag until WP-V3.
-- **Server runs:** the lead runs the WP22d kit at commit 1be8f2b (w₀ = L/4, pre-WP-B3); results pending.
+- **Server runs (WP22d kit, commit 1be8f2b, w₀ = L/4):** Si runs 1–3 done 2026-10-12 and recorded (WP22e part 1,
+  `benchmarks/results/si_large_area.md`, "Server results"): **Si L = 30 µm, 2N = 5.95·10⁶ solved**, 95 it.,
+  solve 5.56 h, peak 697 GB; the server (2 × 8 cores, 32 threads) is ≈ 2 × slower than the desktop for Si.
+  The Ag series (run 4) is still running → WP22e part 2.
 - **In flight:** WP22b2 (formulation sweep with MLFMM, L = 3.2–10 µm); after it, WP-V3 and WP-V2b (machine-exclusive).
   They share the machine via a lock directory in the session scratchpad (WP22d holds it for timed runs).
 - **Next:** WP-V2 (box validity at MLFMM sizes, graded vs uniform box), WP22b2 (formulation sweep with MLFMM),
@@ -59,9 +62,10 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
    the docs/05 box checks at L = 4 µm (0.8–8 %); quantitative Ag speckle needs WP-V3 (mechanism and remedy).
 2. **Ag absorption**: use A_ext (far field + extinction) only; the local formula is spoiled by intrinsic box
    cavity resonances (WP-A2). A resonance-free formulation would be a larger design change (open).
-3. **Phase 4 target "Si 30×30 µm²"**: lead decision — proxy on this 128 GB machine plus a run kit; the lead runs
-   L = 30 µm on a 1 TB server (WP22d). Ag scaling to 10⁶ is closed by measurement only once that server run (or a
-   > 2 h local run) is done.
+3. **Phase 4 target "Si 30×30 µm²"**: solved on the lead's 1 TB server (peak 697 GB, WP22e part 1). The docs/01
+   wording "solves on a 256 GB node" is not met (2.7 × 256 GB with the ADR 0006 box); the lead decides whether
+   the 1 TB route closes the item (docs/01 wording). Ag scaling to 10⁶ is closed by measurement only once the
+   server Ag series (run 4, WP22e part 2) is in.
 4. WP15 deviations from Fu et al. (formulation sweep with MLFMM, WP22b2) and the Ag λ/20 sphere (size) remain open.
 
 ## How the workflow runs on this machine

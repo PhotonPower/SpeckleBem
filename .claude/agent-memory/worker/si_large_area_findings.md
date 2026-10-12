@@ -1,6 +1,6 @@
 ---
 name: si-large-area-findings
-description: WP22d Si sigma=100 nm large-area facts - proxy 10.5 um numbers, sigma 100 vs 50 costs, octree leaf quantisation, extrapolation rule, server kit figures, review fixes (256 GB reasoning, timing matvecs, Ag series, tiny Ag test cost)
+description: WP22d Si sigma=100 nm large-area facts - proxy 10.5 um numbers, WP22e server results (2x slower, B overestimated the time growth by ≈ 35 % (measured growth ≈ 26 % below B), R_coarse), sigma 100 vs 50 costs, octree leaf quantisation, extrapolation rule, server kit figures, review fixes (256 GB reasoning, timing matvecs, Ag series, tiny Ag test cost)
 metadata:
   type: project
 ---
@@ -34,6 +34,24 @@ Review fixes (2026-10-11, `wp/22d-review-fixes`):
 - Slurm cgroup v2: limit on the job ancestor, task cgroup says "max": walk to the root, min.
 - Never edit a sh script while a run of it is in progress (dash reads the file incrementally;
   the running smoke run died with a syntax error at its tail).
+
+Server results (WP22e part 1, runs of 2026-10-12; 2 x 8-core EPYC 9015, 32 threads incl. SMT,
+OMP_PLACES=threads / spread, interleave): Si L = 30 um solved, 95 it, peak 697 GB; L = 20 um 95 it, 250.4 GB.
+- (peak - Krylov)/model 0.79 / 0.863 / 0.84 (L = 2/20/30): run 2 slightly ABOVE the 0.86 band.
+- Server ~2x SLOWER than the desktop for Si (far matvec/GB 2.5x at 6 levels, post/unknown
+  1.86-2.55x: desktop post/unknown is NOT constant, 2.16e-4 s at L = 4 um vs 2.92-2.95e-4 at
+  6/10.5 um; server constant 5.48-5.50e-4; setup/GB 2-5x); only the sparse near matvec is 1.4x
+  faster/GB (bandwidth-bound is a hypothesis). Cause untested. SMT alone does NOT distinguish the
+  machines: the desktop also ran 2 threads/core (24 on 12, unpinned). Differences: pinning,
+  2 sockets + interleave, clock, GCC 14 vs 16. Neither build uses -march (AVX-512 unused).
+  Suggested check: run 1 with --threads 16 and with --numa none.
+- Method B overestimated time growth 20 -> 30 um by ~35 %: cost per GB FALLS with larger leaves
+  (far matvec 0.54 -> 0.40 s/GB, near setup 25 -> 15 s/GB). Memory B held.
+- R vs R_coarse 2.1 % at L = 30 um: far field structure width lambda/(pi w0) = 1.2 deg < 2 deg
+  coarse grid; diffuse speckle carries R (coherent factor exp(-(4 pi sigma/lambda)^2) ~ 2e-3).
+  1 - R - A with R_coarse goes negative (-7e-3): use the power balance to pick the grid.
+- solve_s includes one extra apply after the last iteration (true residual).
+- si_large_area_extrapolation.py ignores machine=server rows (filters series=wp22d / sigma 50).
 
 **Why:** server results will come back later and must be compared against these figures.
 **How to apply:** when recording server rows, check against the stated ranges; server rows carry

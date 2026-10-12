@@ -309,7 +309,9 @@ fields, the server description) and the `row.txt` lines in
   was 14–28 % below the model on the development machine).
 - Slow start: before the first `HIST` line the run does the setup and the timing matvecs. On the
   desktop that is 16–27 min at L = 20 µm (run 2: setup 8–15 min + 12 × 42–62 s) and 33–64 min
-  at L = 30 µm (run 3: setup 27–53 min + 4 × 82–158 s); the server should be faster. If there is
+  at L = 30 µm (run 3: setup 27–53 min + 4 × 82–158 s); the server should be faster (it was not
+  on the 2 × 8-core EPYC 9015 of 2026-10-12 with 32 threads: Si about 2 × slower, setup + timing
+  matvecs 54 min at L = 20 µm and 93 min at 30 µm; `si_large_area.md`, "Server results"). If there is
   no `HIST` line after ~1.5 h at L = 30 µm, or an iteration takes longer than ~3 min (desktop
   1.4–2.9 min per iteration at 30 µm), the server is slower than the desktop: check in `run.log`
   the thread line (`OMP_NUM_THREADS` not 1, `OMP_PLACES`), the NUMA policy (`numactl -H`,
