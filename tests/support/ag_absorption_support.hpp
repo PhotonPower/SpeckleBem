@@ -436,4 +436,113 @@ inline RowCheck row_check(const op::Problem& p, const op::LinearOperator& Zc, co
     return c;
 }
 
+// ---------------------------------------------------------------------------------------------
+// WP-A2: spatial spectrum of the currents along x, extinction-theorem residual
+
+/// Area-weighted DFT along x of the top-face currents on the strip |y| <= half_width, at the
+/// top-triangle centroids: X(kx) = sum_t w_t A_t X(c_t) exp(+j kx x_t), with the taper w_t = 1
+/// (rect) or cos^2(pi x_t / L) (hann). For currents that vary as exp(-j kx0 x) the peak sits at
+/// kx = +kx0. Values are the Euclidean norms of the vector sums [A m for J, V m for M].
+struct StripSpectrum {
+    std::vector<Real> kx;            ///< [rad/m]
+    std::vector<Real> j, m;          ///< |sum| of (X_sim - X_sub), X_sub = 0 without `subtract`
+    std::vector<Real> j_ref, m_ref;  ///< |sum| of the reference currents of `ref`
+    std::size_t centroids = 0;
+};
+
+inline StripSpectrum strip_spectrum(const post::SurfaceSolution& s, const InterfaceFields& ref,
+                                    bool subtract, Real spacing, Real L, Real half_width, bool hann,
+                                    const std::vector<Real>& kx) {
+    const geometry::TriangleMesh& mesh = s.problem->space->mesh();
+    std::vector<Real> xs, ws;
+    std::vector<Vec3c> dj, dm, rj, rm;
+    for (Index t = 0; t < mesh.num_triangles(); ++t) {
+        const Vec3 cen = mesh.centroid(t);
+        if (part_of(mesh, t, spacing) != Part::Top || std::abs(cen.y()) > half_width)
+            continue;
+        const auto [Js, Ms] = currents_at(s, t, cen);
+        const auto [Jr, Mr] = ref.currents(cen.x(), cen.y());
+        const Real taper = hann ? std::pow(std::cos(constants::pi * cen.x() / L), 2) : 1.0;
+        xs.push_back(cen.x());
+        ws.push_back(taper * mesh.area(t));
+        dj.push_back(subtract ? Vec3c(Js - Jr) : Js);
+        dm.push_back(subtract ? Vec3c(Ms - Mr) : Ms);
+        rj.push_back(Jr);
+        rm.push_back(Mr);
+    }
+    StripSpectrum out;
+    out.kx = kx;
+    out.centroids = xs.size();
+    for (const Real k : kx) {
+        Vec3c sj = Vec3c::Zero(), sm = Vec3c::Zero(), srj = Vec3c::Zero(), srm = Vec3c::Zero();
+        for (std::size_t q = 0; q < xs.size(); ++q) {
+            const Complex ph = ws[q] * std::polar(1.0, k * xs[q]);
+            sj += ph * dj[q];
+            sm += ph * dm[q];
+            srj += ph * rj[q];
+            srm += ph * rm[q];
+        }
+        out.j.push_back(sj.norm());
+        out.m.push_back(sm.norm());
+        out.j_ref.push_back(srj.norm());
+        out.m_ref.push_back(srm.norm());
+    }
+    return out;
+}
+
+/// The +-kx0 peaks of a spectrum relative to the reference at +kx0 (the specular wavenumber):
+/// j_minus = |J(-kx0)| / |J_ref(+kx0)| etc.
+struct ModePeaks {
+    Real j_minus = 0, m_minus = 0, j_plus = 0, m_plus = 0;
+};
+
+inline ModePeaks mode_peaks(const post::SurfaceSolution& s, const InterfaceFields& ref,
+                            bool subtract, Real spacing, Real L, Real half_width, bool hann,
+                            Real kx0) {
+    const StripSpectrum sp =
+        strip_spectrum(s, ref, subtract, spacing, L, half_width, hann, {-kx0, kx0});
+    if (!(sp.j_ref[1] > 0.0) || !(sp.m_ref[1] > 0.0))
+        throw std::invalid_argument("mode_peaks: vanishing reference spectrum at +kx0");
+    return {sp.j[0] / sp.j_ref[1], sp.m[0] / sp.m_ref[1], sp.j[1] / sp.j_ref[1],
+            sp.m[1] / sp.m_ref[1]};
+}
+
+/// Extinction-theorem residual E_inc + E_1 at points inside the object (R2), E_1 = -L_1 J +
+/// K_1 M the field of the R1 representation of the currents (fields.hpp). It vanishes for the
+/// exact solution; a current component that is the trace of a source-free R1-medium field
+/// (dE, dH) regular inside contributes -dE there and nothing outside (a non-radiating
+/// component). Evaluated with post::scattered_field on a copy of the problem whose object
+/// medium is the exterior one (in R2 it returns -E_1). Rows of `points` must lie in R2 (checked)
+/// and away from the surface (regular quadrature, FieldOptions::quad_degree).
+struct ExtinctionResidual {
+    Eigen::Matrix<Complex, Eigen::Dynamic, 3> residual;  ///< E_inc + E_1 [V/m]
+    Eigen::Matrix<Complex, Eigen::Dynamic, 3> incident;  ///< E_inc [V/m]
+};
+
+inline ExtinctionResidual extinction_residual(const post::SurfaceSolution& s,
+                                              const excitation::Excitation& inc,
+                                              const Vertices& points, int quad_degree = 6) {
+    const Eigen::Matrix<int, Eigen::Dynamic, 1> region =
+        post::observation_regions(s.problem->space->mesh(), points);
+    for (Index p = 0; p < points.rows(); ++p) {
+        if (region(p) != 2)
+            throw std::invalid_argument("extinction_residual: point outside the object");
+    }
+    op::Problem vac = *s.problem;
+    vac.object = vac.exterior;
+    const post::SurfaceSolution sv{&vac, s.currents};
+    post::FieldOptions opt;
+    opt.quad_degree = quad_degree;
+    Eigen::Matrix<Complex, Eigen::Dynamic, 3> e_minus, h;
+    post::scattered_field(sv, points, e_minus, h, opt);  // = -E_1 in R2
+    ExtinctionResidual out;
+    out.incident.resize(points.rows(), 3);
+    for (Index p = 0; p < points.rows(); ++p) {
+        const auto [Ei, Hi] = inc.fields(points.row(p).transpose());
+        out.incident.row(p) = Ei.transpose();
+    }
+    out.residual = out.incident - e_minus;
+    return out;
+}
+
 }  // namespace ag_absorption

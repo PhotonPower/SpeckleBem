@@ -149,8 +149,8 @@ solver::Orthogonalization parse_orthogonalization(const std::string& name) {
     throw py::value_error("gmres['orthogonalization']: expected \"cgs2\" or \"mgs\"");
 }
 
-/// gmres=dict(tol, max_iter, restart (None = full GMRES), side, verbose, orthogonalization)
-/// onto GmresParams.
+/// gmres=dict(tol, max_iter, restart (None = full GMRES), side, verbose, orthogonalization,
+/// keep_hessenberg) onto GmresParams.
 void apply_gmres(GmresParams& p, const py::dict& d) {
     for (const auto& [k, v] : d) {
         const auto key = dict_key(k, "gmres");
@@ -170,6 +170,8 @@ void apply_gmres(GmresParams& p, const py::dict& d) {
             if (!py::isinstance<py::str>(v))
                 throw py::value_error("gmres['orthogonalization']: expected a str");
             p.orthogonalization = parse_orthogonalization(dict_value<std::string>(v, key, "gmres"));
+        } else if (key == "keep_hessenberg") {
+            p.keep_hessenberg = dict_value<bool>(v, key, "gmres");
         } else {
             throw py::value_error("gmres: unknown key '" + key + "'");
         }
@@ -552,6 +554,13 @@ reorthogonalizations : int
     GMRES steps with a second Gram-Schmidt pass ("cgs2": every step; 0 for the direct solver).
 x : ndarray of complex128, shape (2N,)
     The solution [J; M] (read-only view kept alive by this result; J in A/m, M in V/m).
+hessenberg : ndarray of complex128, shape (k + 1, k)
+    With ``gmres=dict(keep_hessenberg=True)``: the Arnoldi Hessenberg matrix of the last GMRES
+    cycle before the Givens rotations (C++ GmresResult::hessenberg; Op V_k = V_{k+1} H with
+    Op = M^-1 Z for left, Z M^-1 for right preconditioning), e.g. for Ritz values
+    ``np.linalg.eigvals(H[:-1])``; shape (0, 0) otherwise, for the direct solver, and when the
+    first step of the last cycle hit a singular Hessenberg (only the last restart cycle is
+    kept; a discarded column is never included) (copy).
 )doc")
         .def_readonly("iterations", &GmresResult::iterations)
         .def_readonly("converged", &GmresResult::converged)
@@ -560,6 +569,8 @@ x : ndarray of complex128, shape (2N,)
         .def_readonly("orthogonalization_seconds", &GmresResult::orthogonalization_seconds)
         .def_readonly("reorthogonalizations", &GmresResult::reorthogonalizations)
         .def_readonly("x", &GmresResult::x)
+        .def_property_readonly("hessenberg",
+                               [](const GmresResult& r) { return MatrixXc(r.hessenberg); })
         .def_property_readonly("residual_history",
                                [](const GmresResult& r) {
                                    return py::array_t<double>(
@@ -640,7 +651,8 @@ gmres : dict, optional
     Keys ``tol`` (1e-3), ``max_iter`` (2000), ``restart`` (None = full GMRES), ``side``
     ("left" / "right"), ``verbose`` (True: progress via the C++ log) and
     ``orthogonalization`` ("cgs2": parallel classical Gram-Schmidt with re-orthogonalisation,
-    default; "mgs": serial modified Gram-Schmidt).
+    default; "mgs": serial modified Gram-Schmidt), ``keep_hessenberg`` (False; True returns
+    the Arnoldi Hessenberg matrix in SolveResult.hessenberg, a diagnostic).
 kernels : dict, optional
     Quadrature options (kernels::OperatorOptions member names): quad_degree_far,
     quad_degree_near, quad_degree_sing, outer_grading_levels, near_distance_factor,

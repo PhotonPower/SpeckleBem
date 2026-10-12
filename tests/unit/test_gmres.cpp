@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <limits>
 #include <random>
 #include <stdexcept>
@@ -23,6 +24,7 @@
 #include <vector>
 
 #include "assembler_test_support.hpp"
+#include "krylov_spectrum.hpp"
 
 #ifdef SPECKLEBEM_HAVE_OPENMP
 #include <omp.h>
@@ -677,6 +679,276 @@ TEST_CASE("gmres: CGS2 matches MGS with left/right preconditioning and restart",
             CHECK(rel_diff(c.x, m.x) <= 1e-9);
             if (restart > 0)
                 CHECK(c.iterations > restart);
+        }
+    }
+}
+
+// --- Hessenberg diagnostic hook (WP-A2) ----------------------------------------------------------
+
+namespace {
+
+using krylov_spectrum::eigenvalues;
+using krylov_spectrum::harmonic_ritz_values;
+
+/// Largest distance of an entry of `a` to its nearest entry of `b`, relative to max |b|.
+Real spectral_distance(const VectorXc& a, const VectorXc& b) {
+    Real worst = 0;
+    for (Index i = 0; i < a.size(); ++i) {
+        Real best = std::numeric_limits<Real>::infinity();
+        for (Index j = 0; j < b.size(); ++j) best = std::min(best, std::abs(a(i) - b(j)));
+        worst = std::max(worst, best);
+    }
+    return worst / b.cwiseAbs().maxCoeff();
+}
+
+/// |Op V_k - V H_bar|_F / |H_bar|_F for Op = M^{-1} A (left) or A M^{-1} (right), M^{-1} =
+/// diag(inv_m). V holds V_{k+1}, or V_k after convergence (then the last row of H_bar is left
+/// out of the product and the defect is taken over the first k - 1 columns; `tail_norm`
+/// receives the norm of the last column of Op V_k - V_k H_k, which must equal |h_{k+1,k}|).
+Real arnoldi_defect(const MatrixXc& A, const VectorXc& inv_m, PreconditionerSide side,
+                    const MatrixXc& V, const MatrixXc& hbar, Real* tail_norm = nullptr) {
+    const Index k = hbar.cols();
+    const MatrixXc Vk = V.leftCols(k);
+    const MatrixXc OpV = side == PreconditionerSide::Left ? MatrixXc(inv_m.asDiagonal() * A * Vk)
+                                                          : MatrixXc(A * inv_m.asDiagonal() * Vk);
+    const bool full = V.cols() == k + 1;
+    const MatrixXc R = full ? MatrixXc(OpV - V * hbar) : MatrixXc(OpV - Vk * hbar.topRows(k));
+    if (tail_norm != nullptr)
+        *tail_norm = R.col(k - 1).norm();
+    return (full ? R.norm() : R.leftCols(k - 1).norm()) / hbar.norm();
+}
+
+}  // namespace
+
+TEST_CASE("gmres: keep_hessenberg is off by default and leaves the iterates bitwise unchanged",
+          "[gmres]") {
+    CHECK_FALSE(GmresParams{}.keep_hessenberg);
+    const Index n = 60;
+    const MatrixXc A = wide_diagonal(n, 101).asDiagonal() * well_conditioned(n, 102);
+    const op::DenseOperator Z(A);
+    const VectorXc b = random_vector(n, 103);
+    const solver::DiagonalPreconditioner M(A.diagonal());
+    for (const auto side : {PreconditionerSide::Left, PreconditionerSide::Right}) {
+        for (const int restart : {0, 7}) {
+            for (const auto o : {solver::Orthogonalization::CGS2, solver::Orthogonalization::MGS}) {
+                CAPTURE(side == PreconditionerSide::Left, restart,
+                        o == solver::Orthogonalization::CGS2);
+                GmresParams p = with(params(1e-10, 50, restart, side), o);
+                const GmresResult off = solver::gmres(Z, b, M, p);
+                p.keep_hessenberg = true;
+                const GmresResult on = solver::gmres(Z, b, M, p);
+                CHECK(off.hessenberg.size() == 0);
+                CHECK(on.hessenberg.size() > 0);
+                CHECK(on.x == off.x);
+                CHECK(on.residual_history == off.residual_history);
+                CHECK(on.iterations == off.iterations);
+                CHECK(on.true_relative_residual == off.true_relative_residual);
+                CHECK(on.reorthogonalizations == off.reorthogonalizations);
+            }
+        }
+    }
+    // b = 0: no Krylov space, no Hessenberg.
+    GmresParams p = params(1e-10);
+    p.keep_hessenberg = true;
+    CHECK(solver::gmres(Z, VectorXc::Zero(n), kNone, p).hessenberg.size() == 0);
+}
+
+namespace {
+
+/// Test double: y = A x for the first `good_calls` applications, y = 0 afterwards (the
+/// operator becomes singular on everything; exact zeros, so the breakdown test is not
+/// rounding-dependent).
+class ZeroAfterOperator final : public op::LinearOperator {
+public:
+    ZeroAfterOperator(MatrixXc A, int good_calls) : A_(std::move(A)), good_calls_(good_calls) {}
+    [[nodiscard]] Index rows() const override { return A_.rows(); }
+    [[nodiscard]] Index cols() const override { return A_.cols(); }
+    void apply(const VectorXc& x, VectorXc& y) const override {
+        ++calls_;
+        y = calls_ <= good_calls_ ? VectorXc(A_ * x) : VectorXc::Zero(A_.rows());
+    }
+    [[nodiscard]] std::string describe() const override { return "ZeroAfterOperator"; }
+    [[nodiscard]] std::size_t memory_bytes() const override { return 0; }
+
+private:
+    MatrixXc A_;
+    int good_calls_;
+    mutable int calls_ = 0;
+};
+
+}  // namespace
+
+TEST_CASE("gmres: keep_hessenberg is empty when the first column of the last cycle is discarded",
+          "[gmres]") {
+    const MatrixXc A{{Complex(2.0, 0.0), Complex(0.0, 0.0)},
+                     {Complex(0.0, 0.0), Complex(3.0, 0.0)}};
+    const VectorXc b{{Complex(1.0, 0.0), Complex(1.0, 0.0)}};
+    const auto both = {solver::Orthogonalization::CGS2, solver::Orthogonalization::MGS};
+    SECTION("singular at the very first step (A b = 0)") {
+        for (const auto o : both) {
+            CAPTURE(o == solver::Orthogonalization::CGS2);
+            GmresParams p = with(params(1e-14), o);
+            p.keep_hessenberg = true;
+            const MatrixXc A0{{Complex(0.0, 0.0), Complex(0.0, 0.0)},
+                              {Complex(0.0, 0.0), Complex(1.0, 0.0)}};
+            const VectorXc e0{{Complex(1.0, 0.0), Complex(0.0, 0.0)}};
+            const GmresResult r = solver::gmres(op::DenseOperator(A0), e0, kNone, p);
+            CHECK(r.iterations == 1);
+            CHECK_FALSE(r.converged);
+            CHECK(r.hessenberg.rows() == 0);
+            CHECK(r.hessenberg.cols() == 0);
+        }
+    }
+    SECTION("singular at the first step after a restart: earlier cycles are not kept") {
+        for (const auto o : both) {
+            CAPTURE(o == solver::Orthogonalization::CGS2);
+            // GMRES(1): cycle 1 uses the first product (one kept column), the restart residual
+            // the second (zero, so r = b), cycle 2 the third (zero: column discarded).
+            GmresParams p = with(params(1e-14, 100, 1), o);
+            p.keep_hessenberg = true;
+            const GmresResult r = solver::gmres(ZeroAfterOperator(A, 1), b, kNone, p);
+            CHECK(r.iterations == 2);
+            CHECK_FALSE(r.converged);
+            CHECK(r.hessenberg.rows() == 0);
+            CHECK(r.hessenberg.cols() == 0);
+            // Control: stopping in cycle 1 (max_iter = 1) returns its 2 x 1 matrix.
+            GmresParams p1 = with(params(1e-14, 1, 1), o);
+            p1.keep_hessenberg = true;
+            const GmresResult r1 = solver::gmres(ZeroAfterOperator(A, 1), b, kNone, p1);
+            CHECK(r1.hessenberg.rows() == 2);
+            CHECK(r1.hessenberg.cols() == 1);
+        }
+    }
+}
+
+TEST_CASE("gmres: Ritz values of a full Krylov space reproduce the eigenvalues", "[gmres]") {
+    // A = S D S^{-1} with a known spectrum D (fixed seed): eigenvalues spread over the annulus
+    // 0.1 <= |z| <= 2 plus one small one (|d_0| = 0.05, a near-null mode), S well conditioned.
+    // After n steps the Krylov space is the whole space (h_{n+1,n} at rounding level), so the
+    // Ritz and the harmonic Ritz values both equal the eigenvalues of A.
+    const Index n = 40;
+    std::mt19937_64 rng(111);
+    std::uniform_real_distribution<Real> u(0.0, 1.0);
+    VectorXc d(n);
+    for (Index i = 0; i < n; ++i)
+        d(i) = std::polar(0.1 + 1.9 * u(rng), 2.0 * constants::pi * u(rng));
+    d(0) = Complex(0.03, -0.04);
+    const MatrixXc S = well_conditioned(n, 112);
+    const MatrixXc A = S * d.asDiagonal() * S.inverse();
+    const op::DenseOperator Z(A);
+    const VectorXc b = random_vector(n, 113);
+    GmresParams p = params(1e-300, static_cast<int>(n));
+    p.keep_hessenberg = true;
+    p.keep_basis = true;
+    const GmresResult r = solver::gmres(Z, b, kNone, p);
+    const Index k = r.hessenberg.cols();
+    REQUIRE(k > 0);
+    INFO("iterations " << r.iterations << ", Krylov dimension " << k << ", h_{k+1,k} "
+                       << std::abs(r.hessenberg(k, k - 1)));
+    REQUIRE(k == n);
+    REQUIRE(r.hessenberg.rows() == n + 1);
+    // Upper Hessenberg with a real non-negative subdiagonal (the Arnoldi norms).
+    for (Index j = 0; j < k; ++j) {
+        CHECK(r.hessenberg(j + 1, j).imag() == 0.0);
+        CHECK(r.hessenberg(j + 1, j).real() >= 0.0);
+        for (Index i = j + 2; i <= k; ++i) CHECK(r.hessenberg(i, j) == Complex(0.0));
+    }
+    CHECK(std::abs(r.hessenberg(k, k - 1)) <= 1e-12 * r.hessenberg.norm());
+    const VectorXc ritz = krylov_spectrum::ritz_values(r.hessenberg);
+    const VectorXc theta = harmonic_ritz_values(r.hessenberg);
+    const Real dist_ritz = spectral_distance(ritz, d);
+    const Real dist_back = spectral_distance(d, ritz);
+    const Real dist_harm = spectral_distance(theta, d);
+    INFO("Ritz " << dist_ritz << " / " << dist_back << ", harmonic " << dist_harm);
+    CHECK(dist_ritz <= 1e-9);
+    CHECK(dist_back <= 1e-9);
+    CHECK(dist_harm <= 1e-9);
+    // The smallest eigenvalue is found as the smallest harmonic Ritz value.
+    Index imin = 0;
+    theta.cwiseAbs().minCoeff(&imin);
+    CHECK(std::abs(theta(imin) - d(0)) <= 1e-10);
+    // H_bar = V_{n+1}^H A V_n with an orthonormal V_n: the singular values are those of A.
+    const VectorXr sv = krylov_spectrum::singular_values(r.hessenberg);
+    const VectorXr sv_ref = Eigen::BDCSVD<MatrixXc>(A).singularValues();
+    CHECK((sv - sv_ref).cwiseAbs().maxCoeff() <= 1e-10 * sv_ref(0));
+    // Arnoldi relation A V_k = V_{k+1} H_bar (V_k after the happy breakdown at k = n).
+    REQUIRE(r.basis.cols() >= k);
+    Real tail = 0;
+    CHECK(arnoldi_defect(A, VectorXc::Ones(n), PreconditionerSide::Left, r.basis, r.hessenberg,
+                         &tail) <= 1e-12);
+    CHECK(tail <= 1e-11 * r.hessenberg.norm());
+}
+
+TEST_CASE("gmres: Hessenberg of the preconditioned operator, last cycle, Arnoldi relation",
+          "[gmres]") {
+    const Index n = 50;
+    const MatrixXc A = wide_diagonal(n, 121).asDiagonal() * well_conditioned(n, 122);
+    const op::DenseOperator Z(A);
+    const VectorXc b = random_vector(n, 123);
+    const solver::DiagonalPreconditioner M(A.diagonal());
+    const VectorXc inv_m = A.diagonal().cwiseInverse();
+    for (const auto side : {PreconditionerSide::Left, PreconditionerSide::Right}) {
+        CAPTURE(side == PreconditionerSide::Left);
+        {
+            // Full Krylov space: the Ritz values are the eigenvalues of M^{-1} A (similar to
+            // A M^{-1}).
+            GmresParams p = params(1e-300, static_cast<int>(n), 0, side);
+            p.keep_hessenberg = true;
+            const GmresResult r = solver::gmres(Z, b, M, p);
+            REQUIRE(r.hessenberg.cols() == n);
+            // A M^{-1} = D (M^{-1} A) D^{-1} with the row scales D of 1e-3 .. 1e3 is strongly
+            // non-normal: rounding of the right-preconditioned Arnoldi moves its eigenvalues
+            // by ~1e-9 (left: ~1e-13).
+            const Real tol = side == PreconditionerSide::Left ? 1e-10 : 1e-7;
+            const VectorXc ref = eigenvalues(inv_m.asDiagonal() * A);
+            CHECK(spectral_distance(eigenvalues(r.hessenberg.topRows(n)), ref) <= tol);
+            CHECK(spectral_distance(harmonic_ritz_values(r.hessenberg), ref) <= tol);
+        }
+        {
+            // Stopped at max_iter: V_{k+1} and the full relation.
+            GmresParams p = params(1e-300, 20, 0, side);
+            p.keep_hessenberg = true;
+            p.keep_basis = true;
+            const GmresResult r = solver::gmres(Z, b, M, p);
+            REQUIRE(r.hessenberg.rows() == 21);
+            REQUIRE(r.hessenberg.cols() == 20);
+            REQUIRE(r.basis.cols() == 21);
+            CHECK(arnoldi_defect(A, inv_m, side, r.basis, r.hessenberg) <= 1e-13);
+            // sigma_min(H_bar) bounds sigma_min of the preconditioned operator from above.
+            const MatrixXc op_matrix = side == PreconditionerSide::Left
+                                           ? MatrixXc(inv_m.asDiagonal() * A)
+                                           : MatrixXc(A * inv_m.asDiagonal());
+            const VectorXr sv_op = Eigen::BDCSVD<MatrixXc>(op_matrix).singularValues();
+            const VectorXr sv = krylov_spectrum::singular_values(r.hessenberg);
+            CHECK(sv(sv.size() - 1) >= sv_op(sv_op.size() - 1) * (1.0 - 1e-12));
+            CHECK(sv(0) <= sv_op(0) * (1.0 + 1e-12));
+        }
+        {
+            // Restarted, cycles of 7, 7 and 3 steps: the Hessenberg of the last cycle only.
+            GmresParams p = params(1e-300, 17, 7, side);
+            p.keep_hessenberg = true;
+            p.keep_basis = true;
+            const GmresResult r = solver::gmres(Z, b, M, p);
+            REQUIRE(r.iterations == 17);
+            REQUIRE(r.hessenberg.rows() == 4);
+            REQUIRE(r.hessenberg.cols() == 3);
+            REQUIRE(r.basis.cols() == 4);
+            CHECK(arnoldi_defect(A, inv_m, side, r.basis, r.hessenberg) <= 1e-13);
+        }
+        {
+            // Converged: V_k; the last row holds the norm of the vector that was not formed.
+            GmresParams p = params(1e-6, 200, 0, side);
+            p.keep_hessenberg = true;
+            p.keep_basis = true;
+            const GmresResult r = solver::gmres(Z, b, M, p);
+            REQUIRE(r.converged);
+            const Index k = r.hessenberg.cols();
+            REQUIRE(k == r.iterations);
+            REQUIRE(r.basis.cols() == k);
+            Real tail = 0;
+            CHECK(arnoldi_defect(A, inv_m, side, r.basis, r.hessenberg, &tail) <= 1e-13);
+            CHECK(std::abs(tail - std::abs(r.hessenberg(k, k - 1))) <= 1e-12 * r.hessenberg.norm());
+            CHECK(std::abs(r.hessenberg(k, k - 1)) > 0.0);
         }
     }
 }

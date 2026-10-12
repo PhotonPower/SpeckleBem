@@ -11,7 +11,6 @@
 - [MLFMM single-level findings](mlfmm_single_level_findings.md) — WP19b far-field factors, block error vs a/lambda, search optimism, pattern quadrature
 - [MLFMM multilevel findings](mlfmm_multilevel_findings.md) — WP20a far-only/full errors vs leaf, d0=5 needs r_max/a <~ 0.3, symmetry check, debug cost
 - [MLFMM operator findings](mlfmm_operator_findings.md) — WP20b near+far matvec errors (d0 = 3/5 achieved), timings, pool speedup, test costs
-- [MLFMM lossy policy findings](mlfmm_lossy_policy_findings.md) — block check vs 10^-d0, x*(d0), Ag exact part 40 B/pair, budget dense cap, jump-sign test, leaf ratio
 - [MLFMM lossy policy findings](mlfmm_lossy_policy_findings.md) — block check vs 10^-d0, x*(d0), Ag exact part 40 B/pair (61440: 687 MB), budget, leaf ratio 0.6/0.3
 - [Ag sphere MLFMM findings](ag_sphere_mlfmm_findings.md) — WP22a 4 um costs/accuracy, octahedral paper mesh, tol dominates eps_rr, Eigen 3.4 sparse move copies
 - [Angular-spectrum beam findings](angular_spectrum_beam_findings.md) — WP-E1 wave counts, aliasing beyond R (controlled ball), grid convergence, CODATA 3e-11 floor, f^2 coefficients
@@ -21,3 +20,4 @@
 - [GMRES orthogonalisation findings](gmres_orthogonalization_findings.md) — WP-G1: 0.7 criterion fires ~always, 5900X bandwidth cap, BLAS-thread nondeterminism in test ops
 - [Ag absorption findings](ag_absorption_findings.md) — WP-A1: local (n x M).J* -43 % at L = 4 um 45 deg (non-radiating +-k mode?), A_ext = P_ext - P_sca correct
 - [Si large-area findings](si_large_area_findings.md) — WP22d: proxy 10.5 um, sigma 100 vs 50 costs, leaf L/2^k, 256 GB reasoning, matvec timing cost, Ag series
+- [Ag near-null mode verdict](ag_null_mode_findings.md) — WP-A2: intrinsic box cavity mode, d0=5 (2.5 um only) deciding, E2/E3 caveats, detector levels, Ritz cost

@@ -68,3 +68,16 @@ half of the Ag depth sensitivity at L ≤ 2 µm and become relevant at L ≳ 20 
   accurate at 1e-4.
 - Open: the Ag absorbed power from the currents is ~40 % low at 45° (energy balance open by 0.3–0.7 %)
   while R meets the criterion — investigate before absorption is used quantitatively.
+
+## Amendment 2026-10-12 (WP-A1, WP-A2: absorbed power of lossy metals)
+
+- **Ag absorption is reported only as A_ext** (far field plus extinction, WP-A1: +0.18 % vs Fresnel), never
+  from the currents (½ Re∮(n̂×M)·J*). Reason (WP-A2): the closed box has weakly damped cavity resonances
+  of the complementary problem (vacuum inside the box, Ag outside); the discretisation places them and
+  excites them, and the resulting non-radiating current component spoils A_local by up to −53 %
+  (L = 2.5 µm; D = 2.0 → 2.1 µm moves it from −2 % to −34 %), while R, the far field and A_ext stay within
+  0.4 % in all 13 cases. Unchanged with d₀ = 5 at L = 2.5 µm (not MLFMM-driven); the resonances are too
+  dense for a box-dimension rule.
+- Diagnostic (proposed, follow-up WP-A3): rms of the extinction-theorem residual inside the box on a line
+  above max ξ; > 1 % strong, 0.7–1 % moderate mode. Calibrated on flat Ag at 45° s only; a rough-surface
+  calibration precedes a library function. A resonance-free formulation is an open option.

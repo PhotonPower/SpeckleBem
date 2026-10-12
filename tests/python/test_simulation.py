@@ -89,6 +89,34 @@ def test_gmres_orthogonalization(direct):
             make_sim(gmres=dict(orthogonalization=bad))
 
 
+def test_gmres_keep_hessenberg(direct):
+    # WP-A2: gmres['keep_hessenberg'] returns the Arnoldi Hessenberg matrix of the solve; the
+    # iterates do not change. The full Krylov space of a 240-unknown system reproduces the
+    # eigenvalues of the (Jacobi-)preconditioned operator only after 240 steps, so check the
+    # structure and the solution instead.
+    plain = make_sim(formulation="PMCHWT", gmres=dict(verbose=False))
+    keep = make_sim(formulation="PMCHWT", gmres=dict(verbose=False, keep_hessenberg=True))
+    res_plain = plain.solve(tol=1e-8)
+    res = keep.solve(tol=1e-8)
+    assert res_plain.hessenberg.shape == (0, 0)
+    assert direct.solve().hessenberg.shape == (0, 0)
+    k = res.iterations
+    H = res.hessenberg
+    assert H.dtype == np.complex128 and H.shape == (k + 1, k)
+    np.testing.assert_array_equal(res.x, res_plain.x)
+    np.testing.assert_array_equal(res.residual_history, res_plain.residual_history)
+    assert np.all(np.tril(H, -2) == 0)  # upper Hessenberg
+    sub = np.diagonal(H, -1)
+    assert np.all(sub.imag == 0) and np.all(sub.real > 0)
+    # The last Givens-rotated residual equals the least-squares residual of H y = beta e_1.
+    e1 = np.zeros(k + 1, dtype=complex)
+    e1[0] = 1.0
+    y = np.linalg.lstsq(H, e1, rcond=None)[0]
+    assert abs(np.linalg.norm(H @ y - e1) / res.residual_history[-1] - 1) < 1e-6
+    with pytest.raises(ValueError):
+        make_sim(gmres=dict(keep_hessenberg="yes"))
+
+
 def test_auto_selection_and_overrides():
     si, ag = make_sim(sb.silicon_500nm()), make_sim(sb.silver_500nm())
     assert (si.formulation, si.preconditioner) == (sb.Formulation.ICTF, "none")

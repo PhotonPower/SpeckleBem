@@ -199,6 +199,7 @@ res = sim.solve(tol=None, max_iter=None, restart=None, side=None, callback=None)
 res.iterations, res.converged, res.residual_history, res.true_relative_residual,
 res.wall_seconds, res.x                 # residual_history: float64 copy; x: read-only view
 res.orthogonalization_seconds, res.reorthogonalizations  # GMRES Gram-Schmidt time / 2nd passes
+res.hessenberg                          # (k + 1, k) Arnoldi Hessenberg with gmres keep_hessenberg
 sim.report()                            # str
 sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "diagonal" | "none"
 sim.solver, sim.wavelength, sim.num_unknowns
@@ -253,7 +254,9 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   (`tolerance`),
   `max_iter`, `restart` (None = 0 = full GMRES), `side` ("left" / "right"), `verbose`,
   `orthogonalization` ("cgs2" = default, parallel CGS2; "mgs" = serial modified Gram-Schmidt;
-  `GmresParams::orthogonalization`, WP-G1). `kernels`
+  `GmresParams::orthogonalization`, WP-G1), `keep_hessenberg` (False; True fills
+  `SolveResult.hessenberg` with the Hessenberg matrix of the last GMRES cycle before the Givens
+  rotations, for Ritz values; `GmresParams::keep_hessenberg`, WP-A2). `kernels`
   keys are the `kernels::OperatorOptions` member names (`quad_degree_far`, `quad_degree_near`,
   `quad_degree_sing`, `outer_grading_levels`, `near_distance_factor`,
   `symmetrize_touching_above_kh`, `target_accuracy`, `quad_degree_rhs`, `fold_adaptive`,

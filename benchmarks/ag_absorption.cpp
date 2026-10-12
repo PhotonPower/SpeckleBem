@@ -20,10 +20,15 @@
 //            [--tol 1e-5] [--max-iter 6000] [--restart 0] [--ff-dtheta 1]
 //            [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--summary FILE] [--force]
 //            [--save-currents FILE] [--refine 1e-6,1e-7] [--row-check RADIUS]
+//            [--box-depth D] [--hessenberg [--save-hessenberg FILE] [--no-ritz]]
+//            [--perturb REL [--perturb-seed S]] [--spectrum [--spectrum-window rect|hann]]
+//            [--retro] [--interior]
 //        or  ... --load-currents FILE [--row-check RADIUS] [--profile BINS]
 //            [--spectrum] [--spectrum-window rect|hann] [--strip-check HALF_WIDTH]
-// Options of the other mode (--save-currents / --refine with --load-currents; --profile,
-// --spectrum, --spectrum-window, --strip-check without it) are rejected.
+//            [--retro] [--interior] [--perturb REL [--perturb-seed S]] [--box-depth D]
+// Options of the other mode (--save-currents / --refine / --hessenberg with --load-currents;
+// --profile, --strip-check without it) are rejected. --perturb works in both modes (with
+// --load-currents it assembles the operator and perturbs the loaded solution).
 // --allow-wide-beam accepts w0 > L cos(theta) / 4 (check_beam_waist, ADR 0006 amendment
 // 2026-10-11) with a warning, as benchmarks/fresnel_flat.cpp: the recorded 45 deg cases use
 // w0 = L / 5 (the WP22c parameters, edge loss 0.06-0.1 %).
@@ -37,15 +42,38 @@
 // raw (area-weighted DFT over the top-triangle centroids) and relative to the reference spectrum
 // at the specular wavenumber +k0 sin(theta); --spectrum-window hann tapers the strip with
 // cos^2(pi x / L) (default rect, the window of the recorded spectra).
+// WP-A2 (origin of the near-null mode, record section "WP-A2"):
+// --box-depth D sets the depth of the closing box [m] (default: default_box_depth, 2 um for Ag);
+// a MODE line (both modes) gives the normalised +-k0 sin(theta) peaks of the current error
+// X_sim - X_ref on the strip |y| <= L / 8 (rect and hann windows), relative to the reference
+// spectrum at +k0 sin(theta).
+// --hessenberg keeps the GMRES Hessenberg matrix (GmresParams::keep_hessenberg) and prints RITZ
+// lines: the harmonic Ritz values closest to 0, the Ritz values and the smallest singular values
+// of the (k + 1) x k Hessenberg of the Jacobi-preconditioned operator (tests/support/
+// krylov_spectrum.hpp); --save-hessenberg writes it (raw complex<double>, column-major, after
+// two int64 dimensions rows, cols); --no-ritz skips the in-process analysis (Eigen, serial:
+// ~25 min for k = 2757; analyse the saved matrix with numpy instead).
+// --perturb REL solves Z dx = db for a broadband random db (complex Gaussian, std::mt19937_64
+// with --perturb-seed, default 20261011; per block scaled to REL |b_J| and REL |b_M|), the
+// response of the solution to a right-hand-side perturbation b + db (linear: x + dx), and prints
+// a PERTURB line (gains, normalised +-k0 sin(theta) peaks of dx) and a STAGE line of x + dx.
+// --retro prints the far-field intensity in the plane of incidence (FF lines, scattering angle
+// theta_s from -z towards +x: specular +theta, retro -theta) and a RETRO summary.
+// --interior prints the extinction-theorem residual E_inc + E_1 (R1 representation of the
+// currents) inside the box along lines in x, y and z (INTERIOR, INTSPEC, INTZ lines).
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/solver/gmres.hpp"
 #include "specklebem/solver/preconditioner.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <fstream>
+#include <optional>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -53,6 +81,7 @@
 
 #include "ag_absorption_support.hpp"
 #include "fresnel_flat_support.hpp"
+#include "krylov_spectrum.hpp"
 
 namespace {
 
@@ -80,6 +109,18 @@ struct Options {
     /// --strip-check HALF_WIDTH (with --load-currents): compressed vs exact rows on the strip
     /// |y| <= HALF_WIDTH applied to the interpolated analytic currents [m]
     Real strip_half_width = 0;
+    /// --hessenberg: keep the GMRES Hessenberg and print its Ritz analysis (RITZ lines)
+    bool hessenberg = false;
+    std::string save_hessenberg;  ///< --save-hessenberg FILE
+    /// --no-ritz: skip the in-process Ritz analysis (Eigen, serial: ~25 min for k = 2757)
+    bool no_ritz = false;
+    /// --perturb REL: response dx = Z^{-1} db to a broadband random db, |db_X| = REL |b_X|
+    Real perturb = 0;
+    /// --perturb-seed S (only with --perturb; default 20261011)
+    std::optional<std::uint64_t> perturb_seed;
+    [[nodiscard]] std::uint64_t seed() const { return perturb_seed.value_or(20261011); }
+    bool retro = false;     ///< --retro: far field in the plane of incidence
+    bool interior = false;  ///< --interior: extinction-theorem residual inside the box
 };
 
 Options parse(int argc, char** argv) {
@@ -153,6 +194,24 @@ Options parse(int argc, char** argv) {
             std::stringstream ss(value());
             std::string item;
             while (std::getline(ss, item, ',')) o.refine.push_back(std::stod(item));
+        } else if (a == "--box-depth") {
+            o.c.box_depth = std::stod(value());
+        } else if (a == "--hessenberg") {
+            o.hessenberg = true;
+        } else if (a == "--save-hessenberg") {
+            o.save_hessenberg = value();
+        } else if (a == "--no-ritz") {
+            o.no_ritz = true;
+        } else if (a == "--perturb") {
+            o.perturb = std::stod(value());
+            if (!(o.perturb > 0.0))
+                throw std::invalid_argument("--perturb needs a positive relative size");
+        } else if (a == "--perturb-seed") {
+            o.perturb_seed = static_cast<std::uint64_t>(std::stoull(value()));
+        } else if (a == "--retro") {
+            o.retro = true;
+        } else if (a == "--interior") {
+            o.interior = true;
         } else if (a == "--force") {
             o.force = true;
         } else {
@@ -162,15 +221,19 @@ Options parse(int argc, char** argv) {
     object_material(o.c.material);  // validates the name
     // Options of the other mode are errors, not silently ignored.
     if (o.load.empty()) {
-        if (o.profile_bins > 0 || o.spectrum || o.window_given || o.strip_half_width > 0.0)
-            throw std::invalid_argument(
-                "--profile, --spectrum, --spectrum-window and --strip-check need --load-currents");
-    } else if (!o.save.empty() || !o.refine.empty()) {
+        if (o.profile_bins > 0 || o.strip_half_width > 0.0)
+            throw std::invalid_argument("--profile and --strip-check need --load-currents");
+    } else if (!o.save.empty() || !o.refine.empty() || o.hessenberg) {
         throw std::invalid_argument(
-            "--save-currents and --refine need a solve (no --load-currents)");
+            "--save-currents, --refine and --hessenberg need a solve (no --load-currents)");
     }
     if (o.window_given && !o.spectrum)
         throw std::invalid_argument("--spectrum-window needs --spectrum");
+    if ((!o.save_hessenberg.empty() || o.no_ritz) && !o.hessenberg)
+        throw std::invalid_argument("--save-hessenberg and --no-ritz need --hessenberg");
+    if (o.perturb_seed.has_value() && !(o.perturb > 0.0))
+        throw std::invalid_argument("--perturb-seed needs --perturb");
+    o.c.keep_hessenberg = o.hessenberg;
     return o;
 }
 
@@ -227,6 +290,257 @@ std::string metrics_line(const char* name, const aa::TopMetrics& m, Real p_inc) 
         m.p_mr_js / m.p_ref - 1.0, std::abs(m.c_j), 1e3 * std::arg(m.c_j), std::abs(m.c_m),
         1e3 * std::arg(m.c_m), m.err_j, m.err_m, m.err_j_int, m.err_m_int, m.m_over_j);
     return buf;
+}
+
+/// kx grid of the printed spectra: -1.5 k0 .. +1.5 k0 in steps of 0.05 k0.
+std::vector<Real> spectrum_grid(Real k) {
+    std::vector<Real> kx;
+    for (Index i = -30; i <= 30; ++i) kx.push_back(0.05 * static_cast<Real>(i) * k);
+    return kx;
+}
+
+/// Spectrum lines of the currents of s along the strip |y| <= L / 8 (X_sim - X_ref with
+/// `subtract`, X_sim without), normalised by the reference spectrum at +kx0.
+void print_spectrum(const char* tag, const post::SurfaceSolution& s, const aa::InterfaceFields& f,
+                    bool subtract, Real spacing, Real L, bool hann, Real kx0, Real k) {
+    const aa::StripSpectrum ref0 =
+        aa::strip_spectrum(s, f, subtract, spacing, L, L / 8.0, hann, {kx0});
+    if (!(ref0.j_ref[0] > 0.0) || !(ref0.m_ref[0] > 0.0))
+        throw std::runtime_error("spectrum: vanishing reference spectrum");
+    std::printf(
+        "%s window %s | strip |y| <= %.3g um, %zu centroids | reference at +k0 sin(theta) = "
+        "%+.4f k0: |J_ref| %.4e | |M_ref| %.4e\n",
+        tag, hann ? "hann" : "rect", L / 8.0 * 1e6, ref0.centroids, kx0 / k, ref0.j_ref[0],
+        ref0.m_ref[0]);
+    const aa::StripSpectrum sp =
+        aa::strip_spectrum(s, f, subtract, spacing, L, L / 8.0, hann, spectrum_grid(k));
+    for (std::size_t i = 0; i < sp.kx.size(); ++i) {
+        std::printf(
+            "%s kx/k %+.2f | |J_err| %.3e | |M_err| %.3e | |J_ref| %.3e | |M_ref| %.3e | "
+            "J_err/J_ref(+k0 sin) %.3e | M_err/M_ref(+k0 sin) %.3e\n",
+            tag, sp.kx[i] / k, sp.j[i], sp.m[i], sp.j_ref[i], sp.m_ref[i], sp.j[i] / ref0.j_ref[0],
+            sp.m[i] / ref0.m_ref[0]);
+    }
+    std::fflush(stdout);
+}
+
+/// MODE line: the normalised +-kx0 peaks (rect and hann windows) of X_sim - X_ref (`subtract`)
+/// or of X_sim.
+std::string mode_line(const char* tag, const post::SurfaceSolution& s, const aa::InterfaceFields& f,
+                      bool subtract, Real spacing, Real L, Real kx0) {
+    const aa::ModePeaks r = aa::mode_peaks(s, f, subtract, spacing, L, L / 8.0, false, kx0);
+    const aa::ModePeaks h = aa::mode_peaks(s, f, subtract, spacing, L, L / 8.0, true, kx0);
+    char buf[600];
+    std::snprintf(buf, sizeof(buf),
+                  "MODE %s | rect: J(-k sin) %.3e M(-k sin) %.3e J(+k sin) %.3e M(+k sin) %.3e | "
+                  "hann: J(-k sin) %.3e M(-k sin) %.3e J(+k sin) %.3e M(+k sin) %.3e",
+                  tag, r.j_minus, r.m_minus, r.j_plus, r.m_plus, h.j_minus, h.m_minus, h.j_plus,
+                  h.m_plus);
+    return buf;
+}
+
+/// Far-field intensity |F|^2 in the plane of incidence on the reflection side, scattering angle
+/// theta_s from -z towards +x (direction (sin theta_s, 0, -cos theta_s)): specular at +theta,
+/// retro at -theta. FF lines every 0.25 deg and a RETRO summary.
+void print_far_field(const post::SurfaceSolution& s, Real theta) {
+    const int n = 717;  // -89.5 .. +89.5 deg
+    Vertices dirs(n, 3);
+    std::vector<Real> ts(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i) {
+        const Real t = (-89.5 + 0.25 * i) * kDeg;
+        ts[static_cast<std::size_t>(i)] = t;
+        dirs.row(i) << std::sin(t), 0.0, -std::cos(t);
+    }
+    Eigen::Matrix<Complex, Eigen::Dynamic, 3> F;
+    post::far_field(s, dirs, F);
+    VectorXr I(n);
+    for (int i = 0; i < n; ++i) I(i) = F.row(i).squaredNorm();
+    const Real imax = I.maxCoeff();
+    // Specular and retro values at the grid angles nearest to +theta and -theta (the grid is
+    // 0.25 deg; any theta is accepted, the angles used are printed).
+    const auto nearest = [&](Real target) {
+        int best = 0;
+        for (int i = 1; i < n; ++i) {
+            if (std::abs(ts[static_cast<std::size_t>(i)] - target) <
+                std::abs(ts[static_cast<std::size_t>(best)] - target))
+                best = i;
+        }
+        return best;
+    };
+    const int i_retro = nearest(-theta);
+    const int i_spec = nearest(theta);
+    const Real retro_exact = I(i_retro) / imax;
+    const Real spec = I(i_spec) / imax;
+    std::vector<Real> back;  // theta_s < -10 deg away from the retro direction (|.| > 5 deg)
+    Real retro_peak = 0;
+    for (int i = 0; i < n; ++i) {
+        const Real t = ts[static_cast<std::size_t>(i)];
+        const Real v = I(i) / imax;
+        std::printf("FF theta_s %+.2f deg | |F|^2/max %.4e | %+.2f dB\n", t / kDeg, v,
+                    10.0 * std::log10(std::max(v, 1e-300)));
+        if (std::abs(t + theta) <= 2.0 * kDeg)
+            retro_peak = std::max(retro_peak, v);
+        if (t < -10.0 * kDeg && std::abs(t + theta) > 5.0 * kDeg)
+            back.push_back(v);
+    }
+    std::sort(back.begin(), back.end());
+    const Real median = back.empty() ? 0.0 : back[back.size() / 2];
+    std::printf(
+        "RETRO | specular (theta_s = %+.2f deg, nearest grid angle) |F|^2/max %.4e | retro "
+        "(theta_s = %+.2f deg, nearest grid angle to %+.3f) %.4e | max within 2 deg of retro "
+        "%.4e | median over theta_s < -10 deg (5 deg off retro) %.4e | retro / median %.3f\n",
+        ts[static_cast<std::size_t>(i_spec)] / kDeg, spec,
+        ts[static_cast<std::size_t>(i_retro)] / kDeg, -theta / kDeg, retro_exact, retro_peak,
+        median, median > 0.0 ? retro_peak / median : 0.0);
+    std::fflush(stdout);
+}
+
+/// Points r0 + i step dir, i = 0 .. n - 1.
+Vertices line_points(const Vec3& r0, const Vec3& dir, Real step, Index n) {
+    Vertices p(n, 3);
+    for (Index i = 0; i < n; ++i) p.row(i) = (r0 + static_cast<Real>(i) * step * dir).transpose();
+    return p;
+}
+
+/// Hann-tapered DFT along a line (coordinate u of each point) of a vector field: |sum|.
+Real line_dft(const Eigen::Matrix<Complex, Eigen::Dynamic, 3>& E, const std::vector<Real>& u,
+              Real u0, Real u1, Real ku) {
+    Vec3c acc = Vec3c::Zero();
+    for (std::size_t i = 0; i < u.size(); ++i) {
+        const Real w = std::pow(std::sin(constants::pi * (u[i] - u0) / (u1 - u0)), 2);
+        acc += w * std::polar(1.0, ku * u[i]) * E.row(static_cast<Index>(i)).transpose().eval();
+    }
+    return acc.norm();
+}
+
+Real rms(const Eigen::Matrix<Complex, Eigen::Dynamic, 3>& E) {
+    return std::sqrt(E.squaredNorm() / static_cast<Real>(std::max<Index>(E.rows(), 1)));
+}
+
+/// Extinction-theorem residual inside the box (INTERIOR / INTSPEC / INTZ lines): lines along x
+/// (y = 0) at several depths, one along y (x = 0) and one along z (x = y = 0), 20 nm spacing,
+/// >= 150 nm from the surface.
+void print_interior(const post::SurfaceSolution& s, const excitation::Excitation& inc, Real L,
+                    Real depth, Real kx0, Real k) {
+    const auto t0 = std::chrono::steady_clock::now();
+    const Real margin = 0.15e-6;
+    const Real step = 20e-9;
+    const auto n_lat = static_cast<Index>(std::floor((L - 2.0 * margin) / step)) + 1;
+    const Real u0 = -0.5 * L + margin;
+    const Real u1 = u0 + static_cast<Real>(n_lat - 1) * step;
+    std::vector<Real> u(static_cast<std::size_t>(n_lat));
+    for (Index i = 0; i < n_lat; ++i)
+        u[static_cast<std::size_t>(i)] = u0 + static_cast<Real>(i) * step;
+    const std::vector<Real> grid = spectrum_grid(k);
+    const auto lateral = [&](const char* axis, Real z, bool along_x) {
+        const Vec3 r0 = along_x ? Vec3(u0, 0.0, z) : Vec3(0.0, u0, z);
+        const Vec3 dir = along_x ? Vec3::UnitX() : Vec3::UnitY();
+        const aa::ExtinctionResidual er =
+            aa::extinction_residual(s, inc, line_points(r0, dir, step, n_lat));
+        Real kpeak = 0, speak = 0;
+        for (const Real kk : grid) {
+            const Real v = line_dft(er.residual, u, u0, u1, kk);
+            if (v > speak) {
+                speak = v;
+                kpeak = kk;
+            }
+        }
+        const Real inc_ref = line_dft(er.incident, u, u0, u1, along_x ? kx0 : 0.0);
+        std::printf(
+            "INTERIOR %s-line z %.3f um | %lld points | rms|res| / rms|inc| %.3e | max|res| / "
+            "max|inc| %.3e | rms|inc| %.3e V/m | res(+k sin)/inc %.3e | res(-k sin)/inc %.3e | "
+            "res(0)/inc %.3e | peak of |res(k)| at k/k0 %+.2f (%.3e of inc)\n",
+            axis, z * 1e6, static_cast<long long>(n_lat), rms(er.residual) / rms(er.incident),
+            er.residual.rowwise().norm().maxCoeff() / er.incident.rowwise().norm().maxCoeff(),
+            rms(er.incident), line_dft(er.residual, u, u0, u1, kx0) / inc_ref,
+            line_dft(er.residual, u, u0, u1, -kx0) / inc_ref,
+            line_dft(er.residual, u, u0, u1, 0.0) / inc_ref, kpeak / k, speak / inc_ref);
+        for (const Real kk : grid) {
+            std::printf("INTSPEC %s-line z %.3f um | k/k0 %+.2f | |res| %.3e | |inc| %.3e\n", axis,
+                        z * 1e6, kk / k, line_dft(er.residual, u, u0, u1, kk) / inc_ref,
+                        line_dft(er.incident, u, u0, u1, kk) / inc_ref);
+        }
+        std::fflush(stdout);
+    };
+    for (const Real z : {0.15e-6, 0.3e-6, 0.6e-6, 1.0e-6, 1.5e-6}) {
+        if (z <= depth - margin)
+            lateral("x", z, true);
+    }
+    lateral("y", 0.3e-6, false);
+    // Vertical line through the centre.
+    const auto n_z = static_cast<Index>(std::floor((depth - 2.0 * margin) / step)) + 1;
+    const aa::ExtinctionResidual ez = aa::extinction_residual(
+        s, inc, line_points(Vec3(0.0, 0.0, margin), Vec3::UnitZ(), step, n_z));
+    const Real inc_max = ez.incident.rowwise().norm().maxCoeff();
+    for (Index i = 0; i < n_z; ++i) {
+        std::printf(
+            "INTZ z %.3f um | |res| %.3e | |res_x| %.3e | |res_y| %.3e | |res_z| %.3e | "
+            "|inc| %.3e (relative to max |inc| on the line)\n",
+            (margin + static_cast<Real>(i) * step) * 1e6, ez.residual.row(i).norm() / inc_max,
+            std::abs(ez.residual(i, 0)) / inc_max, std::abs(ez.residual(i, 1)) / inc_max,
+            std::abs(ez.residual(i, 2)) / inc_max, ez.incident.row(i).norm() / inc_max);
+    }
+    std::printf("INTERIOR time %.1f s\n",
+                std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count());
+    std::fflush(stdout);
+}
+
+/// RITZ lines: harmonic Ritz values closest to 0, Ritz values, singular values of the GMRES
+/// Hessenberg (Jacobi-preconditioned operator).
+void print_ritz(const MatrixXc& hbar) {
+    namespace ks = krylov_spectrum;
+    const auto t0 = std::chrono::steady_clock::now();
+    const Index k = ks::hessenberg_dimension(hbar);
+    const std::vector<Complex> harm = ks::sorted_by_modulus(ks::harmonic_ritz_values(hbar));
+    const std::vector<Complex> ritz = ks::sorted_by_modulus(ks::ritz_values(hbar));
+    const VectorXr sv = ks::singular_values(hbar);
+    const auto count_below = [&](Real t) {
+        return std::count_if(harm.begin(), harm.end(),
+                             [t](const Complex& z) { return std::abs(z) < t; });
+    };
+    std::printf(
+        "RITZ | k %lld | h_{k+1,k} %.3e | sigma_max %.4e | sigma_min %.4e | sigma_max/sigma_min "
+        "%.3e | max |ritz| %.4e | harmonic |theta| < 0.01: %lld, < 0.03: %lld, < 0.1: %lld, < "
+        "0.3: %lld | %.1f s\n",
+        static_cast<long long>(k), std::abs(hbar(k, k - 1)), sv(0), sv(sv.size() - 1),
+        sv(0) / sv(sv.size() - 1), std::abs(ritz.back()), static_cast<long long>(count_below(0.01)),
+        static_cast<long long>(count_below(0.03)), static_cast<long long>(count_below(0.1)),
+        static_cast<long long>(count_below(0.3)),
+        std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count());
+    const std::size_t n_show = std::min<std::size_t>(24, harm.size());
+    for (std::size_t i = 0; i < n_show; ++i) {
+        std::printf(
+            "RITZ harmonic %2zu | theta %+.5e %+.5ej | |theta| %.5e | ritz %+.5e %+.5ej | "
+            "|ritz| %.5e | sigma_(k-%zu) %.5e\n",
+            i, harm[i].real(), harm[i].imag(), std::abs(harm[i]), ritz[i].real(), ritz[i].imag(),
+            std::abs(ritz[i]), i, sv(sv.size() - 1 - static_cast<Index>(i)));
+    }
+    std::fflush(stdout);
+}
+
+void save_hessenberg(const std::string& path, const MatrixXc& h) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f)
+        throw std::runtime_error("cannot open " + path);
+    const std::int64_t dims[2] = {h.rows(), h.cols()};
+    f.write(reinterpret_cast<const char*>(dims), sizeof(dims));
+    f.write(reinterpret_cast<const char*>(h.data()),
+            static_cast<std::streamsize>(static_cast<std::size_t>(h.size()) * sizeof(Complex)));
+}
+
+/// Broadband random perturbation of b: complex Gaussian entries, per block (J rows, M rows)
+/// scaled to rel |b_block|.
+VectorXc random_perturbation(const VectorXc& b, Real rel, std::uint64_t seed) {
+    std::mt19937_64 rng(seed);
+    std::normal_distribution<Real> g(0.0, 1.0);
+    const Index n = b.size() / 2;
+    VectorXc db(b.size());
+    for (Index i = 0; i < b.size(); ++i) db(i) = Complex(g(rng), g(rng));
+    for (const Index off : {Index{0}, n}) {
+        auto seg = db.segment(off, n);
+        seg *= rel * b.segment(off, n).norm() / seg.norm();
+    }
+    return db;
 }
 
 }  // namespace
@@ -306,6 +620,81 @@ int main(int argc, char** argv) {
                 rc.op_error_m, rc.residual_exact, rc.residual_compr, rc.seconds);
             std::fflush(stdout);
         };
+        // One summary line of a solution (after the solve or a refinement step).
+        const auto stage = [&](const std::string& name, const post::SurfaceSolution& s,
+                               Real true_res) {
+            const Real eta1 = material::vacuum().wave_impedance(beam->omega()).real();
+            const Vec3 specular(std::sin(th), 0.0, -std::cos(th));
+            const Real p_refl = hemisphere_power(s, hemisphere_grid(-1.0, c.ff_dtheta_deg),
+                                                 c.ff_degree, eta1, specular, 0.1)
+                                    .total;
+            diagnose(s);
+            const Real P = beam->power();
+            const Real r_beam = beam_reflectance(*beam, 1.0, eps2).reflectance;
+            std::printf(
+                "STAGE %s | true_res %.3e | R_sim/R_beam-1 %+.5f %% | A_sim %.6f | A_ext "
+                "%.6f | A_beam %.6f | walls %+.2e | centre %+.4f | inner %+.4f | top "
+                "%+.4f | dphi(M-J) centre %+.3f inner %+.3f top %+.3f mrad\n",
+                name.c_str(), true_res, 100.0 * (p_refl / P / r_beam - 1.0), d.deg2.total() / P,
+                (d.p_ext - p_refl - d.p_fwd_full) / P, d.a_beam, d.deg2.walls / P,
+                d.centre.p_sim / d.centre.p_ref - 1.0, d.inner.p_sim / d.inner.p_ref - 1.0,
+                d.top.p_sim / d.top.p_ref - 1.0,
+                1e3 * (std::arg(d.centre.c_m) - std::arg(d.centre.c_j)),
+                1e3 * (std::arg(d.inner.c_m) - std::arg(d.inner.c_j)),
+                1e3 * (std::arg(d.top.c_m) - std::arg(d.top.c_j)));
+            std::fflush(stdout);
+        };
+        // --perturb: response dx = Z^{-1} db to a broadband random db (PERTURB, PSPEC, STAGE and
+        // MODE lines); needs the assembled operator of sim and its solution s.
+        const auto do_perturb = [&](const Simulation& sim, const post::SurfaceSolution& s,
+                                    const aa::InterfaceFields& f) {
+            const Real k0 = 2.0 * constants::pi / kLambda;
+            const Real kx0 = k0 * std::sin(th);
+            // Response to a broadband right-hand-side perturbation: dx = Z^{-1} db (the
+            // change of the solution of Z x = b + db), same operator, left Jacobi and
+            // tolerance as the solve.
+            const op::LinearOperator& Z = *sim.system_operator();
+            const VectorXc& b = sim.rhs();
+            const VectorXc db = random_perturbation(b, o.perturb, o.seed());
+            const solver::DiagonalPreconditioner jac(op::assemble_diagonal(sim.problem()));
+            solver::GmresParams gp;
+            gp.tolerance = c.tolerance;
+            gp.max_iter = c.max_iter;
+            gp.verbose = true;
+            const solver::GmresResult g = solver::gmres(Z, db, jac, gp);
+            const VectorXc& x = s.currents;
+            const Index N = x.size() / 2;
+            const post::SurfaceSolution ds{&sim.problem(), g.x};
+            const Real rel_b = db.norm() / b.norm();
+            const Real rel_x = g.x.norm() / x.norm();
+            const aa::ModePeaks pr =
+                aa::mode_peaks(ds, f, false, geo.spacing, c.L, c.L / 8.0, false, kx0);
+            const aa::ModePeaks ph =
+                aa::mode_peaks(ds, f, false, geo.spacing, c.L, c.L / 8.0, true, kx0);
+            std::printf(
+                "PERTURB | seed %llu | |db|/|b| %.3e (J rows %.3e, M rows %.3e) | it %d "
+                "| converged %d | true residual of dx %.3e | |dx|/|x| %.3e (J %.3e, M "
+                "%.3e) | gain |dx|/|x| / (|db|/|b|) %.2f | dx peaks / X_ref(+k sin), "
+                "rect: J- %.3e M- %.3e J+ %.3e M+ %.3e | hann: J- %.3e M- %.3e J+ %.3e "
+                "M+ %.3e | modal gain (hann, M-) %.2f, (hann, M+) %.2f\n",
+                static_cast<unsigned long long>(o.seed()), rel_b,
+                db.head(N).norm() / b.head(N).norm(), db.tail(N).norm() / b.tail(N).norm(),
+                g.iterations, g.converged ? 1 : 0, g.true_relative_residual, rel_x,
+                g.x.head(N).norm() / x.head(N).norm(), g.x.tail(N).norm() / x.tail(N).norm(),
+                rel_x / rel_b, pr.j_minus, pr.m_minus, pr.j_plus, pr.m_plus, ph.j_minus, ph.m_minus,
+                ph.j_plus, ph.m_plus, ph.m_minus / rel_b, ph.m_plus / rel_b);
+            std::fflush(stdout);
+            print_spectrum("PSPEC", ds, f, false, geo.spacing, c.L, true, kx0, k0);
+            const VectorXc xp = x + g.x;
+            VectorXc zx(xp.size());
+            Z.apply(xp, zx);
+            stage("perturbed x + dx", post::SurfaceSolution{&sim.problem(), xp},
+                  (b - zx).norm() / b.norm());
+            std::printf("%s\n",
+                        mode_line("perturbed x + dx", post::SurfaceSolution{&sim.problem(), xp}, f,
+                                  true, geo.spacing, c.L, kx0)
+                            .c_str());
+        };
         if (!o.load.empty()) {
             // Diagnostics of saved currents (no solve; assembly only for --row-check).
             Simulation sim(geo.mesh, beam, make_config(c));
@@ -348,67 +737,26 @@ int main(int argc, char** argv) {
                 }
                 std::fflush(stdout);
             }
-            if (o.spectrum) {
-                // Spatial spectrum along x of the current error X_sim - X_ref on the strip
-                // |y| <= L / 8 (top-triangle centroids, area weights, optional Hann taper along
-                // x): which tangential wavenumber carries the error. The raw values are
-                // area-weighted sums [A m or V m]; the relative columns divide by the reference
-                // spectrum |X_ref| at the specular wavenumber +k0 sin(theta) (the reference
-                // currents vary as exp(-j kx x), so the specular peak sits at +k0 sin(theta)).
+            const Real k0 = 2.0 * constants::pi / kLambda;
+            const Real kx0 = k0 * std::sin(th);
+            {
                 const aa::InterfaceFields f(*beam, 1.0, eps2);
-                const geometry::TriangleMesh& mesh = geo.mesh;
-                const Real k = 2.0 * constants::pi / kLambda;
-                std::vector<Real> xs, ws;
-                std::vector<Vec3c> ej, em, rj, rm;
-                for (Index t = 0; t < mesh.num_triangles(); ++t) {
-                    const Vec3 cen = mesh.centroid(t);
-                    if (aa::part_of(mesh, t, geo.spacing) != aa::Part::Top ||
-                        std::abs(cen.y()) > c.L / 8.0)
-                        continue;
-                    const auto [Js, Ms] = aa::currents_at(s, t, cen);
-                    const auto [Jr, Mr] = f.currents(cen.x(), cen.y());
-                    const Real taper =
-                        o.hann ? std::pow(std::cos(constants::pi * cen.x() / c.L), 2) : 1.0;
-                    xs.push_back(cen.x());
-                    ws.push_back(taper * mesh.area(t));
-                    ej.push_back(Js - Jr);
-                    em.push_back(Ms - Mr);
-                    rj.push_back(Jr);
-                    rm.push_back(Mr);
+                std::printf("%s\n", mode_line("error", s, f, true, geo.spacing, c.L, kx0).c_str());
+                if (o.spectrum) {
+                    // Spatial spectrum along x of the current error X_sim - X_ref on the strip
+                    // |y| <= L / 8 (top-triangle centroids, area weights, optional Hann taper
+                    // along x): which tangential wavenumber carries the error. The raw values
+                    // are area-weighted sums [A m or V m]; the relative columns divide by the
+                    // reference spectrum |X_ref| at the specular wavenumber +k0 sin(theta) (the
+                    // reference currents vary as exp(-j kx x), so the specular peak sits at
+                    // +k0 sin(theta)).
+                    print_spectrum("SPECTRUM", s, f, true, geo.spacing, c.L, o.hann, kx0, k0);
                 }
-                struct Spec {
-                    Real ej = 0, em = 0, rj = 0, rm = 0;
-                };
-                const auto dft = [&](Real kx) {
-                    Vec3c sej = Vec3c::Zero(), sem = Vec3c::Zero(), srj = Vec3c::Zero(),
-                          srm = Vec3c::Zero();
-                    for (std::size_t q = 0; q < xs.size(); ++q) {
-                        const Complex ph = ws[q] * std::polar(1.0, kx * xs[q]);
-                        sej += ph * ej[q];
-                        sem += ph * em[q];
-                        srj += ph * rj[q];
-                        srm += ph * rm[q];
-                    }
-                    return Spec{sej.norm(), sem.norm(), srj.norm(), srm.norm()};
-                };
-                const Spec spec0 = dft(k * std::sin(th));
-                if (!(spec0.rj > 0.0) || !(spec0.rm > 0.0))
-                    throw std::runtime_error("--spectrum: vanishing reference spectrum");
-                std::printf(
-                    "SPECTRUM window %s | strip |y| <= %.3g um, %zu centroids | reference at "
-                    "+k0 sin(theta) = %+.4f k0: |J_ref| %.4e | |M_ref| %.4e\n",
-                    o.hann ? "hann" : "rect", c.L / 8.0 * 1e6, xs.size(), std::sin(th), spec0.rj,
-                    spec0.rm);
-                for (Index i = -30; i <= 30; ++i) {
-                    const Real kx = 0.05 * static_cast<Real>(i) * k;
-                    const Spec sp = dft(kx);
-                    std::printf(
-                        "SPECTRUM kx/k %+.2f | |J_err| %.3e | |M_err| %.3e | |J_ref| %.3e | "
-                        "|M_ref| %.3e | J_err/J_ref(+k0 sin) %.3e | M_err/M_ref(+k0 sin) %.3e\n",
-                        kx / k, sp.ej, sp.em, sp.rj, sp.rm, sp.ej / spec0.rj, sp.em / spec0.rm);
-                }
-                std::fflush(stdout);
             }
+            if (o.retro)
+                print_far_field(s, th);
+            if (o.interior)
+                print_interior(s, *beam, c.L, geo.box.box_depth, kx0, k0);
             // The compressed operator, built once for --strip-check and --row-check.
             if (o.strip_half_width > 0.0 || o.row_check_radius > 0.0)
                 sim.assemble();
@@ -475,32 +823,12 @@ int main(int argc, char** argv) {
                 std::fflush(stdout);
             }
             do_row_check(sim, s.currents);  // no-op without --row-check
+            if (o.perturb > 0.0) {
+                sim.assemble();  // idempotent
+                do_perturb(sim, s, aa::InterfaceFields(*beam, 1.0, eps2));
+            }
             return 0;
         }
-        // One summary line of a solution (after the solve or a refinement step).
-        const auto stage = [&](const std::string& name, const post::SurfaceSolution& s,
-                               Real true_res) {
-            const Real eta1 = material::vacuum().wave_impedance(beam->omega()).real();
-            const Vec3 specular(std::sin(th), 0.0, -std::cos(th));
-            const Real p_refl = hemisphere_power(s, hemisphere_grid(-1.0, c.ff_dtheta_deg),
-                                                 c.ff_degree, eta1, specular, 0.1)
-                                    .total;
-            diagnose(s);
-            const Real P = beam->power();
-            const Real r_beam = beam_reflectance(*beam, 1.0, eps2).reflectance;
-            std::printf(
-                "STAGE %s | true_res %.3e | R_sim/R_beam-1 %+.5f %% | A_sim %.6f | A_ext "
-                "%.6f | A_beam %.6f | walls %+.2e | centre %+.4f | inner %+.4f | top "
-                "%+.4f | dphi(M-J) centre %+.3f inner %+.3f top %+.3f mrad\n",
-                name.c_str(), true_res, 100.0 * (p_refl / P / r_beam - 1.0), d.deg2.total() / P,
-                (d.p_ext - p_refl - d.p_fwd_full) / P, d.a_beam, d.deg2.walls / P,
-                d.centre.p_sim / d.centre.p_ref - 1.0, d.inner.p_sim / d.inner.p_ref - 1.0,
-                d.top.p_sim / d.top.p_ref - 1.0,
-                1e3 * (std::arg(d.centre.c_m) - std::arg(d.centre.c_j)),
-                1e3 * (std::arg(d.inner.c_m) - std::arg(d.inner.c_j)),
-                1e3 * (std::arg(d.top.c_m) - std::arg(d.top.c_j)));
-            std::fflush(stdout);
-        };
         const Result r = run(c, geo, beam, build_s, [&](const Simulation& sim) {
             if (!o.save.empty())
                 save_currents(o.save, sim.solution().currents);
@@ -529,8 +857,32 @@ int main(int argc, char** argv) {
                     stage(name, post::SurfaceSolution{&sim.problem(), x}, tr);
                 }
             }
+            {
+                // WP-A2 diagnostics of the solution (before the final diagnose(): stage() of the
+                // perturbed solution overwrites d).
+                const Real k0 = 2.0 * constants::pi / kLambda;
+                const Real kx0 = k0 * std::sin(th);
+                const aa::InterfaceFields f(*beam, 1.0, eps2);
+                const post::SurfaceSolution& s = sim.solution();
+                const std::string mode = mode_line("error", s, f, true, geo.spacing, c.L, kx0);
+                std::printf("%s\n", mode.c_str());
+                if (o.spectrum)
+                    print_spectrum("SPECTRUM", s, f, true, geo.spacing, c.L, o.hann, kx0, k0);
+                if (o.retro)
+                    print_far_field(s, th);
+                if (o.interior)
+                    print_interior(s, *beam, c.L, geo.box.box_depth, kx0, k0);
+                if (o.perturb > 0.0)
+                    do_perturb(sim, s, f);
+            }
             diagnose(sim.solution());
         });
+        if (o.hessenberg) {
+            if (!o.save_hessenberg.empty())
+                save_hessenberg(o.save_hessenberg, r.hessenberg);
+            if (!o.no_ritz)
+                print_ritz(r.hessenberg);
+        }
         const Real P = r.ref.power;
         std::printf("%s\n\n%s\n\n", summary(r).c_str(), r.report.c_str());
         std::printf("DIAG parts (degree 2) | top %.6f | walls %.3e | bottom %.3e | total %.6f\n",

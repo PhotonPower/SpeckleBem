@@ -251,6 +251,10 @@ struct Case {
     /// Empty: formulation::recommend (Ag: ICTF + left Jacobi, Si: ICTF).
     std::optional<formulation::Kind> formulation;
     std::optional<bool> jacobi;
+    /// Depth of the closing box [m]; empty: default_box_depth (rough_surface_box_params).
+    std::optional<Real> box_depth;
+    /// Return the GMRES Hessenberg matrix in Result::hessenberg (GmresParams::keep_hessenberg).
+    bool keep_hessenberg = false;
 };
 
 /// Object material of a case. @throws std::invalid_argument for an unknown name.
@@ -270,6 +274,8 @@ inline std::string label(const Case& c) {
        << " L = " << c.L * 1e6 << " um, w0 = " << c.waist * 1e6 << " um, " << c.theta_deg
        << " deg, " << (c.pol == excitation::Polarization::P ? "p" : "s") << ", " << c.compression
        << ", d0 = " << c.digits << ", tol = " << c.tolerance;
+    if (c.box_depth)
+        os << ", box depth = " << *c.box_depth * 1e6 << " um";
     return os.str();
 }
 
@@ -299,8 +305,13 @@ inline geometry::HeightMap flat_height_map(Real L, Real h) {
 inline Geometry make_geometry(const Case& c) {
     const material::Material object = object_material(c.material);
     const geometry::HeightMap hm = flat_height_map(c.L, c.mesh_size);
-    const RoughBoxParams box =
+    RoughBoxParams box =
         rough_surface_box_params(object, material::vacuum(), kLambda, 0.0, c.mesh_size);
+    if (c.box_depth) {
+        if (!(*c.box_depth > 0.0) || !std::isfinite(*c.box_depth))
+            throw std::invalid_argument("fresnel_flat: box depth must be finite and > 0");
+        box.box_depth = *c.box_depth;
+    }
     Geometry g{geometry::make_mesh_from_height_map(hm, box.box_depth, box.box_mesh_size,
                                                    box.box_fine_depth, box.exterior_wavelength),
                box,
@@ -349,6 +360,7 @@ inline SimulationConfig make_config(const Case& c) {
     cfg.gmres.max_iter = c.max_iter;
     cfg.gmres.restart = c.restart;
     cfg.gmres.verbose = true;
+    cfg.gmres.keep_hessenberg = c.keep_hessenberg;
     return cfg;
 }
 
@@ -589,6 +601,7 @@ struct Result {
     Real krylov_bytes = 0;
     Real peak_rss = 0;
     std::string report;
+    MatrixXc hessenberg;  ///< GMRES Hessenberg with Case::keep_hessenberg, else empty
 
     [[nodiscard]] Real r_sim() const { return p_refl / ref.power; }
     [[nodiscard]] Real a_sim() const { return p_abs / ref.power; }
@@ -622,6 +635,7 @@ inline Result run(const Case& c, const Geometry& geo,
     r.converged = g.converged;
     r.true_residual = g.true_relative_residual;
     r.solve_s = g.wall_seconds;
+    r.hessenberg = g.hessenberg;
     r.krylov_bytes = static_cast<Real>(g.iterations + 1) * static_cast<Real>(sim.num_unknowns()) *
                      static_cast<Real>(sizeof(Complex));
     if (const auto op =

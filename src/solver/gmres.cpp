@@ -326,6 +326,7 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
     // rotations and the rotated right-hand side g of the least-squares problem.
     KrylovBasis V(n, static_cast<Index>(m) + 1);
     std::vector<VectorXc> H;
+    std::vector<VectorXc> H_raw;  // unrotated Hessenberg columns (keep_hessenberg only)
     std::vector<Givens> rot;
     VectorXc g;
     VectorXc w;
@@ -344,6 +345,7 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
         V.clear();
         V.append(v);
         H.clear();
+        H_raw.clear();
         rot.clear();
         // (A scalar store into the freshly allocated g trips a GCC -Wnull-dereference false
         // positive.)
@@ -381,6 +383,8 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
             }
             h(k + 1) = h_next;
             res.orthogonalization_seconds += seconds_since(t_orth);
+            if (p.keep_hessenberg)
+                H_raw.push_back(h);  // before the rotations; popped if the column is discarded
             for (int j = 0; j < k; ++j) {
                 rot[static_cast<std::size_t>(j)].apply(h(j), h(j + 1));
             }
@@ -396,6 +400,8 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
                 res.residual_history.push_back(res.residual_history.back());
                 if (cb)
                     cb(total, res.residual_history.back());
+                if (p.keep_hessenberg)
+                    H_raw.pop_back();
                 stop = true;
                 break;
             }
@@ -469,6 +475,14 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
     res.converged = res.residual_history.back() <= p.tolerance;
     if (p.keep_basis)
         res.basis = V.to_matrix();
+    if (p.keep_hessenberg && !H_raw.empty()) {
+        // Nothing stored (the first column of the last cycle was discarded at a singular
+        // Hessenberg): leave the result 0 x 0 instead of returning a 1 x 0 matrix.
+        const auto k = static_cast<Index>(H_raw.size());
+        res.hessenberg = MatrixXc::Zero(k + 1, k);
+        for (Index j = 0; j < k; ++j)
+            res.hessenberg.col(j).head(j + 2) = H_raw[static_cast<std::size_t>(j)];
+    }
     VectorXc ax;
     A.apply(res.x, ax);
     res.true_relative_residual = (b - ax).norm() / b_norm;

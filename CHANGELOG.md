@@ -5,6 +5,20 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver / python / tests (WP-A2): `GmresParams::keep_hessenberg` returns the unrotated
+  (k + 1) x k Arnoldi Hessenberg of the last GMRES cycle in `GmresResult::hessenberg` (default
+  off, iterates bitwise unchanged); Python `gmres=dict(keep_hessenberg=True)` and
+  `SolveResult.hessenberg`; `tests/support/krylov_spectrum.hpp` (Ritz, harmonic Ritz and
+  singular values). `benchmarks/ag_absorption.cpp`: `--box-depth`, `--hessenberg`
+  (`--save-hessenberg`, `--no-ritz`), `--perturb`, `--retro`, `--interior` (extinction-theorem
+  residual inside the box) and a MODE line; support `strip_spectrum`, `mode_peaks`,
+  `extinction_residual`, `fresnel_flat::Case::box_depth` / `keep_hessenberg`. Study result
+  (`benchmarks/results/ag_absorption.md`, section WP-A2): the Ag near-null mode is
+  **intrinsic** — a non-radiating damped cavity mode of the truncated box (vacuum standing wave
+  between top face and bottom plate in the extinction residual), unchanged with d₀ = 5 at
+  L = 2.5 µm (d₀ = 5 not run at L = 4 µm), not driven by spectrally flat errors (supporting
+  evidence; the L = 4 µm perturbation solve did not converge), switching with L and the box
+  depth (A_local +0.1 … −53 %); R, the far field and A_ext are unaffected.
 - tests / tooling / docs (WP22d): large-area Si for the Phase 4 target "Si 30×30 µm²".
   **Proxy measured** on the 128 GB machine (`benchmarks/results/si_large_area.md`): Si L = 10.5 µm,
   σ = 100 nm, 2N = 1 098 720, uniform 50 nm box, rigorous beam, ICTF, d₀ = 3, tol 1e-3: 90

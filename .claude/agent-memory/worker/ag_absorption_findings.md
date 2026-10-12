@@ -1,6 +1,6 @@
 ---
 name: ag-absorption-findings
-description: WP-A1 Ag absorbed power from currents at 45 deg (flat box) - local (n x M).J* low at L = 4 um only (spurious +-k sin(theta) standing wave, M phase +4-6 mrad); P_ext - P_sca correct; leading hypothesis non-radiating near-null mode, excitation origin (discretisation vs MLFMM) open
+description: WP-A1 Ag absorbed power from currents at 45 deg (flat box) - local (n x M).J* low at L = 4 um only (spurious +-k sin(theta) standing wave, M phase +4-6 mrad); P_ext - P_sca correct; non-radiating near-null mode; WP-A2: intrinsic cavity mode of the box (see ag-null-mode-findings)
 metadata:
   type: project
 ---

@@ -38,19 +38,21 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **WP22d merged:** Si proxy L = 10.5 µm (2N = 1.1·10⁶, 1 464 s, 89.5 GB); L = 30 µm extrapolated 600–720 GB,
   3.2–7.1 h; run kit `scripts/server_run_kit/` for the lead's 1 TB server (Si 20/30 µm + server Ag series
   L = 4–17.5 µm). **Waiting for the lead's server results** (record template in `benchmarks/results/si_large_area.md`).
-- **In flight:** WP-A2 (origin of the Ag near-null mode), WP-V2 (box validity at MLFMM sizes).
+- **WP-A2 merged:** the Ag near-null mode is an intrinsic cavity resonance of the closed box (not MLFMM);
+  Ag absorption only as A_ext (ADR 0006 amendment 2026-10-12); diagnostic follow-up WP-A3.
+- **In flight:** WP-V2 (box validity at MLFMM sizes).
   They share the machine via a lock directory in the session scratchpad (WP22d holds it for timed runs).
 - **Next:** WP-V2 (box validity at MLFMM sizes, graded vs uniform box), WP22b2 (formulation sweep with MLFMM),
   then Phases 5/6. A stronger preconditioner than Jacobi would address the Ag iteration growth.
-- Test counts on `main`: 407 ctest (`-LE "validation-large|slow"`), 93 pytest; labels `slow`, `validation`
+- Test counts on `main`: 413 ctest (`-LE "validation-large|slow"`), 94 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
 
 1. **Box validity at realistic sizes (WP-V2)** is the remaining physics gate before quantitative speckle
    results: λ₁/5 box cells are necessary, not shown sufficient.
-2. **Ag absorption at oblique incidence**: use A_ext (far field + extinction), not the local formula (WP-A1);
-   origin of the near-null mode in WP-A2.
+2. **Ag absorption**: use A_ext (far field + extinction) only; the local formula is spoiled by intrinsic box
+   cavity resonances (WP-A2). A resonance-free formulation would be a larger design change (open).
 3. **Phase 4 target "Si 30×30 µm²"**: lead decision — proxy on this 128 GB machine plus a run kit; the lead runs
    L = 30 µm on a 1 TB server (WP22d). Ag scaling to 10⁶ is closed by measurement only once that server run (or a
    > 2 h local run) is done.

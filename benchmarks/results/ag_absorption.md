@@ -43,7 +43,9 @@ OpenBLAS), 2026-10-11, shared with other agents; every run ≤ 6 GB peak.
   space of the exterior operator**: an interior-resonance-like near-null mode of the discrete
   PMCHWT-family system at high contrast, constrained only through the Ag (R2) operator. This is the
   leading hypothesis; it is not yet tested directly (E1 below).
-- **Origin of the excitation: open.** The solution satisfies the exact Galerkin rows at the centre to
+- **Origin of the excitation: open** (decided by WP-A2 below: **intrinsic**, a non-radiating
+  damped cavity mode of the truncated box, unchanged with d₀ = 5 at L = 2.5 µm; d₀ = 5 was not
+  run at L = 4 µm). The solution satisfies the exact Galerkin rows at the centre to
   2.9·10⁻⁵, and the MLFMM operator error on the analytic currents is broadband 4.4·10⁻⁵ with no mirrored
   (−k₀ sin θ) content. These row and strip checks show that a near-null mode exists (a percent-level
   component with a residual footprint ≤ 3·10⁻⁵); they do **not** decide between excitation by the
@@ -152,7 +154,8 @@ strip |y| ≤ 50 nm (558 basis functions) the MLFMM error is 4.4·10⁻⁵ relat
 
 ## Proposed follow-up experiments
 
-Not run (WP-A1 budget; to be scheduled as a follow-up work package). Memory estimates from the recorded
+Not run in WP-A1 (budget); E1–E4 run in WP-A2 (section below), E5 replaced by d₀ = 5 at
+L = 2.5 µm. Memory estimates from the recorded
 runs (every recorded run ≤ 6 GB peak; L = 4 µm, d₀ = 3: 2N = 69 600, Krylov basis 2 757 × 2N × 16 B ≈
 3.1 GB).
 
@@ -164,6 +167,251 @@ runs (every recorded run ≤ 6 GB peak; L = 4 µm, d₀ = 3: 2N = 69 600, Krylov
 | E4 | L sweep 2.0–3.5 µm (step 0.25 µm, w₀ = L/5) and a box-depth sweep at L = 3 µm (needs a `--box-depth` option; the depth is `default_box_depth` today), logging A_local − A_ext and the normalised ±k₀ sin θ peak; d₀ = 3 vs 5 at the L where the mode appears | resonance-like dependence on the box dimensions (a mode of the box, not of the patch alone); with d₀ = 5 at that L, intrinsic vs MLFMM-excited | d₀ = 3: ≤ 6 GB per case; d₀ = 5 at L ≤ 3.5 µm as the recorded L = 3 µm d₀ = 5 run (≤ 6 GB) |
 | E5 | L = 4 µm, 45° s with d₀ = 5, only if E2–E4 leave the excitation open | intrinsic (mode unchanged) vs MLFMM-excited (mode gone or reduced by the operator-error ratio) at the recorded case | setup 17.6 GB (near field 7.3 GB) + Krylov ≈ 3.1 GB ≈ 21 GB |
 
+## WP-A2: origin of the near-null mode
+
+Experiments E1–E4 of the table above (E5 replaced by a cheaper d₀ = 5 case at L = 2.5 µm, where the
+mode is even stronger). Same executable with the WP-A2 options (`--box-depth`, `--hessenberg`,
+`--perturb`, `--retro`, `--interior`, MODE line; see its file comment), Windows 11, win-release
+(GCC 16.1, OpenBLAS), `OMP_NUM_THREADS=8`, 2026-10-11/12, machine shared with a timed large-memory
+study (timings are not comparable). All cases: Ag, 45° s, h = 50 nm, w₀ = L/5 (`--allow-wide-beam`),
+ICTF + left Jacobi, MLFMM d₀ = 3, GMRES tol 1e-5, box depth D = 2 µm (`default_box_depth`) unless
+stated. The L = 4 µm solve was repeated (`--hessenberg`): bitwise the same iteration count, residuals
+and A as WP-A1.
+
+Quantities: **MODE** = |X_err(−k₀ sin θ)| / |X_ref(+k₀ sin θ)| on the strip |y| ≤ L/8 (Hann window,
+M; J is within a few % of it), the normalised mirrored peak of the current error. **Interior
+residual** = E_inc + E₁ (the R1 representation −L₁J + K₁M of the currents, `extinction_residual`)
+at points inside the box, which vanishes for the exact solution; "rms(z = 0.15)" is
+rms|res| / rms|E_inc| on the line y = 0, z = 150 nm, |x| ≤ L/2 − 150 nm; the vertical line
+x = y = 0 is normalised by max |E_inc| on it.
+
+### E1: far field near retro, extinction-theorem residual inside the box (saved currents)
+
+| | L = 3 µm | L = 4 µm |
+|---|---|---|
+| \|F\|² at retro (θ_s = −45°) / specular peak | 7.4·10⁻⁵ | 2.6·10⁻⁵ |
+| median \|F\|² over θ_s < −10° (5° off retro) / peak | 6.9·10⁻⁵ | 2.9·10⁻⁵ |
+| retro / median | 1.10 | **0.98** |
+| interior residual rms(z = 0.15) | 0.46 % | **2.7 %** |
+| vertical line: \|res\| (E_y; E_x, E_z ≤ 7·10⁻⁴) | 0.1–0.48 %, standing wave | **2.2–2.6 %, standing wave, depth-independent amplitude** |
+| nodes of \|res_y\| along z [µm] | 0.43, 0.81, 1.21, 1.61 (spacing 0.39) | **0.31, 0.65, 1.01, 1.35, 1.69 (spacing 0.345)** |
+| lateral spectrum of the residual (x-lines) | mostly +0.70 k₀ near the top | **±0.70 k₀ with equal weight at every depth** |
+
+- **No retro lobe**: at L = 4 µm the far field at retro is at the edge-diffraction background
+  (retro/median 0.98); the ±k₀ sin θ current component (≈ 1 % of the specular current, MODE
+  9.5·10⁻³) does not radiate. R and the far field are blind to it (confirmed: R_sim/R_beam − 1
+  varies smoothly with L in E4, also through the strong-mode cases).
+- **The non-radiating component is a vacuum cavity field of the box**: the interior residual at
+  L = 4 µm is an E_y (s-polarised) standing wave with k_x = ±0.70 k₀ and k_z = π/0.345 µm =
+  0.725 k₀, so |k| = 1.01 k₀ (a propagating vacuum field), of constant amplitude ≈ 2.5 % of the
+  peak incident field over the whole depth, with nodes of E_tan that extrapolate to the top face
+  (z ≈ 0) and to the bottom plate (z ≈ 2.03 µm ≈ D): a cavity standing wave with p = 6 half
+  wavelengths in z between the top and the bottom of the box. (A current that is the trace of a
+  source-free vacuum field inside the box radiates nothing outside and shows up inside as minus
+  that field, fields.hpp.) At L = 3 µm the residual is 6× smaller, comparable to the other
+  mode-free cases of E4 (0.2–0.6 %).
+- Decides: the non-radiating hypothesis of WP-A1 is confirmed directly, and the mode is a **box
+  (cavity) mode**, involving the bottom plate, not a property of the patch alone.
+
+### E2: response to a broadband right-hand-side perturbation
+
+δb complex Gaussian (std::mt19937_64, seed 20261011), per block |δb_J| = 3·10⁻⁵ |b_J|,
+|δb_M| = 3·10⁻⁵ |b_M| (the size of the MLFMM and exact-row errors); δx = Z⁻¹δb solved with the same
+operator, Jacobi and tolerance (`--perturb 3e-5`; the solution of Z x = b + δb is x + δx).
+
+| | L = 2.5 µm (strong mode) | L = 4 µm (strong mode) |
+|---|---|---|
+| GMRES on δb | 3 895 it, converged (true residual 1.6·10⁻⁵) | 3 500 it = max, **not converged** (9.3·10⁻⁴) |
+| \|δx\|/\|x\| | 1.5·10⁻⁴ (gain 5.1) | 1.7·10⁻⁴ (gain 5.5) |
+| δx at ±k₀ sin θ / X_ref(+k₀ sin θ), Hann (rect) | 1.4–2.3·10⁻⁶ (5–9·10⁻⁶) | 0.9–1.1·10⁻⁵ (1.1–1.3·10⁻⁵) |
+| modal gain (peak / 3·10⁻⁵) | **0.05 (0.3)** | **0.3** |
+| A_local of x + δx vs x | 0.005993 vs 0.005997 (−0.07 %) | 0.007241 vs 0.007257 (−0.2 %) |
+| MODE of x + δx vs x | identical to 3 digits | identical to 3 digits |
+
+- A broadband error of the MLFMM size changes the solution by a factor ~5 more than its own size,
+  spread over all wavenumbers, and puts ≤ 3·10⁻¹ of its relative size into the ±k₀ sin θ
+  component. The observed mode (MODE 7–9.5·10⁻³) would need a modal gain of ≈ 250–300 from an
+  error of 3·10⁻⁵. **This rules out spectrally flat errors of that size, not a structured error of
+  the same norm:** a random δb overlaps any single mode only by ≈ 1/√(2N) of its norm (1/180 at
+  L = 2.5 µm, 2N = 32 250), so a modal gain of 0.05–0.3 is compatible with a resonant gain of
+  10–50 (E3: 1/|θ| ≈ 10–60) for an error aligned with the mode. A structured MLFMM error of norm
+  3·10⁻⁵ coherent with the mode is not excluded by E2; the measured MLFMM error is spectrally flat
+  on the analytic currents (WP-A1 strip check: no mirrored content), which makes it unlikely but
+  was not measured on the resonant vector.
+- Supporting evidence only (and at L = 4 µm the δx solve did not converge: 3 500 iterations,
+  true residual 9.3·10⁻⁴; at L = 2.5 µm it did, with the same numbers). **The deciding experiment
+  is d₀ = 5 vs 3 at L = 2.5 µm (E4):** ‖x₃ − x₅‖/‖x‖ = 1.9·10⁻⁴, 40× below the mode amplitude,
+  with MODE and A_local the same to 3 digits while the operator error drops ~20×.
+
+### E3: harmonic Ritz values of the Jacobi-preconditioned system (GMRES Hessenberg)
+
+`GmresParams::keep_hessenberg`; harmonic Ritz values (eigenvalues of H_k + |h_{k+1,k}|² H_k^{-H}
+e_k e_kᵀ, the approximations of the eigenvalues of M⁻¹Z closest to 0) and singular values of the
+(k + 1) × k Hessenberg H̄ at convergence (σ_min(H̄) ≥ σ_min(M⁻¹Z), monotone in k).
+
+| L [µm] | k | σ_min(H̄) | σ_max/σ_min | three smallest \|θ\| | #\|θ\| < 0.1 / < 0.3 | A_local/A_beam − 1 |
+|---|---:|---:|---:|---|---|---:|
+| 2.0 | 1 680 | 6.4·10⁻³ | 1.3·10⁴ | 0.025, 0.034, 0.047 | 8 / 26 | −0.1 % |
+| 2.5 | 2 513 | **4.1·10⁻³** | 2.4·10⁴ | **0.016**, 0.020, 0.022 | 12 / 43 | **−52.7 %** |
+| 3.0 | 2 066 | 1.4·10⁻² | 5.7·10³ | 0.026, 0.028, 0.040 | 8 / 30 | −2.1 % |
+| 3.25 | 2 430 | 6.7·10⁻³ | 1.3·10⁴ | 0.016, 0.026, 0.032 | 10 / 34 | −5.5 % |
+| 4.0 | 2 757 | 7.2·10⁻³ | 1.2·10⁴ | 0.020, 0.022, 0.032 | 11 / 38 | **−42.8 %** |
+
+- The bulk of the spectrum lies at |θ| ~ 0.3–14; at every L a **band of 8–12 small eigenvalues**
+  (|θ| = 0.016–0.1, Im θ ≈ 0.005–0.025 > 0, Re θ of both signs) sits near the origin: damped
+  resonances on both sides of the operating point, more of them for the larger boxes. There is
+  **no isolated eigenvalue at L = 4 µm only**; the strong-mode cases have the smallest σ_min
+  (2.5 and 4 µm: 4–7·10⁻³ against 1.4·10⁻² at 3 µm), but σ_min alone does not predict the mode
+  (2 µm: 6.4·10⁻³, no mode): the excitation must also overlap with the resonant vector.
+- Reading: **consistent with a band of damped resonances; does not by itself separate intrinsic
+  from MLFMM.** The Hessenberg is that of the MLFMM operator, so it describes the compressed
+  system, whatever the cause. The harmonic Ritz values come from a Krylov space that is not
+  invariant (k ≈ 1 700–2 800 ≪ 2N), so they cannot prove the absence of an isolated small
+  eigenvalue (at L = 4 µm or elsewhere), and σ_min(H̄) only bounds σ_min(M⁻¹Z) from above. The
+  small-eigenvalue band (gains 1/|θ| ≈ 10–60 relative to the bulk, present at every L) is what a
+  family of damped cavity resonances predicts. (Ritz vectors were not computed: `keep_basis` would
+  double the Krylov memory; E1/E2 give the mode shape instead.)
+
+### E4: L sweep, box-depth sweep, d₀ = 3 vs 5
+
+| L [µm] | D [µm] | d₀ | 2N | it | R_sim/R_beam − 1 | A_local/A_beam − 1 | A_ext/A_beam − 1 | MODE | interior rms(z = 0.15) | node spacing in z [µm] | dφ(M − J) centre [mrad] |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|
+| 2.0 | 2 | 3 | 22 800 | 1 680 | −0.161 % | −0.10 % | +0.36 % | 8.8·10⁻⁴ | 0.63 % | ~0.5 | −0.24 |
+| 2.25 | 2 | 3 | 27 708 | 1 717 | −0.205 % | −1.7 % | −0.03 % | 1.6·10⁻⁴ | 0.34 % | ~0.38 | −0.17 |
+| **2.5** | 2 | 3 | 32 250 | 2 513 | −0.179 % | **−52.7 %** | +0.37 % | **7.2·10⁻³** | **2.7 %** | **0.34** | **+7.18** |
+| **2.5** | 2 | **5** | 32 250 | 2 512 | −0.179 % | **−52.6 %** | +0.38 % | **7.2·10⁻³** | **2.7 %** | **0.34** | **+7.16** |
+| 2.75 | 2 | 3 | 37 938 | 2 171 | −0.147 % | −0.7 % | +0.13 % | 5.7·10⁻⁴ | 0.27 % | ~0.45 | +0.03 |
+| 3.0 | 2 | 3 | 43 200 | 2 066 | −0.127 % | −2.1 % | +0.06 % | 5.0·10⁻⁴ | 0.46 % | 0.39 | +0.18 |
+| 3.25 | 2 | 3 | 49 668 | 2 430 | −0.112 % | −5.5 % | +0.09 % | 2.3·10⁻³ | 0.87 % | mixed | +2.21 |
+| 3.5 | 2 | 3 | 55 650 | 2 491 | −0.098 % | −1.5 % | +0.04 % | 3.3·10⁻³ | 0.62 % | 0.34 | +0.13 |
+| **4.0** | 2 | 3 | 69 600 | 2 757 | −0.082 % | **−42.8 %** | +0.18 % | **9.5·10⁻³** | **2.7 %** | **0.345** | **+4.03** |
+| 3.0 | 1.5 | 3 | 39 600 | 2 031 | −0.129 % | +0.10 % | +0.21 % | 1.7·10⁻³ | 0.40 % | 0.30 | −0.41 |
+| 3.0 | 1.8 | 3 | 41 760 | 2 204 | −0.125 % | −4.5 % | −0.03 % | 2.2·10⁻⁴ | 0.90 % | 0.34 | +0.01 |
+| 3.0 | 2.1 | 3 | 43 920 | 2 626 | −0.127 % | **−33.7 %** | +0.09 % | **5.2·10⁻³** | **1.6 %** | 0.31 | **+4.84** |
+| 3.0 | 2.5 | 3 | 46 800 | 1 934 | −0.126 % | −0.4 % | −0.02 % | 3.5·10⁻⁴ | 0.17 % | 0.39 | −0.34 |
+
+- **Resonance-like dependence on the box dimensions.** A_local is within ≤ 2 % at L = 2.0, 2.25,
+  2.75, 3.0 and 3.5 µm, fails by −53 % at 2.5 µm and −43 % at 4 µm, and by −5 % at 3.25 µm; at
+  L = 3 µm the depth alone moves it through +0.1 % (D = 1.5 µm), −4.5 % (1.8), −2.1 % (2.0),
+  **−33.7 % (2.1)** and −0.4 % (2.5): a 0.1 µm deeper box switches the mode on. The strong cases
+  at D = 2 µm carry the p = 6 standing wave of E1 (node spacing 0.34 µm = (D + 2δ)/6 with δ ≈ 25 nm
+  the Ag skin depth); at D = 2.1 µm the node spacing is 0.31 µm (p = 7). A PEC-box estimate of the TE_m0p modes with
+  E_y ∝ sin(mπx'/L_eff) sin(pπz/D_eff), L_eff = L + 2δ, D_eff = D + 2δ, k_x = mπ/L_eff ≈ k₀ sin θ,
+  gives nearly zero detuning (m/L_eff)² + (p/D_eff)² − (2/λ)² for exactly the two strong cases
+  (2.5 µm: m = 7, p = 6, +0.10 µm⁻²; 4 µm: m = 11, p = 6, −0.06 µm⁻²; ≥ 0.28 µm⁻² for 2.0, 2.25,
+  2.75, 3.0 and 3.5 µm), but also for 3.25 µm (m = 9, p = 6, 0.00), where only a moderate mode
+  appears: the estimate is indicative, not predictive (the walls are impedance walls, the box
+  is graded and coarse at λ/5, and the excitation overlap matters).
+- **d₀ = 3 vs 5 at L = 2.5 µm** (the strongest case; the MLFMM operator error drops from ~2·10⁻⁵
+  to ~10⁻⁶, WP-A1 row checks): A_local −52.7 % → −52.6 %, MODE 7.17·10⁻³ → 7.15·10⁻³, the
+  interior residual and the dφ(M − J) unchanged; ‖x(d₀ = 3) − x(d₀ = 5)‖/‖x‖ = 1.9·10⁻⁴, 40× below
+  the mode amplitude. **The mode is unchanged when the operator error is reduced ~20×.**
+- A_ext stays within −0.03 … +0.38 % of A_beam and R within −0.08 … −0.21 % (smooth in L, the
+  edge loss of w₀ = L/5) in every case, with or without the mode.
+
+### Verdict
+
+**Intrinsic, not MLFMM-driven** ("intrinsic" in the precise sense of the scope below: a nearly
+singular direction of the continuous PMCHWT-family operator on the closed truncated box, placed
+and excited by the discretisation; not an artefact of the compression). The spurious current is a
+non-radiating, weakly damped cavity resonance:
+
+1. its interior field is a vacuum standing wave between the top face and the bottom plate with
+   tangential wavenumber ±k₀ sin θ (E1), invisible in the far field (no retro lobe);
+2. it is unchanged when the MLFMM error is reduced ~20× (d₀ = 5 vs 3, E4: the deciding
+   experiment) and it is not fed by spectrally flat errors of the MLFMM size (modal gain ≤ 0.3,
+   E2, supporting evidence only). **Caveats:** d₀ = 5 was run at L = 2.5 µm only, not at the
+   recorded L = 4 µm case (E5, ≈ 21 GB, not run); and the E2 δx solve at L = 4 µm did not
+   converge (9.3·10⁻⁴ after 3 500 iterations);
+3. it switches on and off with L and with the box depth D alone (L = 3 µm: −2.1 % at D = 2 µm,
+   −33.7 % at 2.1 µm; E4), next to a band of small eigenvalues of the preconditioned operator
+   that is present at every L (E3).
+
+Mechanism (consistent with all observations, not proven):
+
+- **Continuous operator: nearly singular, not singular.** Setting the PMCHWT-family equations
+  to zero (ICTF/MCTF are row scalings, same null space) leads, by the standard uniqueness
+  argument, to the **complementary problem**: the fields that (J, M) radiate with the R1
+  (vacuum) parameters inside the box and with the R2 (Ag) parameters outside it have continuous
+  tangential traces, i.e. they solve the source-free problem with **vacuum inside the box and Ag
+  outside**. With lossy Ag (Im ε_r < 0) this problem is uniquely solvable, so there is **no
+  exact null space**. It does have weakly damped, high-Q resonances: Ag acts on the vacuum
+  interior almost like an impedance wall with Z_s = η₀/√ε_r ≈ (0.005 + 0.32j) η₀ (damping
+  ∝ Re Z_s, so weak). These are the resonances of the **vacuum-filled box with Ag walls**, and
+  near one of them the continuous operator is nearly singular. A current that is the trace of such
+  a vacuum interior field radiates nothing into R1 (extinction theorem), so R, the far field and
+  A_ext are blind to it, while the local ½ Re ∮(n̂ × M)·J* changes by up to −50 % through the
+  cross term with the Ag interior field (WP-A1). This is the high-contrast analogue of the
+  interior resonances of the EFIE (PMCHWT tends to the EFIE in the PEC limit, where the
+  damping vanishes and the null space becomes exact at the resonance frequencies).
+- **The discretisation decides where the resonances fall and supplies the excitation**: the
+  discrete resonances sit near, not at, the continuous ones (mesh, the graded λ/5 box, the
+  quadrature), and the right-hand side must have a component along the resonant vector for it to
+  be amplified. The leading candidate for that component is the RT0 discretisation error of the
+  specular currents (coherent at k₀ sin θ), but this is **not proven** (see open items).
+
+Scope of "intrinsic":
+
+- **Excluded** as the cause: the MLFMM compression (d₀ = 5 vs 3 at L = 2.5 µm, E4; caveats
+  above: not run at L = 4 µm); the GMRES tolerance (WP-A1 iterative refinement to a true residual
+  of 1·10⁻⁶, A_local unchanged); the formulation variant ICTF vs PMCHWT and the Jacobi
+  preconditioner (block-row scalings with identical currents and identical Jacobi-preconditioned
+  systems, `docs/03_theory_sie.md`).
+- **Open**: the coarse λ/5 graded box mesh (no box-mesh refinement was run, so the discrete
+  resonance positions and the mode amplitude at a finer box are unknown); the RHS quadrature as
+  the excitation source (not varied); the claim that the excitation is the RT0 error of the
+  specular currents (consistent with E2's need for a structured excitation, not proven).
+
+### Consequence for rough Ag surfaces
+
+- **R and the far field are trustworthy**: the mode is non-radiating (E1); R_sim, the far field and
+  A_ext = (P_ext − P_sca)/P_inc are unaffected in all 13 cases, with or without the mode.
+- **A_local is not usable** for Ag (or other strongly reflecting metals) on the truncated box: its
+  error is set by the distance of the box (L, D, mesh) from a damped cavity resonance and by the
+  overlap of the excitation with it, from +0.1 % to −53 % in this sweep. Rough surfaces scatter into
+  a continuum of tangential wavenumbers and so overlap with many cavity modes; there is no box
+  geometry that is safe a priori (resonances recur every ~0.2–0.5 µm in L and D, and moderate
+  errors of −2 … −5 % appear between the strong ones). Use A_ext (WP-A1 recommendation 1).
+- **Detection**: the extinction-theorem residual inside the box detects the mode directly and
+  cheaply (`ag_absorption::extinction_residual`: a few hundred points, 2–10 s; it needs only the
+  currents and the incident field). In this sweep: mode-free floor rms(z = 0.15) = 0.17–0.63 %
+  ↔ |A_local/A_beam − 1| ≤ 2 %; 0.87–0.90 % ↔ −4.5 … −5.5 % (moderate mode); 1.6 % ↔ −34 %;
+  2.7 % ↔ −43 … −53 % (strong mode). A depth-independent standing wave with nodes near the top
+  and bottom faces is the signature. A second, equivalent indicator is |A_local − A_ext| itself.
+  **Calibration scope:** flat interface, 45°, s polarisation, h = 50 nm only (13 cases); the
+  levels below are not calibrated for rough surfaces, other angles, p polarisation or other mesh
+  sizes.
+- Si (weakly absorbing, lossy box interior through the fine band) and p polarisation were not
+  studied here.
+
+### Proposed rules (for the coordinator; ADR 0006 / docs/05 not changed)
+
+1. For Ag (|ε_r| ≫ 1, Re Z_s ≪ |Z_s|), report the absorbed power only as A_ext = (P_ext − P_sca)/
+   P_inc; treat ½ Re ∮(n̂ × M)·J* as a diagnostic.
+2. A post-solve cavity-mode diagnostic, **as a follow-up after a rough-surface calibration**
+   (coordinator decision: `post::extinction_residual` is not added to the library in WP-A2; the
+   helper stays in `tests/support/ag_absorption_support.hpp`). Proposed definition:
+   - *Probe line*: the rms of E_inc + E₁ relative to rms |E_inc| on a line inside the box
+     interior (R2), at depth z_p = max ξ + m with a margin m ≥ 3 h (the mesh size; ≥ 150 nm at
+     h = 50 nm), so that the line clears the highest surface peak (on rough surfaces max ξ ≈ 3σ,
+     far more than 3 h) and stays in the regular-quadrature region, laterally |x| ≤ L/2 − m and
+     well above the box bottom (z_p ≤ D − m). `extinction_residual` throws for any point outside
+     R2 (`post::observation_regions`), so the line must be placed by this rule, not by a fixed
+     distance from the mean plane. On the flat cases above z_p = 0.15 µm = 3 h.
+   - *Levels* (from this sweep): rms > 1 % = **strong mode** (A_local errors of tens of %);
+     0.7–1 % = **moderate mode** (A_local error of several %, 0.87–0.90 % ↔ −4.5 … −5.5 %);
+     < 0.7 % = no mode detected (floor 0.17–0.63 %). In both flagged cases R and the far field
+     remain valid; near-surface quantities and A_local do not.
+   - *Calibration*: the levels come from flat, 45°, s-polarised, h = 50 nm cases only; at least
+     one rough-surface calibration (residual floor and its relation to A_local − A_ext on a
+     rough Ag box) is needed before the diagnostic becomes a library function.
+3. No box-dimension rule is proposed: the resonances are too dense and too narrow to avoid by
+   choosing L or D (a 0.1 µm change of D, 2.0 → 2.1 µm at L = 3 µm, moves A_local from −2.1 % to
+   −33.7 %). A resonance-free
+   remedy would be a formulation that does not share the interior (cavity) resonances of the
+   exterior operator (e.g. a combined-field variant such as JMCFIE for the metal); open, not
+   proposed for now since R and A_ext are unaffected.
+
 ## Reproduce
 
 All recorded cases use w₀ = L/5 at 45°, above the oblique-incidence limit w₀ ≤ L cos θ/4 that
@@ -171,7 +419,7 @@ All recorded cases use w₀ = L/5 at 45°, above the oblique-incidence limit w�
 `--allow-wide-beam` (as `benchmarks/fresnel_flat.cpp`; edge loss of these cases 0.06–0.1 %):
 
 ```
-specklebem_ag_absorption --material ag --L 2e-6 --w0 0.4e-6 --theta 45 --pol s --allow-wide-beam   # tol 1e-5 default
+specklebem_ag_absorption --material ag --L 2e-6 --w0 0.4e-6 --theta 45 --pol s --allow-wide-beam  # tol 1e-5 default
 specklebem_ag_absorption --material ag --L 3e-6 --w0 0.6e-6 --theta 45 --pol s --allow-wide-beam \
     [--d0 5] --row-check 0.15e-6
 specklebem_ag_absorption --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol s --allow-wide-beam \
@@ -180,4 +428,28 @@ specklebem_ag_absorption --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol s -
     --tol 1e-4 --refine 1e-5,1e-6
 specklebem_ag_absorption ... --allow-wide-beam --load-currents x_L4.bin --profile 16 | --spectrum | \
     --strip-check 0.05e-6
+```
+
+WP-A2 (one case per process, `OMP_NUM_THREADS=8`; `x_L4.bin` / `x_L3.bin` from `--save-currents` of
+the cases above):
+
+```
+# E1: far field in the plane of incidence and extinction-theorem residual inside the box
+# (and the same with --L 3e-6 --w0 0.6e-6 --load-currents x_L3.bin)
+specklebem_ag_absorption --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol s --allow-wide-beam \
+    --load-currents x_L4.bin --retro --interior --spectrum --spectrum-window hann
+# E2: response to a broadband RHS perturbation (load mode assembles; solve mode also works)
+specklebem_ag_absorption --material ag --L 2.5e-6 --w0 0.5e-6 --theta 45 --pol s --allow-wide-beam \
+    --perturb 3e-5 --max-iter 4000
+specklebem_ag_absorption ... --L 4e-6 --w0 0.8e-6 ... --load-currents x_L4.bin --perturb 3e-5 --max-iter 3500
+# E3: harmonic Ritz values (in-process analysis: 16-24 min for k = 2 400-2 800; or
+#     --save-hessenberg h.bin --no-ritz and analyse the raw matrix offline)
+specklebem_ag_absorption --material ag --L 4e-6 --w0 0.8e-6 --theta 45 --pol s --allow-wide-beam \
+    --max-iter 3500 --hessenberg
+# E4: L sweep (w0 = L / 5), depth sweep, d0 = 5 (L = 2.5 um, d0 = 5: peak RSS 7.9 GB, the setup
+#     estimate says 13 GB)
+specklebem_ag_absorption --material ag --L {2.0,2.25,2.5,2.75,3.0,3.25,3.5}e-6 --w0 <L/5> --theta 45 \
+    --pol s --allow-wide-beam --interior
+specklebem_ag_absorption ... --L 3e-6 --w0 0.6e-6 ... --interior --box-depth {1.5,1.8,2.1,2.5}e-6
+specklebem_ag_absorption ... --L 2.5e-6 --w0 0.5e-6 ... --interior --d0 5
 ```

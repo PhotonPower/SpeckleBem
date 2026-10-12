@@ -53,6 +53,10 @@ struct GmresParams {
     /// Test/diagnostic hook: return the Krylov basis of the last cycle in GmresResult::basis
     /// (a copy, up to (m + 1) n complex values).
     bool keep_basis = false;
+    /// Diagnostic hook (WP-A2): return the Arnoldi Hessenberg matrix of the last cycle in
+    /// GmresResult::hessenberg (as computed, before the Givens rotations). Costs a copy of the
+    /// k (k + 3) / 2 Hessenberg entries; off: no change to the iterates or the work.
+    bool keep_hessenberg = false;
 };
 
 struct GmresResult {
@@ -74,6 +78,19 @@ struct GmresResult {
     /// With GmresParams::keep_basis: the Krylov vectors of the last cycle as columns
     /// (orthonormal up to rounding); empty otherwise.
     MatrixXc basis;
+    /// With GmresParams::keep_hessenberg: the (k + 1) x k upper Hessenberg matrix H_bar of the
+    /// last cycle (k = its Krylov dimension) of the Arnoldi relation Op V_k = V_{k+1} H_bar,
+    /// Op = M^{-1} A (left) or A M^{-1} (right); empty otherwise (and for b = 0). Its leading
+    /// k x k block H_k gives the Ritz values (eigenvalues of H_k) and the harmonic Ritz values
+    /// (eigenvalues of H_k + |h_{k+1,k}|^2 H_k^{-H} e_k e_k^T) of Op; for a Krylov space that
+    /// is invariant under Op (happy breakdown, e.g. k = n), h_{k+1,k} ~ 0 and both are
+    /// eigenvalues of Op. A column discarded at a singular Hessenberg is not included; if that
+    /// was the first column of the last cycle (also after a restart: the matrices of earlier
+    /// cycles are not kept), the result is empty (0 x 0), as for b = 0. With
+    /// keep_basis the columns of `basis` are V_{k+1}, or V_k after convergence or a happy
+    /// breakdown (the last basis vector is then not formed; the last row of H_bar still holds
+    /// its norm h_{k+1,k}).
+    MatrixXc hessenberg;
 };
 
 /// Called once per iteration with (k, residual_history[k]), k = 1 .. iterations.
@@ -100,7 +117,8 @@ using IterationCallback = std::function<void(int iter, Real residual)>;
 ///   column-major panels of 64 columns, so it is never copied; the last panel holds only the
 ///   remainder of m + 1, so a filled basis (e.g. a GMRES(100) cycle: 64 + 37 columns) takes
 ///   exactly 16 (m + 1) n bytes, and a run that stops after k iterations allocates
-///   min(m + 1, 64 ceil((k + 1) / 64)) columns. The Hessenberg factor adds 16 m^2 / 2 bytes. Cost
+///   min(m + 1, 64 ceil((k + 1) / 64)) columns. The Hessenberg factor adds 16 m^2 / 2 bytes (twice
+///   that with keep_hessenberg, plus the returned 16 (m + 1) m bytes). Cost
 ///   per iteration: one A and one M^{-1} application plus O(k n) for the orthogonalisation,
 ///   memory-bandwidth bound: CGS2 streams the k basis vectors three times per step, in parallel;
 ///   MGS once per pass (the second read of each vector mostly hits the cache), serially.
