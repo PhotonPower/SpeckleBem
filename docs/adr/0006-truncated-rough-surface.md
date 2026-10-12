@@ -81,3 +81,22 @@ half of the Ag depth sensitivity at L ≤ 2 µm and become relevant at L ≳ 20 
 - Diagnostic (proposed, follow-up WP-A3): rms of the extinction-theorem residual inside the box on a line
   above max ξ; > 1 % strong, 0.7–1 % moderate mode. Calibrated on flat Ag at 45° s only; a rough-surface
   calibration precedes a library function. A resonance-free formulation is an open option.
+
+## Amendment 2026-10-12b (WP-V2: box checks at MLFMM sizes; lead decision)
+
+Decided by the project lead on the WP-V2 results (`benchmarks/results/box_validity_mlfmm.md`):
+
+1. **Uniform box by default for quantitative rough-surface runs** (Si and Ag): box cells = top-face
+   cells (`box_mesh_size` = h, M = 0). The graded λ₁/5 box is insufficient for Si at w₀/L = 1/4
+   (depth ×2 0.14 % vs 0.03 % uniform) and is more expensive at MLFMM sizes (Si L = 3 µm: 33 vs 17 GB,
+   322 vs 205 iterations; Ag about twice the iterations). The graded box stays available as an explicit
+   option (cheaper dense studies, convergence checks). Supersedes decision 1 of the 2026-10-10 amendment
+   as the default; λ₁/5 remains the upper bound for any explicit coarse spacing.
+2. **Weakly absorbing objects (3δ > 2h, e.g. Si): w₀ ≤ L cos θ_in / 6** (was L cos θ_in / 4). At L/4 the
+   edge check fails (L ×1.2: 1.28 %), at L/6 both checks pass (0.19 % / 0.007 %). Provisional: one seed,
+   one roughness (σ = 50 nm), one L ×1.2 pair; to be confirmed on a second seed and σ = 100 nm.
+   Strongly absorbing objects keep L cos θ_in / 4 (no validated tighter rule; see 3).
+3. **Plasmonic metals (Ag): no quantitative rough-surface speckle results until WP-V3.** Ag fails both
+   docs/05 checks at every waist tried (depth ×2 0.8–1.9 %, L ×1.2 4.5–8.2 % at L = 4 µm); the cause
+   (surface plasmons vs the box cavity resonances of the 2026-10-12 amendment) is open. Reflectance of
+   flat Ag (WP22c) and A_ext remain validated.
