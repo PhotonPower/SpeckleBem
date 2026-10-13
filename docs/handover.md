@@ -62,9 +62,9 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
    the docs/05 box checks at L = 4 µm (0.8–8 %); quantitative Ag speckle needs WP-V3 (mechanism and remedy).
 2. **Ag absorption**: use A_ext (far field + extinction) only; the local formula is spoiled by intrinsic box
    cavity resonances (WP-A2). A resonance-free formulation would be a larger design change (open).
-3. **Phase 4 target "Si 30×30 µm²"**: solved on the lead's 1 TB server (peak 697 GB, WP22e part 1). The docs/01
-   wording "solves on a 256 GB node" is not met (2.7 × 256 GB with the ADR 0006 box); the lead decides whether
-   the 1 TB route closes the item (docs/01 wording). Ag scaling to 10⁶ is closed by measurement only once the
+3. **Phase 4 target "Si 30×30 µm²"**: **met** on the lead's 1 TB server (peak 697 GB, WP22e part 1); docs/01
+   reworded to "solves on a 1 TB node" (lead decision 2026-10-13); memory reduction towards 256 GB is the
+   optional WP22f. Ag scaling to 10⁶ is closed by measurement only once the
    server Ag series (run 4, WP22e part 2) is in.
 4. WP15 deviations from Fu et al.: WP22b2 (MLFMM, L = 3.2–10 µm, uniform box) reproduces five of six Fig. 2
    statements at 10 µm; "PMCHWT does not converge" holds for neither material strictly (Si converges; Ag is

@@ -320,8 +320,9 @@ on the 128 GB machine, was done in WP22d. The item's first sentence, "solves on 
 not met and cannot be at these settings: the measured peak is 2.7 × 256 GB (the reasons are in
 the summary above: the box adds 175 % to the top face, and the 30 µm octree has 234 nm leaves).
 Even run 2 (L = 20 µm, 2N = 3.0·10⁶, already more than the "≈ 2.2 M unknowns" of docs/01) peaked
-at 250.4 GB, which leaves no room for the operating system on a 256 GB node. Whether the DoD item
-counts as closed through the 1 TB route is the lead's decision. Still open in Phase 4: the Ag part
+at 250.4 GB, which leaves no room for the operating system on a 256 GB node. Lead decision 2026-10-13:
+the DoD item is reworded to "solves on a 1 TB node" and is met by run 3; a memory reduction towards
+256 GB is the optional WP22f. Still open in Phase 4: the Ag part
 of the scaling DoD (server run 4 pending, WP22e part 2). R and A of these runs are consistency
 checks, not quantitative results: tol 1e-3 and w₀ = L/4, wider than the w₀ ≤ L/6 that ADR 0006
 (amendment 2026-10-12b) asks for quantitative Si work.

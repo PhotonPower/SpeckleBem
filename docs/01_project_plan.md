@@ -77,7 +77,7 @@ The plan is organised in phases. Each phase has deliverables, a *definition of d
 - MLFMM matvec vs dense matvec: relative error < 1e-3 (default) and < 1e-5 with `accuracy_digits = 5`, on sphere and rough-surface meshes with 2·10⁴–10⁵ unknowns, for both Si and Ag.
 - Ag sphere d = 4 µm, the paper's "λ/27" mesh (393 216 unknowns, octahedron-based sphere, mean edge λ/16.5; docs/05): ε_rr ≤ 0.5 % in both scattering planes (paper: 0.26 % / 0.37 %).
 - Scaling exponent γ (time per solve vs the number of unknowns 2N) ≤ 1.5 for Si rough surfaces, ≤ 2.0 for Ag, over 2N = 5·10⁴ … 10⁶ (here the count of unknowns, not N = interior edges of docs/06; WP22b1).
-- Si 30×30 µm², σ = 100 nm, λ/10 mesh (≈ 2.2 M unknowns) solves on a 256 GB node. On the 128 GB development machine this is shown by a proxy (the largest feasible Si area with the same settings, memory/time extrapolated); the full case is run by the project lead on a 1 TB server with the run kit of WP22d (decision 2026-10-11).
+- Si 30×30 µm², σ = 100 nm, λ/10 mesh solves on a 1 TB node (lead decision 2026-10-13; the original "≈ 2.2 M unknowns on a 256 GB node" predates the ADR 0006 box amendments: with the uniform closing box and the Si fine band the case has 2N = 5.95·10⁶ and peaks at 697 GB). On the 128 GB development machine this is shown by a proxy (the largest feasible Si area with the same settings, memory/time extrapolated); the full case is run by the project lead on a 1 TB server with the run kit of WP22d (decision 2026-10-11). **Met** (WP22e part 1, `benchmarks/results/si_large_area.md`). A memory reduction towards 256 GB (radiation patterns: 434 GB of the peak) is an optional later WP (WP22f).
 
 ## Phase 5 — Post-processing and I/O
 
