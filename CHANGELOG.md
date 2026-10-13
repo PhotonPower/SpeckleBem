@@ -5,6 +5,16 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- geometry (WP-PML1, ADR 0009 decisions 1 and 2): open rough surface terminated by a PML.
+  `geometry::make_open_surface_mesh(HeightMap, OpenSurfaceParams)` meshes z = xi w(x) w(y)
+  (raised-cosine C^1 taper `taper_window`) on the map's grid out to the truncation square, with
+  per-triangle `SurfaceZone` tags (Patch, Taper, Gap, Pml), flat PML at z = 0, n_z < 0 (R2 into
+  R1, emitted by the generator) and the outer square as the only boundary (no RWG there); zone
+  widths are rounded up to the grid (SBEM_INFO). `geometry::CoordinateStretch` (polynomial
+  profile, exp(+j w t) sign x~ = x - j sgn(x) Int sigma, linear continuation beyond the PML end)
+  with `map`, `jacobian_diag`, `in_pml`, bit-exact `identity()`; `make_pml_stretch` builds it
+  from an `OpenSurfaceMesh`. Unit tests `[open_surface]`, `[coordinate_stretch]`. The closed box
+  route is unchanged.
 - tests / docs (WP-V3): Ag box sensitivity mechanism. `benchmarks/box_validity.cpp` gains
   `--mechanism` (2D spatial spectra of J and M on the top face, walls and bottom vs |k_t|/k₀;
   extinction-theorem residual on the WP-A2 interior probe lines), `--ritz K1,...` (harmonic Ritz

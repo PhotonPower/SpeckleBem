@@ -12,6 +12,8 @@ set(SPECKLEBEM_SOURCES
     geometry/mesh.cpp
     geometry/sphere.cpp
     geometry/rough_surface.cpp
+    geometry/open_surface.cpp
+    geometry/coordinate_stretch.cpp
     geometry/mesh_io.cpp
     basis/rwg.cpp
     kernels/green.cpp

@@ -16,6 +16,8 @@ add_executable(specklebem_unit_tests
     unit/test_rwg.cpp
     unit/test_quadrature.cpp
     unit/test_rough_surface.cpp
+    unit/test_open_surface.cpp
+    unit/test_coordinate_stretch.cpp
     unit/test_mesh_io.cpp
     unit/test_singularity.cpp
     unit/test_excitation.cpp

@@ -121,12 +121,12 @@ regression. The PML route becomes the default for plasmonic objects once it pass
   (windowed far field), `Simulation` (choice of termination). This is why it needs this ADR (docs/02 layering:
   the stretch lives in geometry and is passed downward).
 - **Work packages:**
-  - WP-P1: geometry and stretch map with unit tests;
-  - WP-P2: stretch-aware dense kernels and singular part, with quadrature convergence tests;
-  - WP-P3: excitation masking and windowed far field, validation 7a;
-  - WP-P4: SPP absorption 7b and sensitivities 7c/7d/7e, Ag rough-surface results;
-  - WP-P5 (later): fast path for the PML ring (ADR 0008 amendment).
-- **Revisit after WP-P3:** if 7a fails because of the far-field window, switch decision 5 to the Huygens plane. If
+  - WP-PML1: geometry and stretch map with unit tests;
+  - WP-PML2: stretch-aware dense kernels and singular part, with quadrature convergence tests;
+  - WP-PML3: excitation masking and windowed far field, validation 7a;
+  - WP-PML4: SPP absorption 7b and sensitivities 7c/7d/7e, Ag rough-surface results;
+  - WP-PML5 (later): fast path for the PML ring (ADR 0008 amendment).
+- **Revisit after WP-PML3:** if 7a fails because of the far-field window, switch decision 5 to the Huygens plane. If
   the PML start reflects SPPs above 1e-2 at affordable W_pml, revisit the profile (order m, σ_max) or a hybrid with
   option (a).
 
@@ -136,7 +136,7 @@ regression. The PML route becomes the default for plasmonic objects once it pass
    quantitative rough-Ag speckle on the PML route.
 2. **Profile defaults:** start from m = 2, σ_max = 3–5 (the lead's experience); W_pml and the far-field window are
    fixed by validation 7a–7c (no lead value given; start with W_pml = 2 λ₁ and test 1.5×).
-3. **Dense first:** the prototype is dense (decision 6); the fast PML ring (WP-P5) is scheduled only after WP-P4.
+3. **Dense first:** the prototype is dense (decision 6); the fast PML ring (WP-PML5) is scheduled only after WP-PML4.
 4. **Si stays on the box:** the validated uniform closing box (ADR 0006, amendment 2026-10-12b) remains the Si route;
    the PML route targets plasmonic objects. Check 7e is a cross-check only, not a migration.
 
