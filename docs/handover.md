@@ -65,7 +65,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Merged:** WP-PML2 (stretch-aware dense kernels: Piola factors, complex distance, ridge-split touching rules;
   bitwise unchanged without stretch; dense assembly with a PML ≈ 150× the plain cost, fine for the dense prototype).
 - **In flight:** WP-V2b (Si waist confirmation).
-- **Next:** WP-PML3 (excitation masking, windowed far field, 7a) after WP-PML2; Ag scaling on the uniform box (WP22b4,
+- **Next:** WP-PML3b (validation 7a) after WP-PML3a (in flight: PML RHS, windowed far field, `Simulation`); Ag scaling on the uniform box (WP22b4,
   optional now that the graded-box series meets the DoD); Phases 5/6.
 - Test counts on `main`: 478 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
