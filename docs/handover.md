@@ -50,17 +50,19 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   solve 5.56 h, peak 697 GB; the server (2 × 8 cores, 32 threads) is ≈ 2 × slower than the desktop for Si.
   The Ag series (run 4) is still running → WP22e part 2.
 - **Merged:** WP22b2 (fb4b2fc, formulation sweep with MLFMM, L = 3.2–10 µm). WP22e part 1 (6dc692e).
-- **WP-V3 done on `wp/v3-ag-box-mechanism` + `wp/v3-review-fixes` (not merged yet):** the Ag box
+- **WP-V3 merged (b06276e):** the Ag box
   sensitivity is caused by surface waves (most likely surface plasmons) on the finite Ag block,
   radiated at the wall foot for the depth; for L ×1.2 rim scattering (hypothesis) and real
   radiation from the added rough annulus are not separated. Not caused by the box cavity resonances
   in the rough box (the flat box has one resonant depth, 2.0 µm, visible in the far field); PMCHWT
   plateaus unchanged at d₀ = 5. Remedy options for an ADR in `benchmarks/results/ag_box_mechanism.md`
   (SPP-absorbing termination: lossy impedance frame or a PML by complex coordinate stretching; it
-  defines a modified problem, not the semi-infinite surface; coordinator writes the ADR).
-- **Next:** merge WP-V3 and decide the Ag remedy ADR, then WP-V2b (machine-exclusive, one at a time), then an Ag scaling
-  re-measurement on the uniform box (WP22b4), WP22e part 2 when the server Ag series arrives, Phases 5/6.
-- Test counts on `main`: 431 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
+  defines a modified problem, not the semi-infinite surface). **Remedy decided: ADR 0009 (accepted 2026-10-13),
+  open surface with a complex-coordinate-stretching PML; dense prototype first (WP-P1…P4), Si stays on the box.**
+- **In flight:** WP-P1 (open surface + stretch, in review), WP-V2b (Si waist confirmation, running).
+- **Next:** WP-P2 (stretched dense kernels) after WP-P1; WP22e part 2 when the server Ag runs 4a–4c arrive
+  (4d at 17.5 µm is in `server_runs/`, not yet recorded); Ag scaling on the uniform box (WP22b4); Phases 5/6.
+- Test counts on `main`: 446 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
