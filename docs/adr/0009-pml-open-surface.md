@@ -1,6 +1,6 @@
 # ADR 0009: Open rough surface terminated by a complex-coordinate-stretching PML
 
-- **Status**: proposed (coordinator draft 2026-10-13; open points for the project lead at the end)
+- **Status**: accepted 2026-10-13 (project lead: open points 1, 3, 4 decided; 2 settled by validation 7c)
 - **Date**: 2026-10-13
 - **Phase**: 4 → 5 (prerequisite for quantitative rough Ag, ADR 0006 amendment 2026-10-12b decision 3)
 
@@ -35,7 +35,7 @@ Options:
 - **(c) A layered-medium (Sommerfeld) Green's function** for the flat surroundings. Exact for the flat part, but
   every kernel and the fast method change (already rejected in ADR 0006 for cost).
 
-## Decision (proposed)
+## Decision
 
 Option **(b)**, introduced as an **alternative termination** next to the closed box. The box stays for Si and for
 regression. The PML route becomes the default for plasmonic objects once it passes validation (below).
@@ -130,7 +130,17 @@ regression. The PML route becomes the default for plasmonic objects once it pass
   the PML start reflects SPPs above 1e-2 at affordable W_pml, revisit the profile (order m, σ_max) or a hybrid with
   option (a).
 
-## Open points for the project lead
+## Lead decisions (2026-10-13)
+
+1. **Model accepted:** "rough spot in a polished surface with absorbing surroundings" is the physical model for
+   quantitative rough-Ag speckle on the PML route.
+2. **Profile defaults:** start from m = 2, σ_max = 3–5 (the lead's experience); W_pml and the far-field window are
+   fixed by validation 7a–7c (no lead value given; start with W_pml = 2 λ₁ and test 1.5×).
+3. **Dense first:** the prototype is dense (decision 6); the fast PML ring (WP-P5) is scheduled only after WP-P4.
+4. **Si stays on the box:** the validated uniform closing box (ADR 0006, amendment 2026-10-12b) remains the Si route;
+   the PML route targets plasmonic objects. Check 7e is a cross-check only, not a migration.
+
+## Open points (original draft, kept for the record)
 
 1. **Model statement.** Is "rough spot in a polished surface with absorbing surroundings" acceptable as the physical
    model for quantitative rough-Ag speckle (and later for Si)?
