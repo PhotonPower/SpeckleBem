@@ -59,10 +59,11 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   (SPP-absorbing termination: lossy impedance frame or a PML by complex coordinate stretching; it
   defines a modified problem, not the semi-infinite surface). **Remedy decided: ADR 0009 (accepted 2026-10-13),
   open surface with a complex-coordinate-stretching PML; dense prototype first (WP-PML1…PML4), Si stays on the box.**
-- **In flight:** WP-PML1 (open surface + stretch, in review), WP-V2b (Si waist confirmation, running).
+- **Merged:** WP-PML1 (88c93fb, open surface + stretch).
+- **In flight:** WP-V2b (Si waist confirmation, running).
 - **Next:** WP-PML2 (stretched dense kernels) after WP-PML1; WP22e part 2 when the server Ag runs 4a–4c arrive
   (4d at 17.5 µm is in `server_runs/`, not yet recorded); Ag scaling on the uniform box (WP22b4); Phases 5/6.
-- Test counts on `main`: 446 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
+- Test counts on `main`: 461 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
