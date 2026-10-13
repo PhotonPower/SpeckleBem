@@ -49,11 +49,11 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   `benchmarks/results/si_large_area.md`, "Server results"): **Si L = 30 µm, 2N = 5.95·10⁶ solved**, 95 it.,
   solve 5.56 h, peak 697 GB; the server (2 × 8 cores, 32 threads) is ≈ 2 × slower than the desktop for Si.
   The Ag series (run 4) is still running → WP22e part 2.
-- **Done, awaiting merge:** WP22b2 (formulation sweep with MLFMM, L = 3.2–10 µm, review fixes on
-  `wp/22b2-review-fixes`); next WP-V3 and WP-V2b (machine-exclusive).
-  They share the machine via a lock directory in the session scratchpad (WP22d holds it for timed runs).
-- **Next:** WP-V3, WP-V2b, then Phases 5/6. A stronger preconditioner than Jacobi would address the Ag iteration growth.
-- Test counts on `main`: 424 ctest (`-LE "validation-large|slow"`), 97 pytest; labels `slow`, `validation`
+- **Merged:** WP22b2 (fb4b2fc, formulation sweep with MLFMM, L = 3.2–10 µm). WP22e part 1 (6dc692e).
+- **Next:** WP-V3 (Ag box mechanism; include a d₀ = 5 run at Ag 3.2 µm PMCHWT to test the MLFMM-error
+  hypothesis for the plateaus), then WP-V2b (machine-exclusive, one at a time), then an Ag scaling
+  re-measurement on the uniform box (WP22b4), WP22e part 2 when the server Ag series arrives, Phases 5/6.
+- Test counts on `main`: 431 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
