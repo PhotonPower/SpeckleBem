@@ -100,3 +100,21 @@ Decided by the project lead on the WP-V2 results (`benchmarks/results/box_validi
    docs/05 checks at every waist tried (depth ×2 0.8–1.9 %, L ×1.2 4.5–8.2 % at L = 4 µm); the cause
    (surface plasmons vs the box cavity resonances of the 2026-10-12 amendment) is open. Reflectance of
    flat Ag (WP22c) and A_ext remain validated.
+
+## Amendment 2026-10-13 (WP-V2b: waist rule confirmation; lead decision)
+
+Decided by the project lead (option A of the WP-V2b record, `benchmarks/results/box_validity_mlfmm.md`,
+section "WP-V2b"):
+
+1. **Decision 2 of the 2026-10-12b amendment holds for σ ≤ 50 nm** (no longer provisional there): at
+   σ = 50 nm a second seed passes at w₀ = L/6 (depth ×2 0.009 %, L ×1.2 0.23 %), and L/5 passes on seed 1
+   (0.007 % / 0.15 %). L/6 stays the library default for weakly absorbing objects; it is not relaxed to
+   L/5 on one seed.
+2. **σ = 100 nm: no waist rule.** At L = 4.5 µm the depth check passes (0.03 %) but L ×1.2 fails at
+   w₀ = L/6 (1.19 %) and L/8 (1.28 %): a tighter waist is not the lever (measured). Likely cause
+   (hypothesis, not separated from radiation by the added rough annulus): fields scattered by the
+   roughness reach the rim independently of the beam. Box-route Si results at σ = 100 nm are reported with
+   an **edge uncertainty of about 1.2–1.3 %** (the docs/05 L ×1.2 change at L ≈ 4.5 µm as a stand-in for
+   the edge error, not a measured bound). Whether it falls with the beam-to-rim distance at larger L
+   (e.g. the L = 30 µm server run) is not measured; no follow-up is scheduled (lead decision). The PML
+   route (ADR 0009) is the alternative termination if a tighter bound is needed later.
