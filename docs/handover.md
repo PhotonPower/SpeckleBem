@@ -48,7 +48,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Server runs (WP22d kit, commit 1be8f2b, w₀ = L/4):** Si runs 1–3 done 2026-10-12 and recorded (WP22e part 1,
   `benchmarks/results/si_large_area.md`, "Server results"): **Si L = 30 µm, 2N = 5.95·10⁶ solved**, 95 it.,
   solve 5.56 h, peak 697 GB; the server (2 × 8 cores, 32 threads) is ≈ 2 × slower than the desktop for Si.
-  The Ag series (run 4) is still running → WP22e part 2.
+  Ag series (run 4) recorded in WP22e part 2 (below).
 - **Merged:** WP22b2 (fb4b2fc, formulation sweep with MLFMM, L = 3.2–10 µm). WP22e part 1 (6dc692e).
 - **WP-V3 merged (b06276e):** the Ag box
   sensitivity is caused by surface waves (most likely surface plasmons) on the finite Ag block,
@@ -59,10 +59,12 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   (SPP-absorbing termination: lossy impedance frame or a PML by complex coordinate stretching; it
   defines a modified problem, not the semi-infinite surface). **Remedy decided: ADR 0009 (accepted 2026-10-13),
   open surface with a complex-coordinate-stretching PML; dense prototype first (WP-PML1…PML4), Si stays on the box.**
-- **Merged:** WP-PML1 (88c93fb, open surface + stretch).
-- **In flight:** WP-V2b (Si waist confirmation, running).
-- **Next:** WP-PML2 (stretched dense kernels) after WP-PML1; WP22e part 2 when the server Ag runs 4a–4c arrive
-  (4d at 17.5 µm is in `server_runs/`, not yet recorded); Ag scaling on the uniform box (WP22b4); Phases 5/6.
+- **Merged:** WP-PML1 (88c93fb, open surface + stretch). **WP22e part 2** (server Ag series L = 4–17.5 µm, all
+  converged; γ_solve 1.37 ± 0.08 over 2N = 6.96·10⁴ … 1.02·10⁶ on one machine: **Phase 4 scaling item met for Si and Ag**;
+  iterations identical to the desktop, server 1.45–1.88× slower for Ag).
+- **In flight:** WP-V2b (Si waist confirmation), WP-PML2 (stretched dense kernels; second worker after the turn limit).
+- **Next:** WP-PML3 (excitation masking, windowed far field, 7a) after WP-PML2; Ag scaling on the uniform box (WP22b4,
+  optional now that the graded-box series meets the DoD); Phases 5/6.
 - Test counts on `main`: 461 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
@@ -80,8 +82,8 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
    cavity resonances (WP-A2). A resonance-free formulation would be a larger design change (open).
 3. **Phase 4 target "Si 30×30 µm²"**: **met** on the lead's 1 TB server (peak 697 GB, WP22e part 1); docs/01
    reworded to "solves on a 1 TB node" (lead decision 2026-10-13); memory reduction towards 256 GB is the
-   optional WP22f. Ag scaling to 10⁶ is closed by measurement only once the
-   server Ag series (run 4, WP22e part 2) is in.
+   optional WP22f. Ag scaling to 10⁶ is closed by measurement
+   (WP22e part 2: γ_solve 1.37 ± 0.08 on the server over 2N = 6.96·10⁴ … 1.02·10⁶; the bottom 5·10⁴ … 6.96·10⁴ unmeasured).
 4. WP15 deviations from Fu et al.: WP22b2 (MLFMM, L = 3.2–10 µm, uniform box) reproduces five of six Fig. 2
    statements at 10 µm; "PMCHWT does not converge" holds for neither material strictly (Si converges; Ag is
    impractical, non-convergence not demonstrated). The WP15 Ag MCTF/PMCHWT ratios at 3.2 µm are neither a size

@@ -19,8 +19,16 @@ rest on them:
 5. the orthogonalisation share (solve - it x matvec) / solve and the local slopes between
    neighbouring converged sizes.
 
+The defaults are those of the WP22b3 desktop file. Another histories file in the same format (the
+WP22d server Ag series, ``mlfmm_scaling_ag_server_histories.txt``, all converged) names its own
+back-tests and capped runs: ``--back-tests "17.5:1450" --capped ""`` back-tests the bracket on
+the converged L = 17.5 um run truncated at the desktop cap, and without capped runs section 3 is
+skipped, section 4 gives the measured exponents only and the gamma = 2.0 margin uses the largest
+converged run (its measured iterations).
+
 Usage: python benchmarks/mlfmm_scaling_projection.py
            [benchmarks/results/mlfmm_scaling_ag_histories.txt] [--window 300] [--tol 1e-3]
+           [--back-tests "11:1400,1600,1800;9:1000,1200"] [--capped "15,17.5"]
 Python 3 with numpy only.
 """
 
@@ -33,9 +41,23 @@ from pathlib import Path
 import numpy as np
 
 DEFAULT_FILE = Path(__file__).resolve().parent / "results" / "mlfmm_scaling_ag_histories.txt"
-BACK_TESTS = [(11.0, [1400, 1600, 1800]), (9.0, [1000, 1200])]
-CAPPED = [15.0, 17.5]
+BACK_TESTS = "11:1400,1600,1800;9:1000,1200"  # "L:cap,cap;L:cap" (WP22b3 desktop file)
+CAPPED = "15,17.5"
 DOD_MIN = 5e4
+
+
+def parse_back_tests(spec: str) -> list[tuple[float, list[int]]]:
+    """Parse "L:cap,cap;L:cap" into [(L, [cap, cap]), (L, [cap])]; an empty string gives []."""
+    out = []
+    for item in filter(None, (s.strip() for s in spec.split(";"))):
+        L, caps = item.split(":", 1)
+        out.append((float(L), [int(c) for c in caps.split(",")]))
+    return out
+
+
+def parse_capped(spec: str) -> list[float]:
+    """Parse "L,L" into [L, L]; an empty string gives []."""
+    return [float(s) for s in spec.split(",") if s.strip()]
 
 
 def read_runs(path: Path) -> list[dict]:
@@ -115,7 +137,12 @@ def main() -> None:
     ap.add_argument("file", nargs="?", default=str(DEFAULT_FILE))
     ap.add_argument("--window", type=int, default=300)
     ap.add_argument("--tol", type=float, default=1e-3)
+    ap.add_argument("--back-tests", default=BACK_TESTS,
+                    help='converged runs and caps, "L:cap,cap;L:cap" ("" = none)')
+    ap.add_argument("--capped", default=CAPPED, help='capped runs to project, "L,L" ("" = none)')
     args = ap.parse_args()
+    back_tests = parse_back_tests(args.back_tests)
+    capped = parse_capped(args.capped)
     runs = read_runs(Path(args.file))
     by_l = {run["L"]: run for run in runs}
 
@@ -131,7 +158,7 @@ def main() -> None:
 
     print("\n2. Back-test of the bracket on converged runs (window "
           f"{args.window} iterations, tol {args.tol:g})")
-    for L, caps in BACK_TESTS:
+    for L, caps in back_tests:
         run = by_l[L]
         for cap in caps:
             br = bracket(run, cap, args.window, args.tol)
@@ -142,9 +169,10 @@ def main() -> None:
                   f"(true {run['it']}; {lo_ok}, {hi_ok}), time {br['t_low']:.0f} - "
                   f"{br['t_high']:.0f} s (true {run['solve']:.0f} s), power p = {br['p']:.2f}")
 
-    print("\n3. Projections of the capped runs")
     proj: dict[float, dict] = {}
-    for L in CAPPED:
+    if capped:
+        print("\n3. Projections of the capped runs")
+    for L in capped:
         run = by_l[L]
         br = bracket(run, run["it"], args.window, args.tol)
         proj[L] = br
@@ -161,19 +189,26 @@ def main() -> None:
         xs = [run["n2"] for run in conv if run["n2"] >= lo]
         ys = [run["solve"] for run in conv if run["n2"] >= lo]
         g, se = slope(xs, ys)
-        xp = xs + [by_l[L]["n2"] for L in CAPPED]
-        gl, sel_ = slope(xp, ys + [proj[L]["t_low"] for L in CAPPED])
-        gh, seh = slope(xp, ys + [proj[L]["t_high"] for L in CAPPED])
+        if not capped:
+            print(f"  {label}: measured {g:.2f} +- {se:.2f} ({len(xs)} sizes)")
+            continue
+        xp = xs + [by_l[L]["n2"] for L in capped]
+        gl, sel_ = slope(xp, ys + [proj[L]["t_low"] for L in capped])
+        gh, seh = slope(xp, ys + [proj[L]["t_high"] for L in capped])
         print(f"  {label}: measured {g:.2f} +- {se:.2f} ({len(xs)} sizes); with projections "
               f"low {gl:.2f} +- {sel_:.2f} / high {gh:.2f} +- {seh:.2f}")
     ref = min((run for run in conv if run["n2"] >= DOD_MIN), key=lambda r: r["n2"])
-    big = by_l[CAPPED[-1]]
+    big = by_l[capped[-1]] if capped else max(conv, key=lambda r: r["n2"])
     t_allowed = ref["solve"] * (big["n2"] / ref["n2"]) ** 2
     a, b, c = time_fit(big["k"], big["t"])
     k_allowed = (-b + math.sqrt(b * b - 4 * c * (a - t_allowed))) / (2 * c)
+    if capped:
+        versus = f"{k_allowed / proj[capped[-1]]['k_high']:.1f} x the high extrapolation"
+    else:
+        versus = (f"{k_allowed / big['it']:.1f} x the measured {big['it']} "
+                  f"({t_allowed / big['solve']:.1f} x the measured {big['solve']:.0f} s)")
     print(f"  gamma = 2.0 from 2N = {ref['n2']} ({ref['solve']:.0f} s) allows {t_allowed:.0f} s at "
-          f"2N = {big['n2']}: {k_allowed:.0f} iterations with its t(k), "
-          f"{k_allowed / proj[CAPPED[-1]]['k_high']:.1f} x the high extrapolation")
+          f"2N = {big['n2']}: {k_allowed:.0f} iterations with its t(k), {versus}")
 
     print("\n5. Orthogonalisation share and local slopes (converged runs)")
     for run in conv:

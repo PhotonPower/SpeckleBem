@@ -18,7 +18,8 @@ converged solves; slopes with standard errors, over the full range and over the 
 by measurement over 2N = 5·10⁴ … 10⁶. Ag: γ_solve = 1.40 ± 0.14 measured over 2N = 7·10⁴ …
 4.2·10⁵; over the full window projected (1.40–1.51), not measured; the Ag part of the DoD
 remains open by measurement. The converged L = 17.5 µm solve (~5 h, ~100 GB) is scheduled for
-the 1 TB server run kit (WP22d).**
+the 1 TB server run kit (WP22d).** (Update WP22e part 2: the server Ag series measured
+γ_solve = 1.37 ± 0.08 over 2N = 6.96·10⁴ … 1.02·10⁶, see the Ag section and `si_large_area.md`.)
 
 - **Si (uniform 50 nm box): γ_solve = 1.09 ± 0.04 over 2N = 5.9·10⁴ … 1.02·10⁶** (7 sizes, all
   solved, `--box-mesh-size 50e-9`; largest case L = 10 µm, 68 iterations, 954 s, 74.8 GB
@@ -235,6 +236,17 @@ the capped run (25.4 / 23.6 GB). The beam changes the iterations by ≤ 5 % (L =
   L = 12–14 µm (2N = 5.0–6.6·10⁵) fall on 6-level octrees with 375–440 nm leaves (near field
   30–54 GB, `--estimate-only`), so they are not cheaper per unknown than L = 15 µm and would
   need ≥ 1.7 h at the measured costs; not run.
+- **Server Ag series (WP22e part 2, measured 2026-10-13; added after this record).** The same Ag
+  cases at L = 4 / 7 / 11 / 17.5 µm (2N = 6.96·10⁴ … 1.02·10⁶) were run on the 1 TB server with
+  the WP22d run kit (run 4; rows in the block "WP22d server" of
+  [`mlfmm_scaling_rows.txt`](mlfmm_scaling_rows.txt), `machine=server`, a separate fit series).
+  All four converged: 1 394 / 1 518 / 2 272 iterations, identical to the rows above, and 2 920 at
+  L = 17.5 µm (inside the bracket 2 530–3 360); **γ_solve = 1.37 ± 0.08 measured on one machine
+  over 2N = 6.96·10⁴ … 1.02·10⁶** (the window's 5·10⁴ … 6.96·10⁴ holds no Ag size here either).
+  Server / desktop solve time 1.45–1.88 at L = 4–11 µm. Details, the window statement and the
+  comparison with the projection above: [`si_large_area.md`](si_large_area.md), "Server results",
+  assessment items 8–13; decimated histories in
+  [`mlfmm_scaling_ag_server_histories.txt`](mlfmm_scaling_ag_server_histories.txt).
 
 **Verdict (WP22b1, older GMRES and beam; kept for reference): Phase 4 scaling DoD partially
 demonstrated, still open.**
@@ -548,6 +560,10 @@ Si configuration, the local rule the opt-in memory option for graded boxes).
   converged L = 17.5 µm solve is scheduled for the 1 TB server run kit (WP22d, coordinator
   decision 2026-10-11). Until then the Ag part of the DoD is open by measurement. A stronger
   preconditioner (fewer iterations) would also shorten it.
+  **Done for L = 17.5 µm (WP22e part 2, 2026-10-13):** the server Ag series (L = 4 / 7 / 11 /
+  17.5 µm, all converged) measured γ_solve = 1.37 ± 0.08 over 2N = 6.96·10⁴ … 1.02·10⁶ on one
+  machine ([`si_large_area.md`](si_large_area.md), "Server results", item 8; Ag section above).
+  L = 15 µm stays a capped desktop run (the server series did not include it).
 - Default `leaf_radius_quantile`: decided, stays 1.0 (opt-in local rule; coordinator decision
   2026-10-11, WP22b3 section "Si, local leaf rule vs global rule").
 

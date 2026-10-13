@@ -1,6 +1,6 @@
 ---
 name: si-large-area-findings
-description: WP22d Si sigma=100 nm large-area facts - proxy 10.5 um numbers, WP22e server results (2x slower, B overestimated the time growth by ≈ 35 % (measured growth ≈ 26 % below B), R_coarse), sigma 100 vs 50 costs, octree leaf quantisation, extrapolation rule, server kit figures, review fixes (256 GB reasoning, timing matvecs, Ag series, tiny Ag test cost)
+description: WP22d Si sigma=100 nm large-area facts - proxy 10.5 um numbers, WP22e server results (Si runs 1-3 and the Ag series 4a-4d, gamma 1.37) (2x slower, B overestimated the time growth by ≈ 35 % (measured growth ≈ 26 % below B), R_coarse), sigma 100 vs 50 costs, octree leaf quantisation, extrapolation rule, server kit figures, review fixes (256 GB reasoning, timing matvecs, Ag series, tiny Ag test cost)
 metadata:
   type: project
 ---
@@ -52,6 +52,19 @@ OMP_PLACES=threads / spread, interleave): Si L = 30 um solved, 95 it, peak 697 G
   1 - R - A with R_coarse goes negative (-7e-3): use the power balance to pick the grid.
 - solve_s includes one extra apply after the last iteration (true residual).
 - si_large_area_extrapolation.py ignores machine=server rows (filters series=wp22d / sigma 50).
+
+Server Ag series (WP22e part 2, runs of 2026-10-13, L = 4/7/11/17.5 um, graded 100 nm box = box=100
+fine=0, M = 1): all converged, gamma_solve 1.37 +- 0.08 over 2N 6.96e4 ... 1.02e6 (no Ag row of any
+series in 5e4 ... 6.96e4: window gap, do not combine machines).
+- Iterations AND res/true_res bit-identical to the desktop (1394/1518/2272); residual histories equal
+  within the 4-digit rounding, also 4d up to the desktop cap 1450 -> 4d (2920 it) continues the
+  capped desktop run; desktop bracket 2530-3360 held.
+- Server/desktop for Ag: solve 1.45-1.88 (lower than Si ~2) because CGS2 term c/2N is only
+  1.1-1.3x slower (21-23 vs 23-27 GB/s); far matvec 2.4-2.9x, near matvec 0.70x, setup ~3.0x.
+- (peak - Krylov)/model for Ag 0.58-0.75 on BOTH machines: the 0.72-0.86 band is a Si figure.
+- Left-Jacobi true/monitored residual ratio 0.83-1.17, size dependent; 4a true 1.09e-3 is expected.
+- load0 in a series call is high for every case after the first (previous case just ended).
+- mlfmm_scaling_projection.py now takes --back-tests "L:caps" --capped "" for other history files.
 
 **Why:** server results will come back later and must be compared against these figures.
 **How to apply:** when recording server rows, check against the stated ranges; server rows carry

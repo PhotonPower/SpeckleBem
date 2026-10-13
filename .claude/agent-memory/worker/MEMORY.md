@@ -20,7 +20,7 @@
 - [GMRES orthogonalisation findings](gmres_orthogonalization_findings.md) — WP-G1: 0.7 criterion fires ~always, 5900X bandwidth cap, BLAS-thread nondeterminism in test ops
 - [Ag absorption findings](ag_absorption_findings.md) — WP-A1: local (n x M).J* -43 % at L = 4 um 45 deg (non-radiating +-k mode?), A_ext = P_ext - P_sca correct
 - [Box validity MLFMM findings](box_validity_mlfmm_findings.md) — WP-V2: Si passes w/ uniform box at w0<=L/6 (1 seed); Ag fails, cause open (SPP vs WP-A2 cavity); floors
-- [Si large-area findings](si_large_area_findings.md) — WP22d proxy, sigma 100 vs 50, leaf L/2^k, 256 GB; WP22e server: 2x slower, cost/GB falls, R_coarse
+- [Si large-area findings](si_large_area_findings.md) — WP22d proxy, sigma 100 vs 50, leaf L/2^k, 256 GB; WP22e server: 2x slower, cost/GB falls, R_coarse; Ag series gamma 1.37, its identical
 - [Formulation sweep findings](formulation_sweep_findings.md) — WP22b2: its vs L, Ag PMCHWT staircase, graded vs uniform box ratios, Jacobi true res, Si waist pin
 - [Ag near-null mode verdict](ag_null_mode_findings.md) — WP-A2: intrinsic box cavity mode, d0=5 (2.5 um only) deciding, E2/E3 caveats, detector levels, Ritz cost
 - [Open surface + PML stretch](open_surface_pml_findings.md) — WP-PML1: grid rounding, corner diagonals, C1 test (2nd-order slopes), Eigen cross link error

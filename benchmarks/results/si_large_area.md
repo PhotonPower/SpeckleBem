@@ -17,8 +17,14 @@ measurement on one machine (coordinator decision of the WP22d review).
   peak 250.4 GB. Per unit of work the server is slower than the 12-core desktop for Si: 2.5 × in
   the far matvec, 1.9–2.5 × in the power summary, 2–5 × in the setup (cause untested). The
   extrapolation held for the memory and the iterations; method B overestimated the growth of the
-  times from 20 to 30 µm by ≈ 35 %. Details: "Server results" below. The Ag series (run 4) is
-  pending.
+  times from 20 to 30 µm by ≈ 35 %. Details: "Server results" below.
+- **Server Ag series (measured 2026-10-13, run 4 of the kit): all four sizes converged**, Ag
+  L = 4 / 7 / 11 / 17.5 µm, σ = 50 nm, graded 100 nm box, 2N = 6.96·10⁴ … 1.02·10⁶: 1 394 /
+  1 518 / 2 272 / 2 920 iterations (4a–4c identical to the desktop), solve 656 s … 6.71 h, peak
+  94.3 GB at 10⁶. **γ_solve = 1.37 ± 0.08** (4 sizes, one machine) over 2N = 6.96·10⁴ … 1.02·10⁶:
+  the Ag criterion γ ≤ 2.0 is met by measurement over that range; the bottom of the DoD window,
+  5·10⁴ … 6.96·10⁴, holds no converged Ag size on either machine (assessment, item 8). Server /
+  desktop solve time 1.45–1.88 at equal L (L = 4–11 µm, measured on both; Si ≈ 2).
 - **Proxy: Si L = 10.5 µm, σ = 100 nm, 2N = 1 098 720 unknowns, solved** (uniform 50 nm closing
   box with the fine band, rigorous beam w₀ = L/4, ICTF, MLFMM d₀ = 3, full GMRES tol 1e-3):
   90 iterations (true residual 9.6·10⁻⁴), setup 225 s, solve 1 464 s (24 min), peak working set
@@ -225,7 +231,7 @@ smoke test, the proxy and the largest case, 4d, of the server Ag series).
   rescues L = 32 µm at σ = 100 nm (r_max 90 nm > 0.6 × 125 nm would force 250 nm leaves with
   q = 1: model 1 009 GB); at σ = 50 nm the global rule already gives 125 nm there.
 
-## Server results (measured 2026-10-12: Si runs 1–3; Ag series pending)
+## Server results (measured 2026-10-12: Si runs 1–3; 2026-10-13: Ag series 4a–4d)
 
 Runs of `scripts/server_run_kit/run_large_area.sh`, one per row; the raw `row.txt` lines are in
 [`mlfmm_scaling_rows.txt`](mlfmm_scaling_rows.txt) (block "WP22d server"). A `row.txt` line is the
@@ -250,8 +256,8 @@ repository; only the `row.txt` lines and the hardware and software description b
 | compiler (version), build type, flags | GCC 14.3.1 (Red Hat), `release` preset (Release, `-O3 -DNDEBUG`, no `-march`); Eigen and spdlog from the system packages |
 | BLAS / LAPACK (`BLAS_LIBRARIES` from `CMakeCache.txt`) | not recorded (system OpenBLAS presumably; the MLFMM solve hardly uses BLAS, README section 1) |
 | batch system, cgroup memory limit | none; cgroup v2 user slice without a memory limit |
-| commit (`git rev-parse HEAD`), date | 1be8f2b139610a21b50ba38fd3155fb180081767; runs started 2026-10-12 08:17 UTC (run 1), 08:43 UTC (run 2), 13:16 UTC (run 3) |
-| other jobs on the node during the runs | none reported; `load0` 0.16 / 0.22 / 0.47; no `--force-memory`; `--numa` and `--threads` not varied |
+| commit (`git rev-parse HEAD`), date | 1be8f2b139610a21b50ba38fd3155fb180081767; runs started 2026-10-12 08:17 UTC (run 1), 08:43 UTC (run 2), 13:16 UTC (run 3); 2026-10-13 02:15 UTC (run 4d, its own call), 10:42 UTC (runs 4a, 4b, 4c in one series call, in that order) |
+| other jobs on the node during the runs | none reported; `load0` 0.16 / 0.22 / 0.47 (runs 1–3), 0.11 / 26.58 / 26.79 / 23.85 (4a–4d; see assessment item 9); no `--force-memory`; `--numa` and `--threads` not varied |
 
 **Runs, sizes and times** (ROW fields `N2 levels leaf_nm rmax_nm elevated setup_s near_s far_s
 matvec_s near_mv_s far_mv_s it conv true_res solve_s`; annotations `load0 wall_s`):
@@ -262,10 +268,10 @@ matvec_s near_mv_s far_mv_s it conv true_res solve_s`; annotations `load0 wall_s
 | 2 | Si | 20 | 100 | uniform 50 nm, 1 | 3 004 800 | 8 | 156 | 85.3 | 0 | 1 924.7 (1 001.3 / 912.8) | 111.23 (0.81 / 110.36) | 95 | 1 | 9.72·10⁻⁴ | 10 760 | 113.3 | 0.22 | 15 692 |
 | 3 target | Si | 30 | 100 | uniform 50 nm, 1 | 5 947 200 | 8 | 234 | 90.2 | 0 | 4 759.7 (2 648.9 / 2 090.1) | 207.7 (3.60 / 204.4), single apply | 95 | 1 | 9.94·10⁻⁴ | 20 007 | 210.6 | 0.47 | 28 914 |
 | 3b (alt.) | Si | 30 | 100 | graded 100 nm, 0.8 | not run (not needed: run 3 fitted) | | | | | | | | | | | | | |
-| 4a | Ag | 4 | 50 | graded 100 nm, 1 | pending (server Ag series, part 2) | | | | | | | | | | | | | |
-| 4b | Ag | 7 | 50 | graded 100 nm, 1 | pending | | | | | | | | | | | | | |
-| 4c | Ag | 11 | 50 | graded 100 nm, 1 | pending | | | | | | | | | | | | | |
-| 4d | Ag | 17.5 | 50 | graded 100 nm, 1 | pending | | | | | | | | | | | | | |
+| 4a | Ag | 4 | 50 | graded 100 nm (M = 1, no fine band), 1 | 69 600 | 5 | 250 | 127.9 | 0 | 38.8 (25.7 / 2.8) | 0.317 (0.035 / 0.282) | 1 394 | 1 | 1.09·10⁻³ | 656 | 0.470 | 0.11 | 737 |
+| 4b | Ag | 7 | 50 | graded 100 nm (M = 1, no fine band), 1 | 186 480 | 6 | 219 | 129.4 | 0 | 99.5 (64.5 / 8.0) | 0.946 (0.075 / 0.867) | 1 518 | 1 | 9.38·10⁻⁴ | 1 839 | 1.21 | 26.58 | 2 055 |
+| 4c | Ag | 11 | 50 | graded 100 nm (M = 1, no fine band), 1 | 422 400 | 6 | 344 | 141.2 | 0 | 259.7 (186.9 / 12.3) | 2.044 (0.428 / 1.617) | 2 272 | 1 | 8.84·10⁻⁴ | 6 902 | 3.04 | 26.79 | 7 424 |
+| 4d | Ag | 17.5 | 50 | graded 100 nm (M = 1, no fine band), 1 | 1 017 450 | 7 | 273 | 137.1 | 0 | 565.6 (388.2 / 32.7) | 5.010 (0.660 / 4.346) | 2 920 | 1 | 8.28·10⁻⁴ | 24 163 | 8.28 | 23.85 | 25 362 |
 | 5 (opt.) | Si | 32 | 100 | uniform 50 nm, 0.8 | not run so far (optional, after run 4) | | | | | | | | | | | | | |
 
 Wall time = setup + timing matvecs (2 (matvecs + 1) × matvec: 39 / 1 335 / 831 s) + solve + post
@@ -277,6 +283,13 @@ residual). Solve / (it × matvec) = 1.014–1.018 in all
 three runs (desktop rows 0.99–1.09): CGS2 is negligible, the solve is the far matvec (98–99 % of
 the matvec).
 
+Runs 4a–4d (`matvecs=5`, medians as on the desktop): wall time = setup + 12 matvecs + solve + post
+within 1 / 4 / 8 / 19 s. Their setup also contains the Ag exact part (`exact_s` 0.7 / 3.1 / 0.7 /
+8.4 s). Solve / (it × matvec) = 1.48 / 1.28 / 1.49 / 1.65: with 1 394–2 920 iterations the CGS2
+orthogonalisation is 22–39 % of the Ag solve (`benchmarks/mlfmm_scaling_projection.py`, section 5,
+on [`mlfmm_scaling_ag_server_histories.txt`](mlfmm_scaling_ag_server_histories.txt); desktop
+30–44 %), unlike the 95-iteration Si solves.
+
 **Memory and power** (ROW fields `near_gb exact_gb far_gb krylov_gb peak_setup_gb peak_gb
 peak_est_gb R R_coarse A post_s`; annotations `vmhwm_gb rss_max_gb`):
 
@@ -286,10 +299,10 @@ peak_est_gb R R_coarse A post_s`; annotations `vmhwm_gb rss_max_gb`):
 | 2 | 39.37 | 0 | 204.27 | 4.62 | 194.7 | 250.42 | 250.42 | 284.7 | 0.863 | 0.36325 (0.36176) | 0.63632 | 4.2·10⁻⁴ | 1 653 | peak 0.4 GB above 210–250 GB; model = README 285 GB |
 | 3 target | 175.07 | 0 | 508.42 | 9.13 | 613.1 | 697.01 | 697.01 | 822.9 | 0.836 | 0.36711 (0.37500) | 0.63220 | 6.9·10⁻⁴ | 3 273 | peak inside 600–720 GB; model = README 823 GB |
 | 3b (alt.) | not run | | | | | | | | | | | | | |
-| 4a | pending | | | | | | | | | | | | | |
-| 4b | pending | | | | | | | | | | | | | |
-| 4c | pending | | | | | | | | | | | | | |
-| 4d | pending | | | | | | | | | | | | | |
+| 4a | 1.68 | 0.047 | 0.87 | 1.55 | 2.50 | 4.21 | 4.21 | 4.48 | 0.593 | 0.97342 (0.97342) | 0.00287 | 2.4·10⁻² | 38 | peak = desktop 4.22 GB (README "≈ 4.2"); model = README 4.5 GB |
+| 4b | 3.62 | 0.271 | 2.39 | 4.53 | 5.92 | 10.92 | 10.92 | 9.09 | 0.703 | 0.97782 (0.97783) | 0.02314 | −9.6·10⁻⁴ | 101 | peak = desktop 10.94 GB (README "≈ 10.9"); model = README 9.1 GB |
+| 4c | 20.85 | 0.011 | 6.54 | 15.36 | 26.97 | 43.01 | 43.01 | 39.47 | 0.700 | 0.97776 (0.97769) | 0.01770 | 4.5·10⁻³ | 230 | peak = desktop 43.01 GB (README "≈ 43"); model = README 39.5 GB |
+| 4d | 32.16 | 0.414 | 13.63 | 47.55 | 44.65 | 94.26 | 94.26 | 64.23 | 0.727 | 0.97702 (0.97861) | 0.01260 | 1.0·10⁻² | 554 | peak inside 87–101 GB; Krylov inside 41–55 GB; model = README 64 GB |
 | 5 (opt.) | not run so far | | | | | | | | | | | | | |
 
 The sampled RSS maximum (`rss_max_gb` 11.13 / 250.38 / 696.92 GB) agrees with VmHWM and with
@@ -298,9 +311,21 @@ The sampled RSS maximum (`rss_max_gb` 11.13 / 250.38 / 696.92 GB) agrees with Vm
 869.3 GB (model 822.9 + Krylov basis for 150 iterations 14.4 + margin 32 GB) and passed against
 1 072.4 GB available; the peak used 697.0 GB, 172 GB below the reserve.
 
-**Server Ag series** (runs 4a–4d): pending (still running; recorded in part 2 of WP22e). γ_solve
-of the `machine=server` Ag rows (`benchmarks/mlfmm_scaling_fit.py`) over 2N = 7.0·10⁴ … 1.02·10⁶:
-___ ± ___ (DoD: ≤ 2.0; desktop WP22b3 series: see `mlfmm_scaling.md`).
+Runs 4a–4d: the sampled RSS maximum (`rss_max_gb` 4.21 / 10.91 / 43.00 / 94.26 GB) agrees with
+VmHWM and `peak_gb` to 0.01 GB; MemAvailable (sampled every 30 s, the samples are not in the
+repository) stayed above 978 GB throughout. Near, exact and far memory, the model and the peak
+after the setup equal the desktop WP22b3 rows at equal L (ratio 1.000; peak after setup within
+0.2 %): memory is machine independent. The Krylov basis is (it + 1) 2N · 16 B and at 4d the
+largest single item (47.6 of 94.3 GB). (peak − Krylov) / model = 0.59–0.73, the same as the
+desktop Ag rows at equal L (0.595 / 0.705 / 0.700 at 4–11 µm) and below the band 0.72–0.86 of
+item 2, which the desktop WP22b3 Ag rows at L ≤ 11 µm do not reach either (0.58–0.71; the capped
+L = 15 / 17.5 µm rows 0.75 / 0.72): for Ag at these sizes the model is more conservative than for
+Si, on both machines.
+
+**Server Ag series** (runs 4a–4d, all converged): γ_solve of the `machine=server` Ag rows
+(`benchmarks/mlfmm_scaling_fit.py`) over 2N = 6.96·10⁴ … 1.02·10⁶: **1.37 ± 0.08** (4 sizes,
+standard error of the slope; DoD: ≤ 2.0; desktop WP22b3 series 1.40 ± 0.14 over 6.96·10⁴ …
+4.2·10⁵, `mlfmm_scaling.md`). Assessment: items 8–13 below.
 
 ### Server results: assessment
 
@@ -322,8 +347,8 @@ the summary above: the box adds 175 % to the top face, and the 30 µm octree has
 Even run 2 (L = 20 µm, 2N = 3.0·10⁶, already more than the "≈ 2.2 M unknowns" of docs/01) peaked
 at 250.4 GB, which leaves no room for the operating system on a 256 GB node. Lead decision 2026-10-13:
 the DoD item is reworded to "solves on a 1 TB node" and is met by run 3; a memory reduction towards
-256 GB is the optional WP22f. Still open in Phase 4: the Ag part
-of the scaling DoD (server run 4 pending, WP22e part 2). R and A of these runs are consistency
+256 GB is the optional WP22f. The Ag part of the scaling DoD, open when part 1 was written, is
+assessed in item 8 (server run 4, WP22e part 2). R and A of these runs are consistency
 checks, not quantitative results: tol 1e-3 and w₀ = L/4, wider than the w₀ ≤ L/6 that ADR 0006
 (amendment 2026-10-12b) asks for quantitative Si work.
 
@@ -451,14 +476,168 @@ script applies only the lower bound), and run 3's matvec is a single apply (its 
 unaffected). The value is consistent with the Si scaling DoD (γ ≤ 1.5) that the desktop series
 already met (WP22b3: γ_solve 1.09 over 5.9·10⁴ … 1.02·10⁶), but it is not a DoD measurement.
 
-Checks when recording (the Si checks are applied above; the Ag checks are for part 2):
+Items 8–13 (WP22e part 2) are computed from the four run 4 `row.txt` lines, the desktop WP22b3 Ag
+rows, the decimated server histories
+[`mlfmm_scaling_ag_server_histories.txt`](mlfmm_scaling_ag_server_histories.txt) (every 50th
+iteration plus the last; the per-iteration files and the memory samples stay off the repository)
+and the desktop histories [`mlfmm_scaling_ag_histories.txt`](mlfmm_scaling_ag_histories.txt), with
+`mlfmm_scaling_fit.py` and `mlfmm_scaling_projection.py` (commands under "How to reproduce").
+
+**8. The Ag scaling DoD (measured; the window stated exactly).** The fit script parses the four
+rows as their own series (`material ag, box 100.000000, fine 0, … lq 1, machine server`, separate
+from the `machine dev` WP22b3 series) and fits, over 2N = 69 600 … 1 017 450 (4 sizes, all
+`conv=1`, 2 degrees of freedom; γ ± standard error): **solve 1.37 ± 0.08**, iterations
+0.29 ± 0.06, solve per iteration 1.07 ± 0.03, proxy it × (near + far matvec) 1.31 ± 0.03, matvec
+1.02 ± 0.02 (near 1.18 ± 0.21, far 1.00 ± 0.05), setup 1.01 ± 0.04, peak memory 1.20 ± 0.10 (the
+peak includes the Krylov basis, 36–50 % of it; the peak after the setup, `peak_setup_gb`, gives
+1.14 ± 0.16 by the same least squares, not printed by the script). With 2 degrees of freedom the
+95 % interval of γ_solve is 1.37 ± 4.30 × 0.085 = 1.00–1.73, below 2.0. γ = 2.0 from 4a would
+allow 140 152 s at 4d, 5.8 × the measured 24 163 s, or ≈ 9 074 iterations with the 4d t(k) fit,
+3.1 × the measured 2 920 (projection script, section 4).
+
+The window actually covered is 2N = 6.96·10⁴ … 1.02·10⁶, not 5·10⁴ … 10⁶: the upper end is 1.7 %
+above 10⁶, the lower end 1.39 × above 5·10⁴; in log 2N the series spans 1.16 of the window's 1.30
+decades (90 %). The gap 5·10⁴ … 6.96·10⁴ holds no Ag row of any series on either machine: the
+desktop's next smaller size is L = 3 µm at 2N = 4.32·10⁴, below the window (the desktop "DoD
+window" fit also starts at 6.96·10⁴). Combining machines is not admissible for a time exponent:
+the server / desktop solve ratio at equal L is 1.45–1.88 and not constant (item 9), so a mixed fit
+would contain a machine step of that size; the fit script keeps the series apart for this reason.
+An argument, not a measurement, why the gap cannot reverse the verdict: for even the two-point
+slope from 5·10⁴ to 1.02·10⁶ to reach 2.0, the server solve at 2N = 5·10⁴ would have to take
+≤ 58 s, 11 × less than at 6.96·10⁴ (656 s) for 1.39 × fewer unknowns; the machine-independent
+desktop counts below the window (956 iterations at 4.32·10⁴, 1 394 at 6.96·10⁴) show no such drop.
+**Statement: the Ag criterion γ ≤ 2.0 is met by measurement on one machine over 2N = 6.96·10⁴ …
+1.02·10⁶ (γ_solve = 1.37 ± 0.08); the bottom 0.14 decade of the window, 5·10⁴ … 6.96·10⁴, is not
+measured.**
+
+Against the desktop: 1.40 ± 0.14 measured over 6.96·10⁴ … 4.2·10⁵ and 1.40–1.51 projected over
+the whole window (`mlfmm_scaling.md`). The server value is at the low end. On the desktop scale
+(estimated, not measured): the desktop's own t(k) fit of its capped L = 17.5 µm run
+(t = 6.4 + 2.3893 k + 0.900 ns · 2N · k², projection script section 1 on the desktop file) gives
+14 793 s at the measured 2 920 iterations, and the desktop rows at the four server sizes with this
+point fit 1.44 ± 0.11. The difference to 1.37 is the falling machine ratio (1.88 at 4 µm, 1.45–1.63
+at 11–17.5 µm): γ depends on the machine by ≈ 0.07 here, small against the margin to 2.0.
+
+**9. Server against desktop (measured on both at L = 4 / 7 / 11 µm; at 17.5 µm the desktop solve
+is the estimate of item 8).** Server / desktop:
+
+| quantity | 4 µm | 7 µm | 11 µm | 17.5 µm |
+|---|---:|---:|---:|---:|
+| iterations | 1 394 = 1 394 | 1 518 = 1 518 | 2 272 = 2 272 | 2 920 (desktop capped at 1 450) |
+| setup (near / far) | 2.99 (2.91 / 3.59) | 3.00 (2.95 / 3.39) | 3.04 (2.93 / 4.08) | 2.95 (2.84 / 3.42) |
+| matvec (near / far) | 1.91 (0.70 / 2.37) | 2.31 (0.71 / 2.88) | 1.75 (0.72 / 2.79) | 2.10 (0.70 / 2.92) |
+| CGS2 term c / 2N of t(k) [ns] | 1.769 / 0.919 = 1.92 | 1.030 / 0.890 = 1.16 | 1.134 / 1.033 = 1.10 | 1.143 / 0.900 = 1.27 |
+| solve = s/it (equal iterations) | 656 / 348 = 1.88 | 1 839 / 993 = 1.85 | 6 902 / 4 748 = 1.45 | 24 163 / 14 793 (est.) = 1.63 |
+| near, exact, far memory; model | 1.000 | 1.000 | 1.000 | 1.000 |
+
+The iterations are not just close but equal, and so are the final monitored and true residuals
+(`res` and `true_res` agree to all 6 printed digits at 4a–4c). The residual histories agree at
+every common 50th iteration in all four printed digits of the desktop file, in all four
+runs, 4d included up to the desktop cap (k = 1 450: 4.148·10⁻³ in both files): the
+server 4d solve continues the capped desktop run. This fits the GMRES documentation (CGS2 sums its
+block partial products in block order, independent of the thread count); whether the MLFMM apply
+is bitwise equal on the two machines was not checked.
+
+The Si factor of item 4 reappears in the operator, not in the orthogonalisation: the far matvec is
+2.4–2.9 × slower (Si 2.5 ×), the sparse near matvec 0.70–0.72 × (Si 0.65–0.72 ×), the setup
+2.95–3.04 × (Si 2–5 ×); the CGS2 term c, which the record attributes to streaming the basis
+(24 · 2N / c = 21–23 GB/s on the server at L ≥ 7 µm against 23–27 GB/s on the desktop), is only
+1.10–1.27 × slower there (1.92 × at 4 µm, cause untested). The Ag solve ratio therefore lies below
+the matvec ratio (1.45–1.88 against 1.75–2.31) because 22–39 % of the server solve is
+orthogonalisation. This is the measured decomposition; why CGS2 does not profit from the server's
+two sockets and why the far matvec is slower are hypotheses as in item 4 (untested). The README's
+expectation that the Si factor would not carry over to the Ag solve holds in part: it carries over
+to the matvec share.
+
+Load: `load0` was 0.11 for 4a and 26.58 / 26.79 for 4b / 4c, which started right after the
+previous case of the same series call ended (its 32 threads were busy until its last seconds, the
+power summary), so a high 1-min load average at their start is expected from the series itself
+(inference). For 4d (23.85; its own call, the first Ag run) the cause is not recorded and no other
+jobs were reported. No slowdown is visible in any run: the setup ratio of 4d (2.95) equals that of
+4a (2.99, started at load 0.11); the t(k) = a + b k + c k² fits have rms 1.1 / 1.1 / 6.8 / 23.1 s,
+≤ 0.17 % of the solve, and b within −2.3 … −7.0 % of the matvec (desktop −10 … +0.3 % at L ≥ 4 µm), i.e. no
+load episode at the 50-iteration resolution. The in-run 1-min load samples (means 27–31) are
+dominated by the run's own 32 threads, as on the desktop.
+
+**10. Predictions against the measurement (README run 4 table; projection script).**
+
+- Iterations: 4a–4c exactly the desktop counts (the README allowed "a few" iterations of
+  difference). 4d: 2 920 inside the WP22b3 bracket 2 530–3 360, 15 % above the low (log-linear)
+  end and 13 % below the high (power-law) end; the projection script, run on the server history
+  truncated at the desktop cap 1 450 (`--back-tests "17.5:1450"`), gives the same 2 534–3 359. The
+  scenario of the desktop record "γ_it = 0.80 sustained from 11 µm" (≈ 4 600 iterations at
+  17.5 µm) did not occur (item 11).
+- Memory: 4a–4c peaks "as measured on the desktop": 4.21 / 10.92 / 43.01 GB against 4.22 / 10.94 /
+  43.01 GB. 4d: Krylov basis 47.55 GB inside the projected 41–55 GB, peak 94.26 GB inside 87–101
+  GB. Model 4.48 / 9.09 / 39.47 / 64.23 GB = README 4.5 / 9.1 / 39.5 / 64 GB.
+- Times: the README times were desktop references, explicitly not server predictions. Measured
+  (README desktop reference): setup 39 s / 99 s / 4.3 min / 9.4 min (13 s / 33 s / 85 s / 3 min);
+  timing matvecs 4 / 11 / 25 / 60 s (2 / 5 / 14 / 30 s); solve 656 s / 1 839 s / 1.92 h / 6.71 h
+  (348 s / 993 s / 4 748 s / 3.3–5.1 h projected); post 38 / 101 / 230 / 554 s (~20 s / ~1 min /
+  ~2 min / ~5 min); total 12.3 min / 34.3 min / 2.06 h / 7.05 h (6 min / 18 min / 1.4 h /
+  3.4–5.2 h); the whole run 4 9.88 h of wall time (5.2–7.0 h). The 4d desktop-scale estimate of
+  item 8 (14 793 s) lies inside the projected 11 900–18 400 s; the bracket times from the server
+  history truncated at 1 450 are 20 152–30 254 s around the measured 24 163 s.
+- Post: 5.40–5.45·10⁻⁴ s per unknown, constant to 1 % and equal to Si on the server
+  (5.48–5.50·10⁻⁴ s); 1.85 × the README's desktop figure 324 s × 2N / 1.1·10⁶ at 4d (Si 1.86–1.87 ×).
+- Exponent: projected (desktop) 1.40–1.51 over the window; measured (server) 1.37 ± 0.08 (item 8).
+
+**11. Iteration growth (measured).** 1 394 → 1 518 → 2 272 → 2 920 at 2N = 6.96·10⁴ → 1.86·10⁵ →
+4.22·10⁵ → 1.02·10⁶: γ_it = 0.29 ± 0.06, local 0.09 / 0.49 / 0.29 (projection script, section 5).
+The steep intervals of the desktop (9 → 11 µm: 0.80) and of the server (7 → 11 µm: 0.49) were not
+sustained to 17.5 µm; with one surface realisation per L the local rates scatter (desktop 5 µm
+needed fewer iterations than 4 µm). What it implies, as measured here:
+
+- the iterations, not the operator, set the Ag exponent: matvec 1.02, setup 1.01, solve per
+  iteration 1.07, solve 1.37. The per-iteration time grows along each solve with the CGS2 term
+  (4d: 5.06 s per iteration over the first 50 iterations, 11.57 s per iteration over the last 20), so the solve exceeds
+  it × matvec by the orthogonalisation share s_orth = 22–39 %; the desktop record's estimate
+  γ_solve ≈ γ_matvec + γ_it (1 + s_orth) = 1.02 + 0.29 × 1.32 ≈ 1.40 (s_orth ≈ 0.32, the mean)
+  is consistent with the fitted 1.37;
+- full GMRES stores the whole basis: (it + 1) 2N · 16 B grows with 2N^1.29 (fitted to `krylov_gb`)
+  and is the largest memory item at 10⁶ unknowns (47.6 of 94.3 GB, near field 32.2, far 13.6);
+- at 2 920 iterations a solve of 10⁶ unknowns takes 6.7 h on the server; fewer iterations (a
+  stronger preconditioner than Jacobi, already named in `mlfmm_scaling.md`) would shorten time
+  and memory together. Whether γ_it stays near 0.3 beyond 10⁶ is not measured.
+
+**12. L = 4 µm: true residual 1.09·10⁻³ above tol 1e-3 (from the solver definitions).** With the
+left Jacobi preconditioner M = diag(A), GMRES solves M⁻¹A x = M⁻¹b and stops on the monitored
+residual |M⁻¹(b − A x)| / |M⁻¹b| (the Arnoldi estimate; `include/specklebem/solver/gmres.hpp`,
+`PreconditionerSide::Left`); `true_res` is |b − A x| / |b|, computed after the solve with one extra
+apply (`src/solver/gmres.cpp`). For r = b − A x the two differ by the weighting with the diagonal:
+|r| / |b| = |M (M⁻¹r)| / |M (M⁻¹b)| lies between (min |a_ii| / max |a_ii|) and
+(max |a_ii| / min |a_ii|) times the monitored value, depending on how the remaining residual is
+distributed over rows of different diagonal magnitude (which rows dominate at L = 4 µm was not
+examined). Measured true / monitored: 1.094 / 0.940 / 0.885 / 0.828 (4a–4d), identical on the
+desktop at 4–11 µm; desktop L = 3 / 5 / 9 µm: 1.165 / 1.012 / 0.888. So 1.09·10⁻³ is the expected
+behaviour of the stopping rule, the same on both machines, not a convergence failure (the
+`mlfmm_scaling.md` setup already states true residuals ≤ 1.2·10⁻³ for Ag). It does not matter for
+the scaling: every size stops on the same criterion, as in all desktop rows. Estimated effect of
+a stop on the true residual instead (log-linear slope of the last 300 iterations as in the bracket,
+true / monitored ratio assumed constant, from the decimated histories): +49 / −39 / −108 / −239
+iterations, solve +4.8 / −3.2 / −6.3 / −11.3 %, γ_solve ≈ 1.30; the recorded 1.37 is the more
+conservative value. For R and A it is irrelevant at this tolerance (item 13).
+
+**13. R and A (box route, rough Ag: not quantitative).** R = 0.97342 / 0.97782 / 0.97776 / 0.97702;
+R_coarse differs by ≤ 7·10⁻⁵ at 4a–4c and by 1.6·10⁻³ at 4d; A (from the currents) = 0.00287 /
+0.02314 / 0.01770 / 0.01260; 1 − R − A = 2.4·10⁻² / −9.6·10⁻⁴ / 4.5·10⁻³ / 1.0·10⁻². They are
+recorded, not interpreted: ADR 0006 (amendment 2026-10-12) reports Ag absorption only as A_ext,
+never from the currents (a non-radiating current component spoils the local value by up to
+−53 %), and the A column is that current value; the amendment 2026-10-12b (decision 3) and WP-V3
+(surface waves on the finite block) rule out quantitative rough-Ag results on the closing-box
+route, which ADR 0009 (PML) is to replace; and ADR 0006 asks GMRES tol ≤ 1e-5 for quantitative Ag
+reflectance, against 1e-3 here. The spread of A across L (factor 8) and the open 1 − R − A are
+compatible with the first point but are not analysed here. The desktop WP22b3 Ag rows have no
+power summary, so there is no machine comparison of R and A.
+
+Checks when recording (the Si checks are applied in items 1–7, the Ag checks in items 8–13):
 iterations and R against the proxy (Si σ = 100 nm: 85–90 iterations, R = 0.365–0.372; R and A at tol 1e-3 are consistency checks, not quantitative reflectances);
 (peak − Krylov) / model against 0.72–0.86; peak, setup and solve of runs 2, 3 and 5 against the
 stated ranges above (the ratio server / desktop time from run 2 calibrates runs 3 and 5);
 matvec scaling from run 2 to 3 against method B (run 3 with `matvecs=1`: a single apply). Ag
 series 4a–4d: iterations against the desktop counts 1 394 / 1 518 / 2 272 (4a–4c; machine
 independent up to rounding, a different thread count changes the summation order of the
-reductions, so a few iterations of difference are expected) and against the WP22b3 bracket
+reductions, so a few iterations of difference were expected; measured: identical, item 9, since the CGS2 sums do not depend on the thread count) and against the WP22b3 bracket
 2 530–3 360 (4d, capped at 1 450 on the desktop); all four converged (`conv=1`), else note it;
 the server solve times against the desktop references 348 / 993 / 4 748 s and 3.3–5.1 h (4d,
 projected) only as a machine comparison (the Ag solve is bandwidth-bound, not calibrated by run
@@ -481,4 +660,10 @@ $B --material si --L 30e-6 --sigma 100e-9 --box-mesh-size 50e-9 --beam angular-s
 $B --material si --L 30e-6 --sigma 100e-9 --leaf-radius-quantile 0.8 --beam angular-spectrum $W --estimate-only
 python benchmarks/si_large_area_extrapolation.py
 # server (Linux): scripts/server_run_kit/README.md
+# server results from the committed data (no runs needed): fits of every series incl. machine=server
+python benchmarks/mlfmm_scaling_fit.py benchmarks/results/mlfmm_scaling_rows.txt
+# server Ag series: t(k) fits, bracket back-test at the desktop cap, exponent, margin, CGS2 shares
+python benchmarks/mlfmm_scaling_projection.py benchmarks/results/mlfmm_scaling_ag_server_histories.txt \
+    --back-tests "17.5:1450" --capped ""
+python benchmarks/mlfmm_scaling_projection.py   # desktop file: the c / 2N and t(k) of item 9
 ```

@@ -65,6 +65,14 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   box effect (graded 1.37 / 6.06, uniform 1.46 / 6.13, WP15 1.05 / 1.42; dense vs MLFMM, beam and
   400 nm cells not separated). The uniform box also cuts Ag iterations (ICTF −39 %, Jacobi −64 %
   at 3.2 µm). Ag verdicts rest on a box that fails the docs/05 Ag box checks (WP-V3 open).
+- docs (WP22e part 2): server Ag series (run 4: Ag L = 4 / 7 / 11 / 17.5 µm, σ = 50 nm, graded 100 nm box,
+  rigorous beam, ICTF + left Jacobi, d₀ = 3, tol 1e-3), four `row.txt` lines in `mlfmm_scaling_rows.txt`
+  (block "WP22d server") and decimated histories `mlfmm_scaling_ag_server_histories.txt`; all converged
+  (1 394 / 1 518 / 2 272 / 2 920 it.), **γ_solve 1.37 ± 0.08 over 2N = 6.96·10⁴ … 1.02·10⁶** on one
+  machine (95 % interval 1.00–1.73; Phase 4 Ag scaling item met, the bottom 5·10⁴ … 6.96·10⁴ not
+  measured); iterations and residuals identical to the desktop at equal L; server/desktop solve time
+  1.45–1.88; peak 94.3 GB at 2N = 1.02·10⁶. `mlfmm_scaling_projection.py` gains `--back-tests` and
+  `--capped` (default output unchanged). Record in `benchmarks/results/si_large_area.md`.
 - docs (WP22e part 1): WP22d server results of the Si runs 1–3 (lead's 1 TB server, 2 × 8-core
   EPYC 9015, commit 1be8f2b, w₀ = L/4) in `benchmarks/results/si_large_area.md` ("Server results"
   and assessment) and the three `row.txt` lines in `mlfmm_scaling_rows.txt` (block "WP22d server").
