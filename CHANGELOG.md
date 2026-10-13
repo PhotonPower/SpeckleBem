@@ -5,6 +5,31 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / docs (WP-V3): Ag box sensitivity mechanism. `benchmarks/box_validity.cpp` gains
+  `--mechanism` (2D spatial spectra of J and M on the top face, walls and bottom vs |k_t|/k₀;
+  extinction-theorem residual on the WP-A2 interior probe lines), `--ritz K1,...` (harmonic Ritz
+  values of leading GMRES Hessenberg blocks), `--save-currents`, `--load-currents DIR [--diff DIR_B]`
+  (diagnostics of stored runs, spectrum of the top-face current difference and the far-field split
+  top face / rest), `--depth-fit` (travelling depth-wave fit of the complex far fields, new
+  `refl_F` output), `--sigma`; helpers in `tests/support/ag_box_mechanism_support.hpp`
+  (unit-tested, `tests/unit/test_ag_box_mechanism.cpp`); scripts
+  `benchmarks/ag_box_mechanism_histories.py`, `ag_box_mechanism_patterns.py` and
+  `ag_box_mechanism_window.py`. Study (`benchmarks/results/ag_box_mechanism.md`, 18 solves: 16 box
+  runs and 2 (v) runs, raw logs in `wp_v3_logs/`): the Ag box sensitivity is caused by surface waves
+  (most likely surface plasmons) on the finite Ag block, radiated at the wall foot for the depth
+  (reproduced in a second box discretisation: magnitude 1.24 vs 1.27 %, correlation 0.93); for
+  L ×1.2 rim scattering (hypothesis) and real radiation of the SPPs from the added rough annulus are
+  not separated. Not caused by the box cavity resonances in the rough box (present in the currents,
+  not depth-resonant; the flat box has one resonant depth that does show in the far field, 0.24 %).
+  The WP22b2 PMCHWT plateaus are unchanged at d₀ = 5 (not an MLFMM effect; the box-cavity
+  hypothesis is not tested for PMCHWT). Remedy options for an ADR: an SPP-absorbing termination
+  (lossy impedance frame or a PML by complex coordinate stretching), which defines a modified
+  problem (rough patch in absorbing surroundings), since no local termination at L ≪ 41.5 µm can
+  approximate the semi-infinite Ag surface. Review round: `--load-currents` / `--diff` /
+  `--depth-fit` check the stored attributes against the options (error on mismatch), the face
+  transfer checks the plus / minus consistency, `--ritz K > --max-iter` is refused and the kept
+  Hessenberg counts in the memory guard; `read_npy` / `read_attributes` moved to
+  `tests/support/ag_box_mechanism_support.hpp` (round-trip tests).
 - tests / docs (WP22b2): MLFMM formulation size sweep. `benchmarks/mlfmm_scaling.cpp` gains
   `--history-file` / `--history-stride` / `--history-digits` / `--history-full-file` (one
   `HISTORY` line of monitored residuals per solve, with `waist=` and `max_iter=`) and `form=` /

@@ -1,0 +1,34 @@
+# WP-V3 review fixes (W1): comparisons of stored runs, specklebem_box_validity --compare A B ...
+# (B, ... against A; run directories runs/<tag>; self-comparisons omitted).
+# Flat box (sigma = 0): --compare runs/ag4_flat_d40 runs/ag4_flat_d21, then against ag4_flat_d20.
+COMPARE | runs/ag4_flat_d21 vs runs/ag4_flat_d40 | l2_refl 3.380e-04 | l2_off30 4.438e-01 | l2_fwd 4.504e-03 | dP_refl +6.458e-05 | eps_xz 6.770e-05 | eps_yz 7.261e-05
+COMPARE | runs/ag4_flat_d21 vs runs/ag4_flat_d20 | l2_refl 2.362e-03 | l2_off30 5.217e-01 | l2_fwd 5.046e-04 | dP_refl +1.478e-04 | eps_xz 4.473e-04 | eps_yz 5.600e-04
+COMPARE | runs/ag4_flat_d40 vs runs/ag4_flat_d20 | l2_refl 2.385e-03 | l2_off30 5.169e-01 | l2_fwd 5.001e-03 | dP_refl +8.320e-05 | eps_xz 4.894e-04 | eps_yz 5.958e-04
+# Rough box: every depth of the sweep against D = 4.0, 2.1 and 2.3 um (is any depth an odd one out?).
+COMPARE | runs/ag4_d20 vs runs/ag4_d40 | l2_refl 8.235e-03 | l2_off30 1.424e-02 | l2_fwd 1.248e-02 | dP_refl +7.686e-05 | eps_xz 1.831e-03 | eps_yz 1.724e-03
+COMPARE | runs/ag4_d205 vs runs/ag4_d40 | l2_refl 7.449e-03 | l2_off30 1.337e-02 | l2_fwd 1.204e-02 | dP_refl +1.553e-04 | eps_xz 1.461e-03 | eps_yz 1.004e-03
+COMPARE | runs/ag4_d21 vs runs/ag4_d40 | l2_refl 7.974e-03 | l2_off30 1.318e-02 | l2_fwd 1.174e-02 | dP_refl +1.859e-04 | eps_xz 9.515e-04 | eps_yz 8.402e-04
+COMPARE | runs/ag4_d215 vs runs/ag4_d40 | l2_refl 7.796e-03 | l2_off30 1.397e-02 | l2_fwd 1.159e-02 | dP_refl +9.654e-05 | eps_xz 7.950e-04 | eps_yz 1.347e-03
+COMPARE | runs/ag4_d22 vs runs/ag4_d40 | l2_refl 8.180e-03 | l2_off30 1.457e-02 | l2_fwd 1.133e-02 | dP_refl -2.068e-05 | eps_xz 1.386e-03 | eps_yz 1.883e-03
+COMPARE | runs/ag4_d225 vs runs/ag4_d40 | l2_refl 8.016e-03 | l2_off30 1.465e-02 | l2_fwd 1.086e-02 | dP_refl -1.670e-05 | eps_xz 1.794e-03 | eps_yz 1.578e-03
+COMPARE | runs/ag4_d23 vs runs/ag4_d40 | l2_refl 7.486e-03 | l2_off30 1.392e-02 | l2_fwd 1.040e-02 | dP_refl +1.097e-04 | eps_xz 1.345e-03 | eps_yz 9.038e-04
+COMPARE | runs/ag4_d235 vs runs/ag4_d40 | l2_refl 8.130e-03 | l2_off30 1.305e-02 | l2_fwd 1.020e-02 | dP_refl +2.066e-04 | eps_xz 8.718e-04 | eps_yz 9.817e-04
+COMPARE | runs/ag4_d24 vs runs/ag4_d40 | l2_refl 8.024e-03 | l2_off30 1.340e-02 | l2_fwd 1.007e-02 | dP_refl +1.498e-04 | eps_xz 7.294e-04 | eps_yz 1.500e-03
+COMPARE | runs/ag4_d20 vs runs/ag4_d21 | l2_refl 1.166e-02 | l2_off30 1.814e-02 | l2_fwd 9.100e-04 | dP_refl -1.090e-04 | eps_xz 2.058e-03 | eps_yz 2.084e-03
+COMPARE | runs/ag4_d205 vs runs/ag4_d21 | l2_refl 6.835e-03 | l2_off30 1.077e-02 | l2_fwd 5.278e-04 | dP_refl -3.055e-05 | eps_xz 1.343e-03 | eps_yz 1.248e-03
+COMPARE | runs/ag4_d215 vs runs/ag4_d21 | l2_refl 6.462e-03 | l2_off30 1.028e-02 | l2_fwd 3.913e-04 | dP_refl -8.929e-05 | eps_xz 9.333e-04 | eps_yz 1.188e-03
+COMPARE | runs/ag4_d22 vs runs/ag4_d21 | l2_refl 1.149e-02 | l2_off30 1.770e-02 | l2_fwd 5.470e-04 | dP_refl -2.065e-04 | eps_xz 1.774e-03 | eps_yz 2.149e-03
+COMPARE | runs/ag4_d225 vs runs/ag4_d21 | l2_refl 1.202e-02 | l2_off30 2.041e-02 | l2_fwd 1.123e-03 | dP_refl -2.025e-04 | eps_xz 1.990e-03 | eps_yz 2.011e-03
+COMPARE | runs/ag4_d23 vs runs/ag4_d21 | l2_refl 7.987e-03 | l2_off30 1.755e-02 | l2_fwd 1.589e-03 | dP_refl -7.617e-05 | eps_xz 1.137e-03 | eps_yz 1.115e-03
+COMPARE | runs/ag4_d235 vs runs/ag4_d21 | l2_refl 3.940e-03 | l2_off30 1.173e-02 | l2_fwd 1.767e-03 | dP_refl +2.077e-05 | eps_xz 2.784e-04 | eps_yz 2.270e-04
+COMPARE | runs/ag4_d24 vs runs/ag4_d21 | l2_refl 6.525e-03 | l2_off30 9.687e-03 | l2_fwd 1.896e-03 | dP_refl -3.605e-05 | eps_xz 9.956e-04 | eps_yz 1.362e-03
+COMPARE | runs/ag4_d40 vs runs/ag4_d21 | l2_refl 7.974e-03 | l2_off30 1.316e-02 | l2_fwd 1.172e-02 | dP_refl -1.858e-04 | eps_xz 9.503e-04 | eps_yz 8.391e-04
+COMPARE | runs/ag4_d20 vs runs/ag4_d23 | l2_refl 7.202e-03 | l2_off30 9.944e-03 | l2_fwd 2.396e-03 | dP_refl -3.280e-05 | eps_xz 1.166e-03 | eps_yz 1.511e-03
+COMPARE | runs/ag4_d205 vs runs/ag4_d23 | l2_refl 4.019e-03 | l2_off30 1.186e-02 | l2_fwd 1.899e-03 | dP_refl +4.563e-05 | eps_xz 3.343e-04 | eps_yz 2.977e-04
+COMPARE | runs/ag4_d21 vs runs/ag4_d23 | l2_refl 7.987e-03 | l2_off30 1.754e-02 | l2_fwd 1.589e-03 | dP_refl +7.618e-05 | eps_xz 1.143e-03 | eps_yz 1.118e-03
+COMPARE | runs/ag4_d215 vs runs/ag4_d23 | l2_refl 1.080e-02 | l2_off30 2.048e-02 | l2_fwd 1.533e-03 | dP_refl -1.312e-05 | eps_xz 1.635e-03 | eps_yz 1.833e-03
+COMPARE | runs/ag4_d22 vs runs/ag4_d23 | l2_refl 1.077e-02 | l2_off30 1.806e-02 | l2_fwd 1.178e-03 | dP_refl -1.303e-04 | eps_xz 1.411e-03 | eps_yz 2.057e-03
+COMPARE | runs/ag4_d225 vs runs/ag4_d23 | l2_refl 7.065e-03 | l2_off30 1.071e-02 | l2_fwd 5.666e-04 | dP_refl -1.263e-04 | eps_xz 1.048e-03 | eps_yz 1.331e-03
+COMPARE | runs/ag4_d235 vs runs/ag4_d23 | l2_refl 6.762e-03 | l2_off30 1.069e-02 | l2_fwd 5.909e-04 | dP_refl +9.695e-05 | eps_xz 1.232e-03 | eps_yz 1.263e-03
+COMPARE | runs/ag4_d24 vs runs/ag4_d23 | l2_refl 1.042e-02 | l2_off30 1.809e-02 | l2_fwd 8.285e-04 | dP_refl +4.012e-05 | eps_xz 1.459e-03 | eps_yz 1.883e-03
+COMPARE | runs/ag4_d40 vs runs/ag4_d23 | l2_refl 7.485e-03 | l2_off30 1.390e-02 | l2_fwd 1.039e-02 | dP_refl -1.097e-04 | eps_xz 1.351e-03 | eps_yz 9.044e-04

@@ -1,0 +1,23 @@
+# WP-V3 review fixes (W6, transfer sign check): attribute checks of --depth-fit, --load-currents and
+# --diff on the stored runs (run directories runs/<tag>; no solve). The two diffs reproduce the
+# committed DIFF / DIFFFF lines bit for bit with the plus / minus consistency check active.
+== depth fit (9 runs): configuration check passes
+DEPTHFIT | 0-10 | runs 9 | rms depth-dependent part / rms mean 4.7385e-03 | best beta/k0 2.070 | residual 1.1580e-02 | beta/k0 - cos(theta_centre) 1.074
+DEPTHFIT | 80-90 | runs 9 | rms depth-dependent part / rms mean 8.1377e-02 | best beta/k0 1.045 | residual 4.3520e-02 | beta/k0 - cos(theta_centre) 0.958
+== depth fit with a flat run: refused
+box_validity: runs runs/ag4_d20 and runs/ag4_flat_d40 differ in rms_roughness (5e-08 vs 0.0)
+== depth fit with a lossy run: refused
+box_validity: runs runs/ag4_d20 and runs/ag4_d40_lossy6 differ in eps_r_imag (-0.313 vs -6.0)
+== --load-currents with --sigma 0 on a rough run: refused
+box_validity: --load-currents runs/ag4_d40: the stored run does not match the configuration (rms_roughness: stored 5e-08, expected 0)
+== --load-currents with --waist 0.5e-6: refused
+box_validity: --load-currents runs/ag4_d40: the stored run does not match the configuration (waist_radius: stored 1e-06, expected 4.9999999999999998e-07)
+== --diff with a flat run B: refused
+box_validity: --diff runs/ag4_flat_d20: the stored run does not match the configuration (rms_roughness: stored 0.0, expected 4.9999999999999998e-08)
+== --load-currents runs/ag4_d40 --diff runs/ag4_d20
+SETUP | ag4_d40 | ag | eps_r -9.794-0.313j | delta 2.542e-08 m | L 4e-06 m (map 4.8e-06 m, seed 1, sigma 5e-08 m) | depth 4e-06 m | box_mesh_size uniform | M 0 | fine band none (0 rows) | triangles 76800 (top 12800, box 64000 = 500.0 %) | 2N 230400 | Z 849.35 GB | w0 1e-06 m (L/4) | beam spectrum (3172 plane waves, 61 x 52, alpha_max 83.7 deg, grid check 6.0e-15, 0.0 s) | |E_inc| bottom centre 8.423e-01, rim x 2.108e-02, rim y 1.832e-02, corner 3.892e-04, wall foot x 5.291e-02
+DIFF | ag4_d40 - runs/ag4_d20 | top-face triangles matched 12800 of 12800 / 12800 | rms|dJ|/rms|J| 1.5656e-02 | rms|dM|/rms|M| 1.7609e-02 | tapered spectral power |dJ|^2/|J|^2 6.6657e-05, |dM|^2/|M|^2 7.4910e-05
+DIFFFF | ag4_d40 - runs/ag4_d20 | far field: |F_a - F_b|/|F_a| 1.9308e-02 | top-face part |dF_top|/|dF| 6.1602e-01, corr 0.0308 | rest (walls, bottom, rim) |dF - dF_top|/|dF| 1.1690e+00 | top basis functions 19040 / 19040
+== --load-currents runs/ag48_d20 --diff runs/ag4_d20
+DIFF | ag48_d20 - runs/ag4_d20 | top-face triangles matched 12800 of 18432 / 12800 | rms|dJ|/rms|J| 7.9544e-02 | rms|dM|/rms|M| 1.0125e-01 | tapered spectral power |dJ|^2/|J|^2 1.1569e-03, |dM|^2/|M|^2 1.4390e-03
+DIFFFF | ag48_d20 - runs/ag4_d20 | far field: |F_a - F_b|/|F_a| 9.1776e-02 | top-face part |dF_top|/|dF| 1.0333e+00, corr 0.9060 | rest (walls, bottom, rim) |dF - dF_top|/|dF| 4.4340e-01 | top basis functions 27456 / 19040

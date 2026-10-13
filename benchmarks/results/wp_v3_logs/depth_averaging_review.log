@@ -1,0 +1,6 @@
+# WP-V3 review fixes: depth averaging with disjoint groups (the first row of depth_averaging.log
+# had D = 2.20 um in both groups). ag_box_mechanism_patterns.py --average, run directories runs/<tag>.
+average | D2.00-2.20 (5 runs) vs D2.25-2.40 (4 runs) | l2_refl of the averages 2.5782e-03 | single-run pairs: median 8.0661e-03, max 1.2020e-02
+average | D2.00-2.20 (5 runs) vs D4.0 (1 runs) | l2_refl of the averages 5.2851e-03 | single-run pairs: median 7.9744e-03, max 8.2351e-03
+average | D2.25-2.40 (4 runs) vs D4.0 (1 runs) | l2_refl of the averages 5.5394e-03 | single-run pairs: median 8.0200e-03, max 8.1297e-03
+average | D2.00-2.15 (4 runs) vs D2.20-2.40 (5 runs) | l2_refl of the averages 2.5290e-03 | single-run pairs: median 7.8500e-03, max 1.2020e-02

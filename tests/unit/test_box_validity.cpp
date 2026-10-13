@@ -170,6 +170,10 @@ TEST_CASE("box_validity: MLFMM memory guard", "[box_validity]") {
     CHECK_THAT(krylov_basis_gb(1, 1), WithinRel(32e-9, 1e-14));
     CHECK_THROWS_AS(krylov_basis_gb(0, 100), std::invalid_argument);
     CHECK_THROWS_AS(krylov_basis_gb(10, 0), std::invalid_argument);
+    // Kept Hessenberg (--ritz): (k + 1) x k complex entries.
+    CHECK_THAT(hessenberg_gb(4000), WithinRel(4001.0 * 4000.0 * 16.0 / 1e9, 1e-14));
+    CHECK_THAT(hessenberg_gb(1), WithinRel(32e-9, 1e-14));
+    CHECK_THROWS_AS(hessenberg_gb(0), std::invalid_argument);
 
     // Allowed: peak 40 + 5 = 45 <= 60 and setup 40 + 10 <= 100 available.
     CHECK_NOTHROW(check_memory_guard(40.0, 5.0, 100.0, 60.0, false));
@@ -284,4 +288,46 @@ TEST_CASE("box_validity: options (dense defaults, MLFMM extension)", "[box_valid
     CHECK_THROWS_AS(parse_options(V{"--tol"}), std::invalid_argument);
     CHECK_THROWS_AS(parse_options(V{"--compare", "A"}), std::invalid_argument);
     CHECK_THROWS_AS(parse_options(V{"--frobnicate"}), std::invalid_argument);
+}
+
+TEST_CASE("box_validity: options of the WP-V3 diagnostics", "[box_validity]") {
+    const Options d = parse_options({});
+    CHECK(d.sigma == 50e-9);
+    CHECK_FALSE(d.save_currents);
+    CHECK_FALSE(d.mechanism);
+    CHECK(d.ritz.empty());
+    CHECK(d.load_currents.empty());
+    CHECK(d.diff.empty());
+    CHECK(d.depth_fit.empty());
+
+    const Options s = parse_options(
+        {"--sigma", "0", "--out", "run", "--save-currents", "--mechanism", "--ritz", "250,1000"});
+    CHECK(s.sigma == 0.0);
+    CHECK(s.save_currents);
+    CHECK(s.mechanism);
+    CHECK(s.ritz == std::vector<Index>{250, 1000});
+    CHECK(parse_options({"--ritz", "300"}).ritz == std::vector<Index>{300});
+
+    const Options l = parse_options({"--load-currents", "A", "--mechanism", "--diff", "B"});
+    CHECK(l.load_currents == "A");
+    CHECK(l.diff == "B");
+
+    const Options f = parse_options({"--depth-fit", "A", "B", "C", "D"});
+    CHECK(f.depth_fit == std::vector<std::string>{"A", "B", "C", "D"});
+
+    using V = std::vector<std::string>;
+    CHECK_THROWS_AS(parse_options(V{"--sigma", "-1e-9"}), std::invalid_argument);
+    CHECK_THROWS_AS(parse_options(V{"--ritz", "0"}), std::invalid_argument);
+    CHECK_THROWS_AS(parse_options(V{"--ritz", "10,x"}), std::invalid_argument);
+    // A Krylov dimension beyond --max-iter is refused, not clamped.
+    CHECK(parse_options(V{"--max-iter", "4000", "--ritz", "250,4000"}).ritz ==
+          std::vector<Index>{250, 4000});
+    CHECK_THROWS_AS(parse_options(V{"--max-iter", "4000", "--ritz", "250,100000"}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(parse_options(V{"--save-currents"}), std::invalid_argument);
+    CHECK_THROWS_AS(parse_options(V{"--load-currents", "A", "--out", "B"}), std::invalid_argument);
+    CHECK_THROWS_AS(parse_options(V{"--load-currents", "A", "--ritz", "10"}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(parse_options(V{"--diff", "B"}), std::invalid_argument);
+    CHECK_THROWS_AS(parse_options(V{"--depth-fit", "A", "B"}), std::invalid_argument);
 }

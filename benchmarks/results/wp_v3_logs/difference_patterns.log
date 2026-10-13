@@ -1,0 +1,43 @@
+cut_xz_F | ag4_d40-ag4_d20 | |dF|/|F_B| 1.2689e-02
+cut_xz_F | ag4_d4_uni_t4-ag4_d2_uni_t5 | |dF|/|F_B| 1.2662e-02
+cut_xz_F | ag4_d4_b100_t4-ag4_d2_b100_t4 | |dF|/|F_B| 1.2363e-02
+cut_xz_F | ag4_d21-ag4_d20 | |dF|/|F_B| 1.4788e-02
+cut_xz_F | ag4_d2_b100_t4-ag4_d2_b100 | |dF|/|F_B| 2.9491e-04
+cut_xz_F | ag4_d2_b100_t4_d05-ag4_d2_b100_t4 | |dF|/|F_B| 2.1946e-05
+cut_xz_F | corr(ag4_d40-ag4_d20, ag4_d4_uni_t4-ag4_d2_uni_t5) 0.9999
+cut_xz_F | corr(ag4_d40-ag4_d20, ag4_d4_b100_t4-ag4_d2_b100_t4) 0.9378
+cut_xz_F | corr(ag4_d40-ag4_d20, ag4_d21-ag4_d20) 0.7427
+cut_xz_F | corr(ag4_d40-ag4_d20, ag4_d2_b100_t4-ag4_d2_b100) 0.1003
+cut_xz_F | corr(ag4_d40-ag4_d20, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.1373
+cut_xz_F | corr(ag4_d4_uni_t4-ag4_d2_uni_t5, ag4_d4_b100_t4-ag4_d2_b100_t4) 0.9378
+cut_xz_F | corr(ag4_d4_uni_t4-ag4_d2_uni_t5, ag4_d21-ag4_d20) 0.7447
+cut_xz_F | corr(ag4_d4_uni_t4-ag4_d2_uni_t5, ag4_d2_b100_t4-ag4_d2_b100) 0.1030
+cut_xz_F | corr(ag4_d4_uni_t4-ag4_d2_uni_t5, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.1376
+cut_xz_F | corr(ag4_d4_b100_t4-ag4_d2_b100_t4, ag4_d21-ag4_d20) 0.7086
+cut_xz_F | corr(ag4_d4_b100_t4-ag4_d2_b100_t4, ag4_d2_b100_t4-ag4_d2_b100) 0.0853
+cut_xz_F | corr(ag4_d4_b100_t4-ag4_d2_b100_t4, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.1448
+cut_xz_F | corr(ag4_d21-ag4_d20, ag4_d2_b100_t4-ag4_d2_b100) 0.0298
+cut_xz_F | corr(ag4_d21-ag4_d20, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.0946
+cut_xz_F | corr(ag4_d2_b100_t4-ag4_d2_b100, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.1121
+cut_yz_F | ag4_d40-ag4_d20 | |dF|/|F_B| 1.0015e-02
+cut_yz_F | ag4_d4_uni_t4-ag4_d2_uni_t5 | |dF|/|F_B| 1.0010e-02
+cut_yz_F | ag4_d4_b100_t4-ag4_d2_b100_t4 | |dF|/|F_B| 1.0213e-02
+cut_yz_F | ag4_d21-ag4_d20 | |dF|/|F_B| 1.3724e-02
+cut_yz_F | ag4_d2_b100_t4-ag4_d2_b100 | |dF|/|F_B| 3.4703e-04
+cut_yz_F | ag4_d2_b100_t4_d05-ag4_d2_b100_t4 | |dF|/|F_B| 2.8179e-05
+cut_yz_F | corr(ag4_d40-ag4_d20, ag4_d4_uni_t4-ag4_d2_uni_t5) 0.9998
+cut_yz_F | corr(ag4_d40-ag4_d20, ag4_d4_b100_t4-ag4_d2_b100_t4) 0.9257
+cut_yz_F | corr(ag4_d40-ag4_d20, ag4_d21-ag4_d20) 0.7480
+cut_yz_F | corr(ag4_d40-ag4_d20, ag4_d2_b100_t4-ag4_d2_b100) 0.0415
+cut_yz_F | corr(ag4_d40-ag4_d20, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.1586
+cut_yz_F | corr(ag4_d4_uni_t4-ag4_d2_uni_t5, ag4_d4_b100_t4-ag4_d2_b100_t4) 0.9259
+cut_yz_F | corr(ag4_d4_uni_t4-ag4_d2_uni_t5, ag4_d21-ag4_d20) 0.7492
+cut_yz_F | corr(ag4_d4_uni_t4-ag4_d2_uni_t5, ag4_d2_b100_t4-ag4_d2_b100) 0.0438
+cut_yz_F | corr(ag4_d4_uni_t4-ag4_d2_uni_t5, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.1569
+cut_yz_F | corr(ag4_d4_b100_t4-ag4_d2_b100_t4, ag4_d21-ag4_d20) 0.7139
+cut_yz_F | corr(ag4_d4_b100_t4-ag4_d2_b100_t4, ag4_d2_b100_t4-ag4_d2_b100) 0.0057
+cut_yz_F | corr(ag4_d4_b100_t4-ag4_d2_b100_t4, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.0920
+cut_yz_F | corr(ag4_d21-ag4_d20, ag4_d2_b100_t4-ag4_d2_b100) 0.0945
+cut_yz_F | corr(ag4_d21-ag4_d20, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.0775
+cut_yz_F | corr(ag4_d2_b100_t4-ag4_d2_b100, ag4_d2_b100_t4_d05-ag4_d2_b100_t4) 0.0447
+refl_F: not available for every run, skipped

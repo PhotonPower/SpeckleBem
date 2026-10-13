@@ -50,8 +50,15 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   solve 5.56 h, peak 697 GB; the server (2 × 8 cores, 32 threads) is ≈ 2 × slower than the desktop for Si.
   The Ag series (run 4) is still running → WP22e part 2.
 - **Merged:** WP22b2 (fb4b2fc, formulation sweep with MLFMM, L = 3.2–10 µm). WP22e part 1 (6dc692e).
-- **Next:** WP-V3 (Ag box mechanism; include a d₀ = 5 run at Ag 3.2 µm PMCHWT to test the MLFMM-error
-  hypothesis for the plateaus), then WP-V2b (machine-exclusive, one at a time), then an Ag scaling
+- **WP-V3 done on `wp/v3-ag-box-mechanism` + `wp/v3-review-fixes` (not merged yet):** the Ag box
+  sensitivity is caused by surface waves (most likely surface plasmons) on the finite Ag block,
+  radiated at the wall foot for the depth; for L ×1.2 rim scattering (hypothesis) and real
+  radiation from the added rough annulus are not separated. Not caused by the box cavity resonances
+  in the rough box (the flat box has one resonant depth, 2.0 µm, visible in the far field); PMCHWT
+  plateaus unchanged at d₀ = 5. Remedy options for an ADR in `benchmarks/results/ag_box_mechanism.md`
+  (SPP-absorbing termination: lossy impedance frame or a PML by complex coordinate stretching; it
+  defines a modified problem, not the semi-infinite surface; coordinator writes the ADR).
+- **Next:** merge WP-V3 and decide the Ag remedy ADR, then WP-V2b (machine-exclusive, one at a time), then an Ag scaling
   re-measurement on the uniform box (WP22b4), WP22e part 2 when the server Ag series arrives, Phases 5/6.
 - Test counts on `main`: 431 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
@@ -59,7 +66,13 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 ## Open questions / findings for the project lead
 
 1. **Box validity (WP-V2):** Si is fine with the uniform box and w₀ ≤ L/6; **Ag rough surfaces do not pass**
-   the docs/05 box checks at L = 4 µm (0.8–8 %); quantitative Ag speckle needs WP-V3 (mechanism and remedy).
+   the docs/05 box checks at L = 4 µm (0.8–8 %). WP-V3: the cause is physical (surface waves, most likely
+   surface plasmons, on the finite block, decay length 41.5 µm ≫ L), so a resonance-free formulation or
+   tighter solver settings do not help. Since SPPs also radiate off roughness far outside a small patch,
+   no local termination at L ≪ 41.5 µm approximates the semi-infinite Ag surface: an absorbing frame or
+   PML (complex coordinate stretching, the lead's preference) defines a modified problem (rough patch in
+   absorbing surroundings), and the ADR must say what it represents. The lead decides on that
+   termination (ADR, library work) or a stated box uncertainty for Ag.
 2. **Ag absorption**: use A_ext (far field + extinction) only; the local formula is spoiled by intrinsic box
    cavity resonances (WP-A2). A resonance-free formulation would be a larger design change (open).
 3. **Phase 4 target "Si 30×30 µm²"**: **met** on the lead's 1 TB server (peak 697 GB, WP22e part 1); docs/01
@@ -70,7 +83,9 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
    statements at 10 µm; "PMCHWT does not converge" holds for neither material strictly (Si converges; Ag is
    impractical, non-convergence not demonstrated). The WP15 Ag MCTF/PMCHWT ratios at 3.2 µm are neither a size
    nor a graded-vs-uniform box effect; dense vs MLFMM, beam and 400 nm coarse cells remain unseparated
-   (hypotheses for the PMCHWT plateaus: MLFMM d₀ = 3 error or the WP-A2 box-cavity resonances; a d₀ = 5 run at 3.2 µm would decide).
+   (PMCHWT plateaus: not the MLFMM d₀ = 3 error — WP-V3 d₀ = 5 reproduces the history to 0.15 %; the
+   box-cavity hypothesis for the PMCHWT plateaus is not tested for PMCHWT; the ICTF + Jacobi near-origin
+   band does not move with D; cause open).
    Open decision: `formulation::recommend` for explicitly graded Ag boxes (plain ICTF there). The Ag λ/20
    sphere (size) remains open.
 

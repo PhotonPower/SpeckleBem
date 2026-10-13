@@ -26,6 +26,7 @@
 
 #include <Eigen/Core>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -178,6 +179,16 @@ inline Real krylov_basis_gb(int max_iter, Index two_n) {
            static_cast<Real>(sizeof(Complex)) / 1e9;
 }
 
+/// Memory [GB, 1e9 bytes] of a kept GMRES Hessenberg after `k` iterations ((k + 1) x k complex
+/// entries; `--ritz`).
+/// @throws std::invalid_argument for k < 1.
+inline Real hessenberg_gb(int k) {
+    if (k < 1)
+        throw std::invalid_argument("hessenberg_gb: need k >= 1");
+    return static_cast<Real>(k + 1) * static_cast<Real>(k) * static_cast<Real>(sizeof(Complex)) /
+           1e9;
+}
+
 /// Decision of the MLFMM memory guard of the study executable. Unless `force`, the run is refused
 /// when the peak estimate setup_gb + krylov_gb exceeds `max_gb`, or when the setup peak estimate
 /// plus kGuardHeadroomGb exceeds `available_gb` (the second test is skipped when the available
@@ -242,6 +253,14 @@ struct Options {
     bool force = false;          ///< mlfmm: skip the memory guard
     bool parts = true;           ///< PARTS diagnostic (six extra hemisphere far fields)
     std::string history;         ///< text file for the GMRES residual history (one per line)
+    // WP-V3 (Ag box mechanism, tests/support/ag_box_mechanism_support.hpp).
+    Real sigma = 50e-9;          ///< rms roughness [m] (0: flat patch, the reference of (i))
+    bool save_currents = false;  ///< write [J; M] as currents.npy into --out
+    bool mechanism = false;      ///< face spectra and interior extinction residual (MECH lines)
+    std::vector<Index> ritz;     ///< harmonic Ritz values at these leading Krylov dimensions
+    std::string load_currents;   ///< run directory: diagnostics of its currents.npy, no solve
+    std::string diff;            ///< run directory: spectrum of the top-face current difference
+    std::vector<std::string> depth_fit;  ///< run directories: travelling depth-wave fit of refl_F
 };
 
 /// Parses the arguments (without the program name). See benchmarks/box_validity.cpp.
@@ -327,6 +346,26 @@ inline Options parse_options(const std::vector<std::string>& args) {
             o.parts = v == "1";
         } else if (a == "--history") {
             o.history = value();
+        } else if (a == "--sigma") {
+            o.sigma = std::stod(value());
+        } else if (a == "--save-currents") {
+            o.save_currents = true;
+        } else if (a == "--mechanism") {
+            o.mechanism = true;
+        } else if (a == "--ritz") {
+            const std::string v = value();
+            std::size_t p = 0;
+            while (p <= v.size()) {
+                const std::size_t q = std::min(v.find(',', p), v.size());
+                o.ritz.push_back(static_cast<Index>(std::stoll(v.substr(p, q - p))));
+                p = q + 1;
+            }
+        } else if (a == "--load-currents") {
+            o.load_currents = value();
+        } else if (a == "--diff") {
+            o.diff = value();
+        } else if (a == "--depth-fit") {
+            while (i + 1 < n && args[i + 1].rfind("--", 0) != 0) o.depth_fit.push_back(args[++i]);
         } else {
             throw std::invalid_argument("unknown argument " + a);
         }
@@ -336,6 +375,29 @@ inline Options parse_options(const std::vector<std::string>& args) {
             throw std::invalid_argument("--compare needs at least two directories");
         return o;
     }
+    if (!o.depth_fit.empty()) {
+        if (o.depth_fit.size() < 3)
+            throw std::invalid_argument("--depth-fit needs at least three directories");
+        return o;
+    }
+    if (!(o.sigma >= 0) || !std::isfinite(o.sigma))
+        throw std::invalid_argument("--sigma must be finite and >= 0");
+    for (const Index k : o.ritz) {
+        if (k < 1)
+            throw std::invalid_argument("--ritz needs Krylov dimensions >= 1");
+        if (k > o.max_iter)
+            throw std::invalid_argument("--ritz " + std::to_string(k) + " exceeds --max-iter " +
+                                        std::to_string(o.max_iter) +
+                                        " (GMRES cannot reach that Krylov dimension)");
+    }
+    if (o.save_currents && o.out_dir.empty())
+        throw std::invalid_argument("--save-currents needs --out");
+    if (!o.load_currents.empty() &&
+        (o.save_currents || !o.ritz.empty() || !o.out_dir.empty() || !o.references.empty()))
+        throw std::invalid_argument(
+            "--load-currents runs no solve: not with --save-currents, --ritz, --out, --reference");
+    if (!o.diff.empty() && o.load_currents.empty())
+        throw std::invalid_argument("--diff needs --load-currents");
     if (!(o.L > 0) || (o.L_gen && !(*o.L_gen >= o.L)) || o.seed == 0 ||
         (o.waist && !(*o.waist > 0)) || !(o.waist_factor > 0) || !(o.depth_factor > 0) ||
         (o.depth && !(*o.depth > 0)) || !(o.tol > 0) || o.max_iter < 1 || !(o.max_gb > 0)) {

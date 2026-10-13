@@ -1,0 +1,9 @@
+average | D2.00-2.20 (5 runs) vs D2.20-2.40 (5 runs) | l2_refl of the averages 1.8209e-03 | single-run pairs: median 7.9871e-03, max 1.2020e-02
+average | D2.00-2.20 (5 runs) vs D4.0 (1 runs) | l2_refl of the averages 5.2851e-03 | single-run pairs: median 7.9744e-03, max 8.2351e-03
+average | D2.20-2.40 (5 runs) vs D4.0 (1 runs) | l2_refl of the averages 5.3264e-03 | single-run pairs: median 8.0236e-03, max 8.1802e-03
+average | D2.00-2.15 (4 runs) vs D2.25-2.40 (4 runs) | l2_refl of the averages 2.2760e-03 | single-run pairs: median 7.8500e-03, max 1.2020e-02
+average | D2.00,2.10 (2 runs) vs D2.30,2.40 (2 runs) | l2_refl of the averages 2.5729e-03 | single-run pairs: median 7.5947e-03, max 1.0620e-02
+average | D2.00,2.10,2.20 (3 runs) vs D2.25,2.35 (2 runs) | l2_refl of the averages 3.0492e-03 | single-run pairs: median 8.6942e-03, max 1.2020e-02
+average | all9 (9 runs) vs L4.8 (1 runs) | l2_refl of the averages 4.3993e-02 | single-run pairs: median 4.4312e-02, max 4.5063e-02
+average | all9 (9 runs) vs L4.0 (1 runs) | l2_refl of the averages 6.2802e-03 | single-run pairs: median 7.5943e-03, max 1.1665e-02
+average | L4.8 (1 runs) vs L4.0 (1 runs) | l2_refl of the averages 4.5169e-02 | single-run pairs: median 4.5169e-02, max 4.5169e-02

@@ -1,0 +1,633 @@
+CASE ag4_d235 start=2026-10-13T08:09:12+02:00
+[2026-10-13 08:09:12.094] [info] [rough_surface.cpp:1269] rough box mesh: 81 x 81 grid, 12800 top + 30080 wall + 12800 bottom triangles (closing box / top = 3.350), depth 2.35e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 80 x 80 cells (target spacing 5e-08 m)
+[2026-10-13 08:09:12.099] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 81 x 81 grid, box depth 2.35e-06 m: 0.006 s
+SETUP | ag4_d235 | ag | eps_r -9.794-0.313j | delta 2.542e-08 m | L 4e-06 m (map 4.8e-06 m, seed 1) | depth 2.35e-06 m | box_mesh_size uniform | M 0 | fine band none (0 rows) | triangles 55680 (top 12800, box 42880 = 335.0 %) | 2N 167040 | Z 446.44 GB | w0 1e-06 m (L/4) | beam spectrum (2600 plane waves, 50 x 52, alpha_max 83.7 deg, grid check 9.1e-15, 0.0 s) | |E_inc| bottom centre 9.355e-01, rim x 2.108e-02, rim y 1.832e-02, corner 3.892e-04, wall foot x 3.111e-02
+ESTIMATE | ag4_d235 | d0 3 | leaf quantile 1 | triangles 55680 (top 12800, box 42880 = 335 %), box M = 0, fine rows 0, depth 2.35 um, fine band 0 um; 2N = 167040; r_max 64.8895 nm; octree 6 levels, leaf edge 125 nm (lambda / 3.99999), 4388 leaves; 0 elevated functions (home levels 5: 83520); near estimate 1.51869 GB, exact R2 estimate 1.19689 GB (29922158 pairs), budget 3.03738 GB; leaf orders 16 / 0 (expansion levels 4 / 0), patterns 1.54479 GB (elevated 0 GB), far tables 0.454321 GB; setup peak estimate 7.87083 GB | Krylov at max-iter 4000: 10.69 GB | peak estimate 18.56 GB | available 124.0 GB
+[2026-10-13 08:09:12.695] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 5 (a = 0.25 lambda_i): expansion, L = 16, search error 5.64e-04, block check 6.59e-03 (3 pairs)
+[2026-10-13 08:09:12.713] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 4 (a = 0.5 lambda_i): expansion, L = 15, search error 5.58e-05, block check 6.28e-03 (3 pairs)
+[2026-10-13 08:09:12.747] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 3 (a = 1 lambda_i): expansion, L = 22, search error 1.25e-07, block check 1.02e-04 (3 pairs)
+[2026-10-13 08:09:12.822] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 2 (a = 2 lambda_i): expansion, L = 35, search error 1.49e-11, block check 2.58e-04 (3 pairs)
+[2026-10-13 08:09:12.826] [info] [far_operator.cpp:697] MlfmmFarOperator: region R2 level 5 (a = 0.0125 lambda_i): exact (search not achievable, error 1.30e+05 at L = 5, block check not run); 18320 box pairs truncated (delta <= 1.00e-04, bound 1e-4), 129116 exact (delta >= 1.00e-04)
+[2026-10-13 08:09:12.827] [info] [far_operator.cpp:697] MlfmmFarOperator: region R2 level 4 (a = 0.025 lambda_i): exact (search not run, block check not run); 23816 box pairs truncated (delta <= 9.66e-05, bound 1e-4), 14316 exact (delta >= 1.01e-04)
+[2026-10-13 08:09:12.827] [info] [far_operator.cpp:697] MlfmmFarOperator: region R2 level 3 (a = 0.05 lambda_i): truncation (search not run, block check not run); 8760 box pairs truncated (delta <= 2.79e-06, bound 1e-4), 0 exact (delta >= 0.00e+00)
+[2026-10-13 08:09:12.827] [info] [far_operator.cpp:697] MlfmmFarOperator: region R2 level 2 (a = 0.1 lambda_i): truncation (search not run, block check not run); 1436 box pairs truncated (delta <= 1.73e-14, bound 1e-4), 0 exact (delta >= 0.00e+00)
+[2026-10-13 08:09:12.827] [info] [far_operator.cpp:823] MlfmmFarOperator: region R2 exact part estimate: 143432 box pairs (levels 5 ... 2), <= 149120822 basis pairs (2.14 % of N^2), <= 5689.1 MB at 40 bytes per pair
+[2026-10-13 08:09:12.827] [info] [far_operator.cpp:833] MlfmmFarOperator: exact-part budget 2896.7 MB (automatic: min(max(2.0 x near-field estimate 1448.3 MB, 1024.0 MB), dense matrix 425756.2 MB)), estimate 5689.1 MB (upper bound)
+[2026-10-13 08:09:12.931] [info] [far_operator.cpp:854] MlfmmFarOperator: region R2 exact part: 29941404 basis pairs after the per-basis bound (1142.8 MB)
+[2026-10-13 08:09:13.895] [info] [assembler.cpp:541] region sparse assembly: region R2, N = 83520, 29941404 basis pairs, 1197.656 MB
+[2026-10-13 08:09:16.257] [info] [timer.cpp:13] [timer] region sparse assembly (R2, pairs = 29941404): 2.362 s
+[2026-10-13 08:09:16.286] [info] [far_operator.cpp:976] MlfmmFarOperator: region R2 exact part: 143432 box pairs, 29941404 basis pairs (estimate <= 149120822; 1142.8 MB, 2.88 s); 119179418 basis pairs of them truncated (delta <= 1.00e-04)
+[2026-10-13 08:09:16.287] [info] [far_operator.cpp:1216] MlfmmFarOperator: 2N = 167040, 6 octree levels, d0 = 3, 3049.7 MB (incl. one apply workspace of 413.3 MB)
+[2026-10-13 08:09:16.304] [info] [near_field.cpp:123] near field: 6 levels, 4388 leaves, leaf edge 1.25e-07 m, 820816 column-list entries
+[2026-10-13 08:09:16.584] [info] [assembler.cpp:465] sparse assembly: N = 83520, 2N = 167040, nnz = 63223168 (378 per row), matrix 1517.356 MB
+[2026-10-13 08:09:30.204] [info] [timer.cpp:13] [timer] sparse assembly (2N = 167040, nnz = 63223168): 13.620 s
+[2026-10-13 08:09:30.205] [info] [mlfmm_operator.cpp:167] MlfmmOperator: 2N = 167040, 6 levels, leaf edge 0.25 lambda1, near nnz 63223168 (1448.3 MB, 13.92 s), far 3049.7 MB (3.61 s)
+[2026-10-13 08:09:30.205] [info] [timer.cpp:13] [timer] Simulation: MLFMM operator: 17.547 s
+[2026-10-13 08:09:31.808] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 1.604 s
+[2026-10-13 08:09:38.358] [info] [timer.cpp:13] [timer] Simulation: Jacobi diagonal: 6.550 s
+[2026-10-13 08:09:38.361] [info] [gmres.cpp:319] gmres: n = 167040, left preconditioner 'diagonal', tol = 1.0e-05, max_iter = 4000, full (no restart)
+[2026-10-13 08:09:54.225] [info] [gmres.cpp:420] gmres: iteration 50: relative residual 2.643e-02
+[2026-10-13 08:10:10.527] [info] [gmres.cpp:420] gmres: iteration 100: relative residual 1.072e-02
+[2026-10-13 08:10:27.460] [info] [gmres.cpp:420] gmres: iteration 150: relative residual 5.839e-03
+[2026-10-13 08:10:45.127] [info] [gmres.cpp:420] gmres: iteration 200: relative residual 3.610e-03
+[2026-10-13 08:11:03.340] [info] [gmres.cpp:420] gmres: iteration 250: relative residual 2.435e-03
+[2026-10-13 08:11:22.285] [info] [gmres.cpp:420] gmres: iteration 300: relative residual 1.761e-03
+[2026-10-13 08:11:41.988] [info] [gmres.cpp:420] gmres: iteration 350: relative residual 1.332e-03
+[2026-10-13 08:12:02.462] [info] [gmres.cpp:420] gmres: iteration 400: relative residual 1.023e-03
+[2026-10-13 08:12:23.482] [info] [gmres.cpp:420] gmres: iteration 450: relative residual 8.086e-04
+[2026-10-13 08:12:45.245] [info] [gmres.cpp:420] gmres: iteration 500: relative residual 6.490e-04
+[2026-10-13 08:13:07.352] [info] [gmres.cpp:420] gmres: iteration 550: relative residual 5.310e-04
+[2026-10-13 08:13:30.404] [info] [gmres.cpp:420] gmres: iteration 600: relative residual 4.419e-04
+[2026-10-13 08:13:54.082] [info] [gmres.cpp:420] gmres: iteration 650: relative residual 3.696e-04
+[2026-10-13 08:14:18.370] [info] [gmres.cpp:420] gmres: iteration 700: relative residual 3.112e-04
+[2026-10-13 08:14:43.639] [info] [gmres.cpp:420] gmres: iteration 750: relative residual 2.697e-04
+[2026-10-13 08:15:09.394] [info] [gmres.cpp:420] gmres: iteration 800: relative residual 2.317e-04
+[2026-10-13 08:15:35.826] [info] [gmres.cpp:420] gmres: iteration 850: relative residual 1.988e-04
+[2026-10-13 08:16:02.898] [info] [gmres.cpp:420] gmres: iteration 900: relative residual 1.706e-04
+[2026-10-13 08:16:30.644] [info] [gmres.cpp:420] gmres: iteration 950: relative residual 1.481e-04
+[2026-10-13 08:16:59.101] [info] [gmres.cpp:420] gmres: iteration 1000: relative residual 1.308e-04
+[2026-10-13 08:17:28.408] [info] [gmres.cpp:420] gmres: iteration 1050: relative residual 1.147e-04
+[2026-10-13 08:17:58.475] [info] [gmres.cpp:420] gmres: iteration 1100: relative residual 1.005e-04
+[2026-10-13 08:18:29.335] [info] [gmres.cpp:420] gmres: iteration 1150: relative residual 8.939e-05
+[2026-10-13 08:19:01.077] [info] [gmres.cpp:420] gmres: iteration 1200: relative residual 7.856e-05
+[2026-10-13 08:19:33.706] [info] [gmres.cpp:420] gmres: iteration 1250: relative residual 6.891e-05
+[2026-10-13 08:20:07.373] [info] [gmres.cpp:420] gmres: iteration 1300: relative residual 6.043e-05
+[2026-10-13 08:20:41.970] [info] [gmres.cpp:420] gmres: iteration 1350: relative residual 5.382e-05
+[2026-10-13 08:21:17.397] [info] [gmres.cpp:420] gmres: iteration 1400: relative residual 4.852e-05
+[2026-10-13 08:21:53.831] [info] [gmres.cpp:420] gmres: iteration 1450: relative residual 4.292e-05
+[2026-10-13 08:22:31.191] [info] [gmres.cpp:420] gmres: iteration 1500: relative residual 3.782e-05
+[2026-10-13 08:23:09.908] [info] [gmres.cpp:420] gmres: iteration 1550: relative residual 3.379e-05
+[2026-10-13 08:23:49.156] [info] [gmres.cpp:420] gmres: iteration 1600: relative residual 2.953e-05
+[2026-10-13 08:24:29.579] [info] [gmres.cpp:420] gmres: iteration 1650: relative residual 2.597e-05
+[2026-10-13 08:25:11.144] [info] [gmres.cpp:420] gmres: iteration 1700: relative residual 2.289e-05
+[2026-10-13 08:25:53.578] [info] [gmres.cpp:420] gmres: iteration 1750: relative residual 2.016e-05
+[2026-10-13 08:26:37.101] [info] [gmres.cpp:420] gmres: iteration 1800: relative residual 1.771e-05
+[2026-10-13 08:27:21.512] [info] [gmres.cpp:420] gmres: iteration 1850: relative residual 1.553e-05
+[2026-10-13 08:28:06.854] [info] [gmres.cpp:420] gmres: iteration 1900: relative residual 1.363e-05
+[2026-10-13 08:28:53.099] [info] [gmres.cpp:420] gmres: iteration 1950: relative residual 1.211e-05
+[2026-10-13 08:29:40.257] [info] [gmres.cpp:420] gmres: iteration 2000: relative residual 1.058e-05
+[2026-10-13 08:30:02.709] [info] [gmres.cpp:497] gmres: converged in 2023 iterations, 1224.34 s (CGS2 orthogonalisation 598.73 s, 2023 re-orthogonalisations): relative residual 9.992e-06 (preconditioned), true residual 1.085e-05
+[2026-10-13 08:30:02.872] [info] [simulation.cpp:565] Simulation: ICTF GMRES + Jacobi, 2N = 167040: 2023 it, converged true, true residual 1.085e-05, assembly 25.701 s, solve 1224.336 s
+RESULT | ag4_d235 | ag | eps_r -9.794-0.313j | L 4e-06 | w0 1e-06 | depth 2.35e-06 | box_mesh_size uniform | fine none | beam spectrum | 2N 167040 | iterations 2023 | converged yes | true residual 1.085e-05 | assembly 25.7 s | solve 1224.3 s | far field 75.9 s | ff degree check 7.60e-14 | P_refl 1.539214e-12 | P_fwd 1.613669e-12 | compression mlfmm | d0 3 | lq 1 | jacobi yes | tol 1.0e-05 | operator 4.72 GB | peak after setup 4.34 GB | peak 10.36 GB | peak estimate 18.56 GB
+PARTS | ag4_d235 | P_part / P_refl | top 1.000e+00 (19040) | walls 7.450e-04 (44800) | bottom 2.377e-04 (19040) | rim 6.577e-05 (320) | foot 4.746e-06 (320)
+COMPARE | ag4_d235 vs out/v3/runs/ag4_d20 | l2_refl 1.097e-02 | l2_off30 1.403e-02 | l2_fwd 2.595e-03 | dP_refl +1.298e-04 | eps_xz 2.099e-03 | eps_yz 2.132e-03
+MECH | ag4_d235 | k_spp / k0 = 1.05526 -0.00192j | SPP amplitude decay 4.15e-05 m
+SPECSUM | ag4_d235 | top | samples 12800 | rms J 1.6519e-03 A/m | rms M 2.0003e-01 V/m | J>k0 3.5899e-02 | M>k0 4.0219e-02 | J [0.3,0.95] 3.4928e-01 | M [0.3,0.95] 3.3754e-01 | J at k_spp+-0.05 1.8521e-02 | M at k_spp+-0.05 2.2611e-02 | J [0.8,1.4] peak 1.012 centroid 1.013 frac 6.6415e-02 | M [0.8,1.4] peak 1.012 centroid 1.011 frac 7.5275e-02
+SPEC | ag4_d235 | top | k/k0 0.0125 | J 7.6398e-03 | M 7.7262e-03
+SPEC | ag4_d235 | top | k/k0 0.0375 | J 5.7230e-02 | M 5.7878e-02
+SPEC | ag4_d235 | top | k/k0 0.0625 | J 7.4708e-02 | M 7.5553e-02
+SPEC | ag4_d235 | top | k/k0 0.0875 | J 8.1613e-02 | M 8.2531e-02
+SPEC | ag4_d235 | top | k/k0 0.1125 | J 3.4780e-02 | M 3.5168e-02
+SPEC | ag4_d235 | top | k/k0 0.1375 | J 8.4464e-02 | M 8.5380e-02
+SPEC | ag4_d235 | top | k/k0 0.1625 | J 6.9840e-02 | M 7.0544e-02
+SPEC | ag4_d235 | top | k/k0 0.1875 | J 5.5217e-02 | M 5.5700e-02
+SPEC | ag4_d235 | top | k/k0 0.2125 | J 4.0091e-02 | M 4.0368e-02
+SPEC | ag4_d235 | top | k/k0 0.2375 | J 3.1743e-02 | M 3.1873e-02
+SPEC | ag4_d235 | top | k/k0 0.2625 | J 3.5863e-02 | M 3.5907e-02
+SPEC | ag4_d235 | top | k/k0 0.2875 | J 3.1791e-02 | M 3.1718e-02
+SPEC | ag4_d235 | top | k/k0 0.3125 | J 2.6426e-02 | M 2.6267e-02
+SPEC | ag4_d235 | top | k/k0 0.3375 | J 3.0317e-02 | M 3.0029e-02
+SPEC | ag4_d235 | top | k/k0 0.3625 | J 1.9694e-02 | M 1.9294e-02
+SPEC | ag4_d235 | top | k/k0 0.3875 | J 3.3023e-02 | M 3.2341e-02
+SPEC | ag4_d235 | top | k/k0 0.4125 | J 2.8479e-02 | M 2.7673e-02
+SPEC | ag4_d235 | top | k/k0 0.4375 | J 2.9509e-02 | M 2.8453e-02
+SPEC | ag4_d235 | top | k/k0 0.4625 | J 2.2232e-02 | M 2.1237e-02
+SPEC | ag4_d235 | top | k/k0 0.4875 | J 2.1804e-02 | M 2.0561e-02
+SPEC | ag4_d235 | top | k/k0 0.5125 | J 2.1637e-02 | M 2.0383e-02
+SPEC | ag4_d235 | top | k/k0 0.5375 | J 1.6953e-02 | M 1.5839e-02
+SPEC | ag4_d235 | top | k/k0 0.5625 | J 1.5214e-02 | M 1.4103e-02
+SPEC | ag4_d235 | top | k/k0 0.5875 | J 1.0483e-02 | M 9.6861e-03
+SPEC | ag4_d235 | top | k/k0 0.6125 | J 1.0267e-02 | M 9.4174e-03
+SPEC | ag4_d235 | top | k/k0 0.6375 | J 8.7834e-03 | M 8.0747e-03
+SPEC | ag4_d235 | top | k/k0 0.6625 | J 7.7498e-03 | M 7.1143e-03
+SPEC | ag4_d235 | top | k/k0 0.6875 | J 5.8020e-03 | M 5.3583e-03
+SPEC | ag4_d235 | top | k/k0 0.7125 | J 5.1279e-03 | M 4.7600e-03
+SPEC | ag4_d235 | top | k/k0 0.7375 | J 4.3486e-03 | M 4.0524e-03
+SPEC | ag4_d235 | top | k/k0 0.7625 | J 5.1697e-03 | M 4.9064e-03
+SPEC | ag4_d235 | top | k/k0 0.7875 | J 4.0593e-03 | M 3.9270e-03
+SPEC | ag4_d235 | top | k/k0 0.8125 | J 3.4822e-03 | M 3.4506e-03
+SPEC | ag4_d235 | top | k/k0 0.8375 | J 3.6717e-03 | M 3.7316e-03
+SPEC | ag4_d235 | top | k/k0 0.8625 | J 3.5259e-03 | M 3.7064e-03
+SPEC | ag4_d235 | top | k/k0 0.8875 | J 3.8095e-03 | M 4.2045e-03
+SPEC | ag4_d235 | top | k/k0 0.9125 | J 3.8456e-03 | M 4.4143e-03
+SPEC | ag4_d235 | top | k/k0 0.9375 | J 3.8633e-03 | M 4.5561e-03
+SPEC | ag4_d235 | top | k/k0 0.9625 | J 5.0705e-03 | M 6.1008e-03
+SPEC | ag4_d235 | top | k/k0 0.9875 | J 4.7026e-03 | M 5.7043e-03
+SPEC | ag4_d235 | top | k/k0 1.0125 | J 5.1953e-03 | M 6.3639e-03
+SPEC | ag4_d235 | top | k/k0 1.0375 | J 4.6238e-03 | M 5.6653e-03
+SPEC | ag4_d235 | top | k/k0 1.0625 | J 4.4537e-03 | M 5.4440e-03
+SPEC | ag4_d235 | top | k/k0 1.0875 | J 4.2482e-03 | M 5.1379e-03
+SPEC | ag4_d235 | top | k/k0 1.1125 | J 3.2588e-03 | M 3.8798e-03
+SPEC | ag4_d235 | top | k/k0 1.1375 | J 3.3222e-03 | M 3.8856e-03
+SPEC | ag4_d235 | top | k/k0 1.1625 | J 2.2901e-03 | M 2.5918e-03
+SPEC | ag4_d235 | top | k/k0 1.1875 | J 1.7394e-03 | M 1.8822e-03
+SPEC | ag4_d235 | top | k/k0 1.2125 | J 1.3444e-03 | M 1.3845e-03
+SPEC | ag4_d235 | top | k/k0 1.2375 | J 9.9400e-04 | M 9.7057e-04
+SPEC | ag4_d235 | top | k/k0 1.2625 | J 7.9936e-04 | M 7.0220e-04
+SPEC | ag4_d235 | top | k/k0 1.2875 | J 6.4057e-04 | M 5.1268e-04
+SPEC | ag4_d235 | top | k/k0 1.3125 | J 4.7420e-04 | M 3.4170e-04
+SPEC | ag4_d235 | top | k/k0 1.3375 | J 4.5584e-04 | M 2.9389e-04
+SPEC | ag4_d235 | top | k/k0 1.3625 | J 3.0693e-04 | M 1.8630e-04
+SPEC | ag4_d235 | top | k/k0 1.3875 | J 2.9716e-04 | M 1.6417e-04
+SPEC | ag4_d235 | top | k/k0 1.4125 | J 2.3156e-04 | M 1.2526e-04
+SPEC | ag4_d235 | top | k/k0 1.4375 | J 2.1986e-04 | M 1.1430e-04
+SPEC | ag4_d235 | top | k/k0 1.4625 | J 1.8538e-04 | M 9.2788e-05
+SPEC | ag4_d235 | top | k/k0 1.4875 | J 1.4141e-04 | M 6.9030e-05
+SPEC | ag4_d235 | top | k/k0 1.5125 | J 1.4600e-04 | M 7.5483e-05
+SPEC | ag4_d235 | top | k/k0 1.5375 | J 1.1507e-04 | M 6.2235e-05
+SPEC | ag4_d235 | top | k/k0 1.5625 | J 9.7038e-05 | M 5.4238e-05
+SPEC | ag4_d235 | top | k/k0 1.5875 | J 7.4936e-05 | M 4.5213e-05
+SPEC | ag4_d235 | top | k/k0 1.6125 | J 5.6116e-05 | M 3.6031e-05
+SPEC | ag4_d235 | top | k/k0 1.6375 | J 4.7097e-05 | M 3.4146e-05
+SPEC | ag4_d235 | top | k/k0 1.6625 | J 3.9488e-05 | M 2.9970e-05
+SPEC | ag4_d235 | top | k/k0 1.6875 | J 3.2217e-05 | M 2.6299e-05
+SPEC | ag4_d235 | top | k/k0 1.7125 | J 2.6717e-05 | M 2.2492e-05
+SPEC | ag4_d235 | top | k/k0 1.7375 | J 1.9745e-05 | M 1.7606e-05
+SPEC | ag4_d235 | top | k/k0 1.7625 | J 1.6976e-05 | M 1.5971e-05
+SPEC | ag4_d235 | top | k/k0 1.7875 | J 1.4326e-05 | M 1.3626e-05
+SPEC | ag4_d235 | top | k/k0 1.8125 | J 1.1341e-05 | M 1.1145e-05
+SPEC | ag4_d235 | top | k/k0 1.8375 | J 9.2797e-06 | M 9.6062e-06
+SPEC | ag4_d235 | top | k/k0 1.8625 | J 6.9541e-06 | M 7.7578e-06
+SPEC | ag4_d235 | top | k/k0 1.8875 | J 6.3846e-06 | M 7.2479e-06
+SPEC | ag4_d235 | top | k/k0 1.9125 | J 5.5323e-06 | M 6.6867e-06
+SPEC | ag4_d235 | top | k/k0 1.9375 | J 4.3292e-06 | M 5.4734e-06
+SPEC | ag4_d235 | top | k/k0 1.9625 | J 2.9909e-06 | M 4.0987e-06
+SPEC | ag4_d235 | top | k/k0 1.9875 | J 2.1721e-06 | M 3.1180e-06
+SPEC | ag4_d235 | top | k/k0 2.0125 | J 1.8959e-06 | M 2.7076e-06
+SPEC | ag4_d235 | top | k/k0 2.0375 | J 1.5527e-06 | M 2.1887e-06
+SPEC | ag4_d235 | top | k/k0 2.0625 | J 1.1763e-06 | M 1.6713e-06
+SPEC | ag4_d235 | top | k/k0 2.0875 | J 1.0058e-06 | M 1.3244e-06
+SPEC | ag4_d235 | top | k/k0 2.1125 | J 7.8845e-07 | M 1.0011e-06
+SPEC | ag4_d235 | top | k/k0 2.1375 | J 7.3962e-07 | M 8.8527e-07
+SPEC | ag4_d235 | top | k/k0 2.1625 | J 5.5758e-07 | M 6.4708e-07
+SPEC | ag4_d235 | top | k/k0 2.1875 | J 4.7862e-07 | M 5.2468e-07
+SPEC | ag4_d235 | top | k/k0 2.2125 | J 4.0192e-07 | M 4.1428e-07
+SPEC | ag4_d235 | top | k/k0 2.2375 | J 2.9198e-07 | M 2.7810e-07
+SPEC | ag4_d235 | top | k/k0 2.2625 | J 2.9093e-07 | M 2.6304e-07
+SPEC | ag4_d235 | top | k/k0 2.2875 | J 2.6260e-07 | M 2.1369e-07
+SPEC | ag4_d235 | top | k/k0 2.3125 | J 1.8852e-07 | M 1.3823e-07
+SPEC | ag4_d235 | top | k/k0 2.3375 | J 1.6482e-07 | M 1.0889e-07
+SPEC | ag4_d235 | top | k/k0 2.3625 | J 1.1836e-07 | M 7.2104e-08
+SPEC | ag4_d235 | top | k/k0 2.3875 | J 1.1128e-07 | M 6.3764e-08
+SPEC | ag4_d235 | top | k/k0 2.4125 | J 9.0210e-08 | M 4.9137e-08
+SPEC | ag4_d235 | top | k/k0 2.4375 | J 7.3068e-08 | M 3.8561e-08
+SPEC | ag4_d235 | top | k/k0 2.4625 | J 5.7671e-08 | M 3.0121e-08
+SPEC | ag4_d235 | top | k/k0 2.4875 | J 4.6286e-08 | M 2.5145e-08
+SPEC | ag4_d235 | top | k/k0 2.5125 | J 3.9086e-08 | M 2.1876e-08
+SPEC | ag4_d235 | top | k/k0 2.5375 | J 2.5809e-08 | M 1.5395e-08
+SPEC | ag4_d235 | top | k/k0 2.5625 | J 1.7919e-08 | M 1.1395e-08
+SPEC | ag4_d235 | top | k/k0 2.5875 | J 1.2673e-08 | M 8.3582e-09
+SPEC | ag4_d235 | top | k/k0 2.6125 | J 1.0110e-08 | M 6.6258e-09
+SPEC | ag4_d235 | top | k/k0 2.6375 | J 8.0025e-09 | M 5.0201e-09
+SPEC | ag4_d235 | top | k/k0 2.6625 | J 6.5931e-09 | M 3.9613e-09
+SPEC | ag4_d235 | top | k/k0 2.6875 | J 4.7608e-09 | M 2.7772e-09
+SPEC | ag4_d235 | top | k/k0 2.7125 | J 3.3984e-09 | M 1.9628e-09
+SPEC | ag4_d235 | top | k/k0 2.7375 | J 2.8996e-09 | M 1.6604e-09
+SPEC | ag4_d235 | top | k/k0 2.7625 | J 1.9912e-09 | M 1.1804e-09
+SPEC | ag4_d235 | top | k/k0 2.7875 | J 1.5282e-09 | M 9.5789e-10
+SPEC | ag4_d235 | top | k/k0 2.8125 | J 1.0548e-09 | M 7.1556e-10
+SPEC | ag4_d235 | top | k/k0 2.8375 | J 8.5233e-10 | M 6.0930e-10
+SPEC | ag4_d235 | top | k/k0 2.8625 | J 7.7596e-10 | M 5.5274e-10
+SPEC | ag4_d235 | top | k/k0 2.8875 | J 5.6568e-10 | M 4.0217e-10
+SPEC | ag4_d235 | top | k/k0 2.9125 | J 4.2766e-10 | M 2.8820e-10
+SPEC | ag4_d235 | top | k/k0 2.9375 | J 3.8280e-10 | M 2.3432e-10
+SPEC | ag4_d235 | top | k/k0 2.9625 | J 2.9309e-10 | M 1.5935e-10
+SPEC | ag4_d235 | top | k/k0 2.9875 | J 2.4437e-10 | M 1.1876e-10
+SPEC | ag4_d235 | top | k/k0 3.0125 | J 1.9495e-10 | M 8.2877e-11
+SPEC | ag4_d235 | top | k/k0 3.0375 | J 1.7836e-10 | M 6.6691e-11
+SPEC | ag4_d235 | top | k/k0 3.0625 | J 1.3817e-10 | M 4.6692e-11
+SPEC | ag4_d235 | top | k/k0 3.0875 | J 1.0086e-10 | M 3.0238e-11
+SPEC | ag4_d235 | top | k/k0 3.1125 | J 7.2115e-11 | M 1.9600e-11
+SPEC | ag4_d235 | top | k/k0 3.1375 | J 6.1653e-11 | M 1.4931e-11
+SPEC | ag4_d235 | top | k/k0 3.1625 | J 4.2154e-11 | M 8.8901e-12
+SPEC | ag4_d235 | top | k/k0 3.1875 | J 3.4801e-11 | M 6.5292e-12
+SPEC | ag4_d235 | top | k/k0 3.2125 | J 2.9147e-11 | M 4.9025e-12
+SPEC | ag4_d235 | top | k/k0 3.2375 | J 2.7823e-11 | M 4.2154e-12
+SPEC | ag4_d235 | top | k/k0 3.2625 | J 2.2243e-11 | M 3.2645e-12
+SPEC | ag4_d235 | top | k/k0 3.2875 | J 1.8796e-11 | M 2.8316e-12
+SPEC | ag4_d235 | top | k/k0 3.3125 | J 1.3808e-11 | M 2.2508e-12
+SPEC | ag4_d235 | top | k/k0 3.3375 | J 9.8197e-12 | M 1.8132e-12
+SPEC | ag4_d235 | top | k/k0 3.3625 | J 8.3223e-12 | M 1.7159e-12
+SPEC | ag4_d235 | top | k/k0 3.3875 | J 7.0414e-12 | M 1.6145e-12
+SPEC | ag4_d235 | top | k/k0 3.4125 | J 5.9211e-12 | M 1.4922e-12
+SPEC | ag4_d235 | top | k/k0 3.4375 | J 8.8931e-12 | M 2.4890e-12
+SPEC | ag4_d235 | top | k/k0 3.4625 | J 3.0986e-12 | M 9.3120e-13
+SPEC | ag4_d235 | top | k/k0 3.4875 | J 2.2571e-12 | M 6.9127e-13
+SPEC | ag4_d235 | top | k/k0 3.5125 | J 1.4547e-12 | M 4.4550e-13
+SPEC | ag4_d235 | top | k/k0 3.5375 | J 6.9859e-13 | M 2.1031e-13
+SPECSUM | ag4_d235 | walls | samples 30080 | rms J 1.2508e-04 A/m | rms M 1.6969e-02 V/m | J>k0 7.3368e-01 | M>k0 7.2632e-01 | J [0.3,0.95] 1.4440e-01 | M [0.3,0.95] 1.4904e-01 | J at k_spp+-0.05 3.3425e-01 | M at k_spp+-0.05 3.3614e-01 | J [0.8,1.4] peak 1.088 centroid 1.075 frac 9.8314e-01 | M [0.8,1.4] peak 1.088 centroid 1.072 frac 9.8265e-01
+SPEC | ag4_d235 | walls | k/k0 0.0125 | J 4.0543e-06 | M 4.0769e-06
+SPEC | ag4_d235 | walls | k/k0 0.0375 | J 3.1518e-05 | M 3.1455e-05
+SPEC | ag4_d235 | walls | k/k0 0.0625 | J 4.4745e-05 | M 4.3987e-05
+SPEC | ag4_d235 | walls | k/k0 0.0875 | J 5.5879e-05 | M 5.3902e-05
+SPEC | ag4_d235 | walls | k/k0 0.1125 | J 2.6236e-05 | M 2.5010e-05
+SPEC | ag4_d235 | walls | k/k0 0.1375 | J 7.6705e-05 | M 7.2184e-05
+SPEC | ag4_d235 | walls | k/k0 0.1625 | J 8.6915e-05 | M 8.0910e-05
+SPEC | ag4_d235 | walls | k/k0 0.1875 | J 1.0097e-04 | M 9.3915e-05
+SPEC | ag4_d235 | walls | k/k0 0.2125 | J 1.0528e-04 | M 9.8342e-05
+SPEC | ag4_d235 | walls | k/k0 0.2375 | J 1.0897e-04 | M 1.0222e-04
+SPEC | ag4_d235 | walls | k/k0 0.2625 | J 1.8789e-04 | M 1.7671e-04
+SPEC | ag4_d235 | walls | k/k0 0.2875 | J 2.3092e-04 | M 2.1700e-04
+SPEC | ag4_d235 | walls | k/k0 0.3125 | J 2.3962e-04 | M 2.2424e-04
+SPEC | ag4_d235 | walls | k/k0 0.3375 | J 3.2813e-04 | M 3.0640e-04
+SPEC | ag4_d235 | walls | k/k0 0.3625 | J 1.9335e-04 | M 1.8144e-04
+SPEC | ag4_d235 | walls | k/k0 0.3875 | J 4.3409e-04 | M 4.0721e-04
+SPEC | ag4_d235 | walls | k/k0 0.4125 | J 4.2755e-04 | M 4.0453e-04
+SPEC | ag4_d235 | walls | k/k0 0.4375 | J 5.1322e-04 | M 4.9074e-04
+SPEC | ag4_d235 | walls | k/k0 0.4625 | J 4.3220e-04 | M 4.1956e-04
+SPEC | ag4_d235 | walls | k/k0 0.4875 | J 3.7846e-04 | M 3.6586e-04
+SPEC | ag4_d235 | walls | k/k0 0.5125 | J 5.7195e-04 | M 5.5304e-04
+SPEC | ag4_d235 | walls | k/k0 0.5375 | J 5.3409e-04 | M 5.1714e-04
+SPEC | ag4_d235 | walls | k/k0 0.5625 | J 5.5303e-04 | M 5.2577e-04
+SPEC | ag4_d235 | walls | k/k0 0.5875 | J 4.7692e-04 | M 4.4561e-04
+SPEC | ag4_d235 | walls | k/k0 0.6125 | J 4.6414e-04 | M 4.0206e-04
+SPEC | ag4_d235 | walls | k/k0 0.6375 | J 5.7410e-04 | M 5.4169e-04
+SPEC | ag4_d235 | walls | k/k0 0.6625 | J 5.9658e-04 | M 5.8746e-04
+SPEC | ag4_d235 | walls | k/k0 0.6875 | J 5.5631e-04 | M 5.8237e-04
+SPEC | ag4_d235 | walls | k/k0 0.7125 | J 6.9773e-04 | M 7.7805e-04
+SPEC | ag4_d235 | walls | k/k0 0.7375 | J 8.5701e-04 | M 1.0394e-03
+SPEC | ag4_d235 | walls | k/k0 0.7625 | J 2.2405e-03 | M 2.5792e-03
+SPEC | ag4_d235 | walls | k/k0 0.7875 | J 3.3679e-03 | M 3.7101e-03
+SPEC | ag4_d235 | walls | k/k0 0.8125 | J 5.7261e-03 | M 6.1317e-03
+SPEC | ag4_d235 | walls | k/k0 0.8375 | J 9.6790e-03 | M 1.0188e-02
+SPEC | ag4_d235 | walls | k/k0 0.8625 | J 1.6001e-02 | M 1.6882e-02
+SPEC | ag4_d235 | walls | k/k0 0.8875 | J 2.4741e-02 | M 2.5445e-02
+SPEC | ag4_d235 | walls | k/k0 0.9125 | J 3.2045e-02 | M 3.2819e-02
+SPEC | ag4_d235 | walls | k/k0 0.9375 | J 4.1767e-02 | M 4.2510e-02
+SPEC | ag4_d235 | walls | k/k0 0.9625 | J 5.6686e-02 | M 5.7965e-02
+SPEC | ag4_d235 | walls | k/k0 0.9875 | J 6.3298e-02 | M 6.4855e-02
+SPEC | ag4_d235 | walls | k/k0 1.0125 | J 8.0751e-02 | M 8.1590e-02
+SPEC | ag4_d235 | walls | k/k0 1.0375 | J 8.1224e-02 | M 8.1474e-02
+SPEC | ag4_d235 | walls | k/k0 1.0625 | J 8.2456e-02 | M 8.2850e-02
+SPEC | ag4_d235 | walls | k/k0 1.0875 | J 8.9815e-02 | M 9.0229e-02
+SPEC | ag4_d235 | walls | k/k0 1.1125 | J 7.2069e-02 | M 7.2295e-02
+SPEC | ag4_d235 | walls | k/k0 1.1375 | J 8.2356e-02 | M 8.1479e-02
+SPEC | ag4_d235 | walls | k/k0 1.1625 | J 6.1009e-02 | M 5.9936e-02
+SPEC | ag4_d235 | walls | k/k0 1.1875 | J 5.5174e-02 | M 5.3387e-02
+SPEC | ag4_d235 | walls | k/k0 1.2125 | J 3.8086e-02 | M 3.7125e-02
+SPEC | ag4_d235 | walls | k/k0 1.2375 | J 3.0914e-02 | M 2.9738e-02
+SPEC | ag4_d235 | walls | k/k0 1.2625 | J 2.3839e-02 | M 2.2496e-02
+SPEC | ag4_d235 | walls | k/k0 1.2875 | J 1.6214e-02 | M 1.5239e-02
+SPEC | ag4_d235 | walls | k/k0 1.3125 | J 8.9605e-03 | M 8.4216e-03
+SPEC | ag4_d235 | walls | k/k0 1.3375 | J 6.0993e-03 | M 5.6938e-03
+SPEC | ag4_d235 | walls | k/k0 1.3625 | J 2.6698e-03 | M 2.4774e-03
+SPEC | ag4_d235 | walls | k/k0 1.3875 | J 1.5602e-03 | M 1.4261e-03
+SPEC | ag4_d235 | walls | k/k0 1.4125 | J 5.9420e-04 | M 5.4297e-04
+SPEC | ag4_d235 | walls | k/k0 1.4375 | J 2.2838e-04 | M 2.1376e-04
+SPEC | ag4_d235 | walls | k/k0 1.4625 | J 8.5669e-05 | M 8.4549e-05
+SPEC | ag4_d235 | walls | k/k0 1.4875 | J 5.3698e-05 | M 5.4455e-05
+SPEC | ag4_d235 | walls | k/k0 1.5125 | J 7.8085e-05 | M 7.7066e-05
+SPEC | ag4_d235 | walls | k/k0 1.5375 | J 7.8203e-05 | M 7.5089e-05
+SPEC | ag4_d235 | walls | k/k0 1.5625 | J 7.1668e-05 | M 6.8507e-05
+SPEC | ag4_d235 | walls | k/k0 1.5875 | J 4.8718e-05 | M 4.6671e-05
+SPEC | ag4_d235 | walls | k/k0 1.6125 | J 2.7107e-05 | M 2.6054e-05
+SPEC | ag4_d235 | walls | k/k0 1.6375 | J 1.5661e-05 | M 1.5228e-05
+SPEC | ag4_d235 | walls | k/k0 1.6625 | J 7.7744e-06 | M 7.9300e-06
+SPEC | ag4_d235 | walls | k/k0 1.6875 | J 6.6460e-06 | M 6.7322e-06
+SPEC | ag4_d235 | walls | k/k0 1.7125 | J 7.8581e-06 | M 7.8091e-06
+SPEC | ag4_d235 | walls | k/k0 1.7375 | J 7.9752e-06 | M 7.8829e-06
+SPEC | ag4_d235 | walls | k/k0 1.7625 | J 9.9996e-06 | M 9.5639e-06
+SPEC | ag4_d235 | walls | k/k0 1.7875 | J 8.1923e-06 | M 7.9281e-06
+SPEC | ag4_d235 | walls | k/k0 1.8125 | J 5.1530e-06 | M 5.1195e-06
+SPEC | ag4_d235 | walls | k/k0 1.8375 | J 3.2377e-06 | M 3.3134e-06
+SPEC | ag4_d235 | walls | k/k0 1.8625 | J 1.9463e-06 | M 2.0466e-06
+SPEC | ag4_d235 | walls | k/k0 1.8875 | J 1.6375e-06 | M 1.7039e-06
+SPEC | ag4_d235 | walls | k/k0 1.9125 | J 1.7850e-06 | M 1.7683e-06
+SPEC | ag4_d235 | walls | k/k0 1.9375 | J 2.4455e-06 | M 2.3739e-06
+SPEC | ag4_d235 | walls | k/k0 1.9625 | J 2.2339e-06 | M 2.1833e-06
+SPEC | ag4_d235 | walls | k/k0 1.9875 | J 1.7651e-06 | M 1.7923e-06
+SPEC | ag4_d235 | walls | k/k0 2.0125 | J 1.9154e-06 | M 1.9335e-06
+SPEC | ag4_d235 | walls | k/k0 2.0375 | J 1.2293e-06 | M 1.3132e-06
+SPEC | ag4_d235 | walls | k/k0 2.0625 | J 8.1575e-07 | M 9.1127e-07
+SPEC | ag4_d235 | walls | k/k0 2.0875 | J 6.3765e-07 | M 7.0329e-07
+SPEC | ag4_d235 | walls | k/k0 2.1125 | J 5.7512e-07 | M 6.0954e-07
+SPEC | ag4_d235 | walls | k/k0 2.1375 | J 8.0724e-07 | M 7.9833e-07
+SPEC | ag4_d235 | walls | k/k0 2.1625 | J 8.9342e-07 | M 8.6464e-07
+SPEC | ag4_d235 | walls | k/k0 2.1875 | J 8.4049e-07 | M 8.4639e-07
+SPEC | ag4_d235 | walls | k/k0 2.2125 | J 7.6554e-07 | M 8.0378e-07
+SPEC | ag4_d235 | walls | k/k0 2.2375 | J 4.3101e-07 | M 4.8509e-07
+SPEC | ag4_d235 | walls | k/k0 2.2625 | J 4.9924e-07 | M 5.7194e-07
+SPEC | ag4_d235 | walls | k/k0 2.2875 | J 3.7143e-07 | M 4.4030e-07
+SPEC | ag4_d235 | walls | k/k0 2.3125 | J 3.2899e-07 | M 3.6804e-07
+SPEC | ag4_d235 | walls | k/k0 2.3375 | J 3.7543e-07 | M 3.9681e-07
+SPEC | ag4_d235 | walls | k/k0 2.3625 | J 3.5498e-07 | M 3.7845e-07
+SPEC | ag4_d235 | walls | k/k0 2.3875 | J 4.5216e-07 | M 4.5635e-07
+SPEC | ag4_d235 | walls | k/k0 2.4125 | J 4.0016e-07 | M 4.2603e-07
+SPEC | ag4_d235 | walls | k/k0 2.4375 | J 3.3511e-07 | M 3.8670e-07
+SPEC | ag4_d235 | walls | k/k0 2.4625 | J 2.6672e-07 | M 3.2594e-07
+SPEC | ag4_d235 | walls | k/k0 2.4875 | J 1.9099e-07 | M 2.4599e-07
+SPEC | ag4_d235 | walls | k/k0 2.5125 | J 2.2972e-07 | M 2.8801e-07
+SPEC | ag4_d235 | walls | k/k0 2.5375 | J 1.3690e-07 | M 1.9584e-07
+SPEC | ag4_d235 | walls | k/k0 2.5625 | J 7.5990e-08 | M 1.3171e-07
+SPEC | ag4_d235 | walls | k/k0 2.5875 | J 5.9230e-08 | M 1.0103e-07
+SPEC | ag4_d235 | walls | k/k0 2.6125 | J 5.2590e-08 | M 8.6263e-08
+SPEC | ag4_d235 | walls | k/k0 2.6375 | J 4.8382e-08 | M 8.0896e-08
+SPEC | ag4_d235 | walls | k/k0 2.6625 | J 3.8445e-08 | M 6.5143e-08
+SPEC | ag4_d235 | walls | k/k0 2.6875 | J 3.1499e-08 | M 5.3467e-08
+SPEC | ag4_d235 | walls | k/k0 2.7125 | J 2.4792e-08 | M 4.2892e-08
+SPEC | ag4_d235 | walls | k/k0 2.7375 | J 2.4826e-08 | M 4.3789e-08
+SPEC | ag4_d235 | walls | k/k0 2.7625 | J 1.8112e-08 | M 3.2276e-08
+SPEC | ag4_d235 | walls | k/k0 2.7875 | J 1.4612e-08 | M 2.5980e-08
+SPEC | ag4_d235 | walls | k/k0 2.8125 | J 9.9832e-09 | M 1.7839e-08
+SPEC | ag4_d235 | walls | k/k0 2.8375 | J 9.0777e-09 | M 1.6402e-08
+SPEC | ag4_d235 | walls | k/k0 2.8625 | J 8.1714e-09 | M 1.4848e-08
+SPEC | ag4_d235 | walls | k/k0 2.8875 | J 6.2116e-09 | M 1.1449e-08
+SPEC | ag4_d235 | walls | k/k0 2.9125 | J 4.7947e-09 | M 8.7734e-09
+SPEC | ag4_d235 | walls | k/k0 2.9375 | J 4.3867e-09 | M 7.8049e-09
+SPEC | ag4_d235 | walls | k/k0 2.9625 | J 3.2329e-09 | M 5.5267e-09
+SPEC | ag4_d235 | walls | k/k0 2.9875 | J 2.8650e-09 | M 4.6718e-09
+SPEC | ag4_d235 | walls | k/k0 3.0125 | J 2.2203e-09 | M 3.3362e-09
+SPEC | ag4_d235 | walls | k/k0 3.0375 | J 2.1847e-09 | M 3.0351e-09
+SPEC | ag4_d235 | walls | k/k0 3.0625 | J 1.9436e-09 | M 2.6272e-09
+SPEC | ag4_d235 | walls | k/k0 3.0875 | J 1.5608e-09 | M 1.9724e-09
+SPEC | ag4_d235 | walls | k/k0 3.1125 | J 1.3401e-09 | M 1.6315e-09
+SPEC | ag4_d235 | walls | k/k0 3.1375 | J 1.3555e-09 | M 1.5916e-09
+SPEC | ag4_d235 | walls | k/k0 3.1625 | J 1.0889e-09 | M 1.1661e-09
+SPEC | ag4_d235 | walls | k/k0 3.1875 | J 1.0309e-09 | M 1.0407e-09
+SPEC | ag4_d235 | walls | k/k0 3.2125 | J 9.6386e-10 | M 9.1912e-10
+SPEC | ag4_d235 | walls | k/k0 3.2375 | J 1.0083e-09 | M 8.3264e-10
+SPEC | ag4_d235 | walls | k/k0 3.2625 | J 8.3578e-10 | M 7.0772e-10
+SPEC | ag4_d235 | walls | k/k0 3.2875 | J 7.3527e-10 | M 6.3449e-10
+SPEC | ag4_d235 | walls | k/k0 3.3125 | J 5.5352e-10 | M 4.7448e-10
+SPEC | ag4_d235 | walls | k/k0 3.3375 | J 3.9456e-10 | M 3.2363e-10
+SPEC | ag4_d235 | walls | k/k0 3.3625 | J 3.3323e-10 | M 2.6771e-10
+SPEC | ag4_d235 | walls | k/k0 3.3875 | J 2.8491e-10 | M 2.2037e-10
+SPEC | ag4_d235 | walls | k/k0 3.4125 | J 2.4844e-10 | M 1.8164e-10
+SPEC | ag4_d235 | walls | k/k0 3.4375 | J 4.1160e-10 | M 2.7157e-10
+SPEC | ag4_d235 | walls | k/k0 3.4625 | J 1.6137e-10 | M 9.5785e-11
+SPEC | ag4_d235 | walls | k/k0 3.4875 | J 1.2492e-10 | M 7.0295e-11
+SPEC | ag4_d235 | walls | k/k0 3.5125 | J 8.3700e-11 | M 4.5389e-11
+SPEC | ag4_d235 | walls | k/k0 3.5375 | J 4.0863e-11 | M 2.1722e-11
+SPECSUM | ag4_d235 | bottom | samples 12800 | rms J 6.3580e-05 A/m | rms M 8.2339e-03 V/m | J>k0 7.5191e-01 | M>k0 7.5424e-01 | J [0.3,0.95] 1.0984e-01 | M [0.3,0.95] 1.0506e-01 | J at k_spp+-0.05 4.6937e-01 | M at k_spp+-0.05 4.7621e-01 | J [0.8,1.4] peak 1.062 centroid 1.057 frac 9.6202e-01 | M [0.8,1.4] peak 1.062 centroid 1.057 frac 9.6400e-01
+SPEC | ag4_d235 | bottom | k/k0 0.0125 | J 3.1273e-06 | M 2.8559e-06
+SPEC | ag4_d235 | bottom | k/k0 0.0375 | J 2.6862e-05 | M 2.4679e-05
+SPEC | ag4_d235 | bottom | k/k0 0.0625 | J 4.5434e-05 | M 4.2170e-05
+SPEC | ag4_d235 | bottom | k/k0 0.0875 | J 6.8624e-05 | M 6.4353e-05
+SPEC | ag4_d235 | bottom | k/k0 0.1125 | J 3.7100e-05 | M 3.5107e-05
+SPEC | ag4_d235 | bottom | k/k0 0.1375 | J 1.2086e-04 | M 1.1454e-04
+SPEC | ag4_d235 | bottom | k/k0 0.1625 | J 1.5849e-04 | M 1.5018e-04
+SPEC | ag4_d235 | bottom | k/k0 0.1875 | J 2.0578e-04 | M 1.9372e-04
+SPEC | ag4_d235 | bottom | k/k0 0.2125 | J 2.3683e-04 | M 2.2216e-04
+SPEC | ag4_d235 | bottom | k/k0 0.2375 | J 2.8617e-04 | M 2.6812e-04
+SPEC | ag4_d235 | bottom | k/k0 0.2625 | J 4.8243e-04 | M 4.4881e-04
+SPEC | ag4_d235 | bottom | k/k0 0.2875 | J 6.1270e-04 | M 5.7169e-04
+SPEC | ag4_d235 | bottom | k/k0 0.3125 | J 6.3149e-04 | M 5.9309e-04
+SPEC | ag4_d235 | bottom | k/k0 0.3375 | J 8.6175e-04 | M 8.1334e-04
+SPEC | ag4_d235 | bottom | k/k0 0.3625 | J 5.9872e-04 | M 5.6512e-04
+SPEC | ag4_d235 | bottom | k/k0 0.3875 | J 1.0997e-03 | M 1.0415e-03
+SPEC | ag4_d235 | bottom | k/k0 0.4125 | J 1.0027e-03 | M 9.4537e-04
+SPEC | ag4_d235 | bottom | k/k0 0.4375 | J 1.1146e-03 | M 1.0444e-03
+SPEC | ag4_d235 | bottom | k/k0 0.4625 | J 8.8774e-04 | M 8.2727e-04
+SPEC | ag4_d235 | bottom | k/k0 0.4875 | J 9.4487e-04 | M 8.8511e-04
+SPEC | ag4_d235 | bottom | k/k0 0.5125 | J 1.1901e-03 | M 1.1104e-03
+SPEC | ag4_d235 | bottom | k/k0 0.5375 | J 1.2436e-03 | M 1.1609e-03
+SPEC | ag4_d235 | bottom | k/k0 0.5625 | J 1.5559e-03 | M 1.4528e-03
+SPEC | ag4_d235 | bottom | k/k0 0.5875 | J 1.5333e-03 | M 1.4319e-03
+SPEC | ag4_d235 | bottom | k/k0 0.6125 | J 2.0778e-03 | M 1.9419e-03
+SPEC | ag4_d235 | bottom | k/k0 0.6375 | J 2.3222e-03 | M 2.1607e-03
+SPEC | ag4_d235 | bottom | k/k0 0.6625 | J 2.7193e-03 | M 2.5467e-03
+SPEC | ag4_d235 | bottom | k/k0 0.6875 | J 2.6119e-03 | M 2.4694e-03
+SPEC | ag4_d235 | bottom | k/k0 0.7125 | J 2.9271e-03 | M 2.8050e-03
+SPEC | ag4_d235 | bottom | k/k0 0.7375 | J 2.3077e-03 | M 2.2474e-03
+SPEC | ag4_d235 | bottom | k/k0 0.7625 | J 4.0320e-03 | M 3.9396e-03
+SPEC | ag4_d235 | bottom | k/k0 0.7875 | J 3.9839e-03 | M 3.8354e-03
+SPEC | ag4_d235 | bottom | k/k0 0.8125 | J 4.1420e-03 | M 3.9636e-03
+SPEC | ag4_d235 | bottom | k/k0 0.8375 | J 4.7682e-03 | M 4.4419e-03
+SPEC | ag4_d235 | bottom | k/k0 0.8625 | J 5.0513e-03 | M 3.9223e-03
+SPEC | ag4_d235 | bottom | k/k0 0.8875 | J 1.0752e-02 | M 1.0059e-02
+SPEC | ag4_d235 | bottom | k/k0 0.9125 | J 1.8781e-02 | M 1.8482e-02
+SPEC | ag4_d235 | bottom | k/k0 0.9375 | J 3.0696e-02 | M 3.0369e-02
+SPEC | ag4_d235 | bottom | k/k0 0.9625 | J 6.0333e-02 | M 6.1323e-02
+SPEC | ag4_d235 | bottom | k/k0 0.9875 | J 7.4289e-02 | M 7.5696e-02
+SPEC | ag4_d235 | bottom | k/k0 1.0125 | J 1.0844e-01 | M 1.1131e-01
+SPEC | ag4_d235 | bottom | k/k0 1.0375 | J 1.1531e-01 | M 1.1657e-01
+SPEC | ag4_d235 | bottom | k/k0 1.0625 | J 1.2492e-01 | M 1.2622e-01
+SPEC | ag4_d235 | bottom | k/k0 1.0875 | J 1.2070e-01 | M 1.2210e-01
+SPEC | ag4_d235 | bottom | k/k0 1.1125 | J 9.4001e-02 | M 9.4255e-02
+SPEC | ag4_d235 | bottom | k/k0 1.1375 | J 8.8696e-02 | M 8.7289e-02
+SPEC | ag4_d235 | bottom | k/k0 1.1625 | J 5.0297e-02 | M 4.9212e-02
+SPEC | ag4_d235 | bottom | k/k0 1.1875 | J 2.8241e-02 | M 2.7281e-02
+SPEC | ag4_d235 | bottom | k/k0 1.2125 | J 1.3732e-02 | M 1.3228e-02
+SPEC | ag4_d235 | bottom | k/k0 1.2375 | J 5.9421e-03 | M 5.5373e-03
+SPEC | ag4_d235 | bottom | k/k0 1.2625 | J 2.0788e-03 | M 1.9201e-03
+SPEC | ag4_d235 | bottom | k/k0 1.2875 | J 5.5463e-04 | M 5.1614e-04
+SPEC | ag4_d235 | bottom | k/k0 1.3125 | J 1.3548e-04 | M 1.3241e-04
+SPEC | ag4_d235 | bottom | k/k0 1.3375 | J 8.3714e-05 | M 8.4682e-05
+SPEC | ag4_d235 | bottom | k/k0 1.3625 | J 4.5923e-05 | M 4.5734e-05
+SPEC | ag4_d235 | bottom | k/k0 1.3875 | J 3.5574e-05 | M 3.4365e-05
+SPEC | ag4_d235 | bottom | k/k0 1.4125 | J 1.2940e-05 | M 1.2790e-05
+SPEC | ag4_d235 | bottom | k/k0 1.4375 | J 6.9878e-06 | M 7.2730e-06
+SPEC | ag4_d235 | bottom | k/k0 1.4625 | J 6.8212e-06 | M 7.0050e-06
+SPEC | ag4_d235 | bottom | k/k0 1.4875 | J 4.4699e-06 | M 4.5182e-06
+SPEC | ag4_d235 | bottom | k/k0 1.5125 | J 4.4820e-06 | M 4.4145e-06
+SPEC | ag4_d235 | bottom | k/k0 1.5375 | J 2.0243e-06 | M 1.9992e-06
+SPEC | ag4_d235 | bottom | k/k0 1.5625 | J 1.3595e-06 | M 1.4068e-06
+SPEC | ag4_d235 | bottom | k/k0 1.5875 | J 1.3383e-06 | M 1.3840e-06
+SPEC | ag4_d235 | bottom | k/k0 1.6125 | J 1.0041e-06 | M 1.0110e-06
+SPEC | ag4_d235 | bottom | k/k0 1.6375 | J 9.2342e-07 | M 9.5036e-07
+SPEC | ag4_d235 | bottom | k/k0 1.6625 | J 5.2077e-07 | M 5.4440e-07
+SPEC | ag4_d235 | bottom | k/k0 1.6875 | J 3.9060e-07 | M 3.9505e-07
+SPEC | ag4_d235 | bottom | k/k0 1.7125 | J 3.9523e-07 | M 4.0134e-07
+SPEC | ag4_d235 | bottom | k/k0 1.7375 | J 2.9539e-07 | M 2.9530e-07
+SPEC | ag4_d235 | bottom | k/k0 1.7625 | J 3.3609e-07 | M 3.2041e-07
+SPEC | ag4_d235 | bottom | k/k0 1.7875 | J 2.1695e-07 | M 2.0509e-07
+SPEC | ag4_d235 | bottom | k/k0 1.8125 | J 1.4177e-07 | M 1.3220e-07
+SPEC | ag4_d235 | bottom | k/k0 1.8375 | J 1.5001e-07 | M 1.4092e-07
+SPEC | ag4_d235 | bottom | k/k0 1.8625 | J 1.2357e-07 | M 1.1623e-07
+SPEC | ag4_d235 | bottom | k/k0 1.8875 | J 1.4508e-07 | M 1.3333e-07
+SPEC | ag4_d235 | bottom | k/k0 1.9125 | J 9.7082e-08 | M 8.5083e-08
+SPEC | ag4_d235 | bottom | k/k0 1.9375 | J 7.8781e-08 | M 6.9231e-08
+SPEC | ag4_d235 | bottom | k/k0 1.9625 | J 6.9296e-08 | M 6.2226e-08
+SPEC | ag4_d235 | bottom | k/k0 1.9875 | J 5.6565e-08 | M 4.8535e-08
+SPEC | ag4_d235 | bottom | k/k0 2.0125 | J 7.0509e-08 | M 6.2972e-08
+SPEC | ag4_d235 | bottom | k/k0 2.0375 | J 5.8449e-08 | M 4.6061e-08
+SPEC | ag4_d235 | bottom | k/k0 2.0625 | J 4.5001e-08 | M 2.9535e-08
+SPEC | ag4_d235 | bottom | k/k0 2.0875 | J 4.7870e-08 | M 3.0451e-08
+SPEC | ag4_d235 | bottom | k/k0 2.1125 | J 3.7942e-08 | M 2.3081e-08
+SPEC | ag4_d235 | bottom | k/k0 2.1375 | J 5.1725e-08 | M 3.0023e-08
+SPEC | ag4_d235 | bottom | k/k0 2.1625 | J 4.0132e-08 | M 2.1384e-08
+SPEC | ag4_d235 | bottom | k/k0 2.1875 | J 3.3102e-08 | M 1.6197e-08
+SPEC | ag4_d235 | bottom | k/k0 2.2125 | J 3.3405e-08 | M 1.8748e-08
+SPEC | ag4_d235 | bottom | k/k0 2.2375 | J 2.3878e-08 | M 1.2684e-08
+SPEC | ag4_d235 | bottom | k/k0 2.2625 | J 3.4615e-08 | M 2.0931e-08
+SPEC | ag4_d235 | bottom | k/k0 2.2875 | J 3.1859e-08 | M 1.6576e-08
+SPEC | ag4_d235 | bottom | k/k0 2.3125 | J 2.7587e-08 | M 1.1632e-08
+SPEC | ag4_d235 | bottom | k/k0 2.3375 | J 2.6555e-08 | M 9.9961e-09
+SPEC | ag4_d235 | bottom | k/k0 2.3625 | J 2.4581e-08 | M 8.7375e-09
+SPEC | ag4_d235 | bottom | k/k0 2.3875 | J 2.7764e-08 | M 1.0477e-08
+SPEC | ag4_d235 | bottom | k/k0 2.4125 | J 2.5802e-08 | M 9.0468e-09
+SPEC | ag4_d235 | bottom | k/k0 2.4375 | J 2.4685e-08 | M 7.1271e-09
+SPEC | ag4_d235 | bottom | k/k0 2.4625 | J 2.6068e-08 | M 7.4967e-09
+SPEC | ag4_d235 | bottom | k/k0 2.4875 | J 2.5876e-08 | M 6.5779e-09
+SPEC | ag4_d235 | bottom | k/k0 2.5125 | J 3.2853e-08 | M 9.2726e-09
+SPEC | ag4_d235 | bottom | k/k0 2.5375 | J 2.5818e-08 | M 4.8689e-09
+SPEC | ag4_d235 | bottom | k/k0 2.5625 | J 1.9130e-08 | M 4.0869e-09
+SPEC | ag4_d235 | bottom | k/k0 2.5875 | J 1.3419e-08 | M 2.9308e-09
+SPEC | ag4_d235 | bottom | k/k0 2.6125 | J 1.0210e-08 | M 2.1519e-09
+SPEC | ag4_d235 | bottom | k/k0 2.6375 | J 8.6117e-09 | M 1.8457e-09
+SPEC | ag4_d235 | bottom | k/k0 2.6625 | J 7.5351e-09 | M 1.6127e-09
+SPEC | ag4_d235 | bottom | k/k0 2.6875 | J 6.1417e-09 | M 1.4207e-09
+SPEC | ag4_d235 | bottom | k/k0 2.7125 | J 4.9593e-09 | M 1.1898e-09
+SPEC | ag4_d235 | bottom | k/k0 2.7375 | J 5.4331e-09 | M 1.1527e-09
+SPEC | ag4_d235 | bottom | k/k0 2.7625 | J 5.0177e-09 | M 8.6537e-10
+SPEC | ag4_d235 | bottom | k/k0 2.7875 | J 5.0692e-09 | M 6.8906e-10
+SPEC | ag4_d235 | bottom | k/k0 2.8125 | J 5.0064e-09 | M 5.0714e-10
+SPEC | ag4_d235 | bottom | k/k0 2.8375 | J 5.5148e-09 | M 4.9346e-10
+SPEC | ag4_d235 | bottom | k/k0 2.8625 | J 6.5330e-09 | M 5.5687e-10
+SPEC | ag4_d235 | bottom | k/k0 2.8875 | J 7.1158e-09 | M 4.6964e-10
+SPEC | ag4_d235 | bottom | k/k0 2.9125 | J 6.7798e-09 | M 4.1958e-10
+SPEC | ag4_d235 | bottom | k/k0 2.9375 | J 7.2041e-09 | M 4.1048e-10
+SPEC | ag4_d235 | bottom | k/k0 2.9625 | J 5.9392e-09 | M 3.4768e-10
+SPEC | ag4_d235 | bottom | k/k0 2.9875 | J 5.3059e-09 | M 3.2119e-10
+SPEC | ag4_d235 | bottom | k/k0 3.0125 | J 4.2888e-09 | M 2.6177e-10
+SPEC | ag4_d235 | bottom | k/k0 3.0375 | J 3.6927e-09 | M 2.8690e-10
+SPEC | ag4_d235 | bottom | k/k0 3.0625 | J 3.0444e-09 | M 2.5889e-10
+SPEC | ag4_d235 | bottom | k/k0 3.0875 | J 2.1246e-09 | M 2.2540e-10
+SPEC | ag4_d235 | bottom | k/k0 3.1125 | J 1.4776e-09 | M 2.0588e-10
+SPEC | ag4_d235 | bottom | k/k0 3.1375 | J 1.3335e-09 | M 2.2940e-10
+SPEC | ag4_d235 | bottom | k/k0 3.1625 | J 9.5873e-10 | M 2.0958e-10
+SPEC | ag4_d235 | bottom | k/k0 3.1875 | J 8.9473e-10 | M 2.1466e-10
+SPEC | ag4_d235 | bottom | k/k0 3.2125 | J 8.7260e-10 | M 2.1562e-10
+SPEC | ag4_d235 | bottom | k/k0 3.2375 | J 9.3813e-10 | M 2.3559e-10
+SPEC | ag4_d235 | bottom | k/k0 3.2625 | J 1.0527e-09 | M 2.0357e-10
+SPEC | ag4_d235 | bottom | k/k0 3.2875 | J 1.1948e-09 | M 1.8712e-10
+SPEC | ag4_d235 | bottom | k/k0 3.3125 | J 1.1045e-09 | M 1.4459e-10
+SPEC | ag4_d235 | bottom | k/k0 3.3375 | J 9.3597e-10 | M 9.7791e-11
+SPEC | ag4_d235 | bottom | k/k0 3.3625 | J 8.1919e-10 | M 7.9138e-11
+SPEC | ag4_d235 | bottom | k/k0 3.3875 | J 6.6302e-10 | M 6.3143e-11
+SPEC | ag4_d235 | bottom | k/k0 3.4125 | J 5.0554e-10 | M 5.0351e-11
+SPEC | ag4_d235 | bottom | k/k0 3.4375 | J 6.5421e-10 | M 7.3908e-11
+SPEC | ag4_d235 | bottom | k/k0 3.4625 | J 2.1318e-10 | M 2.7288e-11
+SPEC | ag4_d235 | bottom | k/k0 3.4875 | J 1.6091e-10 | M 2.1605e-11
+SPEC | ag4_d235 | bottom | k/k0 3.5125 | J 1.1015e-10 | M 1.5394e-11
+SPEC | ag4_d235 | bottom | k/k0 3.5375 | J 5.5676e-11 | M 8.1966e-12
+INTERIOR | ag4_d235 | x-line z 0.287 um | 186 points | rms|res|/rms|inc| 9.784e-03 | rms|res|/rms|inc(z_p)| 9.784e-03 | rms|inc| 5.856e-01 V/m | residual peak k/k0 +0.86 (0.40 of the tapered sum)
+INTERIOR | ag4_d235 | x-line z 0.787 um | 186 points | rms|res|/rms|inc| 7.350e-03 | rms|res|/rms|inc(z_p)| 7.324e-03 | rms|inc| 5.835e-01 V/m | residual peak k/k0 -0.62 (0.51 of the tapered sum)
+INTERIOR | ag4_d235 | x-line z 1.287 um | 186 points | rms|res|/rms|inc| 8.681e-03 | rms|res|/rms|inc(z_p)| 8.593e-03 | rms|inc| 5.796e-01 V/m | residual peak k/k0 -0.92 (0.55 of the tapered sum)
+INTERIOR | ag4_d235 | x-line z 2.200 um | 186 points | rms|res|/rms|inc| 9.839e-03 | rms|res|/rms|inc(z_p)| 9.551e-03 | rms|inc| 5.685e-01 V/m | residual peak k/k0 +0.40 (0.46 of the tapered sum)
+INTERIOR | ag4_d235 | y-line z 0.287 um | 186 points | rms|res|/rms|inc| 1.094e-02 | rms|res|/rms|inc(z_p)| 1.084e-02 | rms|inc| 5.801e-01 V/m | residual peak k/k0 -0.10 (0.58 of the tapered sum)
+INTZ | ag4_d235 | z 0.287 um | |res| 7.911e-03 | |res_x| 3.474e-03 | |res_y| 6.897e-03 | |res_z| 1.719e-03 | |inc| 1.706e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.307 um | |res| 8.063e-03 | |res_x| 2.924e-03 | |res_y| 7.401e-03 | |res_z| 1.298e-03 | |inc| 1.706e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.327 um | |res| 8.600e-03 | |res_x| 2.295e-03 | |res_y| 8.230e-03 | |res_z| 9.847e-04 | |inc| 1.705e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.347 um | |res| 9.488e-03 | |res_x| 1.670e-03 | |res_y| 9.295e-03 | |res_z| 9.115e-04 | |inc| 1.705e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.367 um | |res| 1.061e-02 | |res_x| 1.223e-03 | |res_y| 1.048e-02 | |res_z| 1.191e-03 | |inc| 1.705e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.387 um | |res| 1.184e-02 | |res_x| 1.245e-03 | |res_y| 1.165e-02 | |res_z| 1.719e-03 | |inc| 1.704e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.407 um | |res| 1.305e-02 | |res_x| 1.695e-03 | |res_y| 1.271e-02 | |res_z| 2.381e-03 | |inc| 1.704e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.427 um | |res| 1.412e-02 | |res_x| 2.281e-03 | |res_y| 1.358e-02 | |res_z| 3.121e-03 | |inc| 1.704e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.447 um | |res| 1.498e-02 | |res_x| 2.854e-03 | |res_y| 1.418e-02 | |res_z| 3.902e-03 | |inc| 1.703e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.467 um | |res| 1.558e-02 | |res_x| 3.359e-03 | |res_y| 1.447e-02 | |res_z| 4.691e-03 | |inc| 1.703e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.487 um | |res| 1.588e-02 | |res_x| 3.772e-03 | |res_y| 1.442e-02 | |res_z| 5.462e-03 | |inc| 1.702e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.507 um | |res| 1.586e-02 | |res_x| 4.086e-03 | |res_y| 1.402e-02 | |res_z| 6.184e-03 | |inc| 1.702e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.527 um | |res| 1.554e-02 | |res_x| 4.302e-03 | |res_y| 1.328e-02 | |res_z| 6.833e-03 | |inc| 1.702e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.547 um | |res| 1.495e-02 | |res_x| 4.430e-03 | |res_y| 1.222e-02 | |res_z| 7.385e-03 | |inc| 1.701e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.567 um | |res| 1.412e-02 | |res_x| 4.481e-03 | |res_y| 1.087e-02 | |res_z| 7.820e-03 | |inc| 1.701e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.587 um | |res| 1.313e-02 | |res_x| 4.467e-03 | |res_y| 9.296e-03 | |res_z| 8.123e-03 | |inc| 1.700e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.607 um | |res| 1.204e-02 | |res_x| 4.397e-03 | |res_y| 7.551e-03 | |res_z| 8.286e-03 | |inc| 1.700e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.627 um | |res| 1.095e-02 | |res_x| 4.275e-03 | |res_y| 5.708e-03 | |res_z| 8.303e-03 | |inc| 1.699e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.647 um | |res| 9.923e-03 | |res_x| 4.099e-03 | |res_y| 3.849e-03 | |res_z| 8.177e-03 | |inc| 1.698e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.667 um | |res| 9.050e-03 | |res_x| 3.862e-03 | |res_y| 2.091e-03 | |res_z| 7.913e-03 | |inc| 1.698e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.687 um | |res| 8.374e-03 | |res_x| 3.553e-03 | |res_y| 9.381e-04 | |res_z| 7.524e-03 | |inc| 1.697e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.707 um | |res| 7.903e-03 | |res_x| 3.162e-03 | |res_y| 1.746e-03 | |res_z| 7.029e-03 | |inc| 1.697e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.727 um | |res| 7.600e-03 | |res_x| 2.684e-03 | |res_y| 2.998e-03 | |res_z| 6.448e-03 | |inc| 1.696e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.747 um | |res| 7.401e-03 | |res_x| 2.118e-03 | |res_y| 4.068e-03 | |res_z| 5.809e-03 | |inc| 1.695e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.767 um | |res| 7.237e-03 | |res_x| 1.484e-03 | |res_y| 4.869e-03 | |res_z| 5.144e-03 | |inc| 1.695e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.787 um | |res| 7.056e-03 | |res_x| 8.716e-04 | |res_y| 5.374e-03 | |res_z| 4.489e-03 | |inc| 1.694e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.807 um | |res| 6.840e-03 | |res_x| 7.450e-04 | |res_y| 5.577e-03 | |res_z| 3.889e-03 | |inc| 1.693e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.827 um | |res| 6.603e-03 | |res_x| 1.379e-03 | |res_y| 5.494e-03 | |res_z| 3.393e-03 | |inc| 1.693e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.847 um | |res| 6.391e-03 | |res_x| 2.228e-03 | |res_y| 5.155e-03 | |res_z| 3.052e-03 | |inc| 1.692e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.867 um | |res| 6.270e-03 | |res_x| 3.111e-03 | |res_y| 4.607e-03 | |res_z| 2.900e-03 | |inc| 1.691e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.887 um | |res| 6.303e-03 | |res_x| 3.971e-03 | |res_y| 3.922e-03 | |res_z| 2.929e-03 | |inc| 1.690e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.907 um | |res| 6.523e-03 | |res_x| 4.767e-03 | |res_y| 3.203e-03 | |res_z| 3.092e-03 | |inc| 1.690e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.927 um | |res| 6.914e-03 | |res_x| 5.466e-03 | |res_y| 2.615e-03 | |res_z| 3.331e-03 | |inc| 1.689e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.947 um | |res| 7.422e-03 | |res_x| 6.038e-03 | |res_y| 2.387e-03 | |res_z| 3.597e-03 | |inc| 1.688e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.967 um | |res| 7.973e-03 | |res_x| 6.461e-03 | |res_y| 2.632e-03 | |res_z| 3.858e-03 | |inc| 1.687e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 0.987 um | |res| 8.492e-03 | |res_x| 6.718e-03 | |res_y| 3.191e-03 | |res_z| 4.099e-03 | |inc| 1.686e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.007 um | |res| 8.923e-03 | |res_x| 6.798e-03 | |res_y| 3.847e-03 | |res_z| 4.313e-03 | |inc| 1.686e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.027 um | |res| 9.223e-03 | |res_x| 6.697e-03 | |res_y| 4.469e-03 | |res_z| 4.500e-03 | |inc| 1.685e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.047 um | |res| 9.376e-03 | |res_x| 6.419e-03 | |res_y| 4.994e-03 | |res_z| 4.664e-03 | |inc| 1.684e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.067 um | |res| 9.382e-03 | |res_x| 5.975e-03 | |res_y| 5.404e-03 | |res_z| 4.809e-03 | |inc| 1.683e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.087 um | |res| 9.269e-03 | |res_x| 5.379e-03 | |res_y| 5.709e-03 | |res_z| 4.938e-03 | |inc| 1.682e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.107 um | |res| 9.083e-03 | |res_x| 4.654e-03 | |res_y| 5.940e-03 | |res_z| 5.055e-03 | |inc| 1.681e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.127 um | |res| 8.891e-03 | |res_x| 3.827e-03 | |res_y| 6.148e-03 | |res_z| 5.158e-03 | |inc| 1.680e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.147 um | |res| 8.772e-03 | |res_x| 2.931e-03 | |res_y| 6.390e-03 | |res_z| 5.247e-03 | |inc| 1.679e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.167 um | |res| 8.796e-03 | |res_x| 2.014e-03 | |res_y| 6.712e-03 | |res_z| 5.316e-03 | |inc| 1.678e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.187 um | |res| 9.008e-03 | |res_x| 1.190e-03 | |res_y| 7.140e-03 | |res_z| 5.362e-03 | |inc| 1.677e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.207 um | |res| 9.411e-03 | |res_x| 9.039e-04 | |res_y| 7.668e-03 | |res_z| 5.381e-03 | |inc| 1.676e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.227 um | |res| 9.961e-03 | |res_x| 1.481e-03 | |res_y| 8.260e-03 | |res_z| 5.367e-03 | |inc| 1.675e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.247 um | |res| 1.059e-02 | |res_x| 2.298e-03 | |res_y| 8.865e-03 | |res_z| 5.319e-03 | |inc| 1.674e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.267 um | |res| 1.122e-02 | |res_x| 3.108e-03 | |res_y| 9.426e-03 | |res_z| 5.234e-03 | |inc| 1.673e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.287 um | |res| 1.178e-02 | |res_x| 3.847e-03 | |res_y| 9.886e-03 | |res_z| 5.112e-03 | |inc| 1.672e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.307 um | |res| 1.219e-02 | |res_x| 4.487e-03 | |res_y| 1.020e-02 | |res_z| 4.955e-03 | |inc| 1.671e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.327 um | |res| 1.242e-02 | |res_x| 5.009e-03 | |res_y| 1.032e-02 | |res_z| 4.766e-03 | |inc| 1.670e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.347 um | |res| 1.243e-02 | |res_x| 5.398e-03 | |res_y| 1.024e-02 | |res_z| 4.549e-03 | |inc| 1.669e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.367 um | |res| 1.221e-02 | |res_x| 5.646e-03 | |res_y| 9.927e-03 | |res_z| 4.307e-03 | |inc| 1.668e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.387 um | |res| 1.173e-02 | |res_x| 5.748e-03 | |res_y| 9.395e-03 | |res_z| 4.046e-03 | |inc| 1.667e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.407 um | |res| 1.103e-02 | |res_x| 5.704e-03 | |res_y| 8.653e-03 | |res_z| 3.770e-03 | |inc| 1.665e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.427 um | |res| 1.012e-02 | |res_x| 5.519e-03 | |res_y| 7.730e-03 | |res_z| 3.484e-03 | |inc| 1.664e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.447 um | |res| 9.040e-03 | |res_x| 5.206e-03 | |res_y| 6.667e-03 | |res_z| 3.191e-03 | |inc| 1.663e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.467 um | |res| 7.857e-03 | |res_x| 4.784e-03 | |res_y| 5.520e-03 | |res_z| 2.892e-03 | |inc| 1.662e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.487 um | |res| 6.653e-03 | |res_x| 4.290e-03 | |res_y| 4.376e-03 | |res_z| 2.591e-03 | |inc| 1.661e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.507 um | |res| 5.555e-03 | |res_x| 3.774e-03 | |res_y| 3.373e-03 | |res_z| 2.288e-03 | |inc| 1.659e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.527 um | |res| 4.742e-03 | |res_x| 3.315e-03 | |res_y| 2.748e-03 | |res_z| 1.985e-03 | |inc| 1.658e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.547 um | |res| 4.413e-03 | |res_x| 3.020e-03 | |res_y| 2.743e-03 | |res_z| 1.681e-03 | |inc| 1.657e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.567 um | |res| 4.634e-03 | |res_x| 2.986e-03 | |res_y| 3.263e-03 | |res_z| 1.381e-03 | |inc| 1.656e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.587 um | |res| 5.248e-03 | |res_x| 3.228e-03 | |res_y| 3.991e-03 | |res_z| 1.090e-03 | |inc| 1.654e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.607 um | |res| 6.024e-03 | |res_x| 3.665e-03 | |res_y| 4.708e-03 | |res_z| 8.303e-04 | |inc| 1.653e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.627 um | |res| 6.789e-03 | |res_x| 4.182e-03 | |res_y| 5.307e-03 | |res_z| 6.575e-04 | |inc| 1.652e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.647 um | |res| 7.438e-03 | |res_x| 4.689e-03 | |res_y| 5.734e-03 | |res_z| 6.744e-04 | |inc| 1.651e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.667 um | |res| 7.913e-03 | |res_x| 5.119e-03 | |res_y| 5.967e-03 | |res_z| 9.007e-04 | |inc| 1.649e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.687 um | |res| 8.185e-03 | |res_x| 5.426e-03 | |res_y| 5.998e-03 | |res_z| 1.256e-03 | |inc| 1.648e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.707 um | |res| 8.249e-03 | |res_x| 5.582e-03 | |res_y| 5.834e-03 | |res_z| 1.690e-03 | |inc| 1.647e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.727 um | |res| 8.121e-03 | |res_x| 5.568e-03 | |res_y| 5.494e-03 | |res_z| 2.184e-03 | |inc| 1.645e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.747 um | |res| 7.837e-03 | |res_x| 5.379e-03 | |res_y| 5.003e-03 | |res_z| 2.732e-03 | |inc| 1.644e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.767 um | |res| 7.456e-03 | |res_x| 5.017e-03 | |res_y| 4.397e-03 | |res_z| 3.331e-03 | |inc| 1.643e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.787 um | |res| 7.060e-03 | |res_x| 4.497e-03 | |res_y| 3.716e-03 | |res_z| 3.975e-03 | |inc| 1.641e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.807 um | |res| 6.748e-03 | |res_x| 3.844e-03 | |res_y| 3.013e-03 | |res_z| 4.656e-03 | |inc| 1.640e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.827 um | |res| 6.623e-03 | |res_x| 3.094e-03 | |res_y| 2.353e-03 | |res_z| 5.363e-03 | |inc| 1.638e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.847 um | |res| 6.756e-03 | |res_x| 2.306e-03 | |res_y| 1.835e-03 | |res_z| 6.080e-03 | |inc| 1.637e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.867 um | |res| 7.154e-03 | |res_x| 1.599e-03 | |res_y| 1.593e-03 | |res_z| 6.789e-03 | |inc| 1.635e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.887 um | |res| 7.760e-03 | |res_x| 1.266e-03 | |res_y| 1.691e-03 | |res_z| 7.467e-03 | |inc| 1.634e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.907 um | |res| 8.486e-03 | |res_x| 1.577e-03 | |res_y| 2.014e-03 | |res_z| 8.091e-03 | |inc| 1.633e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.927 um | |res| 9.240e-03 | |res_x| 2.228e-03 | |res_y| 2.418e-03 | |res_z| 8.635e-03 | |inc| 1.631e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.947 um | |res| 9.946e-03 | |res_x| 2.929e-03 | |res_y| 2.832e-03 | |res_z| 9.073e-03 | |inc| 1.630e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.967 um | |res| 1.054e-02 | |res_x| 3.568e-03 | |res_y| 3.235e-03 | |res_z| 9.381e-03 | |inc| 1.628e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 1.987 um | |res| 1.099e-02 | |res_x| 4.097e-03 | |res_y| 3.632e-03 | |res_z| 9.534e-03 | |inc| 1.627e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.007 um | |res| 1.127e-02 | |res_x| 4.492e-03 | |res_y| 4.034e-03 | |res_z| 9.514e-03 | |inc| 1.625e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.027 um | |res| 1.135e-02 | |res_x| 4.743e-03 | |res_y| 4.455e-03 | |res_z| 9.303e-03 | |inc| 1.624e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.047 um | |res| 1.125e-02 | |res_x| 4.848e-03 | |res_y| 4.899e-03 | |res_z| 8.892e-03 | |inc| 1.622e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.067 um | |res| 1.097e-02 | |res_x| 4.815e-03 | |res_y| 5.358e-03 | |res_z| 8.275e-03 | |inc| 1.620e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.087 um | |res| 1.054e-02 | |res_x| 4.657e-03 | |res_y| 5.815e-03 | |res_z| 7.453e-03 | |inc| 1.619e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.107 um | |res| 9.985e-03 | |res_x| 4.395e-03 | |res_y| 6.244e-03 | |res_z| 6.434e-03 | |inc| 1.617e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.127 um | |res| 9.359e-03 | |res_x| 4.052e-03 | |res_y| 6.615e-03 | |res_z| 5.235e-03 | |inc| 1.616e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.147 um | |res| 8.718e-03 | |res_x| 3.657e-03 | |res_y| 6.898e-03 | |res_z| 3.878e-03 | |inc| 1.614e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.167 um | |res| 8.133e-03 | |res_x| 3.235e-03 | |res_y| 7.063e-03 | |res_z| 2.406e-03 | |inc| 1.613e+00 (relative to rms|inc(z_p)|)
+INTZ | ag4_d235 | z 2.187 um | |res| 7.684e-03 | |res_x| 2.816e-03 | |res_y| 7.084e-03 | |res_z| 9.654e-04 | |inc| 1.611e+00 (relative to rms|inc(z_p)|)
+INTERIOR | ag4_d235 | z-line x = y = 0, z 0.287 .. 2.187 um | 96 points | rms|res|/rms|inc(z_p)| 9.670e-03
+MECH | ag4_d235 | time 3.5 s
+MECH | ag4_d235 | top J>k0 3.590e-02 M>k0 4.022e-02 J@spp 1.852e-02 M@spp 2.261e-02 | walls J>k0 7.337e-01 M>k0 7.263e-01 J@spp 3.342e-01 M@spp 3.361e-01 | bottom J>k0 7.519e-01 M>k0 7.542e-01 J@spp 4.694e-01 M@spp 4.762e-01 | int x z=0.29 9.784e-03 | int x z=0.79 7.324e-03 | int x z=1.29 8.593e-03 | int x z=2.20 9.551e-03 | int y z=0.29 1.084e-02 | int z-line 9.670e-03
+RITZ | ag4_d235 | k 1000 | sigma_min 1.2799e-02 | sigma_max 9.1283e+00 | harmonic |theta| < 0.01: 0, < 0.03: 2, < 0.1: 10, < 0.3: 33 | smallest |theta| 2.2910e-02 2.5520e-02 4.0945e-02 | 5.5 s
+RITZV | ag4_d235 | k 1000 |  0 | theta -2.12419e-02 +8.58103e-03j | |theta| 2.29096e-02 | sigma_(k-0) 1.27985e-02
+RITZV | ag4_d235 | k 1000 |  1 | theta +2.40925e-02 +8.41465e-03j | |theta| 2.55197e-02 | sigma_(k-1) 2.03906e-02
+RITZV | ag4_d235 | k 1000 |  2 | theta -3.93223e-02 +1.14114e-02j | |theta| 4.09446e-02 | sigma_(k-2) 2.74415e-02
+RITZV | ag4_d235 | k 1000 |  3 | theta +4.08594e-02 +9.30999e-03j | |theta| 4.19066e-02 | sigma_(k-3) 3.46948e-02
+RITZV | ag4_d235 | k 1000 |  4 | theta -5.48063e-02 +1.17175e-02j | |theta| 5.60449e-02 | sigma_(k-4) 4.06675e-02
+RITZV | ag4_d235 | k 1000 |  5 | theta +5.59612e-02 +1.29939e-02j | |theta| 5.74500e-02 | sigma_(k-5) 4.90941e-02
+RITZV | ag4_d235 | k 1000 |  6 | theta -7.13952e-02 +1.19261e-02j | |theta| 7.23845e-02 | sigma_(k-6) 5.53709e-02
+RITZV | ag4_d235 | k 1000 |  7 | theta +7.33141e-02 +1.34082e-02j | |theta| 7.45301e-02 | sigma_(k-7) 6.32480e-02
+RITZV | ag4_d235 | k 1000 |  8 | theta -8.58142e-02 +1.55285e-02j | |theta| 8.72079e-02 | sigma_(k-8) 7.17782e-02
+RITZV | ag4_d235 | k 1000 |  9 | theta +9.23040e-02 +1.29173e-02j | |theta| 9.32035e-02 | sigma_(k-9) 7.66936e-02
+RITZV | ag4_d235 | k 1000 | 10 | theta -1.03283e-01 +1.76385e-02j | |theta| 1.04778e-01 | sigma_(k-10) 8.68801e-02
+RITZV | ag4_d235 | k 1000 | 11 | theta +1.13369e-01 +1.48488e-02j | |theta| 1.14338e-01 | sigma_(k-11) 9.23001e-02
+RITZV | ag4_d235 | k 1000 | 12 | theta +1.12532e-01 +2.45944e-02j | |theta| 1.15188e-01 | sigma_(k-12) 1.01099e-01
+RITZV | ag4_d235 | k 1000 | 13 | theta -1.20187e-01 +2.72456e-02j | |theta| 1.23236e-01 | sigma_(k-13) 1.11243e-01
+RITZV | ag4_d235 | k 1000 | 14 | theta +1.37951e-01 +8.58308e-03j | |theta| 1.38218e-01 | sigma_(k-14) 1.18652e-01
+RITZV | ag4_d235 | k 1000 | 15 | theta -1.42484e-01 +2.85042e-02j | |theta| 1.45307e-01 | sigma_(k-15) 1.26146e-01
+RITZV | ag4_d235 | k 1000 | 16 | theta +1.59630e-01 +1.15873e-02j | |theta| 1.60050e-01 | sigma_(k-16) 1.38092e-01
+RITZV | ag4_d235 | k 1000 | 17 | theta -1.62008e-01 +3.48824e-02j | |theta| 1.65721e-01 | sigma_(k-17) 1.44257e-01
+RITZV | ag4_d235 | k 1000 | 18 | theta +1.77206e-01 +7.33484e-03j | |theta| 1.77358e-01 | sigma_(k-18) 1.55090e-01
+RITZV | ag4_d235 | k 1000 | 19 | theta -1.80413e-01 +9.46483e-03j | |theta| 1.80661e-01 | sigma_(k-19) 1.60445e-01
+RITZV | ag4_d235 | k 1000 | 20 | theta -1.92415e-01 +7.18117e-03j | |theta| 1.92549e-01 | sigma_(k-20) 1.64598e-01
+RITZV | ag4_d235 | k 1000 | 21 | theta +1.96863e-01 +8.42988e-03j | |theta| 1.97043e-01 | sigma_(k-21) 1.74137e-01
+RITZV | ag4_d235 | k 1000 | 22 | theta +2.11168e-01 +9.41787e-03j | |theta| 2.11378e-01 | sigma_(k-22) 1.83274e-01
+RITZV | ag4_d235 | k 1000 | 23 | theta -2.23768e-01 +1.35763e-02j | |theta| 2.24179e-01 | sigma_(k-23) 1.92035e-01
+EXIT 0 end=2026-10-13T08:33:48+02:00

@@ -128,7 +128,14 @@ responds to fields that reach the walls without the beam (illumination by surfac
 scattered fields is not excluded by this test).
 
 **Ag: SPPs or box cavity resonances?** Two candidate mechanisms; the data of this record do not
-separate them.
+separate them. **Settled by WP-V3 (`ag_box_mechanism.md`): surface waves (most likely surface
+plasmons) on the finite Ag block, radiated at the wall foot for the depth (reproduced in a second
+box discretisation: magnitude 1.24 vs 1.27 %, correlation 0.93); for L ×1.2 rim scattering
+(hypothesis) and real radiation of the SPPs from the added rough annulus are not separated; the box
+cavity resonances are present in the currents but do not cause the far-field sensitivity of the
+rough box.
+WP-V3 also corrects the PARTS reading below: at tol 1e-5 the uniform-box bottom share falls only
+20 % from D = 2 to 4 µm (the 6× drop came from the tol 1e-3 run).**
 
 - *Surface plasmons* excited by the roughness under the beam, running over the top face to the rim
   (amplitude decay 41.5 µm, hardly damped over L/2 = 2 µm), turning onto the walls and reflected at

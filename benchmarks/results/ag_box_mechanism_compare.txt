@@ -1,0 +1,28 @@
+# WP-V3 (benchmarks/results/ag_box_mechanism.md); extracted from benchmarks/results/wp_v3_logs/*.log
+COMPARE | ag4_d205 vs ag4_d20 | l2_refl 7.008e-03 | l2_off30 1.054e-02 | l2_fwd 5.793e-04 | dP_refl +7.843e-05 | eps_xz 1.017e-03 | eps_yz 1.310e-03
+COMPARE | ag4_d21 vs ag4_d20 | l2_refl 1.166e-02 | l2_off30 1.813e-02 | l2_fwd 9.100e-04 | dP_refl +1.090e-04 | eps_xz 2.082e-03 | eps_yz 2.098e-03
+COMPARE | ag4_d215 vs ag4_d20 | l2_refl 1.136e-02 | l2_off30 2.050e-02 | l2_fwd 1.154e-03 | dP_refl +1.968e-05 | eps_xz 2.106e-03 | eps_yz 1.863e-03
+COMPARE | ag4_d22 vs ag4_d20 | l2_refl 7.594e-03 | l2_off30 1.744e-02 | l2_fwd 1.366e-03 | dP_refl -9.754e-05 | eps_xz 9.622e-04 | eps_yz 9.809e-04
+COMPARE | ag4_d22 vs ag4_d21 | l2_refl 1.149e-02 | l2_off30 1.770e-02 | l2_fwd 5.470e-04 | dP_refl -2.065e-04 | eps_xz 1.774e-03 | eps_yz 2.149e-03
+COMPARE | ag4_d225 vs ag4_d20 | l2_refl 4.000e-03 | l2_off30 1.177e-02 | l2_fwd 1.895e-03 | dP_refl -9.355e-05 | eps_xz 2.757e-04 | eps_yz 3.358e-04
+COMPARE | ag4_d23 vs ag4_d20 | l2_refl 7.206e-03 | l2_off30 9.942e-03 | l2_fwd 2.396e-03 | dP_refl +3.280e-05 | eps_xz 1.173e-03 | eps_yz 1.518e-03
+COMPARE | ag4_d235 vs ag4_d20 | l2_refl 1.097e-02 | l2_off30 1.403e-02 | l2_fwd 2.595e-03 | dP_refl +1.298e-04 | eps_xz 2.099e-03 | eps_yz 2.132e-03
+COMPARE | ag4_d24 vs ag4_d20 | l2_refl 1.062e-02 | l2_off30 1.730e-02 | l2_fwd 2.696e-03 | dP_refl +7.293e-05 | eps_xz 1.804e-03 | eps_yz 1.699e-03
+COMPARE | ag4_d40 vs ag4_d20 | l2_refl 8.239e-03 | l2_off30 1.422e-02 | l2_fwd 1.246e-02 | dP_refl -7.685e-05 | eps_xz 1.850e-03 | eps_yz 1.734e-03
+COMPARE | ag4_d40_lossy6 vs ag4_d20_lossy6 | l2_refl 9.245e-04 | l2_off30 1.767e-03 | l2_fwd 2.043e-03 | dP_refl -4.625e-06 | eps_xz 1.049e-04 | eps_yz 9.471e-05 | DIAGNOSTIC
+COMPARE | ag4_flat_d21 vs ag4_flat_d20 | l2_refl 2.362e-03 | l2_off30 5.217e-01 | l2_fwd 5.046e-04 | dP_refl +1.478e-04 | eps_xz 4.473e-04 | eps_yz 5.600e-04
+COMPARE | ag4_flat_d21 vs ag4_flat_d40 | l2_refl 3.380e-04 | l2_off30 4.438e-01 | l2_fwd 4.504e-03 | dP_refl +6.458e-05 | eps_xz 6.770e-05 | eps_yz 7.261e-05
+COMPARE | ag4_flat_d40 vs ag4_flat_d20 | l2_refl 2.385e-03 | l2_off30 5.169e-01 | l2_fwd 5.001e-03 | dP_refl +8.320e-05 | eps_xz 4.894e-04 | eps_yz 5.958e-04
+COMPARE | ag48_d20 vs ag4_d20 | l2_refl 4.517e-02 | l2_off30 1.066e-01 | l2_fwd 1.905e-02 | dP_refl -1.623e-03 | eps_xz 7.502e-03 | eps_yz 6.050e-03
+DIFF | ag48_d20 - ag4_d20 | top-face triangles matched 12800 of 18432 / 12800 | rms|dJ|/rms|J| 7.9544e-02 | rms|dM|/rms|M| 1.0125e-01 | tapered spectral power |dJ|^2/|J|^2 1.1569e-03, |dM|^2/|M|^2 1.4390e-03
+DIFFFF | ag48_d20 - ag4_d20 | far field: |F_a - F_b|/|F_a| 9.1776e-02 | top-face part |dF_top|/|dF| 1.0333e+00, corr 0.9060 | rest (walls, bottom, rim) |dF - dF_top|/|dF| 4.4340e-01 | top basis functions 27456 / 19040
+DIFF | ag4_d21 - ag4_d20 | top-face triangles matched 12800 of 12800 / 12800 | rms|dJ|/rms|J| 1.9480e-02 | rms|dM|/rms|M| 2.2219e-02 | tapered spectral power |dJ|^2/|J|^2 9.2285e-05, |dM|^2/|M|^2 9.9924e-05
+DIFFFF | ag4_d21 - ag4_d20 | far field: |F_a - F_b|/|F_a| 2.2850e-02 | top-face part |dF_top|/|dF| 6.0154e-01, corr 0.0413 | rest (walls, bottom, rim) |dF - dF_top|/|dF| 1.1571e+00 | top basis functions 19040 / 19040
+DIFF | ag4_d22 - ag4_d20 | top-face triangles matched 12800 of 12800 / 12800 | rms|dJ|/rms|J| 1.9740e-02 | rms|dM|/rms|M| 2.0968e-02 | tapered spectral power |dJ|^2/|J|^2 9.0126e-05, |dM|^2/|M|^2 1.0025e-04
+DIFFFF | ag4_d22 - ag4_d20 | far field: |F_a - F_b|/|F_a| 2.5862e-02 | top-face part |dF_top|/|dF| 5.1930e-01, corr 0.0278 | rest (walls, bottom, rim) |dF - dF_top|/|dF| 1.1185e+00 | top basis functions 19040 / 19040
+DIFF | ag4_d40 - ag4_d20 | top-face triangles matched 12800 of 12800 / 12800 | rms|dJ|/rms|J| 1.5656e-02 | rms|dM|/rms|M| 1.7609e-02 | tapered spectral power |dJ|^2/|J|^2 6.6657e-05, |dM|^2/|M|^2 7.4910e-05
+DIFFFF | ag4_d40 - ag4_d20 | far field: |F_a - F_b|/|F_a| 1.9308e-02 | top-face part |dF_top|/|dF| 6.1602e-01, corr 0.0308 | rest (walls, bottom, rim) |dF - dF_top|/|dF| 1.1690e+00 | top basis functions 19040 / 19040
+DIFF | ag4_d40_lossy6 - ag4_d20_lossy6 | top-face triangles matched 12800 of 12800 / 12800 | rms|dJ|/rms|J| 1.4298e-03 | rms|dM|/rms|M| 1.4041e-03 | tapered spectral power |dJ|^2/|J|^2 5.3098e-07, |dM|^2/|M|^2 5.2099e-07
+DIFFFF | ag4_d40_lossy6 - ag4_d20_lossy6 | far field: |F_a - F_b|/|F_a| 2.0805e-03 | top-face part |dF_top|/|dF| 7.2607e-01, corr 0.0030 | rest (walls, bottom, rim) |dF - dF_top|/|dF| 1.2367e+00 | top basis functions 19040 / 19040
+DIFF | ag4_flat_d40 - ag4_flat_d20 | top-face triangles matched 12800 of 12800 / 12800 | rms|dJ|/rms|J| 3.4048e-03 | rms|dM|/rms|M| 3.4559e-03 | tapered spectral power |dJ|^2/|J|^2 4.0243e-06, |dM|^2/|M|^2 3.8017e-06
+DIFFFF | ag4_flat_d40 - ag4_flat_d20 | far field: |F_a - F_b|/|F_a| 4.6682e-03 | top-face part |dF_top|/|dF| 4.0274e-01, corr 0.0260 | rest (walls, bottom, rim) |dF - dF_top|/|dF| 1.0848e+00 | top basis functions 19040 / 19040
