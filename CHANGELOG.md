@@ -5,6 +5,31 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / docs (WP22b2): MLFMM formulation size sweep. `benchmarks/mlfmm_scaling.cpp` gains
+  `--history-file` / `--history-stride` / `--history-digits` / `--history-full-file` (one
+  `HISTORY` line of monitored residuals per solve, with `waist=` and `max_iter=`) and `form=` /
+  `jacobi=` keys on the `ROW` line; option parsing moved to `mlfmm_scaling::parse_options`
+  (unit-tested; numeric values must be consumed whole, out-of-range values and the history
+  options with `--no-solve` / `--estimate-only` are refused, `--jacobi` accepts only 0 or 1),
+  `probe_history_files` checks the history paths before the assembly; new `history_indices`,
+  `history_record`, `append_line`, `formulation_key`, `Result::residual_history`;
+  `benchmarks/formulation_sweep_summary.py` (refuses duplicate records; pytest);
+  `mlfmm_scaling_fit.py` groups by `form` / `jacobi`. Study
+  (`benchmarks/results/formulation_convergence.md`, section WP22b2; raw logs in
+  `benchmarks/results/wp22b2_logs/`, full-precision histories committed): PMCHWT / ICTF / MCTF /
+  Jacobi at L = 3.2, 5, 7, 10 µm for Si and Ag on the uniform 50 nm box (rigorous beam w₀ = L/4
+  (Si pinned past the WP-B3 default), d₀ = 3, tol 1e-3), 43 solves. At 10 µm five of six Fu et
+  al. Fig. 2 statements hold; "PMCHWT does not converge" holds for neither material in the strict
+  sense: Si PMCHWT converges in 369–405 iterations at every L; Ag PMCHWT is impractical (residual
+  at iteration 2 000: 1.1e-3 → 2.4e-3 from 3.2 to 10 µm, 6–8× the ICTF iterations), but its
+  non-convergence is not demonstrated (both caps lie below the 5 µm count, the 10 µm residual was
+  still decreasing). Ag MCTF/ICTF grows 1.46 → 3.17 with L; Ag Jacobi beats ICTF by 7 % at
+  10 µm on the preconditioned residual, 3 % at equal true residual. The WP15 Ag Jacobi deficit is
+  attributed to the graded box (one paired comparison at 3.2 µm: graded 100 nm box Jacobi 1.68×
+  ICTF, uniform 1.00×); the WP15 Ag MCTF/PMCHWT ratios are neither a size nor a graded-vs-uniform
+  box effect (graded 1.37 / 6.06, uniform 1.46 / 6.13, WP15 1.05 / 1.42; dense vs MLFMM, beam and
+  400 nm cells not separated). The uniform box also cuts Ag iterations (ICTF −39 %, Jacobi −64 %
+  at 3.2 µm). Ag verdicts rest on a box that fails the docs/05 Ag box checks (WP-V3 open).
 - docs (WP22e part 1): WP22d server results of the Si runs 1–3 (lead's 1 TB server, 2 × 8-core
   EPYC 9015, commit 1be8f2b, w₀ = L/4) in `benchmarks/results/si_large_area.md` ("Server results"
   and assessment) and the three `row.txt` lines in `mlfmm_scaling_rows.txt` (block "WP22d server").

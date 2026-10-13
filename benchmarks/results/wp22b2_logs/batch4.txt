@@ -1,0 +1,3 @@
+ag5_pmchwt --material ag --L 5e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation pmchwt --jacobi 0
+si5_ictf --material si --L 5e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation ictf --jacobi 0
+si5_mctf --material si --L 5e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation mctf --jacobi 0

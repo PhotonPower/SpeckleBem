@@ -1,0 +1,10 @@
+est_si_3.2 --material si --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --estimate-only
+est_si_5 --material si --L 5e-6 --box-mesh-size 50e-9 --beam angular-spectrum --estimate-only
+est_si_7 --material si --L 7e-6 --box-mesh-size 50e-9 --beam angular-spectrum --estimate-only
+est_si_10 --material si --L 10e-6 --box-mesh-size 50e-9 --beam angular-spectrum --estimate-only
+est_si_3.2g --material si --L 3.2e-6 --beam angular-spectrum --estimate-only
+est_ag_3.2 --material ag --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --estimate-only
+est_ag_5 --material ag --L 5e-6 --box-mesh-size 50e-9 --beam angular-spectrum --estimate-only
+est_ag_7 --material ag --L 7e-6 --box-mesh-size 50e-9 --beam angular-spectrum --estimate-only
+est_ag_10 --material ag --L 10e-6 --box-mesh-size 50e-9 --beam angular-spectrum --estimate-only
+est_ag_3.2g --material ag --L 3.2e-6 --beam angular-spectrum --estimate-only

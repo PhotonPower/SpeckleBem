@@ -7,10 +7,12 @@ time, the time per iteration and the memory. The exponent does not depend on whe
 used.
 
 Grouping: one series per (material, box option, fine band, restart, h, sigma, waist factor, beam,
-d0, tol, leaf radius quantile lq, machine); rows written before these fields existed get the
-study defaults (h = 50 nm, sigma = 50 nm, w0 = L/4, paraxial beam, d0 = 3, tol = 1e-3, lq = 1:
-the global leaf rule; machine = dev, the development machine; the server run kit writes
-machine=server). Repeated runs of one size (same series and 2N) are merged by taking, per
+d0, tol, leaf radius quantile lq, machine, formulation, Jacobi); rows written before these fields
+existed get the study defaults (h = 50 nm, sigma = 50 nm, w0 = L/4, paraxial beam, d0 = 3, tol =
+1e-3, lq = 1: the global leaf rule; machine = dev, the development machine; the server run kit
+writes machine=server; form = jacobi = auto: formulation::recommend, the only choice before the
+WP22b2 form= / jacobi= keys). Rows of different formulations are therefore never merged as
+repeats; series at the default form/jacobi "auto" print the same heading as before. Repeated runs of one size (same series and 2N) are merged by taking, per
 quantity, the minimum over the runs that measured it (timings on a shared machine carry load
 noise that only ever adds time; memory and iterations are deterministic).
 
@@ -67,11 +69,16 @@ DEFAULTS = {
     # Machine annotation of the server run kit (machine=server); every other row was measured on
     # the development machine. Own series, so the per-size minimum never mixes two machines.
     "machine": "dev",
+    # Solved system (WP22b2 ROW keys form= / jacobi=); older rows used formulation::recommend.
+    "form": "auto",
+    "jacobi": "auto",
 }
 GROUP_KEYS = (
     "material", "box", "fine", "restart", "h_nm", "sigma_nm", "waist", "beam", "d0", "tol", "lq",
-    "machine",
+    "machine", "form", "jacobi",
 )
+# Group keys left out of a series heading when at their default (headings of older rows unchanged).
+QUIET_DEFAULT_KEYS = ("form", "jacobi")
 
 
 def parse_rows(paths: list[str], rows_only: bool) -> list[dict[str, str]]:
@@ -184,7 +191,8 @@ def main(argv: list[str]) -> int:
     for r in parse_rows(args.files, args.rows_only):
         groups[tuple(r[k] for k in GROUP_KEYS)].append(r)
     for key, rows in sorted(groups.items()):
-        desc = ", ".join(f"{k} {v}" for k, v in zip(GROUP_KEYS, key))
+        desc = ", ".join(f"{k} {v}" for k, v in zip(GROUP_KEYS, key)
+                         if not (k in QUIET_DEFAULT_KEYS and v == DEFAULTS[k]))
         merged = merge_repeats(rows)
         print(f"\n## {desc}\n")
         print(

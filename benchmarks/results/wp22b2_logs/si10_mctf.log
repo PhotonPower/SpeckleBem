@@ -1,0 +1,153 @@
+CASE si10_mctf load0=3.69 start=2026-10-12T23:42:22+02:00
+si L = 10 um, sigma = 50 nm, h = 50 nm, box 50 nm, fine band, angular_spectrum beam w0 = L/4, seed 1, d0 = 3, leaf radius quantile 1, tol = 0.001
+available memory at start: 124.5 GB of 137.4 GB
+[2026-10-12 23:42:22.482] [info] [rough_surface.cpp:1269] rough box mesh: 201 x 201 grid, 80000 top + 180800 wall + 80000 bottom triangles (closing box / top = 3.260), depth 5.645512306863871e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 200 x 200 cells (target spacing 5e-08 m)
+[2026-10-12 23:42:22.516] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 201 x 201 grid, box depth 5.64551e-06 m: 0.035 s
+[2026-10-12 23:42:23.289] [info] [angular_spectrum_beam.cpp:218] AngularSpectrumBeam: w0 = 2.5e-06 m, lambda = 5e-07 m, n1 = 1, theta_in = 0 rad, 1404 plane waves (27 x 52), alpha_max = 0.3558 rad, region R = 9.139e-06 m, grid change 8.34e-12
+[2026-10-12 23:42:23.431] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 6 (a = 0.313 lambda_i): expansion, L = 14, search error 7.04e-04, block check 8.65e-03 (3 pairs)
+[2026-10-12 23:42:23.460] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 5 (a = 0.625 lambda_i): expansion, L = 17, search error 5.36e-06, block check 3.21e-03 (3 pairs)
+[2026-10-12 23:42:23.510] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 4 (a = 1.25 lambda_i): expansion, L = 25, search error 2.47e-08, block check 7.18e-04 (3 pairs)
+[2026-10-12 23:42:23.619] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 3 (a = 2.5 lambda_i): expansion, L = 41, search error 3.85e-12, block check 7.79e-05 (3 pairs)
+[2026-10-12 23:42:23.922] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 2 (a = 5 lambda_i): expansion, L = 71, search error 1.52e-13, block check 7.96e-06 (3 pairs)
+[2026-10-12 23:42:24.084] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 6 (a = 1.34 lambda_i): expansion, L = 33, search error 5.55e-07, block check 2.64e-05 (3 pairs)
+[2026-10-12 23:42:24.459] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 5 (a = 2.69 lambda_i): expansion, L = 49, search error 4.79e-10, block check 1.94e-06 (3 pairs)
+[2026-10-12 23:42:25.520] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 4 (a = 5.37 lambda_i): expansion, L = 81, search error 2.59e-11, block check 2.29e-06 (3 pairs)
+[2026-10-12 23:42:29.472] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 3 (a = 10.7 lambda_i): expansion, L = 143, search error 5.60e-12, block check 1.47e-06 (3 pairs)
+[2026-10-12 23:42:42.666] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 2 (a = 21.5 lambda_i): expansion, L = 265, search error 9.34e-11, block check 5.58e-07 (3 pairs)
+[2026-10-12 23:43:26.750] [info] [far_operator.cpp:1216] MlfmmFarOperator: 2N = 1022400, 7 octree levels, d0 = 3, 56709.7 MB (incl. one apply workspace of 12732.0 MB)
+[2026-10-12 23:43:26.840] [info] [near_field.cpp:123] near field: 7 levels, 18075 leaves, leaf edge 1.563e-07 m, 4971363 column-list entries
+[2026-10-12 23:43:29.394] [info] [assembler.cpp:465] sparse assembly: N = 511200, 2N = 1022400, nnz = 565586856 (553 per row), matrix 13574.085 MB
+[2026-10-12 23:45:24.093] [info] [timer.cpp:13] [timer] sparse assembly (2N = 1022400, nnz = 565586856): 114.698 s
+[2026-10-12 23:45:24.094] [info] [mlfmm_operator.cpp:167] MlfmmOperator: 2N = 1022400, 7 levels, leaf edge 0.313 lambda1, near nnz 565586856 (12953.1 MB, 117.34 s), far 56709.7 MB (63.37 s)
+[2026-10-12 23:45:24.094] [info] [timer.cpp:13] [timer] Simulation: MLFMM operator: 180.785 s
+[2026-10-12 23:45:28.688] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 4.594 s
+[2026-10-12 23:47:58.068] [info] [gmres.cpp:319] gmres: n = 1022400, left preconditioner 'none', tol = 1.0e-03, max_iter = 1000, full (no restart)
+HIST it=1 res=3.210366e-01 t_s=12.424
+HIST it=2 res=2.721965e-01 t_s=24.812
+HIST it=3 res=2.265077e-01 t_s=37.229
+HIST it=4 res=2.033586e-01 t_s=49.531
+HIST it=5 res=1.947661e-01 t_s=62.018
+HIST it=6 res=1.805255e-01 t_s=74.403
+HIST it=7 res=1.567482e-01 t_s=86.759
+HIST it=8 res=1.322553e-01 t_s=99.118
+HIST it=9 res=1.098547e-01 t_s=111.439
+HIST it=10 res=9.544103e-02 t_s=123.853
+HIST it=11 res=9.255251e-02 t_s=136.330
+HIST it=12 res=8.411852e-02 t_s=148.775
+HIST it=13 res=6.954166e-02 t_s=161.176
+HIST it=14 res=5.819117e-02 t_s=173.511
+HIST it=15 res=5.105160e-02 t_s=185.902
+HIST it=16 res=4.347047e-02 t_s=198.307
+HIST it=17 res=3.564882e-02 t_s=210.646
+HIST it=18 res=2.995114e-02 t_s=223.118
+HIST it=19 res=2.772372e-02 t_s=235.625
+HIST it=20 res=2.543333e-02 t_s=248.050
+HIST it=21 res=2.237196e-02 t_s=260.523
+HIST it=22 res=2.081518e-02 t_s=273.014
+HIST it=23 res=1.938183e-02 t_s=285.507
+HIST it=24 res=1.681332e-02 t_s=297.915
+HIST it=25 res=1.494510e-02 t_s=310.343
+HIST it=26 res=1.367210e-02 t_s=322.877
+HIST it=27 res=1.252027e-02 t_s=335.656
+HIST it=28 res=1.181095e-02 t_s=348.117
+HIST it=29 res=1.103660e-02 t_s=360.500
+HIST it=30 res=1.007251e-02 t_s=372.967
+HIST it=31 res=9.384815e-03 t_s=385.493
+HIST it=32 res=8.850388e-03 t_s=398.016
+HIST it=33 res=8.027021e-03 t_s=410.563
+HIST it=34 res=7.166408e-03 t_s=423.085
+HIST it=35 res=6.615155e-03 t_s=435.773
+HIST it=36 res=6.274207e-03 t_s=448.481
+HIST it=37 res=5.802819e-03 t_s=460.978
+HIST it=38 res=5.366066e-03 t_s=473.748
+HIST it=39 res=5.200493e-03 t_s=486.524
+HIST it=40 res=4.948227e-03 t_s=499.331
+HIST it=41 res=4.574832e-03 t_s=511.969
+HIST it=42 res=4.344475e-03 t_s=524.727
+HIST it=43 res=4.105635e-03 t_s=537.331
+HIST it=44 res=3.787451e-03 t_s=549.819
+HIST it=45 res=3.527588e-03 t_s=562.788
+HIST it=46 res=3.331483e-03 t_s=575.744
+HIST it=47 res=3.171743e-03 t_s=588.562
+HIST it=48 res=3.025393e-03 t_s=601.330
+HIST it=49 res=2.872934e-03 t_s=614.225
+HIST it=50 res=2.732401e-03 t_s=627.033
+[2026-10-12 23:58:25.097] [info] [gmres.cpp:420] gmres: iteration 50: relative residual 2.732e-03
+HIST it=51 res=2.599524e-03 t_s=639.660
+HIST it=52 res=2.471757e-03 t_s=652.443
+HIST it=53 res=2.311253e-03 t_s=665.263
+HIST it=54 res=2.154888e-03 t_s=678.097
+HIST it=55 res=2.045604e-03 t_s=690.734
+HIST it=56 res=1.951762e-03 t_s=703.311
+HIST it=57 res=1.836123e-03 t_s=715.831
+HIST it=58 res=1.750421e-03 t_s=728.536
+HIST it=59 res=1.687259e-03 t_s=741.100
+HIST it=60 res=1.590791e-03 t_s=753.654
+HIST it=61 res=1.502446e-03 t_s=766.443
+HIST it=62 res=1.422681e-03 t_s=779.068
+HIST it=63 res=1.343369e-03 t_s=791.744
+HIST it=64 res=1.279097e-03 t_s=804.414
+HIST it=65 res=1.215365e-03 t_s=817.147
+HIST it=66 res=1.160879e-03 t_s=829.719
+HIST it=67 res=1.118547e-03 t_s=842.367
+HIST it=68 res=1.063675e-03 t_s=855.125
+HIST it=69 res=1.004106e-03 t_s=867.716
+HIST it=70 res=9.582060e-04 t_s=880.270
+[2026-10-13 00:02:50.893] [info] [gmres.cpp:497] gmres: converged in 70 iterations, 892.82 s (CGS2 orthogonalisation 4.53 s, 70 re-orthogonalisations): relative residual 9.582e-04 (preconditioned), true residual 9.582e-04
+[2026-10-13 00:02:50.926] [info] [simulation.cpp:489] Simulation: MCTF GMRES, 2N = 1022400: 70 it, converged true, true residual 9.582e-04, assembly 185.379 s, solve 892.824 s
+RESULT si L = 10 um, sigma = 50 nm, h = 50 nm, box 50 nm, fine band, angular_spectrum beam w0 = L/4, seed 1, d0 = 3, leaf radius quantile 1, tol = 0.001
+triangles 340800 (top 80000, box 260800 = 326 %), box M = 0, fine rows 0, depth 5.64551 um, fine band 3.53731 um; 2N = 1022400; r_max 67.2294 nm; octree 7 levels, leaf edge 156.25 nm (lambda / 3.19999), 18075 leaves; 0 elevated functions (home levels 6: 511200); near estimate 13.5823 GB, exact R2 estimate 0 GB (0 pairs), budget 27.1645 GB; leaf orders 14 / 33 (expansion levels 5 / 5), patterns 45.1819 GB (elevated 0 GB), far tables 14.2807 GB; setup peak estimate 86.7823 GB
+formulation MCTF; GMRES 70 iterations, converged yes, monitored residual 0.000958206, true residual 0.000958206
+setup 185.379 s (octree 0.077139 s, far 63.3653 s incl. exact parts 0 s, near 117.343 s); matvec 12.3972 s (near 0.38941 s, far 12.0191 s); solve 892.824 s (12.7546 s/it)
+memory: near 13.5823 GB (nnz 565586856, 553.195 per row), exact R1 0 GB, exact R2 0 GB (0 pairs), far 59.4644 GB, operator 73.0696 GB, Krylov 1.16145 GB, peak after setup 59.961 GB, peak 74.7836 GB
+ROW material=si L_um=10 box=50.000000 fine=1 restart=0 h_nm=50 sigma_nm=50 waist=4 beam=angular_spectrum d0=3 tol=0.001 lq=1 seed=1 solved=1 N2=1022400 levels=7 leaf_nm=156.25 rmax_nm=67.2294 elevated=0 setup_s=185.379 tree_s=0.077139 far_s=63.3653 exact_s=0 near_s=117.343 matvec_s=12.3972 near_mv_s=0.38941 far_mv_s=12.0191 it=70 conv=1 res=0.000958206 true_res=0.000958206 solve_s=892.824 near_gb=13.5823 exact_gb=0 exact_est_gb=0 pattern_est_gb=45.1819 far_est_gb=59.4626 peak_est_gb=86.7823 far_gb=59.4644 krylov_gb=1.16145 peak_setup_gb=59.961 peak_gb=74.7836 form=mctf jacobi=0
+
+MlfmmOperator: 2N = 1022400, d0 = 3, octree 7 levels, 18075 leaves of edge 0.312501 lambda1 (lambda1 = 5e-07 m), built in 0.077139 s; leaf floor 0.25 lambda1 (given 0.25), leaf radius quantile 1
+  near: sparse 1022400x1022400, nnz = 565586856 (0.0541 % of dense), 13582.264 MB, assembled in 117.343 s
+  far: 63.3653 s setup, 56709.7 MB
+  MlfmmFarOperator: 2N = 1022400, d0 = 3, interpolation order p = 14, octree levels 7 (far levels 2 ... 6); policy: expansion if the search is achievable (lossy regions: and block check <= 0.001 or <= 2 x the lossless analogue), else per box pair truncation if delta <= 0.0001, exact otherwise (allowed if x*/alpha <= 4 box edges, x* = 11.7564; exact-part budget 25906.1 MB)
+  region R1: k = (1.25664e+07,0) 1/m, leaf patterns 7020.26 MB (quadrature degree <= 5, 2.13416 s)
+    level 2: 44 boxes, a = 5.00001 lambda_i, expansion; search achievable, error 1.52e-13 at L = 71, block check 7.95706e-06 (3 pairs), sampling L = 71 (10368 directions), 218 translators, fields 55.6875 MB per apply, setup 0.514761 s
+    level 3: 212 boxes, a = 2.50001 lambda_i, expansion; search achievable, error 3.85e-12 at L = 41, block check 7.79134e-05 (3 pairs), sampling L = 41 (3528 directions), 316 translators, fields 91.3008 MB per apply, setup 0.172522 s
+    level 4: 992 boxes, a = 1.25 lambda_i, expansion; search achievable, error 2.47e-08 at L = 25, block check 0.000717949 (3 pairs), sampling L = 25 (1352 directions), 316 translators, fields 163.719 MB per apply, setup 0.0648307 s
+    level 5: 4156 boxes, a = 0.625001 lambda_i, expansion; search achievable, error 5.36e-06 at L = 17, block check 0.00320595 (3 pairs), sampling L = 17 (648 directions), 316 translators, fields 328.746 MB per apply, setup 0.0355469 s
+    level 6: 18075 boxes, a = 0.312501 lambda_i, expansion; search achievable, error 7.04e-04 at L = 14, block check 0.00864967 (3 pairs), sampling L = 14 (450 directions), 316 translators, fields 992.889 MB per apply, setup 0.0362494 s
+  region R2: k = (5.40251e+07,-885659) 1/m, leaf patterns 36068.6 MB (quadrature degree <= 9, 27.9581 s)
+    level 2: 44 boxes, a = 21.496 lambda_i, expansion; search achievable, error 9.34e-11 at L = 265, block check 5.58082e-07 (3 pairs), sampling L = 265 (141512 directions), 218 translators, fields 760.074 MB per apply, setup 23.7794 s
+    level 3: 212 boxes, a = 10.748 lambda_i, expansion; search achievable, error 5.60e-12 at L = 143, block check 1.46745e-06 (3 pairs), sampling L = 143 (41472 directions), 316 translators, fields 1073.25 MB per apply, setup 6.4411 s
+    level 4: 992 boxes, a = 5.37399 lambda_i, expansion; search achievable, error 2.59e-11 at L = 81, block check 2.28602e-06 (3 pairs), sampling L = 81 (13448 directions), 316 translators, fields 1628.47 MB per apply, setup 1.52067 s
+    level 5: 4156 boxes, a = 2.68699 lambda_i, expansion; search achievable, error 4.79e-10 at L = 49, block check 1.93649e-06 (3 pairs), sampling L = 49 (5000 directions), 316 translators, fields 2536.62 MB per apply, setup 0.48606 s
+    level 6: 18075 boxes, a = 1.3435 lambda_i, expansion; search achievable, error 5.55e-07 at L = 33, block check 2.63946e-05 (3 pairs), sampling L = 33 (2312 directions), 316 translators, fields 5101.25 MB per apply, setup 0.204489 s
+  memory 56709.7 MB incl. 1 apply workspace(s) of 12732 MB (0 allocated so far; at least one is counted)
+  total 69684.6 MB (near 12953.1, far 56709.7, octree 21.886)
+
+SpeckleBem simulation
+  mesh:           340800 triangles, N = 511200 RWG functions, 2N = 1022400 unknowns
+  wavelength:     5e-07 m, object eps_r = (18.478,-0.606), exterior eps_r = (1,0)
+  formulation:    MCTF (explicit)
+  preconditioner: none (explicit)
+  solver:         GMRES (tol 0.001, max_iter 1000, restart 0)
+  compression:    mlfmm (accuracy_digits 3, max_elements_per_leaf 100, min_box_size_lambda 0.25, max_levels 12, automatic_leaf_size true, leaf_radius_quantile 1, max_exact_far_bytes 0)
+  operator:       MlfmmOperator: 2N = 1022400, d0 = 3, octree 7 levels, 18075 leaves of edge 0.312501 lambda1 (lambda1 = 5e-07 m), built in 0.077139 s; leaf floor 0.25 lambda1 (given 0.25), leaf radius quantile 1
+  near: sparse 1022400x1022400, nnz = 565586856 (0.0541 % of dense), 13582.264 MB, assembled in 117.343 s
+  far: 63.3653 s setup, 56709.7 MB
+  MlfmmFarOperator: 2N = 1022400, d0 = 3, interpolation order p = 14, octree levels 7 (far levels 2 ... 6); policy: expansion if the search is achievable (lossy regions: and block check <= 0.001 or <= 2 x the lossless analogue), else per box pair truncation if delta <= 0.0001, exact otherwise (allowed if x*/alpha <= 4 box edges, x* = 11.7564; exact-part budget 25906.1 MB)
+  region R1: k = (1.25664e+07,0) 1/m, leaf patterns 7020.26 MB (quadrature degree <= 5, 2.13416 s)
+    level 2: 44 boxes, a = 5.00001 lambda_i, expansion; search achievable, error 1.52e-13 at L = 71, block check 7.95706e-06 (3 pairs), sampling L = 71 (10368 directions), 218 translators, fields 55.6875 MB per apply, setup 0.514761 s
+    level 3: 212 boxes, a = 2.50001 lambda_i, expansion; search achievable, error 3.85e-12 at L = 41, block check 7.79134e-05 (3 pairs), sampling L = 41 (3528 directions), 316 translators, fields 91.3008 MB per apply, setup 0.172522 s
+    level 4: 992 boxes, a = 1.25 lambda_i, expansion; search achievable, error 2.47e-08 at L = 25, block check 0.000717949 (3 pairs), sampling L = 25 (1352 directions), 316 translators, fields 163.719 MB per apply, setup 0.0648307 s
+    level 5: 4156 boxes, a = 0.625001 lambda_i, expansion; search achievable, error 5.36e-06 at L = 17, block check 0.00320595 (3 pairs), sampling L = 17 (648 directions), 316 translators, fields 328.746 MB per apply, setup 0.0355469 s
+    level 6: 18075 boxes, a = 0.312501 lambda_i, expansion; search achievable, error 7.04e-04 at L = 14, block check 0.00864967 (3 pairs), sampling L = 14 (450 directions), 316 translators, fields 992.889 MB per apply, setup 0.0362494 s
+  region R2: k = (5.40251e+07,-885659) 1/m, leaf patterns 36068.6 MB (quadrature degree <= 9, 27.9581 s)
+    level 2: 44 boxes, a = 21.496 lambda_i, expansion; search achievable, error 9.34e-11 at L = 265, block check 5.58082e-07 (3 pairs), sampling L = 265 (141512 directions), 218 translators, fields 760.074 MB per apply, setup 23.7794 s
+    level 3: 212 boxes, a = 10.748 lambda_i, expansion; search achievable, error 5.60e-12 at L = 143, block check 1.46745e-06 (3 pairs), sampling L = 143 (41472 directions), 316 translators, fields 1073.25 MB per apply, setup 6.4411 s
+    level 4: 992 boxes, a = 5.37399 lambda_i, expansion; search achievable, error 2.59e-11 at L = 81, block check 2.28602e-06 (3 pairs), sampling L = 81 (13448 directions), 316 translators, fields 1628.47 MB per apply, setup 1.52067 s
+    level 5: 4156 boxes, a = 2.68699 lambda_i, expansion; search achievable, error 4.79e-10 at L = 49, block check 1.93649e-06 (3 pairs), sampling L = 49 (5000 directions), 316 translators, fields 2536.62 MB per apply, setup 0.48606 s
+    level 6: 18075 boxes, a = 1.3435 lambda_i, expansion; search achievable, error 5.55e-07 at L = 33, block check 2.63946e-05 (3 pairs), sampling L = 33 (2312 directions), 316 translators, fields 5101.25 MB per apply, setup 0.204489 s
+  memory 56709.7 MB incl. 1 apply workspace(s) of 12732 MB (1 allocated so far; at least one is counted)
+  total 69684.6 MB (near 12953.1, far 56709.7, octree 21.886), 73069.6 MB
+  assembly:       Z 180.785 s, rhs 4.5937 s
+  solve:          892.824 s, 70 iterations, converged
+  residuals:      monitored 0.000958206, true 0.000958206
+
+EXIT si10_mctf status=0 end=2026-10-13T00:02:53+02:00

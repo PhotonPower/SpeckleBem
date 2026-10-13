@@ -1,0 +1,4 @@
+ag32_ictf_j --material ag --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation ictf --jacobi 1
+ag32_mctf_j --material ag --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation mctf --jacobi 1
+ag32g_ictf --material ag --L 3.2e-6 --box-mesh-size 100e-9 --beam angular-spectrum --max-iter 4000 --history --formulation ictf --jacobi 0
+ag32g_pmchwt_j --material ag --L 3.2e-6 --box-mesh-size 100e-9 --beam angular-spectrum --max-iter 4000 --history --formulation pmchwt --jacobi 1

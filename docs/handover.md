@@ -49,10 +49,10 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   `benchmarks/results/si_large_area.md`, "Server results"): **Si L = 30 µm, 2N = 5.95·10⁶ solved**, 95 it.,
   solve 5.56 h, peak 697 GB; the server (2 × 8 cores, 32 threads) is ≈ 2 × slower than the desktop for Si.
   The Ag series (run 4) is still running → WP22e part 2.
-- **In flight:** WP22b2 (formulation sweep with MLFMM, L = 3.2–10 µm); after it, WP-V3 and WP-V2b (machine-exclusive).
+- **Done, awaiting merge:** WP22b2 (formulation sweep with MLFMM, L = 3.2–10 µm, review fixes on
+  `wp/22b2-review-fixes`); next WP-V3 and WP-V2b (machine-exclusive).
   They share the machine via a lock directory in the session scratchpad (WP22d holds it for timed runs).
-- **Next:** WP-V2 (box validity at MLFMM sizes, graded vs uniform box), WP22b2 (formulation sweep with MLFMM),
-  then Phases 5/6. A stronger preconditioner than Jacobi would address the Ag iteration growth.
+- **Next:** WP-V3, WP-V2b, then Phases 5/6. A stronger preconditioner than Jacobi would address the Ag iteration growth.
 - Test counts on `main`: 424 ctest (`-LE "validation-large|slow"`), 97 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
@@ -66,7 +66,13 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
    wording "solves on a 256 GB node" is not met (2.7 × 256 GB with the ADR 0006 box); the lead decides whether
    the 1 TB route closes the item (docs/01 wording). Ag scaling to 10⁶ is closed by measurement only once the
    server Ag series (run 4, WP22e part 2) is in.
-4. WP15 deviations from Fu et al. (formulation sweep with MLFMM, WP22b2) and the Ag λ/20 sphere (size) remain open.
+4. WP15 deviations from Fu et al.: WP22b2 (MLFMM, L = 3.2–10 µm, uniform box) reproduces five of six Fig. 2
+   statements at 10 µm; "PMCHWT does not converge" holds for neither material strictly (Si converges; Ag is
+   impractical, non-convergence not demonstrated). The WP15 Ag MCTF/PMCHWT ratios at 3.2 µm are neither a size
+   nor a graded-vs-uniform box effect; dense vs MLFMM, beam and 400 nm coarse cells remain unseparated
+   (hypotheses for the PMCHWT plateaus: MLFMM d₀ = 3 error or the WP-A2 box-cavity resonances; a d₀ = 5 run at 3.2 µm would decide).
+   Open decision: `formulation::recommend` for explicitly graded Ag boxes (plain ICTF there). The Ag λ/20
+   sphere (size) remains open.
 
 ## How the workflow runs on this machine
 

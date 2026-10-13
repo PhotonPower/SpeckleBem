@@ -1,0 +1,8 @@
+si32_pmchwt --material si --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation pmchwt --jacobi 0
+si32_ictf --material si --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation ictf --jacobi 0
+si32_mctf --material si --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation mctf --jacobi 0
+si32_pmchwt_j --material si --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation pmchwt --jacobi 1
+si32_ictf_j --material si --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation ictf --jacobi 1
+si32_mctf_j --material si --L 3.2e-6 --box-mesh-size 50e-9 --beam angular-spectrum --max-iter 4000 --history --formulation mctf --jacobi 1
+si32g_ictf --material si --L 3.2e-6 --box-mesh-size 100e-9 --beam angular-spectrum --max-iter 4000 --history --formulation ictf --jacobi 0
+si32g_pmchwt_j --material si --L 3.2e-6 --box-mesh-size 100e-9 --beam angular-spectrum --max-iter 4000 --history --formulation pmchwt --jacobi 1

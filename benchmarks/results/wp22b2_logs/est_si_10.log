@@ -1,0 +1,7 @@
+si L = 10 um, sigma = 50 nm, h = 50 nm, box 50 nm, fine band, angular_spectrum beam w0 = L/4, seed 1, d0 = 3, leaf radius quantile 1, tol = 0.001
+available memory at start: 123.4 GB of 137.4 GB
+[2026-10-12 08:03:16.237] [info] [rough_surface.cpp:1269] rough box mesh: 201 x 201 grid, 80000 top + 180800 wall + 80000 bottom triangles (closing box / top = 3.260), depth 5.645512306863871e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 200 x 200 cells (target spacing 5e-08 m)
+[2026-10-12 08:03:16.318] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 201 x 201 grid, box depth 5.64551e-06 m: 0.083 s
+ESTIMATE si L = 10 um, sigma = 50 nm, h = 50 nm, box 50 nm, fine band, angular_spectrum beam w0 = L/4, seed 1, d0 = 3, leaf radius quantile 1, tol = 0.001
+triangles 340800 (top 80000, box 260800 = 326 %), box M = 0, fine rows 0, depth 5.64551 um, fine band 3.53731 um; 2N = 1022400; r_max 67.2294 nm; octree 7 levels, leaf edge 156.25 nm (lambda / 3.19999), 18075 leaves; 0 elevated functions (home levels 6: 511200); near estimate 13.5823 GB, exact R2 estimate 0 GB (0 pairs), budget 27.1645 GB; leaf orders 14 / 33 (expansion levels 5 / 5), patterns 45.1819 GB (elevated 0 GB), far tables 14.2807 GB; setup peak estimate 86.7823 GB
+EST material=si L_um=10 sigma_nm=50 box=50.000000 N2=1022400 levels=7 leaf_nm=156.25 near_gb=13.5823 exact_est_gb=0 pattern_gb=45.1819 elevated_pattern_gb=0 far_table_gb=14.2807 peak_setup_est_gb=86.7823 lq=1 elevated=0

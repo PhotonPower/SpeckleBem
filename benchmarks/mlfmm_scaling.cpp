@@ -31,7 +31,8 @@
 //            0] [--matvecs 5]
 //            [--exact-budget-gb G] [--formulation pmchwt|ictf|mctf] [--jacobi 0|1] [--no-solve]
 //            [--estimate-only] [--force] [--sigma 50e-9] [--history] [--far-field 1]
-//            [--far-field-degree 6]
+//            [--far-field-degree 6] [--history-file F] [--history-stride 10]
+//            [--history-digits 4] [--history-full-file F]
 //
 // --no-solve stops after the setup and the timed matvecs (no GMRES): the matvec and setup scaling
 // at sizes whose full-GMRES solve does not fit the time budget.
@@ -49,122 +50,30 @@
 // <= 25.7 deg so that the half-node grid has n_phi >= 4, a positive-interior degree); an error in
 // the post-processing itself is logged, the ROW line is printed without R / A and with
 // post_error=1, and the exit status is 4 (0: done, 1: error, 2: memory guard).
-#include "specklebem/formulation/formulation.hpp"
-
+//
+// Formulation sweep (WP22b2, record benchmarks/results/formulation_convergence.md): --formulation
+// and --jacobi 0|1 override formulation::recommend (Si: ICTF, Ag: ICTF + left Jacobi); the ROW
+// line names the solved system (form=, jacobi=). --history-file <path> appends one line
+// "HISTORY <case keys> form= jacobi= it= conv= stride= res=r_0,r_s,r_2s,...,r_it" after the solve
+// (--history-stride, default 10; --history-digits significant digits, default 4);
+// --history-full-file <path> appends the same record with every iteration at 17 digits (the
+// Jacobi identity check). Options are parsed by mlfmm_scaling::parse_options (numeric values
+// must be consumed whole; the history options are refused with --no-solve and --estimate-only);
+// the history files are probed for appending before the assembly (probe_history_files).
 #include <cstdio>
-#include <cstdlib>
 #include <exception>
-#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "mlfmm_scaling_support.hpp"
 
-namespace {
-
 using namespace mlfmm_scaling;
-
-struct Options {
-    Case c;
-    bool estimate_only = false;
-    bool force = false;
-    bool history = false;
-};
-
-Options parse(int argc, char** argv) {
-    Options o;
-    for (int i = 1; i < argc; ++i) {
-        const std::string a = argv[i];
-        const auto value = [&]() -> std::string {
-            if (i + 1 >= argc)
-                throw std::invalid_argument("missing value after " + a);
-            return argv[++i];
-        };
-        if (a == "--material") {
-            o.c.material = value();
-        } else if (a == "--L") {
-            o.c.L = std::stod(value());
-        } else if (a == "--box-mesh-size") {
-            const std::string v = value();
-            o.c.uncapped_box = false;
-            if (v == "auto") {
-                o.c.box_mesh_size.reset();
-            } else if (v == "uncapped") {
-                o.c.box_mesh_size.reset();
-                o.c.uncapped_box = true;
-            } else {
-                o.c.box_mesh_size = std::stod(v);
-            }
-        } else if (a == "--fine-band") {
-            o.c.fine_band = std::stoi(value()) != 0;
-        } else if (a == "--sigma") {
-            o.c.sigma = std::stod(value());
-        } else if (a == "--history") {
-            o.history = true;
-        } else if (a == "--far-field") {
-            o.c.far_field_dtheta_deg = std::stod(value());  // 0 = off; checked below
-        } else if (a == "--far-field-degree") {
-            o.c.far_field_degree = std::stoi(value());
-        } else if (a == "--mesh-size") {
-            o.c.mesh_size = std::stod(value());
-        } else if (a == "--seed") {
-            o.c.seed = std::stoull(value());
-        } else if (a == "--waist-factor") {
-            o.c.waist_factor = std::stod(value());
-        } else if (a == "--allow-wide-beam") {
-            o.c.allow_wide_beam = true;
-        } else if (a == "--beam") {
-            const std::string v = value();
-            if (v == "paraxial")
-                o.c.beam = Beam::paraxial;
-            else if (v == "angular-spectrum")
-                o.c.beam = Beam::angular_spectrum;
-            else
-                throw std::invalid_argument("--beam must be paraxial or angular-spectrum");
-        } else if (a == "--digits") {
-            o.c.digits = std::stod(value());
-        } else if (a == "--leaf-radius-quantile") {
-            o.c.leaf_radius_quantile = std::stod(value());
-        } else if (a == "--tol") {
-            o.c.tolerance = std::stod(value());
-        } else if (a == "--max-iter") {
-            o.c.max_iter = std::stoi(value());
-        } else if (a == "--restart") {
-            o.c.restart = std::stoi(value());
-        } else if (a == "--matvecs") {
-            o.c.matvecs = std::stoi(value());
-        } else if (a == "--exact-budget-gb") {
-            const double g = std::stod(value());
-            if (!(g > 0.0))
-                throw std::invalid_argument("--exact-budget-gb must be positive");
-            o.c.max_exact_far_bytes = static_cast<std::size_t>(g * 1e9);
-        } else if (a == "--formulation") {
-            o.c.formulation = formulation::parse_kind(value());
-        } else if (a == "--jacobi") {
-            o.c.jacobi = std::stoi(value()) != 0;
-        } else if (a == "--estimate-only") {
-            o.estimate_only = true;
-        } else if (a == "--no-solve") {
-            o.c.solve = false;
-        } else if (a == "--force") {
-            o.force = true;
-        } else {
-            throw std::invalid_argument("unknown option " + a);
-        }
-    }
-    if (o.c.matvecs < 1)
-        throw std::invalid_argument("--matvecs must be >= 1");
-    // --far-field / --far-field-degree / --beam: both hemisphere grids, the quadrature degree and
-    // the beam are checked here, before the estimate and the assembly, so that a bad option
-    // cannot surface only after a multi-hour solve.
-    validate_power_summary(o.c);
-    return o;
-}
-
-}  // namespace
 
 int main(int argc, char** argv) {
     try {
-        const Options o = parse(argc, argv);
+        const Options o = parse_options(std::vector<std::string>(argv + 1, argv + argc));
+        probe_history_files(o);  // an unwritable history path fails before the assembly
         std::printf("%s\n", label(o.c).c_str());
         const Real available = system_memory::available_memory_bytes();
         std::printf("available memory at start: %.1f GB of %.1f GB\n", available / 1e9,
@@ -203,6 +112,10 @@ int main(int argc, char** argv) {
         std::printf("RESULT %s\n%s\n%s\n\n%s\n\n%s\n", label(o.c).c_str(), summary(r).c_str(),
                     row(o.c, r).c_str(), r.describe.c_str(), r.report.c_str());
         std::fflush(stdout);
+        if (!o.history_file.empty())
+            append_line(o.history_file, history_record(o.c, r, o.history_stride, o.history_digits));
+        if (!o.history_full_file.empty())
+            append_line(o.history_full_file, history_record(o.c, r, 1, 17));
         if (!r.post_error.empty()) {
             // The solve and its ROW line are kept (post_error=1, no R / A); exit 4 flags it.
             std::fprintf(stderr,
@@ -213,7 +126,10 @@ int main(int argc, char** argv) {
         }
         return 0;
     } catch (const std::exception& e) {
-        std::fprintf(stderr, "mlfmm_scaling: %s\n", e.what());
+        // Support-layer messages already start with "mlfmm_scaling"; add the prefix only once.
+        const std::string_view msg = e.what();
+        std::fprintf(stderr, "%s%s\n",
+                     msg.starts_with("mlfmm_scaling") ? "" : "mlfmm_scaling: ", e.what());
         return 1;
     }
 }

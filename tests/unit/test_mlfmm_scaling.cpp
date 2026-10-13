@@ -8,8 +8,13 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <limits>
+#include <random>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -17,6 +22,19 @@
 #include "mlfmm_scaling_support.hpp"
 
 using namespace mlfmm_scaling;
+
+namespace {
+
+/// A file name in the temp directory unique to this process and call (ctest -j runs test
+/// processes concurrently, possibly from several build trees).
+std::filesystem::path unique_temp_path(const std::string& stem) {
+    std::random_device rd;
+    const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
+    return std::filesystem::temp_directory_path() /
+           (stem + "_" + std::to_string(rd()) + "_" + std::to_string(ticks) + ".txt");
+}
+
+}  // namespace
 
 TEST_CASE("mlfmm_scaling: geometry follows the ADR 0006 box parameters", "[mlfmm_scaling]") {
     Case si;
@@ -370,7 +388,8 @@ TEST_CASE("mlfmm_scaling: one tiny Ag case runs end to end", "[mlfmm_scaling]") 
     CHECK(line.find(" N2=" + std::to_string(r.est.unknowns) + " ") != std::string::npos);
     CHECK(line.find(" beam=paraxial ") != std::string::npos);
     CHECK(line.find(" sigma_nm=50 ") != std::string::npos);
-    CHECK(line.find(" R=") == std::string::npos);  // no power summary requested
+    CHECK(line.find(" form=ictf jacobi=1") != std::string::npos);  // formulation::recommend
+    CHECK(line.find(" R=") == std::string::npos);                  // no power summary requested
     CHECK(r.p_inc == 0.0);
 #endif
 }
@@ -411,7 +430,11 @@ TEST_CASE("mlfmm_scaling: iteration log and power summary of a tiny Ag case", "[
     });
     REQUIRE(r.converged);
     REQUIRE(static_cast<int>(its.size()) == r.iterations);
+    // The kept residual history (WP22b2 history records) is r_0 = 1 plus the logged residuals.
+    REQUIRE(r.residual_history.size() == its.size() + 1);
+    CHECK_THAT(r.residual_history.front(), Catch::Matchers::WithinRel(1.0, 1e-12));
     for (std::size_t i = 0; i < its.size(); ++i) {
+        CHECK(r.residual_history[i + 1] == res[i]);
         CHECK(its[i] == static_cast<int>(i) + 1);
         if (i > 0)
             CHECK(times[i] >= times[i - 1]);
@@ -439,4 +462,230 @@ TEST_CASE("mlfmm_scaling: iteration log and power summary of a tiny Ag case", "[
     CHECK(line.find("post_error") == std::string::npos);
     CHECK(label(c).find(", depth 0.5") != std::string::npos);
 #endif
+}
+
+TEST_CASE("mlfmm_scaling: option defaults (recorded box and solver, material waist rule)",
+          "[mlfmm_scaling]") {
+    const Options o = parse_options({});
+    CHECK(o.c.material == "si");
+    // Waist: the material's limit (WP-B3: Si L/6, Ag L/4), not the recorded series' L/4.
+    CHECK_FALSE(o.c.waist_factor.has_value());
+    CHECK_FALSE(o.c.allow_wide_beam);
+    CHECK(waist_factor_of(o.c) == 6.0);
+    REQUIRE(o.c.box_mesh_size.has_value());
+    CHECK(*o.c.box_mesh_size == kBoxMeshSize);
+    CHECK(o.c.beam == Beam::paraxial);
+    CHECK(o.c.digits == 3.0);
+    CHECK(o.c.tolerance == 1e-3);
+    CHECK(o.c.max_iter == 3000);
+    CHECK(o.c.restart == 0);
+    CHECK_FALSE(o.c.formulation.has_value());  // formulation::recommend
+    CHECK_FALSE(o.c.jacobi.has_value());
+    CHECK(o.c.solve);
+    CHECK_FALSE(o.estimate_only);
+    CHECK_FALSE(o.force);
+    CHECK_FALSE(o.history);
+    CHECK(o.history_file.empty());
+    CHECK(o.history_full_file.empty());
+    CHECK(o.history_stride == 10);
+    CHECK(o.history_digits == 4);
+}
+
+TEST_CASE("mlfmm_scaling: options of the WP22b2 formulation sweep", "[mlfmm_scaling]") {
+    const Options o = parse_options({"--material",
+                                     "ag",
+                                     "--L",
+                                     "3.2e-6",
+                                     "--box-mesh-size",
+                                     "50e-9",
+                                     "--beam",
+                                     "angular-spectrum",
+                                     "--formulation",
+                                     "pmchwt",
+                                     "--jacobi",
+                                     "0",
+                                     "--max-iter",
+                                     "4000",
+                                     "--history-file",
+                                     "h.txt",
+                                     "--history-stride",
+                                     "5",
+                                     "--history-digits",
+                                     "6",
+                                     "--history-full-file",
+                                     "full.txt"});
+    CHECK(o.c.material == "ag");
+    CHECK(o.c.L == 3.2e-6);
+    REQUIRE(o.c.box_mesh_size.has_value());
+    CHECK(*o.c.box_mesh_size == 50e-9);
+    CHECK(o.c.beam == Beam::angular_spectrum);
+    REQUIRE(o.c.formulation.has_value());
+    CHECK(*o.c.formulation == formulation::Kind::PMCHWT);
+    REQUIRE(o.c.jacobi.has_value());
+    CHECK_FALSE(*o.c.jacobi);
+    CHECK(o.c.max_iter == 4000);
+    CHECK(o.history_file == "h.txt");
+    CHECK(o.history_stride == 5);
+    CHECK(o.history_digits == 6);
+    CHECK(o.history_full_file == "full.txt");
+
+    const Options m = parse_options({"--formulation", "MCTF", "--jacobi", "1"});
+    REQUIRE(m.c.formulation.has_value());
+    CHECK(*m.c.formulation == formulation::Kind::MCTF);
+    REQUIRE(m.c.jacobi.has_value());
+    CHECK(*m.c.jacobi);
+    const Options i = parse_options({"--formulation", "ictf"});
+    REQUIRE(i.c.formulation.has_value());
+    CHECK(*i.c.formulation == formulation::Kind::ICTF);
+    // Box options of the record (unchanged).
+    CHECK_FALSE(parse_options({"--box-mesh-size", "auto"}).c.box_mesh_size.has_value());
+    CHECK(parse_options({"--box-mesh-size", "uncapped"}).c.uncapped_box);
+}
+
+TEST_CASE("mlfmm_scaling: the WP22b2 Si waist pin parses (w0 = L/4 past the WP-B3 default)",
+          "[mlfmm_scaling]") {
+    const Options o =
+        parse_options({"--material", "si", "--waist-factor", "4", "--allow-wide-beam"});
+    REQUIRE(o.c.waist_factor.has_value());
+    CHECK(waist_factor_of(o.c) == 4.0);
+    CHECK(o.c.allow_wide_beam);
+    CHECK(row(o.c, Result{}).find(" waist=4 ") != std::string::npos);
+    // Without --allow-wide-beam the pinned Si waist parses but the case is refused by the waist
+    // rule at make_geometry (before the assembly).
+    const Options narrow = parse_options({"--material", "si", "--waist-factor", "4"});
+    CHECK_FALSE(narrow.c.allow_wide_beam);
+    CHECK_THROWS_AS(make_geometry(narrow.c), std::invalid_argument);
+}
+
+TEST_CASE("mlfmm_scaling: invalid options are refused", "[mlfmm_scaling]") {
+    using V = std::vector<std::string>;
+    const std::vector<V> bad = {
+        V{"--formulation", "efie"}, V{"--jacobi", "2"}, V{"--jacobi", "yes"},
+        V{"--history-stride", "0"}, V{"--history-digits", "0"}, V{"--history-digits", "18"},
+        V{"--no-solve", "--history-file", "h.txt"}, V{"--no-solve", "--history-full-file", "h.txt"},
+        V{"--matvecs", "0"}, V{"--L"}, V{"--history-file"}, V{"--unknown"}, V{"--beam", "plane"},
+        V{"--exact-budget-gb", "0"}, V{"--far-field", "1"},  // needs the angular-spectrum beam
+        // Numeric values are consumed whole (no stoi/stod prefix).
+        V{"--history-stride", "5x"}, V{"--history-digits", "4.5"}, V{"--max-iter", "4000 "},
+        V{"--L", "3.2e-6m"}, V{"--waist-factor", "4x"}, V{"--seed", "-1"}, V{"--seed", "1.5"},
+        V{"--fine-band", "1x"}, V{"--tol", ""}, V{"--tol", "abc"},
+        // Leading whitespace and non-finite values.
+        V{"--max-iter", " 5"}, V{"--L", " 3e-6"}, V{"--exact-budget-gb", "inf"}, V{"--tol", "nan"},
+        // Out of range: std::out_of_range becomes std::invalid_argument.
+        V{"--max-iter", "99999999999"}, V{"--L", "1e999"}, V{"--seed", "99999999999999999999999"},
+        // History records need a solve.
+        V{"--estimate-only", "--history-file", "h.txt"},
+        V{"--estimate-only", "--history-full-file", "h.txt"},
+        V{"--history-file", "h.txt", "--estimate-only"}};
+    for (const V& args : bad) {
+        std::string joined;
+        for (const std::string& t : args) joined += "'" + t + "' ";
+        INFO(joined);
+        CHECK_THROWS_AS(parse_options(args), std::invalid_argument);
+    }
+}
+
+TEST_CASE("mlfmm_scaling: history indices every stride plus the last", "[mlfmm_scaling]") {
+    CHECK(history_indices(25, 10) == std::vector<int>{0, 10, 20, 25});
+    CHECK(history_indices(20, 10) == std::vector<int>{0, 10, 20});
+    CHECK(history_indices(3, 10) == std::vector<int>{0, 3});
+    CHECK(history_indices(0, 10) == std::vector<int>{0});
+    CHECK(history_indices(4, 1) == std::vector<int>{0, 1, 2, 3, 4});
+    CHECK(history_indices(-1, 10).empty());
+    CHECK_THROWS_AS(history_indices(5, 0), std::invalid_argument);
+}
+
+TEST_CASE("mlfmm_scaling: history record and appended history file", "[mlfmm_scaling]") {
+    Case c;
+    c.material = "ag";
+    c.L = 3.2e-6;
+    c.box_mesh_size = 50e-9;
+    c.beam = Beam::angular_spectrum;
+    Result r;
+    r.formulation = "PMCHWT";
+    r.jacobi = false;
+    r.iterations = 12;
+    r.converged = false;
+    r.est.unknowns = 1234;
+    for (int k = 0; k <= r.iterations; ++k)
+        r.residual_history.push_back(std::ldexp(1.0, -k) / 3.0);  // no rounding ties
+    CHECK(formulation_key(r) == "pmchwt");
+    const std::string h = history_record(c, r, 5, 3);
+    CHECK(h.rfind("HISTORY material=ag L_um=3.2 box=", 0) == 0);
+    // Ag default waist L/4 (waist_factor_of) and the iteration cap (review round keys).
+    CHECK(h.find(" fine=0 waist=4 beam=angular_spectrum ") != std::string::npos);
+    CHECK(h.find(" tol=0.001 max_iter=3000 seed=1 ") != std::string::npos);
+    CHECK(h.find(" N2=1234 form=pmchwt jacobi=0 it=12 conv=0 stride=5 ") != std::string::npos);
+    // k = 0, 5, 10, 12: 2^-k / 3 with 3 significant digits.
+    CHECK(h.substr(h.find(" res=")) == " res=3.33e-01,1.04e-02,3.26e-04,8.14e-05");
+    // 17 digits: every iteration, and each value reads back exactly.
+    const std::string full = history_record(c, r, 1, 17);
+    std::stringstream values(full.substr(full.find(" res=") + 5));
+    std::string token;
+    std::size_t k = 0;
+    while (std::getline(values, token, ',')) {
+        REQUIRE(k < r.residual_history.size());
+        CHECK(std::stod(token) == r.residual_history[k]);
+        ++k;
+    }
+    CHECK(k == r.residual_history.size());
+    CHECK(row(c, r).find(" form=pmchwt jacobi=0") != std::string::npos);
+    CHECK(formulation_key(Result{}) == "unknown");
+
+    CHECK_THROWS_AS(history_record(c, r, 0, 3), std::invalid_argument);
+    CHECK_THROWS_AS(history_record(c, r, 5, 0), std::invalid_argument);
+    CHECK_THROWS_AS(history_record(c, r, 5, 18), std::invalid_argument);
+    Result short_history = r;
+    short_history.residual_history.pop_back();
+    CHECK_THROWS_AS(history_record(c, short_history, 5, 3), std::invalid_argument);
+
+    Case pinned = c;  // a Si-style explicit waist is recorded as given
+    pinned.waist_factor = 6.0;
+    pinned.max_iter = 450;
+    const std::string hp = history_record(pinned, r, 5, 3);
+    CHECK(hp.find(" waist=6 ") != std::string::npos);
+    CHECK(hp.find(" max_iter=450 ") != std::string::npos);
+
+    const std::filesystem::path p = unique_temp_path("specklebem_test_mlfmm_scaling_history");
+    std::filesystem::remove(p);
+    append_line(core::path_to_utf8(p), h);
+    append_line(core::path_to_utf8(p), full);
+    {
+        std::ifstream in(p, std::ios::binary);
+        std::string l1;
+        std::string l2;
+        std::string l3;
+        REQUIRE(std::getline(in, l1));
+        REQUIRE(std::getline(in, l2));
+        CHECK(l1 == h);
+        CHECK(l2 == full);
+        CHECK_FALSE(std::getline(in, l3));
+    }
+    std::filesystem::remove(p);
+    CHECK_THROWS_AS(append_line(core::path_to_utf8(p / "no_such_dir" / "x.txt"), h),
+                    std::runtime_error);
+}
+
+TEST_CASE("mlfmm_scaling: history files are probed for appending before the solve",
+          "[mlfmm_scaling]") {
+    Options o;
+    CHECK_NOTHROW(probe_history_files(o));  // no history files: nothing to probe
+    const std::filesystem::path p = unique_temp_path("specklebem_test_mlfmm_scaling_probe");
+    std::filesystem::remove(p);
+    o.history_file = core::path_to_utf8(p);
+    CHECK_NOTHROW(probe_history_files(o));
+    CHECK(std::filesystem::exists(p));  // created empty, appended to after the solve
+    CHECK(std::filesystem::file_size(p) == 0);
+    append_line(o.history_file, "HISTORY x");
+    CHECK_NOTHROW(probe_history_files(o));  // an existing file is kept, not truncated
+    CHECK(std::filesystem::file_size(p) == std::string("HISTORY x\n").size());
+    std::filesystem::remove(p);
+
+    Options bad;
+    bad.history_full_file = core::path_to_utf8(p / "no_such_dir" / "full.txt");
+    CHECK_THROWS_AS(probe_history_files(bad), std::invalid_argument);
+    bad.history_full_file.clear();
+    bad.history_file = core::path_to_utf8(p / "no_such_dir" / "h.txt");
+    CHECK_THROWS_AS(probe_history_files(bad), std::invalid_argument);
+    CHECK_FALSE(std::filesystem::exists(p));
 }

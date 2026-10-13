@@ -1,0 +1,580 @@
+CASE ag7_ictf load0=1.97 start=2026-10-12T16:02:12+02:00
+ag L = 7 um, sigma = 50 nm, h = 50 nm, box 50 nm, no fine band, angular_spectrum beam w0 = L/4, seed 1, d0 = 3, leaf radius quantile 1, tol = 0.001
+available memory at start: 125.2 GB of 137.4 GB
+[2026-10-12 16:02:12.898] [info] [rough_surface.cpp:1269] rough box mesh: 141 x 141 grid, 39200 top + 44800 wall + 39200 bottom triangles (closing box / top = 2.143), depth 2e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 140 x 140 cells (target spacing 5e-08 m)
+[2026-10-12 16:02:12.909] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 141 x 141 grid, box depth 2e-06 m: 0.011 s
+[2026-10-12 16:02:14.026] [info] [angular_spectrum_beam.cpp:218] AngularSpectrumBeam: w0 = 1.75e-06 m, lambda = 5e-07 m, n1 = 1, theta_in = 0 rad, 1240 plane waves (31 x 40), alpha_max = 0.5208 rad, region R = 5.392e-06 m, grid change 1.99e-12
+[2026-10-12 16:02:14.079] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 5 (a = 0.438 lambda_i): expansion, L = 14, search error 1.80e-04, block check 6.70e-03 (3 pairs)
+[2026-10-12 16:02:14.109] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 4 (a = 0.875 lambda_i): expansion, L = 20, search error 3.31e-07, block check 2.97e-03 (3 pairs)
+[2026-10-12 16:02:14.169] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 3 (a = 1.75 lambda_i): expansion, L = 31, search error 3.56e-10, block check 1.31e-05 (3 pairs)
+[2026-10-12 16:02:14.340] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 2 (a = 3.5 lambda_i): expansion, L = 53, search error 3.78e-13, block check 1.02e-05 (3 pairs)
+[2026-10-12 16:02:14.342] [info] [far_operator.cpp:697] MlfmmFarOperator: region R2 level 5 (a = 0.0219 lambda_i): exact (search not achievable, error 2.09e+08 at L = 5, block check not run); 58772 box pairs truncated (delta <= 9.87e-05, bound 1e-4), 47712 exact (delta >= 1.00e-04)
+[2026-10-12 16:02:14.343] [info] [far_operator.cpp:697] MlfmmFarOperator: region R2 level 4 (a = 0.0438 lambda_i): truncation (search not run, block check not run); 25752 box pairs truncated (delta <= 3.72e-05, bound 1e-4), 0 exact (delta >= 0.00e+00)
+[2026-10-12 16:02:14.343] [info] [far_operator.cpp:697] MlfmmFarOperator: region R2 level 3 (a = 0.0875 lambda_i): truncation (search not run, block check not run); 7232 box pairs truncated (delta <= 2.26e-12, bound 1e-4), 0 exact (delta >= 0.00e+00)
+[2026-10-12 16:02:14.343] [info] [far_operator.cpp:697] MlfmmFarOperator: region R2 level 2 (a = 0.175 lambda_i): truncation (search not run, block check not run); 624 box pairs truncated (delta <= 6.21e-28, bound 1e-4), 0 exact (delta >= 0.00e+00)
+[2026-10-12 16:02:14.343] [info] [far_operator.cpp:823] MlfmmFarOperator: region R2 exact part estimate: 47712 box pairs (levels 5 ... 2), <= 173173416 basis pairs (0.51 % of N^2), <= 6607.5 MB at 40 bytes per pair
+[2026-10-12 16:02:14.343] [info] [far_operator.cpp:833] MlfmmFarOperator: exact-part budget 19792.9 MB (automatic: min(max(2.0 x near-field estimate 9896.4 MB, 1024.0 MB), dense matrix 2084414.1 MB)), estimate 6607.5 MB (upper bound)
+[2026-10-12 16:02:15.607] [info] [assembler.cpp:541] region sparse assembly: region R2, N = 184800, 15195520 basis pairs, 607.821 MB
+[2026-10-12 16:02:16.873] [info] [timer.cpp:13] [timer] region sparse assembly (R2, pairs = 15195520): 1.266 s
+[2026-10-12 16:02:16.889] [info] [far_operator.cpp:976] MlfmmFarOperator: region R2 exact part: 47712 box pairs, 15195520 basis pairs (estimate <= 173173416; 581.1 MB, 1.73 s); 157977896 basis pairs of them truncated (delta <= 1.00e-04)
+[2026-10-12 16:02:16.890] [info] [far_operator.cpp:1216] MlfmmFarOperator: 2N = 369600, 6 octree levels, d0 = 3, 3450.6 MB (incl. one apply workspace of 305.4 MB)
+[2026-10-12 16:02:16.919] [info] [near_field.cpp:123] near field: 6 levels, 3078 leaves, leaf edge 2.188e-07 m, 1780748 column-list entries
+[2026-10-12 16:02:18.853] [info] [assembler.cpp:465] sparse assembly: N = 184800, 2N = 369600, nnz = 432259024 (1.17e+03 per row), matrix 10374.217 MB
+[2026-10-12 16:02:58.235] [info] [timer.cpp:13] [timer] sparse assembly (2N = 369600, nnz = 432259024): 39.382 s
+[2026-10-12 16:02:58.236] [info] [mlfmm_operator.cpp:167] MlfmmOperator: 2N = 369600, 6 levels, leaf edge 0.438 lambda1, near nnz 432259024 (9896.4 MB, 41.35 s), far 3450.6 MB (2.84 s)
+[2026-10-12 16:02:58.236] [info] [timer.cpp:13] [timer] Simulation: MLFMM operator: 44.203 s
+[2026-10-12 16:02:59.636] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 1.399 s
+[2026-10-12 16:03:07.050] [info] [gmres.cpp:319] gmres: n = 369600, left preconditioner 'none', tol = 1.0e-03, max_iter = 4000, full (no restart)
+HIST it=1 res=6.006852e-01 t_s=0.626
+HIST it=2 res=3.998654e-01 t_s=1.245
+HIST it=3 res=2.809494e-01 t_s=1.866
+HIST it=4 res=2.119493e-01 t_s=2.481
+HIST it=5 res=1.918909e-01 t_s=3.115
+HIST it=6 res=1.784036e-01 t_s=3.728
+HIST it=7 res=1.506449e-01 t_s=4.371
+HIST it=8 res=1.365206e-01 t_s=5.003
+HIST it=9 res=1.262670e-01 t_s=5.623
+HIST it=10 res=1.141846e-01 t_s=6.241
+HIST it=11 res=1.080608e-01 t_s=6.867
+HIST it=12 res=1.028167e-01 t_s=7.487
+HIST it=13 res=9.172064e-02 t_s=8.120
+HIST it=14 res=8.276924e-02 t_s=8.740
+HIST it=15 res=7.904172e-02 t_s=9.364
+HIST it=16 res=7.568504e-02 t_s=10.005
+HIST it=17 res=7.080767e-02 t_s=10.630
+HIST it=18 res=6.551489e-02 t_s=11.257
+HIST it=19 res=6.055718e-02 t_s=11.883
+HIST it=20 res=5.771015e-02 t_s=12.512
+HIST it=21 res=5.496954e-02 t_s=13.137
+HIST it=22 res=5.078929e-02 t_s=13.768
+HIST it=23 res=4.658999e-02 t_s=14.410
+HIST it=24 res=4.407985e-02 t_s=15.048
+HIST it=25 res=4.266092e-02 t_s=15.691
+HIST it=26 res=4.033838e-02 t_s=16.328
+HIST it=27 res=3.761922e-02 t_s=16.966
+HIST it=28 res=3.641175e-02 t_s=17.567
+HIST it=29 res=3.548808e-02 t_s=18.198
+HIST it=30 res=3.328317e-02 t_s=18.827
+HIST it=31 res=3.149324e-02 t_s=19.456
+HIST it=32 res=3.026407e-02 t_s=20.084
+HIST it=33 res=2.931328e-02 t_s=20.732
+HIST it=34 res=2.839166e-02 t_s=21.381
+HIST it=35 res=2.732544e-02 t_s=22.022
+HIST it=36 res=2.641384e-02 t_s=22.628
+HIST it=37 res=2.568252e-02 t_s=23.251
+HIST it=38 res=2.515004e-02 t_s=23.892
+HIST it=39 res=2.470499e-02 t_s=24.545
+HIST it=40 res=2.418877e-02 t_s=25.184
+HIST it=41 res=2.356190e-02 t_s=25.831
+HIST it=42 res=2.302619e-02 t_s=26.478
+HIST it=43 res=2.249034e-02 t_s=27.119
+HIST it=44 res=2.175593e-02 t_s=27.754
+HIST it=45 res=2.109039e-02 t_s=28.394
+HIST it=46 res=2.055163e-02 t_s=29.031
+HIST it=47 res=2.006785e-02 t_s=29.670
+HIST it=48 res=1.971065e-02 t_s=30.310
+HIST it=49 res=1.933172e-02 t_s=30.971
+HIST it=50 res=1.893807e-02 t_s=31.610
+[2026-10-12 16:03:38.658] [info] [gmres.cpp:420] gmres: iteration 50: relative residual 1.894e-02
+HIST it=51 res=1.856371e-02 t_s=32.269
+HIST it=52 res=1.814046e-02 t_s=32.929
+HIST it=53 res=1.769327e-02 t_s=33.591
+HIST it=54 res=1.731592e-02 t_s=34.261
+HIST it=55 res=1.680889e-02 t_s=34.926
+HIST it=56 res=1.634693e-02 t_s=35.580
+HIST it=57 res=1.606325e-02 t_s=36.241
+HIST it=58 res=1.581513e-02 t_s=36.902
+HIST it=59 res=1.554861e-02 t_s=37.560
+HIST it=60 res=1.524914e-02 t_s=38.224
+HIST it=61 res=1.502783e-02 t_s=38.886
+HIST it=62 res=1.478500e-02 t_s=39.551
+HIST it=63 res=1.448068e-02 t_s=40.208
+HIST it=64 res=1.414910e-02 t_s=40.873
+HIST it=65 res=1.389875e-02 t_s=41.539
+HIST it=66 res=1.365894e-02 t_s=42.188
+HIST it=67 res=1.346801e-02 t_s=42.852
+HIST it=68 res=1.327514e-02 t_s=43.507
+HIST it=69 res=1.309069e-02 t_s=44.178
+HIST it=70 res=1.296121e-02 t_s=44.832
+HIST it=71 res=1.279096e-02 t_s=45.505
+HIST it=72 res=1.257950e-02 t_s=46.162
+HIST it=73 res=1.237987e-02 t_s=46.795
+HIST it=74 res=1.217018e-02 t_s=47.449
+HIST it=75 res=1.199389e-02 t_s=48.105
+HIST it=76 res=1.186436e-02 t_s=48.762
+HIST it=77 res=1.171325e-02 t_s=49.420
+HIST it=78 res=1.159770e-02 t_s=50.094
+HIST it=79 res=1.148387e-02 t_s=50.723
+HIST it=80 res=1.133191e-02 t_s=51.383
+HIST it=81 res=1.118212e-02 t_s=52.040
+HIST it=82 res=1.103258e-02 t_s=52.715
+HIST it=83 res=1.086747e-02 t_s=53.378
+HIST it=84 res=1.070165e-02 t_s=54.042
+HIST it=85 res=1.057637e-02 t_s=54.708
+HIST it=86 res=1.045507e-02 t_s=55.350
+HIST it=87 res=1.033869e-02 t_s=56.038
+HIST it=88 res=1.021045e-02 t_s=56.729
+HIST it=89 res=1.011703e-02 t_s=57.416
+HIST it=90 res=9.972278e-03 t_s=58.099
+HIST it=91 res=9.836115e-03 t_s=58.778
+HIST it=92 res=9.702959e-03 t_s=59.455
+HIST it=93 res=9.580586e-03 t_s=60.139
+HIST it=94 res=9.462637e-03 t_s=60.821
+HIST it=95 res=9.366785e-03 t_s=61.507
+HIST it=96 res=9.278171e-03 t_s=62.194
+HIST it=97 res=9.193840e-03 t_s=62.874
+HIST it=98 res=9.109050e-03 t_s=63.553
+HIST it=99 res=9.001982e-03 t_s=64.226
+HIST it=100 res=8.883363e-03 t_s=64.912
+[2026-10-12 16:04:11.960] [info] [gmres.cpp:420] gmres: iteration 100: relative residual 8.883e-03
+HIST it=101 res=8.760201e-03 t_s=65.602
+HIST it=102 res=8.661165e-03 t_s=66.291
+HIST it=103 res=8.598443e-03 t_s=66.967
+HIST it=104 res=8.511056e-03 t_s=67.651
+HIST it=105 res=8.429080e-03 t_s=68.328
+HIST it=106 res=8.363391e-03 t_s=69.009
+HIST it=107 res=8.279708e-03 t_s=69.685
+HIST it=108 res=8.199016e-03 t_s=70.370
+HIST it=109 res=8.105044e-03 t_s=71.062
+HIST it=110 res=8.016954e-03 t_s=71.749
+HIST it=111 res=7.935284e-03 t_s=72.429
+HIST it=112 res=7.863750e-03 t_s=73.108
+HIST it=113 res=7.812352e-03 t_s=73.793
+HIST it=114 res=7.758143e-03 t_s=74.471
+HIST it=115 res=7.689683e-03 t_s=75.154
+HIST it=116 res=7.618585e-03 t_s=75.832
+HIST it=117 res=7.555884e-03 t_s=76.514
+HIST it=118 res=7.473221e-03 t_s=77.208
+HIST it=119 res=7.398528e-03 t_s=77.887
+HIST it=120 res=7.335426e-03 t_s=78.572
+HIST it=121 res=7.274520e-03 t_s=79.257
+HIST it=122 res=7.223415e-03 t_s=79.945
+HIST it=123 res=7.163133e-03 t_s=80.647
+HIST it=124 res=7.110843e-03 t_s=81.308
+HIST it=125 res=7.042134e-03 t_s=82.015
+HIST it=126 res=6.976531e-03 t_s=82.717
+HIST it=127 res=6.923924e-03 t_s=83.403
+HIST it=128 res=6.864657e-03 t_s=84.103
+HIST it=129 res=6.803582e-03 t_s=84.808
+HIST it=130 res=6.753616e-03 t_s=85.523
+HIST it=131 res=6.709183e-03 t_s=86.219
+HIST it=132 res=6.673993e-03 t_s=86.906
+HIST it=133 res=6.625893e-03 t_s=87.612
+HIST it=134 res=6.571677e-03 t_s=88.317
+HIST it=135 res=6.515559e-03 t_s=89.018
+HIST it=136 res=6.458617e-03 t_s=89.714
+HIST it=137 res=6.388536e-03 t_s=90.410
+HIST it=138 res=6.346855e-03 t_s=91.122
+HIST it=139 res=6.302970e-03 t_s=91.781
+HIST it=140 res=6.264518e-03 t_s=92.495
+HIST it=141 res=6.225572e-03 t_s=93.188
+HIST it=142 res=6.167166e-03 t_s=93.891
+HIST it=143 res=6.110418e-03 t_s=94.592
+HIST it=144 res=6.053721e-03 t_s=95.307
+HIST it=145 res=6.010265e-03 t_s=96.017
+HIST it=146 res=5.962077e-03 t_s=96.718
+HIST it=147 res=5.910785e-03 t_s=97.431
+HIST it=148 res=5.867543e-03 t_s=98.140
+HIST it=149 res=5.820919e-03 t_s=98.859
+HIST it=150 res=5.771843e-03 t_s=99.564
+[2026-10-12 16:04:46.612] [info] [gmres.cpp:420] gmres: iteration 150: relative residual 5.772e-03
+HIST it=151 res=5.728233e-03 t_s=100.266
+HIST it=152 res=5.682084e-03 t_s=100.968
+HIST it=153 res=5.628969e-03 t_s=101.669
+HIST it=154 res=5.569993e-03 t_s=102.373
+HIST it=155 res=5.533967e-03 t_s=103.091
+HIST it=156 res=5.492067e-03 t_s=103.790
+HIST it=157 res=5.464835e-03 t_s=104.496
+HIST it=158 res=5.426698e-03 t_s=105.198
+HIST it=159 res=5.394823e-03 t_s=105.922
+HIST it=160 res=5.353324e-03 t_s=106.643
+HIST it=161 res=5.297487e-03 t_s=107.359
+HIST it=162 res=5.259359e-03 t_s=108.080
+HIST it=163 res=5.215439e-03 t_s=108.790
+HIST it=164 res=5.176860e-03 t_s=109.498
+HIST it=165 res=5.149121e-03 t_s=110.224
+HIST it=166 res=5.119170e-03 t_s=110.953
+HIST it=167 res=5.094260e-03 t_s=111.660
+HIST it=168 res=5.062619e-03 t_s=112.387
+HIST it=169 res=5.024113e-03 t_s=113.116
+HIST it=170 res=4.986463e-03 t_s=113.843
+HIST it=171 res=4.957669e-03 t_s=114.569
+HIST it=172 res=4.926084e-03 t_s=115.277
+HIST it=173 res=4.893319e-03 t_s=115.987
+HIST it=174 res=4.861569e-03 t_s=116.698
+HIST it=175 res=4.837787e-03 t_s=117.412
+HIST it=176 res=4.815749e-03 t_s=118.133
+HIST it=177 res=4.784845e-03 t_s=118.867
+HIST it=178 res=4.745338e-03 t_s=119.580
+HIST it=179 res=4.708455e-03 t_s=120.313
+HIST it=180 res=4.674007e-03 t_s=121.042
+HIST it=181 res=4.639982e-03 t_s=121.777
+HIST it=182 res=4.605147e-03 t_s=122.510
+HIST it=183 res=4.579504e-03 t_s=123.239
+HIST it=184 res=4.558634e-03 t_s=123.961
+HIST it=185 res=4.530949e-03 t_s=124.679
+HIST it=186 res=4.497006e-03 t_s=125.406
+HIST it=187 res=4.469259e-03 t_s=126.128
+HIST it=188 res=4.435419e-03 t_s=126.865
+HIST it=189 res=4.406892e-03 t_s=127.584
+HIST it=190 res=4.376648e-03 t_s=128.306
+HIST it=191 res=4.346377e-03 t_s=129.032
+HIST it=192 res=4.323242e-03 t_s=129.730
+HIST it=193 res=4.297801e-03 t_s=130.455
+HIST it=194 res=4.272136e-03 t_s=131.181
+HIST it=195 res=4.242718e-03 t_s=131.908
+HIST it=196 res=4.213103e-03 t_s=132.648
+HIST it=197 res=4.189947e-03 t_s=133.374
+HIST it=198 res=4.158307e-03 t_s=134.098
+HIST it=199 res=4.121261e-03 t_s=134.842
+HIST it=200 res=4.095273e-03 t_s=135.571
+[2026-10-12 16:05:22.620] [info] [gmres.cpp:420] gmres: iteration 200: relative residual 4.095e-03
+HIST it=201 res=4.070849e-03 t_s=136.309
+HIST it=202 res=4.042925e-03 t_s=137.052
+HIST it=203 res=4.016581e-03 t_s=137.781
+HIST it=204 res=3.986234e-03 t_s=138.525
+HIST it=205 res=3.962996e-03 t_s=139.270
+HIST it=206 res=3.929859e-03 t_s=140.008
+HIST it=207 res=3.888064e-03 t_s=140.760
+HIST it=208 res=3.859451e-03 t_s=141.498
+HIST it=209 res=3.826550e-03 t_s=142.238
+HIST it=210 res=3.800607e-03 t_s=142.979
+HIST it=211 res=3.773813e-03 t_s=143.726
+HIST it=212 res=3.749962e-03 t_s=144.472
+HIST it=213 res=3.724410e-03 t_s=145.219
+HIST it=214 res=3.691824e-03 t_s=145.960
+HIST it=215 res=3.657499e-03 t_s=146.712
+HIST it=216 res=3.630113e-03 t_s=147.450
+HIST it=217 res=3.603645e-03 t_s=148.187
+HIST it=218 res=3.578481e-03 t_s=148.944
+HIST it=219 res=3.555074e-03 t_s=149.685
+HIST it=220 res=3.531378e-03 t_s=150.430
+HIST it=221 res=3.509166e-03 t_s=151.173
+HIST it=222 res=3.486700e-03 t_s=151.916
+HIST it=223 res=3.460184e-03 t_s=152.654
+HIST it=224 res=3.438880e-03 t_s=153.404
+HIST it=225 res=3.413291e-03 t_s=154.157
+HIST it=226 res=3.393593e-03 t_s=154.896
+HIST it=227 res=3.373451e-03 t_s=155.651
+HIST it=228 res=3.353923e-03 t_s=156.410
+HIST it=229 res=3.335036e-03 t_s=157.154
+HIST it=230 res=3.311729e-03 t_s=157.907
+HIST it=231 res=3.291723e-03 t_s=158.664
+HIST it=232 res=3.265997e-03 t_s=159.425
+HIST it=233 res=3.242196e-03 t_s=160.173
+HIST it=234 res=3.214472e-03 t_s=160.915
+HIST it=235 res=3.190813e-03 t_s=161.666
+HIST it=236 res=3.172989e-03 t_s=162.414
+HIST it=237 res=3.153156e-03 t_s=163.162
+HIST it=238 res=3.134983e-03 t_s=163.932
+HIST it=239 res=3.113432e-03 t_s=164.684
+HIST it=240 res=3.096373e-03 t_s=165.440
+HIST it=241 res=3.076387e-03 t_s=166.191
+HIST it=242 res=3.054149e-03 t_s=166.945
+HIST it=243 res=3.034317e-03 t_s=167.699
+HIST it=244 res=3.017276e-03 t_s=168.457
+HIST it=245 res=3.003559e-03 t_s=169.227
+HIST it=246 res=2.989683e-03 t_s=169.954
+HIST it=247 res=2.973851e-03 t_s=170.707
+HIST it=248 res=2.956642e-03 t_s=171.446
+HIST it=249 res=2.939977e-03 t_s=172.203
+HIST it=250 res=2.914446e-03 t_s=172.964
+[2026-10-12 16:06:00.013] [info] [gmres.cpp:420] gmres: iteration 250: relative residual 2.914e-03
+HIST it=251 res=2.895755e-03 t_s=173.722
+HIST it=252 res=2.880712e-03 t_s=174.487
+HIST it=253 res=2.866213e-03 t_s=175.263
+HIST it=254 res=2.853738e-03 t_s=176.041
+HIST it=255 res=2.840789e-03 t_s=176.814
+HIST it=256 res=2.826940e-03 t_s=177.574
+HIST it=257 res=2.813099e-03 t_s=178.349
+HIST it=258 res=2.794878e-03 t_s=179.114
+HIST it=259 res=2.779645e-03 t_s=179.876
+HIST it=260 res=2.761722e-03 t_s=180.635
+HIST it=261 res=2.746418e-03 t_s=181.394
+HIST it=262 res=2.734318e-03 t_s=182.159
+HIST it=263 res=2.721618e-03 t_s=182.941
+HIST it=264 res=2.707999e-03 t_s=183.718
+HIST it=265 res=2.695537e-03 t_s=184.500
+HIST it=266 res=2.679633e-03 t_s=185.284
+HIST it=267 res=2.665813e-03 t_s=186.049
+HIST it=268 res=2.646957e-03 t_s=186.789
+HIST it=269 res=2.629717e-03 t_s=187.559
+HIST it=270 res=2.611223e-03 t_s=188.345
+HIST it=271 res=2.598328e-03 t_s=189.089
+HIST it=272 res=2.580707e-03 t_s=189.879
+HIST it=273 res=2.567933e-03 t_s=190.645
+HIST it=274 res=2.552234e-03 t_s=191.423
+HIST it=275 res=2.536465e-03 t_s=192.197
+HIST it=276 res=2.514860e-03 t_s=192.968
+HIST it=277 res=2.497999e-03 t_s=193.751
+HIST it=278 res=2.483030e-03 t_s=194.539
+HIST it=279 res=2.470186e-03 t_s=195.322
+HIST it=280 res=2.455738e-03 t_s=196.114
+HIST it=281 res=2.444316e-03 t_s=196.888
+HIST it=282 res=2.432259e-03 t_s=197.664
+HIST it=283 res=2.419817e-03 t_s=198.453
+HIST it=284 res=2.402137e-03 t_s=199.228
+HIST it=285 res=2.386564e-03 t_s=200.017
+HIST it=286 res=2.372338e-03 t_s=200.817
+HIST it=287 res=2.356315e-03 t_s=201.567
+HIST it=288 res=2.344317e-03 t_s=202.365
+HIST it=289 res=2.333977e-03 t_s=203.149
+HIST it=290 res=2.324085e-03 t_s=203.942
+HIST it=291 res=2.311906e-03 t_s=204.719
+HIST it=292 res=2.301917e-03 t_s=205.525
+HIST it=293 res=2.285771e-03 t_s=206.317
+HIST it=294 res=2.274570e-03 t_s=207.115
+HIST it=295 res=2.261223e-03 t_s=207.898
+HIST it=296 res=2.251209e-03 t_s=208.699
+HIST it=297 res=2.243480e-03 t_s=209.483
+HIST it=298 res=2.233235e-03 t_s=210.278
+HIST it=299 res=2.224402e-03 t_s=211.068
+HIST it=300 res=2.212128e-03 t_s=211.866
+[2026-10-12 16:06:38.916] [info] [gmres.cpp:420] gmres: iteration 300: relative residual 2.212e-03
+HIST it=301 res=2.197318e-03 t_s=212.666
+HIST it=302 res=2.185776e-03 t_s=213.453
+HIST it=303 res=2.173507e-03 t_s=214.263
+HIST it=304 res=2.161933e-03 t_s=215.068
+HIST it=305 res=2.154117e-03 t_s=215.872
+HIST it=306 res=2.141795e-03 t_s=216.681
+HIST it=307 res=2.132813e-03 t_s=217.453
+HIST it=308 res=2.123130e-03 t_s=218.251
+HIST it=309 res=2.113148e-03 t_s=219.039
+HIST it=310 res=2.102386e-03 t_s=219.831
+HIST it=311 res=2.089621e-03 t_s=220.642
+HIST it=312 res=2.077353e-03 t_s=221.436
+HIST it=313 res=2.066247e-03 t_s=222.252
+HIST it=314 res=2.055853e-03 t_s=223.048
+HIST it=315 res=2.048883e-03 t_s=223.859
+HIST it=316 res=2.039844e-03 t_s=224.657
+HIST it=317 res=2.031739e-03 t_s=225.453
+HIST it=318 res=2.022266e-03 t_s=226.253
+HIST it=319 res=2.011200e-03 t_s=227.056
+HIST it=320 res=1.998982e-03 t_s=227.859
+HIST it=321 res=1.988589e-03 t_s=228.662
+HIST it=322 res=1.979519e-03 t_s=229.462
+HIST it=323 res=1.969710e-03 t_s=230.283
+HIST it=324 res=1.962990e-03 t_s=231.088
+HIST it=325 res=1.952522e-03 t_s=231.891
+HIST it=326 res=1.941292e-03 t_s=232.701
+HIST it=327 res=1.928902e-03 t_s=233.521
+HIST it=328 res=1.917398e-03 t_s=234.327
+HIST it=329 res=1.909189e-03 t_s=235.131
+HIST it=330 res=1.899759e-03 t_s=235.933
+HIST it=331 res=1.892063e-03 t_s=236.752
+HIST it=332 res=1.883162e-03 t_s=237.570
+HIST it=333 res=1.874055e-03 t_s=238.378
+HIST it=334 res=1.866680e-03 t_s=239.184
+HIST it=335 res=1.856843e-03 t_s=240.009
+HIST it=336 res=1.847183e-03 t_s=240.836
+HIST it=337 res=1.838404e-03 t_s=241.658
+HIST it=338 res=1.825690e-03 t_s=242.485
+HIST it=339 res=1.816570e-03 t_s=243.298
+HIST it=340 res=1.807335e-03 t_s=244.123
+HIST it=341 res=1.799347e-03 t_s=244.944
+HIST it=342 res=1.791358e-03 t_s=245.758
+HIST it=343 res=1.781698e-03 t_s=246.570
+HIST it=344 res=1.773444e-03 t_s=247.395
+HIST it=345 res=1.761190e-03 t_s=248.214
+HIST it=346 res=1.752967e-03 t_s=249.034
+HIST it=347 res=1.746833e-03 t_s=249.866
+HIST it=348 res=1.738822e-03 t_s=250.678
+HIST it=349 res=1.731621e-03 t_s=251.504
+HIST it=350 res=1.723268e-03 t_s=252.333
+[2026-10-12 16:07:19.383] [info] [gmres.cpp:420] gmres: iteration 350: relative residual 1.723e-03
+HIST it=351 res=1.717835e-03 t_s=253.169
+HIST it=352 res=1.711717e-03 t_s=254.006
+HIST it=353 res=1.705331e-03 t_s=254.819
+HIST it=354 res=1.698396e-03 t_s=255.653
+HIST it=355 res=1.690590e-03 t_s=256.477
+HIST it=356 res=1.684377e-03 t_s=257.295
+HIST it=357 res=1.676901e-03 t_s=258.120
+HIST it=358 res=1.671849e-03 t_s=258.941
+HIST it=359 res=1.664798e-03 t_s=259.777
+HIST it=360 res=1.658391e-03 t_s=260.604
+HIST it=361 res=1.651041e-03 t_s=261.429
+HIST it=362 res=1.644010e-03 t_s=262.225
+HIST it=363 res=1.635986e-03 t_s=263.067
+HIST it=364 res=1.628226e-03 t_s=263.899
+HIST it=365 res=1.621755e-03 t_s=264.724
+HIST it=366 res=1.615068e-03 t_s=265.553
+HIST it=367 res=1.609436e-03 t_s=266.375
+HIST it=368 res=1.602523e-03 t_s=267.221
+HIST it=369 res=1.595811e-03 t_s=268.049
+HIST it=370 res=1.588608e-03 t_s=268.884
+HIST it=371 res=1.580143e-03 t_s=269.711
+HIST it=372 res=1.573104e-03 t_s=270.542
+HIST it=373 res=1.563939e-03 t_s=271.388
+HIST it=374 res=1.556327e-03 t_s=272.234
+HIST it=375 res=1.548582e-03 t_s=273.070
+HIST it=376 res=1.543167e-03 t_s=273.914
+HIST it=377 res=1.535276e-03 t_s=274.757
+HIST it=378 res=1.528763e-03 t_s=275.608
+HIST it=379 res=1.520653e-03 t_s=276.437
+HIST it=380 res=1.513331e-03 t_s=277.287
+HIST it=381 res=1.505065e-03 t_s=278.126
+HIST it=382 res=1.498372e-03 t_s=278.977
+HIST it=383 res=1.489885e-03 t_s=279.830
+HIST it=384 res=1.483247e-03 t_s=280.673
+HIST it=385 res=1.477000e-03 t_s=281.509
+HIST it=386 res=1.473004e-03 t_s=282.353
+HIST it=387 res=1.466746e-03 t_s=283.198
+HIST it=388 res=1.458133e-03 t_s=284.058
+HIST it=389 res=1.452937e-03 t_s=284.860
+HIST it=390 res=1.446899e-03 t_s=285.702
+HIST it=391 res=1.441352e-03 t_s=286.549
+HIST it=392 res=1.437133e-03 t_s=287.389
+HIST it=393 res=1.433135e-03 t_s=288.229
+HIST it=394 res=1.428863e-03 t_s=289.075
+HIST it=395 res=1.424215e-03 t_s=289.932
+HIST it=396 res=1.417702e-03 t_s=290.772
+HIST it=397 res=1.410294e-03 t_s=291.632
+HIST it=398 res=1.405091e-03 t_s=292.482
+HIST it=399 res=1.400142e-03 t_s=293.341
+HIST it=400 res=1.396115e-03 t_s=294.197
+[2026-10-12 16:08:01.248] [info] [gmres.cpp:420] gmres: iteration 400: relative residual 1.396e-03
+HIST it=401 res=1.390618e-03 t_s=295.064
+HIST it=402 res=1.386363e-03 t_s=295.916
+HIST it=403 res=1.381511e-03 t_s=296.768
+HIST it=404 res=1.376019e-03 t_s=297.615
+HIST it=405 res=1.371864e-03 t_s=298.480
+HIST it=406 res=1.365537e-03 t_s=299.349
+HIST it=407 res=1.359145e-03 t_s=300.205
+HIST it=408 res=1.354200e-03 t_s=301.069
+HIST it=409 res=1.349146e-03 t_s=301.919
+HIST it=410 res=1.344321e-03 t_s=302.788
+HIST it=411 res=1.337410e-03 t_s=303.661
+HIST it=412 res=1.332480e-03 t_s=304.514
+HIST it=413 res=1.326619e-03 t_s=305.384
+HIST it=414 res=1.320261e-03 t_s=306.236
+HIST it=415 res=1.314980e-03 t_s=307.104
+HIST it=416 res=1.307544e-03 t_s=307.982
+HIST it=417 res=1.301756e-03 t_s=308.842
+HIST it=418 res=1.296509e-03 t_s=309.697
+HIST it=419 res=1.291633e-03 t_s=310.571
+HIST it=420 res=1.286352e-03 t_s=311.426
+HIST it=421 res=1.281060e-03 t_s=312.293
+HIST it=422 res=1.276136e-03 t_s=313.152
+HIST it=423 res=1.271049e-03 t_s=314.029
+HIST it=424 res=1.265047e-03 t_s=314.896
+HIST it=425 res=1.260386e-03 t_s=315.762
+HIST it=426 res=1.256867e-03 t_s=316.637
+HIST it=427 res=1.252504e-03 t_s=317.517
+HIST it=428 res=1.247856e-03 t_s=318.386
+HIST it=429 res=1.241799e-03 t_s=319.265
+HIST it=430 res=1.236639e-03 t_s=320.134
+HIST it=431 res=1.231328e-03 t_s=321.001
+HIST it=432 res=1.226940e-03 t_s=321.882
+HIST it=433 res=1.222330e-03 t_s=322.744
+HIST it=434 res=1.217252e-03 t_s=323.610
+HIST it=435 res=1.212726e-03 t_s=324.494
+HIST it=436 res=1.207374e-03 t_s=325.362
+HIST it=437 res=1.203546e-03 t_s=326.230
+HIST it=438 res=1.198888e-03 t_s=327.099
+HIST it=439 res=1.193768e-03 t_s=327.975
+HIST it=440 res=1.188998e-03 t_s=328.848
+HIST it=441 res=1.183804e-03 t_s=329.724
+HIST it=442 res=1.178457e-03 t_s=330.598
+HIST it=443 res=1.173063e-03 t_s=331.467
+HIST it=444 res=1.169431e-03 t_s=332.356
+HIST it=445 res=1.165377e-03 t_s=333.242
+HIST it=446 res=1.161599e-03 t_s=334.118
+HIST it=447 res=1.157604e-03 t_s=334.998
+HIST it=448 res=1.153601e-03 t_s=335.873
+HIST it=449 res=1.149208e-03 t_s=336.762
+HIST it=450 res=1.145024e-03 t_s=337.650
+[2026-10-12 16:08:44.701] [info] [gmres.cpp:420] gmres: iteration 450: relative residual 1.145e-03
+HIST it=451 res=1.141348e-03 t_s=338.545
+HIST it=452 res=1.136926e-03 t_s=339.438
+HIST it=453 res=1.133125e-03 t_s=340.331
+HIST it=454 res=1.128195e-03 t_s=341.227
+HIST it=455 res=1.124228e-03 t_s=342.120
+HIST it=456 res=1.120457e-03 t_s=342.996
+HIST it=457 res=1.116634e-03 t_s=343.887
+HIST it=458 res=1.112976e-03 t_s=344.770
+HIST it=459 res=1.108286e-03 t_s=345.656
+HIST it=460 res=1.104675e-03 t_s=346.537
+HIST it=461 res=1.100217e-03 t_s=347.420
+HIST it=462 res=1.096806e-03 t_s=348.311
+HIST it=463 res=1.093162e-03 t_s=349.210
+HIST it=464 res=1.089926e-03 t_s=350.091
+HIST it=465 res=1.085139e-03 t_s=350.975
+HIST it=466 res=1.082088e-03 t_s=351.878
+HIST it=467 res=1.077847e-03 t_s=352.776
+HIST it=468 res=1.074174e-03 t_s=353.665
+HIST it=469 res=1.071028e-03 t_s=354.550
+HIST it=470 res=1.067258e-03 t_s=355.435
+HIST it=471 res=1.064357e-03 t_s=356.338
+HIST it=472 res=1.060942e-03 t_s=357.241
+HIST it=473 res=1.057435e-03 t_s=358.142
+HIST it=474 res=1.052233e-03 t_s=359.044
+HIST it=475 res=1.048211e-03 t_s=359.930
+HIST it=476 res=1.044513e-03 t_s=360.792
+HIST it=477 res=1.041357e-03 t_s=361.698
+HIST it=478 res=1.038403e-03 t_s=362.604
+HIST it=479 res=1.035212e-03 t_s=363.507
+HIST it=480 res=1.031503e-03 t_s=364.414
+HIST it=481 res=1.028373e-03 t_s=365.308
+HIST it=482 res=1.023895e-03 t_s=366.205
+HIST it=483 res=1.021503e-03 t_s=367.116
+HIST it=484 res=1.017974e-03 t_s=367.981
+HIST it=485 res=1.015719e-03 t_s=368.891
+HIST it=486 res=1.012226e-03 t_s=369.791
+HIST it=487 res=1.008774e-03 t_s=370.702
+HIST it=488 res=1.005403e-03 t_s=371.615
+HIST it=489 res=1.002311e-03 t_s=372.511
+HIST it=490 res=9.987219e-04 t_s=373.426
+[2026-10-12 16:09:21.177] [info] [gmres.cpp:497] gmres: converged in 490 iterations, 374.13 s (CGS2 orthogonalisation 71.00 s, 490 re-orthogonalisations): relative residual 9.987e-04 (preconditioned), true residual 9.987e-04
+[2026-10-12 16:09:21.255] [info] [simulation.cpp:489] Simulation: ICTF GMRES, 2N = 369600: 490 it, converged true, true residual 9.987e-04, assembly 45.603 s, solve 374.126 s
+RESULT ag L = 7 um, sigma = 50 nm, h = 50 nm, box 50 nm, no fine band, angular_spectrum beam w0 = L/4, seed 1, d0 = 3, leaf radius quantile 1, tol = 0.001
+triangles 123200 (top 39200, box 84000 = 214.286 %), box M = 0, fine rows 0, depth 2 um, fine band 0 um; 2N = 369600; r_max 66.0866 nm; octree 6 levels, leaf edge 218.75 nm (lambda / 2.28571), 3078 leaves; 0 elevated functions (home levels 5: 184800); near estimate 10.3772 GB, exact R2 estimate 0 GB (0 pairs), budget 20.7543 GB; leaf orders 14 / 0 (expansion levels 4 / 0), patterns 2.66112 GB (elevated 0 GB), far tables 0.347518 GB; setup peak estimate 19.8753 GB
+formulation ICTF; GMRES 490 iterations, converged yes, monitored residual 0.000998722, true residual 0.000998722
+setup 45.6027 s (octree 0.0202192 s, far 2.83681 s incl. exact parts 1.72759 s, near 41.3462 s); matvec 0.612461 s (near 0.295852 s, far 0.316442 s); solve 374.126 s (0.763522 s/it)
+memory: near 10.3772 GB (nnz 432259024, 1169.53 per row), exact R1 0 GB, exact R2 0.609299 GB (15195520 pairs), far 3.00893 GB, operator 14.0014 GB, Krylov 2.90358 GB, peak after setup 13.7732 GB, peak 17.0324 GB
+ROW material=ag L_um=7 box=50.000000 fine=0 restart=0 h_nm=50 sigma_nm=50 waist=4 beam=angular_spectrum d0=3 tol=0.001 lq=1 seed=1 solved=1 N2=369600 levels=6 leaf_nm=218.75 rmax_nm=66.0866 elevated=0 setup_s=45.6027 tree_s=0.0202192 far_s=2.83681 exact_s=1.72759 near_s=41.3462 matvec_s=0.612461 near_mv_s=0.295852 far_mv_s=0.316442 it=490 conv=1 res=0.000998722 true_res=0.000998722 solve_s=374.126 near_gb=10.3772 exact_gb=0.609299 exact_est_gb=0 pattern_est_gb=2.66112 far_est_gb=3.00864 peak_est_gb=19.8753 far_gb=3.00893 krylov_gb=2.90358 peak_setup_gb=13.7732 peak_gb=17.0324 form=ictf jacobi=0
+
+MlfmmOperator: 2N = 369600, d0 = 3, octree 6 levels, 3078 leaves of edge 0.437501 lambda1 (lambda1 = 5e-07 m), built in 0.0202192 s; leaf floor 0.25 lambda1 (given 0.25), leaf radius quantile 1
+  near: sparse 369600x369600, nnz = 432259024 (0.316 % of dense), 10377.173 MB, assembled in 41.3462 s
+  far: 2.83681 s setup, 3450.62 MB
+  MlfmmFarOperator: 2N = 369600, d0 = 3, interpolation order p = 14, octree levels 6 (far levels 2 ... 5); policy: expansion if the search is achievable (lossy regions: and block check <= 0.001 or <= 2 x the lossless analogue), else per box pair truncation if delta <= 0.0001, exact otherwise (allowed if x*/alpha <= 4 box edges, x* = 11.7564; exact-part budget 19792.9 MB)
+  region R1: k = (1.25664e+07,0) 1/m, leaf patterns 2537.84 MB (quadrature degree <= 5, 0.738168 s)
+    level 2: 32 boxes, a = 3.50001 lambda_i, expansion; search achievable, error 3.78e-13 at L = 53, block check 1.0224e-05 (3 pairs), sampling L = 53 (5832 directions), 120 translators, fields 22.7812 MB per apply, setup 0.217281 s
+    level 3: 156 boxes, a = 1.75 lambda_i, expansion; search achievable, error 3.56e-10 at L = 31, block check 1.31345e-05 (3 pairs), sampling L = 31 (2048 directions), 218 translators, fields 39 MB per apply, setup 0.0799906 s
+    level 4: 692 boxes, a = 0.875002 lambda_i, expansion; search achievable, error 3.31e-07 at L = 20, block check 0.00297208 (3 pairs), sampling L = 20 (882 directions), 316 translators, fields 74.5049 MB per apply, setup 0.0378968 s
+    level 5: 3078 boxes, a = 0.437501 lambda_i, expansion; search achievable, error 1.80e-04 at L = 14, block check 0.00669524 (3 pairs), sampling L = 14 (450 directions), 316 translators, fields 169.08 MB per apply, setup 0.024395 s
+  region R2: k = (628331,-3.93319e+07) 1/m, exact part 15195520 basis pairs (L, K) from 47712 box pairs (estimate <= 173173416), 581.073 MB, 1.72759 s; 157977896 basis pairs of exact box pairs truncated, max delta 9.99997e-05
+    level 2: 32 boxes, a = 0.175004 lambda_i, truncation; search not run, block check not run; box pairs: 624 truncated (max delta 6.20651e-28, 22508093600 basis pairs), 0 exact (min delta 0), setup 8.1e-06 s
+    level 3: 156 boxes, a = 0.087502 lambda_i, truncation; search not run, block check not run; box pairs: 7232 truncated (max delta 2.2566e-12, 9389035728 basis pairs), 0 exact (min delta 0), setup 7.84e-05 s
+    level 4: 692 boxes, a = 0.043751 lambda_i, truncation; search not run, block check not run; box pairs: 25752 truncated (max delta 3.71542e-05, 1766172340 basis pairs), 0 exact (min delta 0), setup 0.0002919 s
+    level 5: 3078 boxes, a = 0.0218755 lambda_i, exact; search not achievable, error 2.09e+08 at L = 5, block check not run; box pairs: 58772 truncated (max delta 9.87108e-05, 206500160 basis pairs), 47712 exact (min delta 0.000100062), setup 0.0026454 s
+  memory 3450.62 MB incl. 1 apply workspace(s) of 305.366 MB (0 allocated so far; at least one is counted)
+  total 13352.7 MB (near 9896.44, far 3450.62, octree 5.67693)
+
+SpeckleBem simulation
+  mesh:           123200 triangles, N = 184800 RWG functions, 2N = 369600 unknowns
+  wavelength:     5e-07 m, object eps_r = (-9.794,-0.313), exterior eps_r = (1,0)
+  formulation:    ICTF (explicit)
+  preconditioner: none (explicit)
+  solver:         GMRES (tol 0.001, max_iter 4000, restart 0)
+  compression:    mlfmm (accuracy_digits 3, max_elements_per_leaf 100, min_box_size_lambda 0.25, max_levels 12, automatic_leaf_size true, leaf_radius_quantile 1, max_exact_far_bytes 0)
+  operator:       MlfmmOperator: 2N = 369600, d0 = 3, octree 6 levels, 3078 leaves of edge 0.437501 lambda1 (lambda1 = 5e-07 m), built in 0.0202192 s; leaf floor 0.25 lambda1 (given 0.25), leaf radius quantile 1
+  near: sparse 369600x369600, nnz = 432259024 (0.316 % of dense), 10377.173 MB, assembled in 41.3462 s
+  far: 2.83681 s setup, 3450.62 MB
+  MlfmmFarOperator: 2N = 369600, d0 = 3, interpolation order p = 14, octree levels 6 (far levels 2 ... 5); policy: expansion if the search is achievable (lossy regions: and block check <= 0.001 or <= 2 x the lossless analogue), else per box pair truncation if delta <= 0.0001, exact otherwise (allowed if x*/alpha <= 4 box edges, x* = 11.7564; exact-part budget 19792.9 MB)
+  region R1: k = (1.25664e+07,0) 1/m, leaf patterns 2537.84 MB (quadrature degree <= 5, 0.738168 s)
+    level 2: 32 boxes, a = 3.50001 lambda_i, expansion; search achievable, error 3.78e-13 at L = 53, block check 1.0224e-05 (3 pairs), sampling L = 53 (5832 directions), 120 translators, fields 22.7812 MB per apply, setup 0.217281 s
+    level 3: 156 boxes, a = 1.75 lambda_i, expansion; search achievable, error 3.56e-10 at L = 31, block check 1.31345e-05 (3 pairs), sampling L = 31 (2048 directions), 218 translators, fields 39 MB per apply, setup 0.0799906 s
+    level 4: 692 boxes, a = 0.875002 lambda_i, expansion; search achievable, error 3.31e-07 at L = 20, block check 0.00297208 (3 pairs), sampling L = 20 (882 directions), 316 translators, fields 74.5049 MB per apply, setup 0.0378968 s
+    level 5: 3078 boxes, a = 0.437501 lambda_i, expansion; search achievable, error 1.80e-04 at L = 14, block check 0.00669524 (3 pairs), sampling L = 14 (450 directions), 316 translators, fields 169.08 MB per apply, setup 0.024395 s
+  region R2: k = (628331,-3.93319e+07) 1/m, exact part 15195520 basis pairs (L, K) from 47712 box pairs (estimate <= 173173416), 581.073 MB, 1.72759 s; 157977896 basis pairs of exact box pairs truncated, max delta 9.99997e-05
+    level 2: 32 boxes, a = 0.175004 lambda_i, truncation; search not run, block check not run; box pairs: 624 truncated (max delta 6.20651e-28, 22508093600 basis pairs), 0 exact (min delta 0), setup 8.1e-06 s
+    level 3: 156 boxes, a = 0.087502 lambda_i, truncation; search not run, block check not run; box pairs: 7232 truncated (max delta 2.2566e-12, 9389035728 basis pairs), 0 exact (min delta 0), setup 7.84e-05 s
+    level 4: 692 boxes, a = 0.043751 lambda_i, truncation; search not run, block check not run; box pairs: 25752 truncated (max delta 3.71542e-05, 1766172340 basis pairs), 0 exact (min delta 0), setup 0.0002919 s
+    level 5: 3078 boxes, a = 0.0218755 lambda_i, exact; search not achievable, error 2.09e+08 at L = 5, block check not run; box pairs: 58772 truncated (max delta 9.87108e-05, 206500160 basis pairs), 47712 exact (min delta 0.000100062), setup 0.0026454 s
+  memory 3450.62 MB incl. 1 apply workspace(s) of 305.366 MB (1 allocated so far; at least one is counted)
+  total 13352.7 MB (near 9896.44, far 3450.62, octree 5.67693), 14001.4 MB
+  assembly:       Z 44.2033 s, rhs 1.39941 s
+  solve:          374.126 s, 490 iterations, converged
+  residuals:      monitored 0.000998722, true 0.000998722
+
+EXIT ag7_ictf status=0 end=2026-10-12T16:09:21+02:00

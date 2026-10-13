@@ -38,6 +38,7 @@
 #include "specklebem/compression/mlfmm/patterns.hpp"
 #include "specklebem/compression/mlfmm/plane_wave.hpp"
 #include "specklebem/core/logging.hpp"
+#include "specklebem/core/path.hpp"
 #include "specklebem/core/types.hpp"
 #include "specklebem/excitation/angular_spectrum_beam.hpp"
 #include "specklebem/excitation/excitation.hpp"
@@ -50,11 +51,14 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
+#include <fstream>
 #include <functional>
 #include <initializer_list>
 #include <memory>
@@ -490,6 +494,9 @@ struct Result {
     std::size_t far_bytes = 0;  ///< far operator without the exact parts (tables, workspaces)
     std::size_t operator_bytes = 0;
     Real krylov_bytes = 0;  ///< (iterations + 1) 2N 16 bytes (full GMRES)
+    /// GMRES monitored residuals r_0 = 1, r_1 .. r_iterations (solver::GmresResult; empty
+    /// without a solve); history_record writes them (WP22b2).
+    std::vector<Real> residual_history;
     /// Power summary (Case::far_field_dtheta_deg > 0, else all 0): incident beam power
     /// AngularSpectrumBeam::power(), reflected power on the primary hemisphere grid and on the
     /// grid with half the nodes per direction (convergence check), absorbed power from the
@@ -764,6 +771,7 @@ inline Result run(const Geometry& geo, const Case& c, const Estimate& est,
         r.iterations = g.iterations;
         r.converged = g.converged;
         r.final_residual = g.residual_history.empty() ? 0.0 : g.residual_history.back();
+        r.residual_history = g.residual_history;
         r.true_residual = g.true_relative_residual;
         r.solve_s = g.wall_seconds;
         const int basis = c.restart > 0 ? std::min(g.iterations, c.restart) : g.iterations;
@@ -869,8 +877,18 @@ inline std::string summary(const Result& r) {
     return os.str();
 }
 
+/// Lower-case formulation name of a result ("pmchwt", "ictf", "mctf", "jmcfie"; the ROW and
+/// HISTORY key form=); "unknown" before run() set it.
+inline std::string formulation_key(const Result& r) {
+    std::string f = r.formulation.empty() ? std::string("unknown") : r.formulation;
+    std::transform(f.begin(), f.end(), f.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return f;
+}
+
 /// One machine-readable line (key=value, SI seconds, GB), parsed by
-/// benchmarks/mlfmm_scaling_fit.py.
+/// benchmarks/mlfmm_scaling_fit.py. Ends with form= (formulation_key) and jacobi=0|1 (WP22b2)
+/// before the optional power-summary keys.
 inline std::string row(const Case& c, const Result& r) {
     std::ostringstream os;
     os.precision(6);
@@ -894,13 +912,274 @@ inline std::string row(const Case& c, const Result& r) {
        << " far_est_gb=" << gb(r.est.pattern_bytes + r.est.far_table_bytes)
        << " peak_est_gb=" << gb(r.est.peak_setup_bytes) << " far_gb=" << gb(r.far_bytes)
        << " krylov_gb=" << gb(r.krylov_bytes) << " peak_setup_gb=" << gb(r.peak_setup_rss)
-       << " peak_gb=" << gb(r.peak_rss);
+       << " peak_gb=" << gb(r.peak_rss) << " form=" << formulation_key(r)
+       << " jacobi=" << (r.jacobi ? 1 : 0);
     if (r.p_inc > 0.0)
         os << " R=" << r.p_refl / r.p_inc << " R_coarse=" << r.p_refl_coarse / r.p_inc
            << " A=" << r.p_abs / r.p_inc << " post_s=" << r.post_s;
     if (!r.post_error.empty())
         os << " post_error=1";
     return os.str();
+}
+
+/// Iterations k at which history_record samples the residual history of `iterations` GMRES
+/// iterations: 0, stride, 2 stride, ... and always the last iteration (WP22b2: compact
+/// histories every 10th iteration). Empty for iterations < 0.
+/// @throws std::invalid_argument for stride < 1.
+inline std::vector<int> history_indices(int iterations, int stride) {
+    if (stride < 1)
+        throw std::invalid_argument("mlfmm_scaling::history_indices: stride must be >= 1");
+    std::vector<int> k;
+    if (iterations < 0)
+        return k;
+    for (int i = 0; i <= iterations; i += stride) k.push_back(i);
+    if (k.back() != iterations)
+        k.push_back(iterations);
+    return k;
+}
+
+/// One line "HISTORY material=.. L_um=.. box=.. fine=.. waist=.. beam=.. d0=.. tol=.. max_iter=..
+/// seed=.. N2=.. form=.. jacobi=0|1 it=.. conv=0|1 stride=.. res=r_0,r_s,r_2s,...,r_it" of a
+/// solved case: the monitored residuals at history_indices(it, stride) with `digits` significant
+/// digits (WP22b2, benchmarks/results/formulation_convergence_mlfmm_histories.txt; stride 1 and
+/// 17 digits give the full-precision history of the Jacobi identity check). waist=
+/// (waist_factor_of) and max_iter= were added in the WP22b2 review round; the 40 original records
+/// lack them (all at waist 4, see their ROW lines).
+/// @throws std::invalid_argument for stride < 1, digits outside 1..17, or a result whose history
+///         does not hold iterations + 1 values.
+inline std::string history_record(const Case& c, const Result& r, int stride, int digits) {
+    if (digits < 1 || digits > 17)
+        throw std::invalid_argument("mlfmm_scaling::history_record: digits must be in 1..17");
+    if (r.iterations < 0 || r.residual_history.size() != static_cast<std::size_t>(r.iterations) + 1)
+        throw std::invalid_argument(
+            "mlfmm_scaling::history_record: the residual history must hold iterations + 1 values");
+    const std::vector<int> ks = history_indices(r.iterations, stride);
+    std::ostringstream os;
+    os.precision(6);
+    os << "HISTORY material=" << c.material << " L_um=" << c.L * 1e6 << " box=" << box_option(c)
+       << " fine=" << (uses_fine_band(c) ? 1 : 0) << " waist=" << waist_factor_of(c)
+       << " beam=" << beam_name(c) << " d0=" << c.digits << " tol=" << c.tolerance
+       << " max_iter=" << c.max_iter << " seed=" << c.seed << " N2=" << r.est.unknowns
+       << " form=" << formulation_key(r) << " jacobi=" << (r.jacobi ? 1 : 0)
+       << " it=" << r.iterations << " conv=" << (r.converged ? 1 : 0) << " stride=" << stride
+       << " res=";
+    std::array<char, 40> buf{};
+    for (std::size_t i = 0; i < ks.size(); ++i) {
+        std::snprintf(buf.data(), buf.size(), "%.*e", digits - 1,
+                      r.residual_history[static_cast<std::size_t>(ks[i])]);
+        os << (i == 0 ? "" : ",") << buf.data();
+    }
+    return os.str();
+}
+
+/// Appends `line` and a newline to the text file `path` (UTF-8 narrow path, ADR 0007).
+/// @throws std::runtime_error if the file cannot be opened or written.
+inline void append_line(const std::string& path, const std::string& line) {
+    std::ofstream f(core::path_from_utf8(path), std::ios::app | std::ios::binary);
+    if (!f)
+        throw std::runtime_error("mlfmm_scaling: cannot open " + path + " for appending");
+    f << line << '\n';
+    f.flush();
+    if (!f)
+        throw std::runtime_error("mlfmm_scaling: cannot write " + path);
+}
+
+namespace detail {
+
+/// Converts the whole of `v` (the value of option `opt`) with `conv` (std::stod-like, taking
+/// the position out-parameter): a value with trailing characters ("5x"), no number or out of
+/// range is refused, never truncated to its numeric prefix.
+/// @throws std::invalid_argument naming the option and the value.
+template <typename F>
+auto parse_number(const std::string& opt, const std::string& v, F conv)
+    -> decltype(conv(v, nullptr)) {
+    if (!v.empty() && std::isspace(static_cast<unsigned char>(v.front())))
+        throw std::invalid_argument(opt + ": leading whitespace in '" + v + "'");
+    std::size_t pos = 0;
+    decltype(conv(v, nullptr)) x{};
+    try {
+        x = conv(v, &pos);
+    } catch (const std::out_of_range&) {
+        throw std::invalid_argument(opt + ": value out of range: '" + v + "'");
+    } catch (const std::invalid_argument&) {
+        throw std::invalid_argument(opt + ": not a number: '" + v + "'");
+    }
+    if (pos != v.size())
+        throw std::invalid_argument(opt + ": trailing characters in '" + v + "'");
+    return x;
+}
+
+/// Also refuses non-finite values ("inf", "nan").
+inline double to_double(const std::string& opt, const std::string& v) {
+    const double x =
+        parse_number(opt, v, [](const std::string& s, std::size_t* p) { return std::stod(s, p); });
+    if (!std::isfinite(x))
+        throw std::invalid_argument(opt + ": not finite: '" + v + "'");
+    return x;
+}
+
+inline int to_int(const std::string& opt, const std::string& v) {
+    return parse_number(opt, v,
+                        [](const std::string& s, std::size_t* p) { return std::stoi(s, p); });
+}
+
+/// Unsigned conversion that also refuses a sign (std::stoull wraps "-1" around).
+inline std::uint64_t to_uint64(const std::string& opt, const std::string& v) {
+    if (v.empty() || !std::isdigit(static_cast<unsigned char>(v.front())))
+        throw std::invalid_argument(opt + ": not an unsigned integer: '" + v + "'");
+    return parse_number(opt, v, [](const std::string& s, std::size_t* p) {
+        return static_cast<std::uint64_t>(std::stoull(s, p));
+    });
+}
+
+}  // namespace detail
+
+/// Command-line options of benchmarks/mlfmm_scaling.cpp (parse_options).
+struct Options {
+    Case c;
+    bool estimate_only = false;
+    bool force = false;
+    bool history = false;  ///< --history: one HIST line per GMRES iteration on stdout
+    /// --history-file: append history_record(c, r, history_stride, history_digits) after the
+    /// solve (WP22b2); empty: off.
+    std::string history_file;
+    int history_stride = 10;  ///< --history-stride (>= 1)
+    int history_digits = 4;   ///< --history-digits (1..17)
+    /// --history-full-file: append the full-precision record (stride 1, 17 digits); empty: off.
+    std::string history_full_file;
+};
+
+/// Parses the benchmark's arguments (argv[1..], without the program name). Defaults: those of
+/// Case and Options (formulation and Jacobi per formulation::recommend unless --formulation /
+/// --jacobi are given).
+/// Numeric values must be consumed whole ("5x", "1e999" and "-1" for --seed are refused, never
+/// truncated or wrapped). Writability of the history files is checked separately by
+/// probe_history_files (parsing has no side effects on the file system).
+/// @throws std::invalid_argument for an unknown option, a missing or invalid value (including
+///         a numeric value with trailing characters or out of range), or inconsistent options
+///         (validate_power_summary; --history-file / --history-full-file with --no-solve or
+///         --estimate-only).
+inline Options parse_options(const std::vector<std::string>& args) {
+    Options o;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const std::string& a = args[i];
+        const auto value = [&]() -> std::string {
+            if (i + 1 >= args.size())
+                throw std::invalid_argument("missing value after " + a);
+            return args[++i];
+        };
+        if (a == "--material") {
+            o.c.material = value();
+        } else if (a == "--L") {
+            o.c.L = detail::to_double(a, value());
+        } else if (a == "--box-mesh-size") {
+            const std::string v = value();
+            o.c.uncapped_box = false;
+            if (v == "auto") {
+                o.c.box_mesh_size.reset();
+            } else if (v == "uncapped") {
+                o.c.box_mesh_size.reset();
+                o.c.uncapped_box = true;
+            } else {
+                o.c.box_mesh_size = detail::to_double(a, v);
+            }
+        } else if (a == "--fine-band") {
+            o.c.fine_band = detail::to_int(a, value()) != 0;
+        } else if (a == "--sigma") {
+            o.c.sigma = detail::to_double(a, value());
+        } else if (a == "--history") {
+            o.history = true;
+        } else if (a == "--history-file") {
+            o.history_file = value();
+        } else if (a == "--history-full-file") {
+            o.history_full_file = value();
+        } else if (a == "--history-stride") {
+            o.history_stride = detail::to_int(a, value());
+        } else if (a == "--history-digits") {
+            o.history_digits = detail::to_int(a, value());
+        } else if (a == "--far-field") {
+            o.c.far_field_dtheta_deg = detail::to_double(a, value());  // 0 = off; checked below
+        } else if (a == "--far-field-degree") {
+            o.c.far_field_degree = detail::to_int(a, value());
+        } else if (a == "--mesh-size") {
+            o.c.mesh_size = detail::to_double(a, value());
+        } else if (a == "--seed") {
+            o.c.seed = detail::to_uint64(a, value());
+        } else if (a == "--waist-factor") {
+            o.c.waist_factor = detail::to_double(a, value());
+        } else if (a == "--allow-wide-beam") {
+            o.c.allow_wide_beam = true;
+        } else if (a == "--beam") {
+            const std::string v = value();
+            if (v == "paraxial")
+                o.c.beam = Beam::paraxial;
+            else if (v == "angular-spectrum")
+                o.c.beam = Beam::angular_spectrum;
+            else
+                throw std::invalid_argument("--beam must be paraxial or angular-spectrum");
+        } else if (a == "--digits") {
+            o.c.digits = detail::to_double(a, value());
+        } else if (a == "--leaf-radius-quantile") {
+            o.c.leaf_radius_quantile = detail::to_double(a, value());
+        } else if (a == "--tol") {
+            o.c.tolerance = detail::to_double(a, value());
+        } else if (a == "--max-iter") {
+            o.c.max_iter = detail::to_int(a, value());
+        } else if (a == "--restart") {
+            o.c.restart = detail::to_int(a, value());
+        } else if (a == "--matvecs") {
+            o.c.matvecs = detail::to_int(a, value());
+        } else if (a == "--exact-budget-gb") {
+            const double g = detail::to_double(a, value());
+            if (!(g > 0.0))
+                throw std::invalid_argument("--exact-budget-gb must be positive");
+            o.c.max_exact_far_bytes = static_cast<std::size_t>(g * 1e9);
+        } else if (a == "--formulation") {
+            o.c.formulation = formulation::parse_kind(value());  // throws for an unknown name
+        } else if (a == "--jacobi") {
+            const std::string v = value();
+            if (v != "0" && v != "1")
+                throw std::invalid_argument("--jacobi must be 0 or 1");
+            o.c.jacobi = v == "1";
+        } else if (a == "--estimate-only") {
+            o.estimate_only = true;
+        } else if (a == "--no-solve") {
+            o.c.solve = false;
+        } else if (a == "--force") {
+            o.force = true;
+        } else {
+            throw std::invalid_argument("unknown option " + a);
+        }
+    }
+    if (o.c.matvecs < 1)
+        throw std::invalid_argument("--matvecs must be >= 1");
+    if (o.history_stride < 1)
+        throw std::invalid_argument("--history-stride must be >= 1");
+    if (o.history_digits < 1 || o.history_digits > 17)
+        throw std::invalid_argument("--history-digits must be in 1..17");
+    if ((!o.c.solve || o.estimate_only) &&
+        (!o.history_file.empty() || !o.history_full_file.empty()))
+        throw std::invalid_argument(
+            "--history-file / --history-full-file need a solve (not with --no-solve or "
+            "--estimate-only)");
+    // --far-field / --far-field-degree / --beam: both hemisphere grids, the quadrature degree and
+    // the beam are checked here, before the estimate and the assembly, so that a bad option
+    // cannot surface only after a multi-hour solve.
+    validate_power_summary(o.c);
+    return o;
+}
+
+/// Opens each history file of `o` for appending (creating it if absent) and closes it again, so
+/// that an unwritable path fails before the assembly and the solve rather than after them.
+/// @throws std::invalid_argument naming the file if it cannot be opened for appending.
+inline void probe_history_files(const Options& o) {
+    for (const std::string* p : {&o.history_file, &o.history_full_file}) {
+        if (p->empty())
+            continue;
+        const std::ofstream f(core::path_from_utf8(*p), std::ios::app | std::ios::binary);
+        if (!f)
+            throw std::invalid_argument("cannot open history file " + *p + " for appending");
+    }
 }
 
 }  // namespace mlfmm_scaling
