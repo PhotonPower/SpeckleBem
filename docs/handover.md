@@ -62,10 +62,12 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Merged:** WP-PML1 (88c93fb, open surface + stretch). **WP22e part 2** (server Ag series L = 4–17.5 µm, all
   converged; γ_solve 1.37 ± 0.08 over 2N = 6.96·10⁴ … 1.02·10⁶ on one machine: **Phase 4 scaling item met for Si and Ag**;
   iterations identical to the desktop, server 1.45–1.88× slower for Ag).
-- **In flight:** WP-V2b (Si waist confirmation), WP-PML2 (stretched dense kernels; second worker after the turn limit).
+- **Merged:** WP-PML2 (stretch-aware dense kernels: Piola factors, complex distance, ridge-split touching rules;
+  bitwise unchanged without stretch; dense assembly with a PML ≈ 150× the plain cost, fine for the dense prototype).
+- **In flight:** WP-V2b (Si waist confirmation).
 - **Next:** WP-PML3 (excitation masking, windowed far field, 7a) after WP-PML2; Ag scaling on the uniform box (WP22b4,
   optional now that the graded-box series meets the DoD); Phases 5/6.
-- Test counts on `main`: 461 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
+- Test counts on `main`: 478 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

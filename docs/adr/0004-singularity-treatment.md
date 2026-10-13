@@ -242,3 +242,60 @@ Alternatives: Duffy transform / radial-angular transforms (purely numerical, rob
   Timings: `benchmarks/results/dense_assembly_profile.md`.
 - Analytic formulas must be verified carefully (unit tests vs extrapolated nested quadrature) — a Phase 1 deliverable.
 - The same routines serve dense, MLFMM near-field and ACA pivot evaluation.
+
+**Note (WP-PML2, 2026-10-13): stretched kernels.** Pairs with a triangle in the PML of the open
+rough surface (ADR 0009 decisions 2 and 3; `kernels::element_blocks` with a
+`geometry::CoordinateStretch`) do not use the singularity subtraction above. Their kernel
+G(R̃) with the complex distance R̃ = |S(r) − S(r')| (principal branch) is not 1/(4πR) plus a
+smooth remainder: the remainder G(R̃) − 1/(4πR) is still singular, with the anisotropic
+coefficient of the stretched metric. Touching pairs (identical, shared edge, shared vertex)
+are integrated by relative-coordinate quadrature of Sauter-Schwab type directly on the
+analytic stretched kernel (ADR 0009 decision 3, second option): the singular set is a corner of
+the parameter domain whose Jacobian cancels 1/R̃ and 1/R̃², so no static integral is needed.
+With an anisotropic stretch (s_x ≠ s_y: the PML strips, σ_y = 0) 1/R̃ is near-singular along
+two directions of r − r' (the ridge, relative angular width ε ≈ 1/(1 + σ²), 0.059 at σ = 4) for
+every pair; plain tensor rules then stall (20 points per direction: 1.6e-3 identical, 5.7e-4
+shared edge). For coplanar pairs with ε < 0.9 the parameter domains are therefore split along
+the ridge planes (the eigenvector direction of the frozen metric) and the directions ending on
+a ridge plane are graded geometrically toward it (ratio 2, finest panel 0.5 ε). Non-coplanar
+touching pairs (a tilted taper triangle touching the PML start, gap W_g = 0) use the same rules
+without the split: accurate when σ ≈ 0 there, i.e. for a profile of order m ≥ 1, whose first
+PML cell has σ ≤ σ_max (h/W)^m; for m < 1 the open-surface setup (WP-PML3) must require W_g ≥ h,
+so that no tilted triangle touches the PML. `kernels::stretched_pair_info` reports their
+frozen-metric ε as well (smaller of the in-plane ridge and the ridge against the unstretched z
+axis; no split). Points
+(`OperatorOptions::stretched_touching_points` = p, default 10): p Gauss-Legendre points per plain
+and radial direction, ceil(0.6 p) per graded panel, both raised by max(0, ceil(0.75 |k| s_max h)
+− 4) for large |k s| h. Measured at p = 10 against p = 16 (all touching pairs of a structured
+grid, h = λ/10, order-2 profile σ_max = 4, vacuum and Ag; `tests/unit/test_stretched_kernels.cpp`):
+≤ 5e-11 identical, ≤ 4e-8 shared edge, shared vertex ≤ 3e-8 at σ = 1 and ≤ 6e-7 at σ = 2.6–3.4
+(one axis), ≤ 1e-8 in the corner; against an independent plain reference (uniform σ_x = 0.5)
+≤ 4e-10 (identical, shared vertex), and for shared edges against the WP7b reference with one
+midpoint subdivision of the cone bases (n = 24; uniform σ_x = 0.5 and 1) ≤ 5.6e-12; the same
+pair evaluated with test and source exchanged (reversed triangle numbering, bypassing the
+transpose of the canonical ordering) agrees to ≤ 4e-14 (shared vertex), 1.5e-12 (shared edge)
+and 6.7e-11 (K of non-coplanar pairs at the PML start); the uniform stretch x̃ = s x reproduces s L(k s) of the subtraction route to 5e-9 – 4e-7
+(identical; reference-limited at |k s| h = 2.2), 4e-11 – 4e-9 (shared edge) and ≤ 2e-11 (shared
+vertex). Near and far stretched pairs keep the Dunavant rules with the WP7b error model at an
+effective distance shortened for the ridge, without decay-aware relaxation; along the ridge the
+degree cap 19 leaves up to 1e-4 in vacuum and Si and 4.9e-4 in Ag (deep strip σ = 2.4–4, 36 of
+50 pairs at the cap; reported by `kernels::stretched_pair_info`, held to a regression bound of
+1e-3 in the tests). Pairs of a tilted (unstretched) triangle and a flat PML triangle have K ≠ 0:
+against the composite brute force L ≤ 5.6e-7 and K ≤ 1.05e-5 where the target is reached (81
+pairs, vacuum and Ag; the capped ones ≤ 4e-9). The one K above the target 1e-5 is a known
+shortfall of the error model, which is calibrated on L-type blocks: the K block of a nearly
+coplanar pair is small (|K| η/|L| ≈ 0.01) and its relative error runs ~20 times the L error (a
+far pair along the ridge, D/h = 4.1, degree 9; degree 10 gives 8.7e-7). At merge the degree
+selection of non-flat stretched pairs was given this margin (target / 20, `kNonFlatLogMargin`),
+and the test holds K < 1e-5 again. Cost: mean point
+pairs per call 1.9e4 (identical), 3.2e5 (shared edge), 6.0e5 (shared vertex) in vacuum, 2-5
+times more in Ag (the k-aware extra), against ~2.6e3 for a near pair: the dense assembly of
+a 2 888-triangle open surface (h = 50 nm, PML 0.5 µm, σ_max = 4, vacuum / Ag) takes
+417 s instead of 2.7 s without the stretch (release, 12 cores, slow test `[stretched_cost]`):
+in vacuum ~85 % of the kernel evaluations are stretched touching pairs, ~75 % the 9 800
+shared-vertex pairs, and the dense loop evaluates every stretched pair twice (once per
+ordering, then transposed). The graded panels, not the plain directions, dominate the point
+count. The fast PML ring (WP-PML5) has to reduce this (evaluate each unordered pair once,
+fewer graded panels for pairs whose ridge misses the singular corner, or tabulated
+corrections). Pairs without a stretched triangle, and every pair
+without a stretch, keep the routes above bitwise.

@@ -244,13 +244,13 @@ public:
     /// @param params accuracy_digits = d0 in (0, 5] (interpolation_order); truncation_L must be 0
     ///        (per-level search), precompute_translators true, use_fft_interpolation false;
     ///        params.octree is not used (the tree is given).
-    /// @throws std::invalid_argument for an invalid Problem (op::validate), unsupported params, a
-    ///         tree not built on problem.space or (trees with >= 3 levels) a basis function whose
-    ///         support radius is >= the box edge of its home level (r_max >= the leaf edge without
-    ///         elevated functions); TruncationOrderError (file comment; cause mesh_or_leaf_size,
-    ///         region 0, level = the home level, for a tree with >= 3 levels and a basis function
-    ///         with home level < 2, local leaf rule); std::overflow_error from the plane-wave
-    ///         functions.
+    /// @throws std::invalid_argument for an invalid Problem (op::validate), a non-identity PML
+    ///         stretch (op::require_unstretched), unsupported params, a tree not built on
+    ///         problem.space or (trees with >= 3 levels) a basis function whose support radius is
+    ///         >= the box edge of its home level (r_max >= the leaf edge without elevated
+    ///         functions); TruncationOrderError (file comment; cause mesh_or_leaf_size, region 0,
+    ///         level = the home level, for a tree with >= 3 levels and a basis function with home
+    ///         level < 2, local leaf rule); std::overflow_error from the plane-wave functions.
     MlfmmFarOperator(const op::Problem& problem, const Octree& tree, const MlfmmParams& params);
     MlfmmFarOperator(const op::Problem&, const Octree&&, const MlfmmParams&) = delete;
     ~MlfmmFarOperator() override;

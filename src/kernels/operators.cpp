@@ -314,6 +314,8 @@
 #include <string>
 #include <vector>
 
+#include "stretched_detail.hpp"
+
 namespace specklebem::kernels {
 
 namespace {
@@ -1593,6 +1595,19 @@ void check_degree(int degree, const char* name, bool positive_interior) {
 
 }  // namespace
 
+namespace detail {
+
+Real plain_rule_log_error(int degree, Real log_kappa) {
+    const DegreeModel& m = kDegreeModel[static_cast<std::size_t>(degree)];
+    return m.a + kModelMargin + m.p * log_kappa;
+}
+
+bool positive_interior_degree(int degree) {
+    return is_positive_interior(degree);
+}
+
+}  // namespace detail
+
 void validate(const OperatorOptions& opt) {
     check_degree(opt.quad_degree_far, "quad_degree_far", false);
     check_degree(opt.quad_degree_near, "quad_degree_near", true);
@@ -1620,6 +1635,11 @@ void validate(const OperatorOptions& opt) {
     if (!(opt.symmetrize_touching_above_kh >= 0.0)) {  // also rejects NaN
         throw std::invalid_argument(
             "OperatorOptions: symmetrize_touching_above_kh must be >= 0 (infinity = never)");
+    }
+    if (opt.stretched_touching_points < 4 || opt.stretched_touching_points > 16) {
+        throw std::invalid_argument(
+            "OperatorOptions: stretched_touching_points must be in 4..16, got " +
+            std::to_string(opt.stretched_touching_points));
     }
 }
 
@@ -1701,6 +1721,35 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
             " (geometrically intersecting or coincident triangles that do not share vertex "
             "indices, or invalid region parameters)");
     }
+}
+
+void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
+                    const RegionParams& region, const OperatorOptions& opt,
+                    const geometry::CoordinateStretch* stretch, Eigen::Matrix<Complex, 3, 3>& L,
+                    Eigen::Matrix<Complex, 3, 3>& K) {
+    // No stretch, an identity stretch or a pair outside the stretched zone: the unstretched
+    // kernels, bitwise (ADR 0009 decision 2). Out-of-range indices reach element_blocks, which
+    // throws std::out_of_range.
+    const geometry::TriangleMesh& mesh = space.mesh();
+    const bool in_range =
+        t_test >= 0 && t_test < mesh.num_triangles() && t_src >= 0 && t_src < mesh.num_triangles();
+    if (stretch == nullptr || stretch->is_identity() || !in_range ||
+        !(detail::triangle_stretched(*stretch, mesh, t_test) ||
+          detail::triangle_stretched(*stretch, mesh, t_src))) {
+        element_blocks(space, t_test, t_src, region, opt, L, K);
+        return;
+    }
+    detail::stretched_element_blocks(space, t_test, t_src, region, opt, *stretch, L, K);
+}
+
+StretchedPairInfo stretched_pair_info(const geometry::TriangleMesh& mesh, Index t_test, Index t_src,
+                                      Complex k, const OperatorOptions& opt,
+                                      const geometry::CoordinateStretch& stretch) {
+    if (t_test < 0 || t_test >= mesh.num_triangles() || t_src < 0 ||
+        t_src >= mesh.num_triangles()) {
+        throw std::out_of_range("stretched_pair_info: triangle index out of range");
+    }
+    return detail::stretched_info(mesh, t_test, t_src, k, opt, stretch);
 }
 
 TouchingRuleInfo touching_rule_info(const geometry::TriangleMesh& mesh, Index t_test, Index t_src,

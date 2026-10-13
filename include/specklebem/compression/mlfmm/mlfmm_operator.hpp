@@ -145,7 +145,8 @@ public:
     /// Builds the octree (octree params after leaf_rule_params), then the far part (its order
     /// searches and policy decisions reject unusable configurations before the near-field
     /// assembly), then the near field.
-    /// @throws std::invalid_argument for an invalid Problem (op::validate), invalid octree or
+    /// @throws std::invalid_argument for an invalid Problem (op::validate), a non-identity PML
+    ///         stretch (op::require_unstretched; the fast PML ring is WP-PML5), invalid octree or
     ///         MLFMM params, or a mesh too coarse for the leaves (r_max >= leaf edge);
     ///         TruncationOrderError (a std::runtime_error) if a region has neither a usable
     ///         expansion nor enough decay for the ADR 0008 §6 fallback, see MlfmmFarOperator.

@@ -37,8 +37,8 @@ namespace specklebem::mlfmm {
 op::BasisPattern near_pattern(const Octree& tree, const basis::RwgSpace& space);
 
 /// Z_near = op::assemble_sparse(p, near_pattern(tree, *p.space)); logs nnz, memory and time.
-/// @throws std::invalid_argument for an invalid Problem (op::validate) or an octree not built
-///         on p.space (near_pattern).
+/// @throws std::invalid_argument for an invalid Problem (op::validate), a non-identity PML
+///         stretch (op::assemble_sparse) or an octree not built on p.space (near_pattern).
 std::shared_ptr<op::SparseOperator> assemble_near(const op::Problem& p, const Octree& tree);
 
 /// Bytes of assemble_near(p, tree) (4 blocks x (16 + 8) bytes per near basis pair + 2N + 1 row

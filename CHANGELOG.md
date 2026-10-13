@@ -5,6 +5,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- kernels / operator (WP-PML2, ADR 0009 decisions 2–3): stretch-aware dense element blocks for the PML
+  route. `op::Problem::stretch` (a `geometry::CoordinateStretch`) is passed by the dense assembler and
+  `assemble_diagonal`; pairs with a stretched triangle use Piola-transformed RWG functions and the complex
+  distance R~ on the principal branch (exp(+jωt)); near/far pairs a double Dunavant rule with ridge- and
+  |k s|-aware degree selection (non-flat pairs with a K margin), touching pairs a Sauter–Schwab type
+  relative-coordinate rule on the analytic kernel, split and graded along the near-singular ridge of an
+  anisotropic stretch (`OperatorOptions::stretched_touching_points`, `kernels::stretched_pair_info`).
+  No stretch, an identity stretch or a pair without PML triangle is bitwise unchanged. Sparse, region
+  sparse, RHS, MLFMM and post refuse a non-identity stretch. ADR 0004 note (WP-PML2). Tests
+  `[stretched_kernels]` (exact identity L~(k) = s L(ks), touching and near/far convergence, independent
+  shared-edge reference, non-flat K vs brute force, reciprocity, decay, refusals, ICTF smoke) and slow
+  `[stretched_sweep]`, `[stretched_cost]`.
 - geometry (WP-PML1, ADR 0009 decisions 1 and 2): open rough surface terminated by a PML.
   `geometry::make_open_surface_mesh(HeightMap, OpenSurfaceParams)` meshes z = xi w(x) w(y)
   (raised-cosine C^1 taper `taper_window`) on the map's grid out to the truncation square, with

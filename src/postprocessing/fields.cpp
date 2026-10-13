@@ -94,6 +94,8 @@ const basis::RwgSpace& checked_space(const SurfaceSolution& s, const std::string
     if (s.problem->space == nullptr) {
         throw std::invalid_argument(who + ": Problem::space is null");
     }
+    // Fields of the stretched problem need the windowed far field of ADR 0009 decision 5.
+    op::require_unstretched(*s.problem, who + " (the PML far field is WP-PML3)");
     const basis::RwgSpace& space = *s.problem->space;
     if (s.currents.size() != 2 * space.size()) {
         throw std::invalid_argument(who + ": currents have length " +

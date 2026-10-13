@@ -92,7 +92,8 @@ struct GreenFactors {
 /// In R2 the "scattered" field is the total field there (no incident field in R2).
 /// @throws std::invalid_argument for a null problem or space, currents.size() != 2N, a
 ///         Problem::omega that is not finite and > 0 or differs from the excitation's omega()
-///         (relative 1e-12, as op::validate), or points too close to the surface.
+///         (relative 1e-12, as op::validate), a non-identity PML stretch (Problem::stretch; the
+///         windowed PML far field is WP-PML3), or points too close to the surface.
 void scattered_field(const SurfaceSolution& s, const Vertices& points,
                      Eigen::Matrix<Complex, Eigen::Dynamic, 3>& E,
                      Eigen::Matrix<Complex, Eigen::Dynamic, 3>& H);
@@ -114,7 +115,8 @@ void total_field(const SurfaceSolution& s, const Vertices& points,
 /// Far-field amplitude F(k_hat) such that E_s ~ F exp(-jkr)/r.
 /// Radiated by the exterior currents in R1:
 ///   F(k_hat) = (j k1 / 4 pi) k_hat x int exp(j k1 k_hat . r') [eta1 (k_hat x J) + M] dS'.
-/// The rows of `directions` are normalised internally (zero or non-finite rows throw).
+/// The rows of `directions` are normalised internally (zero or non-finite rows throw). A
+/// non-identity PML stretch (Problem::stretch) throws std::invalid_argument (WP-PML3).
 void far_field(const SurfaceSolution& s, const Vertices& directions,
                Eigen::Matrix<Complex, Eigen::Dynamic, 3>& F);
 void far_field(const SurfaceSolution& s, const Vertices& directions,

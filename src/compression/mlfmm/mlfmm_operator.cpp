@@ -135,6 +135,8 @@ struct MlfmmOperator::Impl {
 
 MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& params)
     : impl_(std::make_unique<Impl>()) {
+    // The plane-wave translations need real coordinates; the fast PML ring is WP-PML5.
+    op::require_unstretched(problem, "MlfmmOperator");
     Impl& m = *impl_;
     m.lambda1 = octree_wavelength(problem);
     m.digits = params.accuracy_digits;

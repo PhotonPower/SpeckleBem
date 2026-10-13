@@ -149,7 +149,8 @@ struct PairBlocks {
 constexpr std::array<Real, 2> kJumpSign = {-0.5, 0.5};
 
 void pair_blocks(const basis::RwgSpace& space, Index t, Index s, const Setup& setup,
-                 const kernels::OperatorOptions& opt, PairBlocks& out) {
+                 const kernels::OperatorOptions& opt, const geometry::CoordinateStretch* stretch,
+                 PairBlocks& out) {
     out.jj.fill(Complex(0.0, 0.0));
     out.jm.fill(Complex(0.0, 0.0));
     out.mj.fill(Complex(0.0, 0.0));
@@ -164,7 +165,7 @@ void pair_blocks(const basis::RwgSpace& space, Index t, Index s, const Setup& se
     for (std::size_t i = 0; i < 2; ++i) {
         if (!setup.active[i])
             continue;
-        kernels::element_blocks(space, t, s, setup.region[i], opt, L, K);
+        kernels::element_blocks(space, t, s, setup.region[i], opt, stretch, L, K);
         const Complex ce = setup.e[i];
         const Complex ch = setup.h[i];
         const Complex cm = setup.m[i];
@@ -336,6 +337,19 @@ void check_pattern(const BasisPattern& pat, Index N) {
 
 }  // namespace
 
+bool has_stretch(const Problem& p) {
+    return p.stretch != nullptr && !p.stretch->is_identity();
+}
+
+void require_unstretched(const Problem& p, const std::string& who) {
+    if (has_stretch(p)) {
+        throw std::invalid_argument(
+            who +
+            ": a non-identity PML coordinate stretch (Problem::stretch, ADR 0009) is supported "
+            "only by DenseStrategy and assemble_diagonal (WP-PML2)");
+    }
+}
+
 void validate(const Problem& p) {
     if (p.space == nullptr) {
         throw std::invalid_argument("Problem: space is null");
@@ -400,7 +414,7 @@ std::shared_ptr<LinearOperator> DenseStrategy::build(const Problem& p) const {
             const basis::RwgSpace::Support ss = space.support(s);
             if (ss.count == 0)
                 continue;
-            pair_blocks(space, t, s, setup, p.kernel_options, blk);
+            pair_blocks(space, t, s, setup, p.kernel_options, p.stretch, blk);
             for (int b = 0; b < ss.count; ++b) {
                 // Column-major storage: columns n and N + n, rows m and N + m.
                 Complex* col_j = data + ss.n[b] * ld;
@@ -421,6 +435,7 @@ std::shared_ptr<LinearOperator> DenseStrategy::build(const Problem& p) const {
 
 std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPattern& pattern) {
     validate(p);
+    require_unstretched(p, "assemble_sparse (MLFMM near field)");
     const basis::RwgSpace& space = *p.space;
     const Index N = space.size();
     check_pattern(pattern, N);
@@ -487,7 +502,7 @@ std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPat
         PairBlocks blk;
         for (const Index s : sources) {
             const basis::RwgSpace::Support ss = space.support(s);
-            pair_blocks(space, t, s, setup, p.kernel_options, blk);
+            pair_blocks(space, t, s, setup, p.kernel_options, nullptr, blk);
             for (int a = 0; a < st.count; ++a) {
                 const Index m = st.n[a];
                 const auto [cb, ce] = row_cols(m);
@@ -515,6 +530,7 @@ std::shared_ptr<RegionSparseOperator> assemble_region_sparse(const Problem& p, i
                                                              std::vector<Index> row_ptr,
                                                              std::vector<Index> cols) {
     validate(p);
+    require_unstretched(p, "assemble_region_sparse (MLFMM exact far part)");
     if (region != 0 && region != 1)
         throw std::invalid_argument("assemble_region_sparse: region must be 0 or 1");
     const basis::RwgSpace& space = *p.space;
@@ -597,6 +613,7 @@ VectorXc assemble_rhs(const Problem& p) {
     if (p.excitation == nullptr) {
         throw std::invalid_argument("assemble_rhs: Problem has no excitation");
     }
+    require_unstretched(p, "assemble_rhs (the masked PML right-hand side is WP-PML3)");
     const basis::RwgSpace& space = *p.space;
     const geometry::TriangleMesh& mesh = space.mesh();
     const excitation::Excitation& exc = *p.excitation;
@@ -691,7 +708,7 @@ VectorXc assemble_diagonal(const Problem& p) {
                 const int a = slot_of(space.support(t), m);
                 for (const Index s : sources) {
                     const int b = slot_of(space.support(s), m);
-                    pair_blocks(space, t, s, setup, p.kernel_options, blk);
+                    pair_blocks(space, t, s, setup, p.kernel_options, p.stretch, blk);
                     const auto k = static_cast<std::size_t>(3 * a + b);
                     d(m) += blk.jj[k];
                     d(N + m) += blk.mm[k];

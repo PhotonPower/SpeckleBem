@@ -25,6 +25,7 @@ add_executable(specklebem_unit_tests
     unit/test_direct.cpp
     unit/test_fields.cpp
     unit/test_operators.cpp
+    unit/test_stretched_kernels.cpp
     unit/test_assembler.cpp
     unit/test_gmres.cpp
     unit/test_result_writer.cpp
@@ -62,10 +63,13 @@ add_test(NAME "mlfmm: single-level FMM accuracy sweep (slow)" COMMAND specklebem
 add_test(NAME "mlfmm: far operator accuracy sweep (slow)" COMMAND specklebem_unit_tests "[mlfmm_far_sweep]")
 add_test(NAME "mlfmm: far operator apply timing (slow)" COMMAND specklebem_unit_tests "[mlfmm_apply_timing]")
 add_test(NAME "mlfmm: region policy sweep (slow)" COMMAND specklebem_unit_tests "[mlfmm_policy_sweep]")
+add_test(NAME "kernels: stretched touching sweep (slow)" COMMAND specklebem_unit_tests "[stretched_sweep]")
+add_test(NAME "kernels: stretched assembly cost (slow)" COMMAND specklebem_unit_tests "[stretched_cost]")
 set_tests_properties("kernels: fold sweep (slow)" "assembler: rhs degree study (slow)"
     "mlfmm: plane-wave accuracy sweep (slow)" "mlfmm: single-level FMM accuracy sweep (slow)"
     "mlfmm: far operator accuracy sweep (slow)" "mlfmm: far operator apply timing (slow)"
-    "mlfmm: region policy sweep (slow)"
+    "mlfmm: region policy sweep (slow)" "kernels: stretched touching sweep (slow)"
+    "kernels: stretched assembly cost (slow)"
     PROPERTIES LABELS slow SKIP_RETURN_CODE 4)
 
 # Zero-allocation check of the element kernels. Separate executable because it replaces the

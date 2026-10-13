@@ -1093,6 +1093,7 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
                                    const MlfmmParams& params)
     : impl_(std::make_unique<Impl>(tree)) {
     op::validate(problem);
+    op::require_unstretched(problem, "MlfmmFarOperator");
     if (params.truncation_L != 0 || !params.precompute_translators ||
         params.use_fft_interpolation) {
         throw std::invalid_argument(

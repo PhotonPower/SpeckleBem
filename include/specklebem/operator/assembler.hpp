@@ -11,6 +11,7 @@
 #include "specklebem/operator/linear_operator.hpp"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace specklebem::op {
@@ -29,7 +30,21 @@ struct Problem {
     /// Must be > 0 and equal to excitation->omega() when an excitation is set (relative
     /// tolerance 1e-12).
     Real omega = 0;
+    /// Complex coordinate stretch of the PML (ADR 0009, WP-PML2), non-owning; nullptr or an
+    /// identity stretch: none (every result bitwise as without the field). A non-identity stretch
+    /// is supported by DenseStrategy and assemble_diagonal (kernels::element_blocks with the
+    /// stretch, both regions); assemble_sparse, assemble_region_sparse, assemble_rhs, the MLFMM
+    /// operators and post:: refuse it (require_unstretched) until the PML right-hand side, far
+    /// field (WP-PML3) and fast path (WP-PML5) exist.
+    const geometry::CoordinateStretch* stretch = nullptr;
 };
+
+/// True if p carries a stretch that is not the identity (Problem::stretch).
+[[nodiscard]] bool has_stretch(const Problem& p);
+
+/// @throws std::invalid_argument naming `who` if has_stretch(p): the caller does not support the
+///         PML stretch (Problem::stretch).
+void require_unstretched(const Problem& p, const std::string& who);
 
 /// Checks a Problem before assembly (WP9): space and formulation non-null, omega finite and
 /// > 0, eps_r and mu_r of both regions finite and non-zero, omega equal to excitation->omega()
@@ -59,6 +74,8 @@ inline constexpr Index kMaxDenseUnknowns = 100000;
 ///   Z = [ sum_i (a_i/eta_i) L_i     -sum_i (a_i/eta_i) K_i ]
 ///       [ sum_i  b_i eta_i  K_i      sum_i (b_i/eta_i) L_i ]
 /// with K_1 = K_1^PV - 1/2 I and K_2 = K_2^PV + 1/2 I (I_mn = <f_m, n x f_n>, n into R1).
+/// With a non-identity Problem::stretch every pair with a stretched triangle uses the stretched
+/// kernels (kernels::element_blocks overload; jump terms unchanged), all others bitwise as without.
 /// Memory 16 (2N)^2 bytes; time O(F^2) element_blocks calls per region. OpenMP over the test
 /// triangles of a greedy triangle colouring: the result is bitwise identical for any thread
 /// count. A region whose weights are all zero is skipped. @throws std::invalid_argument for an
@@ -92,8 +109,9 @@ struct BasisPattern {
 /// same order as in DenseStrategy::build and is bitwise equal to the dense entry. The result
 /// is bitwise identical for any thread count. Memory 4 nnz (16 + 8) bytes for nnz pattern
 /// pairs; time O(number of triangle pairs touched by the pattern).
-/// @throws std::invalid_argument for an invalid Problem (validate) or an inconsistent pattern
-///         (sizes, group indices, columns out of range or not strictly ascending).
+/// @throws std::invalid_argument for an invalid Problem (validate), a non-identity stretch
+///         (require_unstretched) or an inconsistent pattern (sizes, group indices, columns out of
+///         range or not strictly ascending).
 std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPattern& pattern);
 
 /// Region i's Galerkin entries L_i and K_i (K_i with its jump term on coincident triangles, as in
@@ -107,8 +125,8 @@ std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPat
 /// @param region 0 = R1, 1 = R2
 /// @param row_ptr, cols the pattern, taken over: row_ptr has N + 1 entries starting with 0,
 ///        cols strictly ascending per row in [0, N)
-/// @throws std::invalid_argument for an invalid Problem (validate), a region other than 0 / 1
-///         or an inconsistent pattern.
+/// @throws std::invalid_argument for an invalid Problem (validate), a non-identity stretch
+///         (require_unstretched), a region other than 0 / 1 or an inconsistent pattern.
 std::shared_ptr<RegionSparseOperator> assemble_region_sparse(const Problem& p, int region,
                                                              std::vector<Index> row_ptr,
                                                              std::vector<Index> cols);
@@ -117,13 +135,15 @@ std::shared_ptr<RegionSparseOperator> assemble_region_sparse(const Problem& p, i
 /// <f_m, E_inc> = sum over the two support triangles of int f_m . E_inc dS with the Dunavant
 /// rule of degree p.kernel_options.quad_degree_rhs (positive-interior; WP7c, before:
 /// quad_degree_near).
-/// @throws std::invalid_argument for an invalid Problem (validate) or a null excitation.
+/// @throws std::invalid_argument for an invalid Problem (validate), a null excitation or a
+///         non-identity stretch (the masked PML right-hand side is WP-PML3).
 VectorXc assemble_rhs(const Problem& p);
 
 /// Diagonal of Z (for the left Jacobi preconditioner used in the paper), computed without
 /// forming Z: for each basis m the four pairs (t, s) of its support triangles, both regions.
 /// Bitwise equal to the diagonal of DenseStrategy().build(p): same blocks, same summation
-/// order (test triangles by colour, then index; source triangles by index).
+/// order (test triangles by colour, then index; source triangles by index), also with a
+/// stretch.
 /// @throws std::invalid_argument for an invalid Problem (validate).
 VectorXc assemble_diagonal(const Problem& p);
 

@@ -20,6 +20,7 @@ set(SPECKLEBEM_SOURCES
     kernels/quadrature.cpp
     kernels/singularity.cpp
     kernels/operators.cpp
+    kernels/stretched_operators.cpp
     operator/dense_operator.cpp
     operator/linear_operator.cpp
     operator/assembler.cpp

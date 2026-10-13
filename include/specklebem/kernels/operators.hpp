@@ -29,6 +29,8 @@
 /// singularity subtraction for touching pairs follow ADR 0004.
 #include "specklebem/basis/rwg.hpp"
 #include "specklebem/core/types.hpp"
+#include "specklebem/geometry/coordinate_stretch.hpp"
+#include "specklebem/kernels/singularity.hpp"
 
 namespace specklebem::kernels {
 
@@ -177,13 +179,30 @@ struct OperatorOptions {
     /// with false, the C library (the pre-WP-P2 arithmetic, bitwise). Touching pairs always
     /// use the C library.
     bool fast_plain_kernel = true;
+    /// Touching pairs with a stretched (PML) triangle (WP-PML2, ADR 0009; element_blocks with a
+    /// CoordinateStretch): Gauss-Legendre points p per plain and radial direction of the
+    /// relative-coordinate (Sauter-Schwab type) rule on the analytic stretched kernel, and
+    /// ceil(0.6 p) (at least 4) per panel of the directions graded toward the ridge of an
+    /// anisotropic stretch; both raised by max(0, ceil(0.75 |k| s_max h) - 4) for large |k s| h
+    /// (lossy media in the PML), at most 16 (src/kernels/stretched_operators.cpp, ADR 0004 note
+    /// WP-PML2). Kernel evaluations grow like p^4 (shared vertex) and p^3 (shared edge).
+    /// Default 10, measured on all touching pairs of a structured grid (h = lambda / 10, order-2
+    /// profile sigma_max = 4, vacuum and Ag, against p = 16;
+    /// tests/unit/test_stretched_kernels.cpp): relative block error <= 5e-11 (identical), <= 4e-8
+    /// (shared edge), <= 3e-8 (shared vertex) at sigma = 1, <= 6e-7 (shared vertex) at sigma
+    /// = 2.6-3.4 on one axis only, <= 1e-8 in the corner; mean cost per call 1.7e4-7e4
+    /// (identical), 3.5e5-1.6e6 (shared edge), 5e5-6e6 (shared vertex) kernel evaluations (vacuum
+    /// to Ag). p = 12 lowers the shared-vertex error to ~2e-7 at ~1.5 times the cost. Must be
+    /// in 4..16. Pairs without a stretched triangle do not use it.
+    int stretched_touching_points = 10;
 };
 
 /// Checks the options (ADR 0004): quad_degree_far in 1..20, quad_degree_near, quad_degree_rhs and
 /// quad_degree_sing positive-interior (triangle_rule_is_positive_interior: 1, 2, 4, 5, 6, 8,
 /// 9, 10, 12, 13, 14, 17, 19), quad_degree_far <= quad_degree_near (bounds of the degree
 /// selection), near_distance_factor finite and >= 0, outer_grading_levels in 0..6,
-/// target_accuracy finite and in [0, 1), symmetrize_touching_above_kh >= 0 (may be infinite). O(1)
+/// target_accuracy finite and in [0, 1), symmetrize_touching_above_kh >= 0 (may be infinite),
+/// stretched_touching_points in 4..16. O(1)
 /// (integer checks against a table built once). element_blocks calls it on every invocation; an
 /// assembler may call it once up front to fail early.
 /// @throws std::invalid_argument if any check fails.
@@ -225,6 +244,82 @@ void validate(const OperatorOptions& opt);
 void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
                     const RegionParams& region, const OperatorOptions& opt,
                     Eigen::Matrix<Complex, 3, 3>& L, Eigen::Matrix<Complex, 3, 3>& K);
+
+/// element_blocks with a complex coordinate stretch (PML, ADR 0009 decisions 2 and 3, WP-PML2).
+///
+/// The mesh stays real; the stretch r~ = S(r) acts through the Piola transform of the RWG
+/// functions, f~ dS~ = DS f dS and (div~ f~) dS~ = (div f) dS with DS = diag(s_x, s_y, 1),
+/// s = 1 - j sigma (geometry::CoordinateStretch::jacobian_diag):
+///   L_mn = j w mu int int (DS f_m) . (DS' f_n) G(R~) + (1 / (j w eps)) int int (div f_m)(div' f_n)
+///   G(R~), K_mn = int int (DS f_m) . (grad~' G x DS' f_n),  grad~' G = (1 + j k R~) G (r~ - r~') /
+///   R~^2,
+/// G(R~) = exp(-j k R~) / (4 pi R~), R~ = sqrt((r~ - r~') . (r~ - r~')) unconjugated on the
+/// principal branch (Re R~ >= 0; Im R~ <= 0 for the monotone stretch). Both blocks remain complex
+/// symmetric; the jump term jump_block is unchanged for horizontal triangles (the Piola factors
+/// cancel: (DS f_m) . (z x DS f_n) / det DS = f_m . (z x f_n)).
+///
+/// Dispatch: stretch == nullptr, stretch->is_identity(), or a pair of which neither triangle has a
+/// vertex in the stretched zone (sigma_max > 0 and |x| > x.start or |y| > y.start) calls
+/// element_blocks above: bitwise identical results. Otherwise (a stretched pair):
+///  * near, far: double Dunavant rule of the degree selected for target_accuracy with the error
+///    model of the plain kernel at kappa = sqrt((h / D_eff)^2 + (0.15 |k| s_max h)^2), s_max =
+///    max |s| of the pair and D_eff <= D the distance shortened for the near-singular ridge of an
+///    anisotropic stretch (src/kernels/stretched_operators.cpp); no decay-aware relaxation, C
+///    library arithmetic; if no degree of the ladder meets the target, quad_degree_near
+///    (stretched_pair_info reports it). The model is calibrated on L-type blocks; non-flat pairs
+///    (tilted triangle and PML triangle, K != 0) select their degree for target / 20, since their
+///    small K block has ~20 times the relative error of L (ADR 0004 note WP-PML2);
+///  * identical, shared edge, shared vertex: relative-coordinate (Sauter-Schwab type) quadrature
+///    of the analytic kernel with stretched_touching_points Gauss-Legendre points per direction;
+///    for coplanar pairs with an anisotropic stretch the parameter domains are split along the
+///    two ridge planes and graded toward them (ADR 0004, "Stretched kernels"). Non-coplanar
+///    touching pairs (a tilted taper triangle touching the PML start, gap W_g = 0) use the rule
+///    without the ridge split: accurate when sigma ~ 0 there, i.e. for profile order m >= 1,
+///    where the first PML cell has sigma <= sigma_max (h / W)^m; for m < 1 the open-surface
+///    setup (WP-PML3) must require W_g >= h, so that no tilted triangle touches the PML.
+/// Stretched blocks are computed for the ordering (min(t_test, t_src), max(...)) and transposed
+/// for the other one, so the stretched Galerkin matrix is bitwise complex symmetric. K is exactly
+/// zero for pairs of horizontal triangles in one plane (all vectors in-plane). Allocation-free
+/// (the rules live on the stack; the first call builds the Gauss-Legendre tables).
+/// @throws std::invalid_argument as element_blocks, and if a stretched triangle is not horizontal
+///         (normal not +-z within 1e-9: ADR 0009 requires flat PML triangles; the jump term and
+///         the Piola factors rely on it).
+void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
+                    const RegionParams& region, const OperatorOptions& opt,
+                    const geometry::CoordinateStretch* stretch, Eigen::Matrix<Complex, 3, 3>& L,
+                    Eigen::Matrix<Complex, 3, 3>& K);
+
+/// Rule of a stretched pair (diagnostics and cost studies, WP-PML2).
+struct StretchedPairInfo {
+    bool stretched = false;  ///< the pair uses the stretched path (false: element_blocks as before)
+    Proximity proximity = Proximity::far;
+    int degree = 0;  ///< near / far: Dunavant degree of both integrals (0 for touching pairs)
+    /// near / far: the error model meets target_accuracy at `degree` (false: degree is the cap
+    /// quad_degree_near and the estimate exceeds the target; true for target_accuracy = 0).
+    bool target_reached = true;
+    /// Relative angular width of the near-singular ridge of the anisotropic stretched kernel
+    /// (1: isotropic, no ridge; ~1 / (1 + sigma^2) for a stretch on one axis only): touching
+    /// pairs at the frozen metric of the pair (sigma at the mid-point of the two centroids;
+    /// non-coplanar touching pairs, which are not ridge-split, the smaller of the in-plane ridge
+    /// and the ridge between the stretched plane and the unstretched z axis), near / far pairs the
+    /// smallest over its sigma range.
+    Real ridge_width = 1.0;
+    /// Effective distance D_eff / D of the near / far selection (1: the plain model).
+    Real distance_factor = 1.0;
+    bool ridge_split = false;  ///< touching: parameter domain split along the ridge planes
+    bool coplanar = false;     ///< touching: coplanar pair (K = 0, ridge splitting possible)
+    Index points = 0;          ///< kernel evaluations (point pairs) per call
+};
+
+/// The rule element_blocks(..., &stretch, ...) uses for the pair (t_test, t_src) in a region with
+/// wavenumber k. Pure geometry and k (no RWG space needed); stretched = false and nothing else set
+/// for pairs that keep the unstretched path.
+/// @throws std::invalid_argument for invalid options or a stretched triangle that is not
+///         horizontal; std::out_of_range for indices outside the mesh.
+[[nodiscard]] StretchedPairInfo stretched_pair_info(const geometry::TriangleMesh& mesh,
+                                                    Index t_test, Index t_src, Complex k,
+                                                    const OperatorOptions& opt,
+                                                    const geometry::CoordinateStretch& stretch);
 
 /// Outer rule of the analytic part of a touching pair on the graded path (diagnostics, WP7c).
 struct TouchingRuleInfo {
