@@ -8,6 +8,8 @@
 #include "specklebem/geometry/coordinate_stretch.hpp"
 #include "specklebem/kernels/operators.hpp"
 
+#include <array>
+
 namespace specklebem::kernels::detail {
 
 /// log10 of the estimated relative block error of the degree-d double Dunavant rule of a near or
@@ -30,6 +32,17 @@ void stretched_element_blocks(const basis::RwgSpace& space, Index t_test, Index 
                               const RegionParams& region, const OperatorOptions& opt,
                               const geometry::CoordinateStretch& stretch,
                               Eigen::Matrix<Complex, 3, 3>& L, Eigen::Matrix<Complex, 3, 3>& K);
+
+/// Both regions of a pair with at least one stretched triangle in one call
+/// (element_blocks_both_regions): inactive regions get zero blocks; each active region's blocks
+/// are bitwise those of stretched_element_blocks for that region (regions with the same rule share
+/// the point loop).
+void stretched_element_blocks_both(const basis::RwgSpace& space, Index t_test, Index t_src,
+                                   const std::array<RegionParams, 2>& regions,
+                                   const std::array<bool, 2>& active, const OperatorOptions& opt,
+                                   const geometry::CoordinateStretch& stretch,
+                                   std::array<Eigen::Matrix<Complex, 3, 3>, 2>& L,
+                                   std::array<Eigen::Matrix<Complex, 3, 3>, 2>& K);
 
 /// Rule information of a stretched pair (stretched_pair_info).
 [[nodiscard]] StretchedPairInfo stretched_info(const geometry::TriangleMesh& mesh, Index t_test,

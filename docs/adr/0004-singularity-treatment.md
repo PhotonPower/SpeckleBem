@@ -265,9 +265,11 @@ so that no tilted triangle touches the PML. `kernels::stretched_pair_info` repor
 frozen-metric ε as well (smaller of the in-plane ridge and the ridge against the unstretched z
 axis; no split). Points
 (`OperatorOptions::stretched_touching_points` = p, default 10): p Gauss-Legendre points per plain
-and radial direction, ceil(0.6 p) per graded panel, both raised by max(0, ceil(0.75 |k| s_max h)
-− 4) for large |k s| h. Measured at p = 10 against p = 16 (all touching pairs of a structured
-grid, h = λ/10, order-2 profile σ_max = 4, vacuum and Ag; `tests/unit/test_stretched_kernels.cpp`):
+and radial direction, raised to p_eff = p + max(0, ceil(0.75 |k| s_max h) − 4) for large |k s| h,
+and max(ceil(0.6 p), ceil(p_eff / 2)) per graded panel (WP-PML2c; WP-PML2 used ceil(0.6 p) plus
+the same extra, see the cost paragraph). Measured at p = 10 against p = 16 (all touching pairs of
+a structured grid, h = λ/10, order-2 profile σ_max = 4, vacuum and Ag;
+`tests/unit/test_stretched_kernels.cpp`):
 ≤ 5e-11 identical, ≤ 4e-8 shared edge, shared vertex ≤ 3e-8 at σ = 1 and ≤ 6e-7 at σ = 2.6–3.4
 (one axis), ≤ 1e-8 in the corner; against an independent plain reference (uniform σ_x = 0.5)
 ≤ 4e-10 (identical, shared vertex), and for shared edges against the WP7b reference with one
@@ -288,14 +290,39 @@ coplanar pair is small (|K| η/|L| ≈ 0.01) and its relative error runs ~20 tim
 far pair along the ridge, D/h = 4.1, degree 9; degree 10 gives 8.7e-7). At merge the degree
 selection of non-flat stretched pairs was given this margin (target / 20, `kNonFlatLogMargin`),
 and the test holds K < 1e-5 again. Cost: mean point
-pairs per call 1.9e4 (identical), 3.2e5 (shared edge), 6.0e5 (shared vertex) in vacuum, 2-5
-times more in Ag (the k-aware extra), against ~2.6e3 for a near pair: the dense assembly of
-a 2 888-triangle open surface (h = 50 nm, PML 0.5 µm, σ_max = 4, vacuum / Ag) takes
-417 s instead of 2.7 s without the stretch (release, 12 cores, slow test `[stretched_cost]`):
-in vacuum ~85 % of the kernel evaluations are stretched touching pairs, ~75 % the 9 800
-shared-vertex pairs, and the dense loop evaluates every stretched pair twice (once per
-ordering, then transposed). The graded panels, not the plain directions, dominate the point
-count. The fast PML ring (WP-PML5) has to reduce this (evaluate each unordered pair once,
-fewer graded panels for pairs whose ridge misses the singular corner, or tabulated
-corrections). Pairs without a stretched triangle, and every pair
-without a stretch, keep the routes above bitwise.
+pairs per call 1.9e4 (identical), 3.2e5 (shared edge), 6.0e5 (shared vertex) in vacuum, 1.3–2.3
+times more in Ag (the k-aware extra: 2.6e4, 5.4e5, 1.4e6 on the surface below), against ~2.6e3
+for a near pair. The graded panels, not the plain directions, dominate the point count.
+
+*Cost reduction (WP-PML2c, 2026-10-13).* Dense assembly of a 2 888-triangle open surface
+(h = 50 nm, PML 0.5 µm, σ_max = 4, vacuum / Ag, PMCHWT, 2N = 8 512; slow test
+`[stretched_cost]`, release, 12 cores, idle machine): 296.6 s with the WP-PML2 code (417 s when
+first measured beside another test), 90.8 s with WP-PML2c (3.3×), against 1.9 s without the
+stretch. The flat Si PML smoke assembly of WP-PML3a (968 triangles, h = 250 nm, ICTF,
+2N = 2 816) drops from 287.5 s to 44.5 s (6.5×; R_sim 0.386007 unchanged). The changes: (i) `DenseStrategy` evaluates each unordered stretched pair once (the
+ordering t < s for even t + s, t > s for odd, so that every row evaluates about half of its
+pairs) and supplies the other ordering by adding the transpose of each N × N sub-block
+(B(s, t) = B(t, s)ᵀ for jj, jm, mj, mm, since L and K^PV are complex symmetric per pair and the
+jump term enters identical pairs only); (ii) `kernels::element_blocks_both_regions` computes
+both regions in one call, sharing the pair setup and, where both regions select the same rule,
+the point loop (R̃ and the stretch evaluated once per point pair); (iii) the point loop is
+batched (structure of arrays, 80 point pairs, branch-free loops that vectorise), and pairs with
+K = 0 use `kernels::fastmath` under `fast_plain_kernel` (blocks within 7e-14 of the C library;
+pairs with K ≠ 0 keep the C library bitwise); (iv) the graded panels get max(ceil(0.6 p),
+ceil(p_eff / 2)) points instead of ceil(0.6 p) + extra (the coarsest graded panel spans at most
+half of its direction, so this resolves exp(−jkR̃) as finely as the p_eff plain points). (i) and
+(ii) keep every element block bitwise; the matrix differs from a pair-by-pair sum in the
+summation order only (≤ 1e-13 of the sum of |contributions|, tested), and entries whose two basis
+functions have no stretched support triangle stay bitwise. (iv) leaves vacuum unchanged and, in
+Ag at p = 10 against p = 16, the strips unchanged (2.9e-8, 2.0e-7, 2.1e-7 at σ = 1, 2.6, 3.4)
+and the corners at 6.3e-10 and 9.5e-10 (WP-PML2: 2.6e-10, 9.8e-11), within the ≤ 1e-8 above.
+Kernel evaluations (point pair × region) on the surface: 7.0e10 with both orderings → 3.5e10
+(3.3e10 point-pair geometries), of which shared vertex 55 %, far 35 %, shared edge 8 %. The far
+share is almost all Ag: 1.5e6 of the 3.9e6 stretched far pairs reach the degree cap in Ag (~2 900
+point pairs each against 271 in vacuum), because the stretched pairs keep the relative target
+without decay-aware relaxation although exp(−Im(k s) R) makes them negligible. Open for the fast
+PML ring (WP-PML5) or a follow-up: decay-aware relaxation of lossy stretched far pairs, fewer
+graded panels for pairs whose ridge misses the singular corner, tabulated corrections.
+
+Pairs without a stretched triangle, and every pair without a stretch, keep the routes above
+bitwise.

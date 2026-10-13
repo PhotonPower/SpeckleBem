@@ -70,10 +70,11 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   at σ = 100 nm L ×1.2 fails (1.19 % at L/6, 1.28 % at L/8, L = 4.5 µm): the waist is not the lever (measured);
   likely cause roughness-scattered fields reaching the rim (hypothesis, not separated from the added annulus).
   Proposed ADR 0006 change (rule restricted to σ ≤ 50 nm, σ = 100 nm caveat, larger-L follow-up): lead decision open.
-- **In flight:** WP-PML2c (stretched assembly cost).
+- **Merged:** WP-PML2c (stretched assembly 3.2–6.5× faster, accuracy unchanged).
+- **In flight:** WP-PML3b (validation 7a, flat Ag/Si with PML, 0°/45°, s/p).
 - **Next:** WP-PML3b (validation 7a) after WP-PML3a (in flight: PML RHS, windowed far field, `Simulation`); Ag scaling on the uniform box (WP22b4,
   optional now that the graded-box series meets the DoD); Phases 5/6.
-- Test counts on `main`: 489 ctest (`-LE "validation-large|slow"`), 108 pytest; labels `slow`, `validation`
+- Test counts on `main`: 492 ctest (`-LE "validation-large|slow"`), 108 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

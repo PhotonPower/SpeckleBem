@@ -53,6 +53,10 @@
 #include <utility>
 #include <vector>
 
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#include <omp.h>
+#endif
+
 using namespace specklebem;
 using basis::RwgSpace;
 using geometry::CoordinateStretch;
@@ -1586,6 +1590,317 @@ TEST_CASE("stretched kernels: the stretched PMCHWT matrix is complex symmetric",
     CHECK(noncoplanar > 0);
 }
 
+TEST_CASE("stretched kernels: dense assembly with a PML against the pair-by-pair reference",
+          "[stretched_kernels]") {
+    // WP-PML2c: DenseStrategy evaluates every unordered stretched pair once (one ordering, the
+    // other by the sub-block transposes) and both regions in one call. Reference: Z assembled
+    // pair by pair from the per-region element_blocks(..., &pml, ...) of every ordered pair, in a
+    // plain loop. Small open surface, vacuum / Ag, sigma_max 2: at the outer PML vertices
+    // |k_Ag| s h = 6.1 (h the cell diagonal) raises the Ag touching points (k-aware extra 1), so
+    // both the shared pass and the separate passes of element_blocks_both_regions occur. Release:
+    // the default near / far degree selection (the regions pick different degrees for some pairs);
+    // debug: fixed degrees. Z_ref is summed from the two-region blocks, which are checked bitwise
+    // against the single-region element_blocks pair by pair, so it is the per-region reference.
+    // Release checks every ordered pair and every entry of Z. Debug (ASan, -O0; 187 s with the
+    // full loops): the per-region check and the rule counts on every 7th ordered pair, and Z_ref
+    // only for the test triangles of the lower band (centroid y in the lower 30 % of the mesh:
+    // the y-PML strip, two PML corners, parts of the x-PML strips, the taper and the patch), Z
+    // compared on the rows whose two support triangles both lie in the band (all columns).
+    OpenCase c(50e-9);
+    if (kOptimised) {
+        c.problem.kernel_options.target_accuracy = OperatorOptions{}.target_accuracy;
+        c.problem.kernel_options.quad_degree_near = OperatorOptions{}.quad_degree_near;
+    }
+    const OperatorOptions& opt = c.problem.kernel_options;
+    const CoordinateStretch pml = geometry::make_pml_stretch(c.om, 2.0);
+    c.problem.stretch = &pml;
+    const RwgSpace& space = c.space;
+    const TriangleMesh& m = space.mesh();
+    const Index N = space.size();
+    const Index F = m.num_triangles();
+    const std::array<RegionParams, 2> reg = {region_of(c.problem.exterior),
+                                             region_of(c.problem.object)};
+    const formulation::Weights wt = c.form->weights(reg[0].eta, reg[1].eta);
+    const std::array<Complex, 2> ce = {wt.a1 / reg[0].eta, wt.a2 / reg[1].eta};
+    const std::array<Complex, 2> ch = {wt.b1 * reg[0].eta, wt.b2 * reg[1].eta};
+    const std::array<Complex, 2> cm = {wt.b1 / reg[0].eta, wt.b2 / reg[1].eta};
+    const std::array<Real, 2> jump = {-0.5, 0.5};
+    MatrixXc Zref = MatrixXc::Zero(2 * N, 2 * N);
+    MatrixXr scale = MatrixXr::Zero(2 * N, 2 * N);  // sum of |contributions| per entry
+    Index stretched = 0;
+    Index not_bitwise = 0;
+    Index shared_rule = 0;
+    Index separate_rule = 0;
+    Index checked = 0;
+    const Index stride = kOptimised ? 1 : 7;
+    // Test triangles of Z_ref (debug: the lower band) and the rows of Z compared.
+    std::vector<bool> in_band(static_cast<std::size_t>(F), true);
+    if (!kOptimised) {
+        std::vector<Real> cy(static_cast<std::size_t>(F));
+        for (Index t = 0; t < F; ++t) {
+            Real y = 0.0;
+            for (Index i = 0; i < 3; ++i) {
+                y += m.vertices()(m.triangles()(t, i), 1) / 3.0;
+            }
+            cy[static_cast<std::size_t>(t)] = y;
+        }
+        const auto [lo, hi] = std::minmax_element(cy.begin(), cy.end());
+        const Real y_cut = *lo + 0.3 * (*hi - *lo);
+        for (Index t = 0; t < F; ++t) {
+            in_band[static_cast<std::size_t>(t)] = cy[static_cast<std::size_t>(t)] < y_cut;
+        }
+    }
+    std::vector<bool> row_done(static_cast<std::size_t>(N));
+    Index rows = 0;
+    for (Index n = 0; n < N; ++n) {
+        row_done[static_cast<std::size_t>(n)] =
+            in_band[static_cast<std::size_t>(space.plus_triangle(n))] &&
+            in_band[static_cast<std::size_t>(space.minus_triangle(n))];
+        rows += row_done[static_cast<std::size_t>(n)] ? 1 : 0;
+    }
+    for (Index t = 0; t < F; ++t) {
+        const RwgSpace::Support st = space.support(t);
+        CHECK(kernels::is_stretched_triangle(pml, m, t) ==
+              kernels::stretched_pair_info(m, t, t, reg[0].k, opt, pml).stretched);
+        if (!in_band[static_cast<std::size_t>(t)]) {
+            continue;
+        }
+        for (Index s = 0; s < F; ++s) {
+            const RwgSpace::Support ss = space.support(s);
+            std::array<Block, 2> Lb;
+            std::array<Block, 2> Kb;
+            kernels::element_blocks_both_regions(space, t, s, reg, {true, true}, opt, &pml, Lb, Kb);
+            if ((t * F + s) % stride == 0) {
+                ++checked;
+                const kernels::StretchedPairInfo i0 =
+                    kernels::stretched_pair_info(m, t, s, reg[0].k, opt, pml);
+                if (i0.stretched) {
+                    ++stretched;
+                    const kernels::StretchedPairInfo i1 =
+                        kernels::stretched_pair_info(m, t, s, reg[1].k, opt, pml);
+                    ++(i0.points == i1.points && i0.degree == i1.degree ? shared_rule
+                                                                        : separate_rule);
+                }
+                for (std::size_t i = 0; i < 2; ++i) {
+                    const Blocks b = blocks(space, t, s, reg[i], opt, &pml);
+                    if (!bitwise_equal(b.L, Lb[i]) || !bitwise_equal(b.K, Kb[i])) {
+                        ++not_bitwise;
+                    }
+                }
+            }
+            Block I = Block::Zero();
+            if (t == s) {
+                kernels::jump_block(space, t, I);
+            }
+            for (std::size_t i = 0; i < 2; ++i) {
+                for (int a = 0; a < st.count; ++a) {
+                    for (int bb = 0; bb < ss.count; ++bb) {
+                        const Complex l = Lb[i](a, bb);
+                        const Complex k = Kb[i](a, bb) + jump[i] * I(a, bb);
+                        const Index r = st.n[a];
+                        const Index q = ss.n[bb];
+                        const std::array<std::pair<Index, Index>, 4> at = {
+                            {{r, q}, {r, N + q}, {N + r, q}, {N + r, N + q}}};
+                        const std::array<Complex, 4> v = {ce[i] * l, -(ce[i] * k), ch[i] * k,
+                                                          cm[i] * l};
+                        for (std::size_t x = 0; x < 4; ++x) {
+                            Zref(at[x].first, at[x].second) += v[x];
+                            scale(at[x].first, at[x].second) += std::abs(v[x]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // One active region only: the other block pair is zero, the active one bitwise.
+    {
+        const Index t = 0;
+        const Index s = F - 1;
+        std::array<Block, 2> Lb;
+        std::array<Block, 2> Kb;
+        kernels::element_blocks_both_regions(space, t, s, reg, {false, true}, opt, &pml, Lb, Kb);
+        const Blocks b = blocks(space, t, s, reg[1], opt, &pml);
+        CHECK(bitwise_equal(Lb[1], b.L));
+        CHECK(bitwise_equal(Kb[1], b.K));
+        CHECK(Lb[0].isZero(0.0));
+        CHECK(Kb[0].isZero(0.0));
+    }
+    const MatrixXc Z = dense(c.problem);
+    Real worst = 0.0;
+    for (Index a = 0; a < 2 * N; ++a) {
+        if (!row_done[static_cast<std::size_t>(a % N)]) {
+            continue;
+        }
+        for (Index b = 0; b < 2 * N; ++b) {
+            if (scale(a, b) > 0.0) {
+                worst = std::max(worst, std::abs(Z(a, b) - Zref(a, b)) / scale(a, b));
+            } else {
+                CHECK(Z(a, b) == Complex(0.0, 0.0));
+            }
+        }
+    }
+    WARN("PML dense vs pair-by-pair reference: "
+         << checked << " ordered pairs checked per region, " << stretched << " of them stretched ("
+         << shared_rule << " with the same rule in both regions, " << separate_rule
+         << " with different rules); " << rows << " of " << N
+         << " basis rows compared, max |Z - Z_ref| / sum |contributions| = " << worst);
+    CHECK(rows > (kOptimised ? N - 1 : N / 5));
+    CHECK(not_bitwise == 0);
+    CHECK(shared_rule > 0);
+    CHECK(separate_rule > 0);
+    CHECK(worst < 1e-13);
+    CHECK((op::assemble_diagonal(c.problem).array() == Z.diagonal().array()).all());
+    // The stretched part is exactly complex symmetric per sub-block; the matrix up to the
+    // unstretched blocks' rounding (as the reciprocity test above).
+    MatrixXc S = Z;
+    S.bottomRows(N) *= -1.0;
+    CHECK((S - S.transpose()).norm() / S.norm() < 1e-13);
+}
+
+TEST_CASE("stretched kernels: OpenMP thread count does not change the dense Z with a PML (bitwise)",
+          "[stretched_kernels]") {
+#ifdef SPECKLEBEM_HAVE_OPENMP
+    // WP-PML2c: DenseStrategy with a stretch evaluates every unordered pair once (pass 1, both
+    // regions) and scatters the blocks and their transposes (pass 2). The result must not depend
+    // on the thread count: 1 against 3 threads, all entries of Z and assemble_diagonal bitwise.
+    // Small open surface (vacuum / Ag) with cheap options and low degrees (as the determinism
+    // test of test_assembler.cpp: degrees 1 / 2 / 2); h = 20 nm keeps |k_Ag| s h below the
+    // k-aware extra. The stretch is the x strip only (sigma_max 2, sigma_y = 0: the anisotropic
+    // ridge-split rules, about half the triangles stretched; the debug cost is dominated by the
+    // stretched touching pairs). The rule selection is not what is tested.
+    OpenCase c(20e-9);
+    c.problem.kernel_options.quad_degree_far = 1;
+    c.problem.kernel_options.quad_degree_near = 2;
+    c.problem.kernel_options.quad_degree_sing = 2;
+    const StretchProfile px{c.om.pml_start, c.om.outer_half - c.om.pml_start, 2.0};
+    StretchProfile py = px;
+    py.sigma_max = 0.0;
+    const CoordinateStretch pml(px, py);
+    c.problem.stretch = &pml;
+    // assemble_diagonal runs at 3 threads only and is compared with the diagonal of the 1-thread
+    // Z (a 1-thread diagonal would add a third of the debug time; the pair-by-pair test above
+    // checks assemble_diagonal against Z at the default thread count).
+    const int saved = omp_get_max_threads();
+    omp_set_num_threads(1);
+    const MatrixXc Z1 = dense(c.problem);
+    omp_set_num_threads(3);
+    const MatrixXc Z3 = dense(c.problem);
+    const VectorXc d3 = op::assemble_diagonal(c.problem);
+    omp_set_num_threads(saved);
+    REQUIRE(Z1.rows() == Z3.rows());
+    CHECK((Z1.array() == Z3.array()).all());
+    CHECK((d3.array() == Z1.diagonal().array()).all());
+    // The case has stretched pairs (otherwise the test would not probe the PML passes).
+    Index n_stretched = 0;
+    for (Index t = 0; t < c.space.mesh().num_triangles(); ++t) {
+        n_stretched += kernels::is_stretched_triangle(pml, c.space.mesh(), t) ? 1 : 0;
+    }
+    CHECK(n_stretched > 0);
+    CHECK(n_stretched < c.space.mesh().num_triangles());
+#else
+    SUCCEED("built without OpenMP: assembly is sequential");
+#endif
+}
+
+TEST_CASE("stretched kernels: the fastmath kernel loop against the C library",
+          "[stretched_kernels]") {
+    // WP-PML2c: with fast_plain_kernel (default) stretched pairs with K = 0 evaluate exp(-j k R~)
+    // with kernels::fastmath; pairs with K != 0 keep the C library (bitwise the arithmetic with
+    // fast_plain_kernel = false). Every 3rd ordered stretched pair of the small open surface
+    // (release; debug every 23rd with the cheap options), vacuum and Ag, sigma_max 2.
+    OpenCase c(50e-9);
+    if (kOptimised) {
+        c.problem.kernel_options = OperatorOptions{};
+    }
+    OperatorOptions fast = c.problem.kernel_options;
+    fast.fast_plain_kernel = true;
+    OperatorOptions lib = fast;
+    lib.fast_plain_kernel = false;
+    const CoordinateStretch pml = geometry::make_pml_stretch(c.om, 2.0);
+    const TriangleMesh& m = c.space.mesh();
+    const Index F = m.num_triangles();
+    const Index stride = kOptimised ? 3 : 23;
+    const std::array<RegionParams, 2> reg = {region_of(c.problem.exterior),
+                                             region_of(c.problem.object)};
+    Index k_free = 0;
+    Index with_k = 0;
+    Index not_bitwise = 0;
+    Real worst = 0.0;
+    for (Index ip = 0; ip < F * F; ip += stride) {
+        const Index t = ip / F;
+        const Index s = ip % F;
+        if (!kernels::is_stretched_triangle(pml, m, t) &&
+            !kernels::is_stretched_triangle(pml, m, s)) {
+            continue;
+        }
+        for (const RegionParams& r : reg) {
+            const Blocks bf = blocks(c.space, t, s, r, fast, &pml);
+            const Blocks bl = blocks(c.space, t, s, r, lib, &pml);
+            if (bl.K == Block::Zero()) {
+                ++k_free;
+                CHECK(bf.K == Block::Zero());
+                worst = std::max(worst, rel_diff(bf.L, bl.L));
+            } else {
+                ++with_k;
+                if (!bitwise_equal(bf.L, bl.L) || !bitwise_equal(bf.K, bl.K)) {
+                    ++not_bitwise;
+                }
+            }
+        }
+    }
+    WARN("stretched fastmath vs C library: " << k_free << " K-free blocks, max relative L "
+                                             << "difference " << worst << "; " << with_k
+                                             << " blocks with K != 0");
+    CHECK(k_free > 0);
+    CHECK(with_k > 0);
+    CHECK(not_bitwise == 0);
+    CHECK(worst < 5e-13);  // measured 7e-14 (800-triangle surface, every 7th pair)
+
+    // The fastmath choice is made per region in a shared two-region pass: a region beyond the
+    // fastmath bound (|k| r_max > kFastSincosMax, here |k| = 1e14 / m) next to vacuum, on far
+    // pairs of flat stretched triangles (K = 0) with fixed degrees (both regions share the rule),
+    // gives each region its single-region blocks bitwise (vacuum fastmath, the other the C
+    // library).
+    RegionParams beyond = reg[0];
+    beyond.k = Complex(1e14, -1e3);
+    const std::array<RegionParams, 2> mixed = {reg[0], beyond};
+    const OperatorOptions fixed = cheap_options();
+    Index mixed_pairs = 0;
+    Index fast_differs = 0;
+    for (Index t = 0; t < F && mixed_pairs < 3; ++t) {
+        for (Index s = t + 1; s < F && mixed_pairs < 3; ++s) {
+            const kernels::StretchedPairInfo i0 =
+                kernels::stretched_pair_info(m, t, s, mixed[0].k, fixed, pml);
+            const kernels::StretchedPairInfo i1 =
+                kernels::stretched_pair_info(m, t, s, mixed[1].k, fixed, pml);
+            if (!i0.stretched || i0.proximity != Proximity::far || i0.degree != i1.degree ||
+                !kernels::is_stretched_triangle(pml, m, t) ||
+                !kernels::is_stretched_triangle(pml, m, s)) {
+                continue;
+            }
+            std::array<Block, 2> Lb;
+            std::array<Block, 2> Kb;
+            kernels::element_blocks_both_regions(c.space, t, s, mixed, {true, true}, fixed, &pml,
+                                                 Lb, Kb);
+            for (std::size_t i = 0; i < 2; ++i) {
+                const Blocks b = blocks(c.space, t, s, mixed[i], fixed, &pml);
+                CHECK(bitwise_equal(b.L, Lb[i]));
+                CHECK(bitwise_equal(b.K, Kb[i]));
+                CHECK(b.K == Block::Zero());
+            }
+            // Sensitivity: the joint C-library choice would change the vacuum blocks.
+            OperatorOptions fixed_lib = fixed;
+            fixed_lib.fast_plain_kernel = false;
+            if (!bitwise_equal(blocks(c.space, t, s, mixed[0], fixed_lib, &pml).L, Lb[0])) {
+                ++fast_differs;
+            }
+            ++mixed_pairs;
+        }
+    }
+    CHECK(mixed_pairs == 3);
+    CHECK(fast_differs > 0);
+}
+
 // ---------------------------------------------------------------------------------------------
 // 4. Decay into the PML.
 // ---------------------------------------------------------------------------------------------
@@ -1821,6 +2136,9 @@ TEST_CASE("stretched kernels (full): dense assembly cost with a PML",
     // Kernel evaluations per class (region R1, one ordering per unordered pair); near / far
     // pairs at the degree cap in both regions (k_1 vacuum, k_2 Ag).
     std::array<Real, 5> points{};
+    std::array<Real, 5> evals{};
+    std::array<Real, 5> geometry{};
+    Real evals_before = 0.0;
     std::array<Index, 5> pairs{};
     Index capped = 0;
     Index capped2 = 0;
@@ -1840,22 +2158,39 @@ TEST_CASE("stretched kernels (full): dense assembly cost with a PML",
             if (!info.target_reached) {
                 ++capped;
             }
-            if (info.proximity == Proximity::near || info.proximity == Proximity::far) {
-                const kernels::StretchedPairInfo info2 =
-                    kernels::stretched_pair_info(m, t, s, k2, p.kernel_options, pml);
-                if (!info2.target_reached) {
-                    ++capped2;
-                }
+            const kernels::StretchedPairInfo info2 =
+                kernels::stretched_pair_info(m, t, s, k2, p.kernel_options, pml);
+            if ((info.proximity == Proximity::near || info.proximity == Proximity::far) &&
+                !info2.target_reached) {
+                ++capped2;
             }
+            // Kernel evaluations (point pair x region) of the dense assembly: WP-PML2 evaluated
+            // both orderings of t != s per region; WP-PML2c each unordered pair once, both
+            // regions in one pass (one geometry evaluation per point pair) if their rules agree.
+            const auto p1 = static_cast<Real>(info.points);
+            const auto p2 = static_cast<Real>(info2.points);
+            const bool same = info.points == info2.points && info.degree == info2.degree;
+            evals[c] += p1 + p2;
+            geometry[c] += same ? p1 : p1 + p2;
+            evals_before += (t == s ? 1.0 : 2.0) * (p1 + p2);
         }
     }
     std::ostringstream os;
+    Real evals_after = 0.0;
+    Real geometry_after = 0.0;
     for (std::size_t c = 0; c < 5; ++c) {
         os << " " << class_name(static_cast<Proximity>(c)) << ": " << pairs[c] << " pairs, "
-           << (pairs[c] > 0 ? points[c] / static_cast<Real>(pairs[c]) : 0.0) << " points/pair;";
+           << (pairs[c] > 0 ? points[c] / static_cast<Real>(pairs[c]) : 0.0)
+           << " points/pair (k_1), " << evals[c] << " kernel evaluations, " << geometry[c]
+           << " point-pair geometries (both regions);";
+        evals_after += evals[c];
+        geometry_after += geometry[c];
     }
     WARN("PML cost: " << m.num_triangles() << " triangles, 2N = " << 2 * space.size()
                       << ", assembly " << t_plain << " s without, " << t_pml
                       << " s with the stretch; stretched" << os.str()
-                      << " near/far at the cap: " << capped << " (k_1), " << capped2 << " (k_2)");
+                      << " near/far at the cap: " << capped << " (k_1), " << capped2
+                      << " (k_2); kernel evaluations " << evals_before << " (WP-PML2, both "
+                      << "orderings) -> " << evals_after << " (" << geometry_after
+                      << " point-pair geometries)");
 }

@@ -69,6 +69,26 @@
 /// of decreasing longest edge (a cost proxy; largest first keeps the tail short), which does
 /// not change any entry.
 ///
+/// Stretched pairs (PML, WP-PML2c). With a non-identity Problem::stretch the blocks of a pair
+/// with a stretched triangle cost 1e5-1e7 kernel evaluations, and kernels::element_blocks
+/// computes them for the canonical ordering and transposes for the other: B(s, t) = B(t, s)^T
+/// bitwise for each of the combined blocks jj, jm, mj, mm (L and K^PV are complex symmetric; the
+/// jump term enters identical pairs only). Write Z_X (X one of the four N x N sub-blocks) as
+/// U_X + D_X + C_X, the contributions of the unstretched pairs and the stretched identical pairs
+/// (U + D), of the evaluated ordering of each unordered stretched pair {t, s}, t != s (A), and of
+/// the other ordering (C). C_X(m, n) = sum over the other orderings (t, s) of B_X(t, s)(a, b) =
+/// sum over the evaluated (s, t) of B_X(s, t)(b, a) = A_X(n, m), so Z_X = A_X + A_X^T + (U + D)_X:
+///  pass 1   the schedule above over the evaluated orderings only (each unordered stretched pair
+///           once, half of each row's pairs, see evaluated_ordering), giving A in Z;
+///  transpose Z_X <- Z_X + Z_X^T per sub-block (add_block_transposes: one writer per entry);
+///  pass 2   the schedule above over the unstretched pairs and the stretched identical pairs.
+/// Every pass is deterministic and race-free as above, so the matrix does not depend on the
+/// thread count. Entries whose two basis functions have no stretched support triangle receive
+/// only pass-2 contributions, in the order without a stretch (bitwise the unstretched entry); the
+/// others differ from a pair-by-pair sum in the summation order only (tested to 1e-13 of the sum
+/// of |contributions|). Without a stretch (or with the identity) the loop above is unchanged.
+/// assemble_diagonal follows the same order.
+///
 /// Sparse assembly (WP19a, assemble_sparse) shares this schedule (test_schedule,
 /// for_each_test_triangle) and pair_blocks; per test triangle it visits only the source
 /// triangles of its pattern pairs, in ascending order, and scatters only the pattern entries.
@@ -156,17 +176,22 @@ void pair_blocks(const basis::RwgSpace& space, Index t, Index s, const Setup& se
     out.jm.fill(Complex(0.0, 0.0));
     out.mj.fill(Complex(0.0, 0.0));
     out.mm.fill(Complex(0.0, 0.0));
-    Block L;
-    Block K;
+    std::array<Block, 2> Ls;
+    std::array<Block, 2> Ks;
     Block I;
     const bool identical = t == s;
     if (identical) {
         kernels::jump_block(space, t, I);
     }
+    // Both regions in one call (bitwise the per-region element_blocks; a stretched pair shares
+    // its geometry and, where the rules agree, its point loop between the regions).
+    kernels::element_blocks_both_regions(space, t, s, setup.region, setup.active, opt, stretch, Ls,
+                                         Ks);
     for (std::size_t i = 0; i < 2; ++i) {
         if (!setup.active[i])
             continue;
-        kernels::element_blocks(space, t, s, setup.region[i], opt, stretch, L, K);
+        const Block& L = Ls[i];
+        const Block& K = Ks[i];
         const Complex ce = setup.e[i];
         const Complex ch = setup.h[i];
         const Complex cm = setup.m[i];
@@ -295,6 +320,60 @@ void for_each_test_triangle(const std::vector<std::vector<Index>>& groups, const
             }
         }
         error.rethrow();
+    }
+}
+
+/// Per triangle: 1 if it takes the stretched path of p.stretch (kernels::is_stretched_triangle).
+std::vector<char> stretched_triangles(const Problem& p) {
+    const geometry::TriangleMesh& mesh = p.space->mesh();
+    std::vector<char> out(static_cast<std::size_t>(mesh.num_triangles()), 0);
+    for (Index t = 0; t < mesh.num_triangles(); ++t) {
+        out[static_cast<std::size_t>(t)] =
+            kernels::is_stretched_triangle(*p.stretch, mesh, t) ? 1 : 0;
+    }
+    return out;
+}
+
+/// The ordering (t, s) of an unordered pair {t, s} of distinct triangles that pass 1 of the PML
+/// assembly evaluates (exactly one of (t, s) and (s, t); file comment "Stretched pairs"): t < s
+/// for even t + s, t > s for odd t + s, so that every test triangle evaluates about half of its
+/// pairs (the plain (min, max) choice would give the first rows all and the last none).
+bool evaluated_ordering(Index t, Index s) {
+    return ((t + s) % 2 == 0) == (t < s);
+}
+
+/// Z_X <- Z_X + Z_X^T for each of the four N x N sub-blocks X of the 2N x 2N matrix Z (file
+/// comment "Stretched pairs"); both entries of a pair get the same sum (a + b = b + a). Tiles of
+/// the upper sub-block triangle are distributed over the threads; each entry is written by one
+/// thread, so the result does not depend on the thread count.
+void add_block_transposes(MatrixXc& Z, Index N) {
+    constexpr Index kTile = 64;
+    const Index nt = (N + kTile - 1) / kTile;
+    for (Index bi = 0; bi < 2; ++bi) {
+        for (Index bj = 0; bj < 2; ++bj) {
+            const Index r0 = bi * N;
+            const Index c0 = bj * N;
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic, 1)
+#endif
+            for (Index I = 0; I < nt; ++I) {
+                for (Index J = I; J < nt; ++J) {
+                    const Index m_end = std::min(N, (I + 1) * kTile);
+                    const Index n_end = std::min(N, (J + 1) * kTile);
+                    for (Index n = J * kTile; n < n_end; ++n) {
+                        for (Index m = I * kTile; m < std::min(m_end, n + 1); ++m) {
+                            if (m == n) {
+                                Z(r0 + m, c0 + m) = Z(r0 + m, c0 + m) + Z(r0 + m, c0 + m);
+                            } else {
+                                const Complex v = Z(r0 + m, c0 + n) + Z(r0 + n, c0 + m);
+                                Z(r0 + m, c0 + n) = v;
+                                Z(r0 + n, c0 + m) = v;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -433,29 +512,74 @@ std::shared_ptr<LinearOperator> DenseStrategy::build(const Problem& p) const {
     MatrixXc Z = MatrixXc::Zero(2 * N, 2 * N);
     Complex* const data = Z.data();
     const Index ld = Z.outerStride();
+    // Adds the combined blocks of the pair (t, s) to the rows of t's basis functions.
+    const auto scatter = [&](const basis::RwgSpace::Support& st, const basis::RwgSpace::Support& ss,
+                             const PairBlocks& blk) {
+        for (int b = 0; b < ss.count; ++b) {
+            // Column-major storage: columns n and N + n, rows m and N + m.
+            Complex* col_j = data + ss.n[b] * ld;
+            Complex* col_m = data + (N + ss.n[b]) * ld;
+            for (int a = 0; a < st.count; ++a) {
+                const Index m = st.n[a];
+                const auto k = static_cast<std::size_t>(3 * a + b);
+                col_j[m] += blk.jj[k];
+                col_m[m] += blk.jm[k];
+                col_j[N + m] += blk.mj[k];
+                col_m[N + m] += blk.mm[k];
+            }
+        }
+    };
+    if (!has_stretch(p)) {
+        for_each_test_triangle(groups, [&](Index t) {
+            const basis::RwgSpace::Support st = space.support(t);
+            if (st.count == 0)
+                return;
+            PairBlocks blk;
+            for (Index s = 0; s < F; ++s) {
+                const basis::RwgSpace::Support ss = space.support(s);
+                if (ss.count == 0)
+                    continue;
+                pair_blocks(space, t, s, setup, p.kernel_options, p.stretch, blk);
+                scatter(st, ss, blk);
+            }
+        });
+        return std::make_shared<DenseOperator>(std::move(Z));
+    }
+    // PML (file comment "Stretched pairs"): pass 1 the evaluated ordering of every unordered
+    // stretched pair of distinct triangles, the sub-block transposes, pass 2 the rest.
+    const std::vector<char> str = stretched_triangles(p);
+    const auto stretched_pair = [&](Index t, Index s) {
+        return str[static_cast<std::size_t>(t)] != 0 || str[static_cast<std::size_t>(s)] != 0;
+    };
     for_each_test_triangle(groups, [&](Index t) {
         const basis::RwgSpace::Support st = space.support(t);
         if (st.count == 0)
             return;
         PairBlocks blk;
         for (Index s = 0; s < F; ++s) {
+            if (s == t || !stretched_pair(t, s) || !evaluated_ordering(t, s))
+                continue;
             const basis::RwgSpace::Support ss = space.support(s);
             if (ss.count == 0)
                 continue;
             pair_blocks(space, t, s, setup, p.kernel_options, p.stretch, blk);
-            for (int b = 0; b < ss.count; ++b) {
-                // Column-major storage: columns n and N + n, rows m and N + m.
-                Complex* col_j = data + ss.n[b] * ld;
-                Complex* col_m = data + (N + ss.n[b]) * ld;
-                for (int a = 0; a < st.count; ++a) {
-                    const Index m = st.n[a];
-                    const auto k = static_cast<std::size_t>(3 * a + b);
-                    col_j[m] += blk.jj[k];
-                    col_m[m] += blk.jm[k];
-                    col_j[N + m] += blk.mj[k];
-                    col_m[N + m] += blk.mm[k];
-                }
-            }
+            scatter(st, ss, blk);
+        }
+    });
+    add_block_transposes(Z, N);
+    for_each_test_triangle(groups, [&](Index t) {
+        const basis::RwgSpace::Support st = space.support(t);
+        if (st.count == 0)
+            return;
+        PairBlocks blk;
+        for (Index s = 0; s < F; ++s) {
+            if (s != t && stretched_pair(t, s))
+                continue;
+            const basis::RwgSpace::Support ss = space.support(s);
+            if (ss.count == 0)
+                continue;
+            pair_blocks(space, t, s, setup, p.kernel_options, p.stretch, blk);
+            scatter(st, ss, blk);
         }
     });
     return std::make_shared<DenseOperator>(std::move(Z));
@@ -741,6 +865,16 @@ VectorXc assemble_diagonal(const Problem& p) {
         return c1 != c2 ? c1 < c2 : t1 < t2;
     };
 
+    // With a PML the dense path sums in a different order (DenseStrategy::build, file comment
+    // "Stretched pairs"): first twice the evaluated ordering of the stretched pair (tp, tm), then
+    // the remaining pairs in the order above.
+    const bool pml = has_stretch(p);
+    const std::vector<char> str = pml ? stretched_triangles(p) : std::vector<char>{};
+    const auto stretched_pair = [&](Index t, Index s) {
+        return pml &&
+               (str[static_cast<std::size_t>(t)] != 0 || str[static_cast<std::size_t>(s)] != 0);
+    };
+
     VectorXc d = VectorXc::Zero(2 * N);
     ExceptionSlot error;
 #ifdef SPECKLEBEM_HAVE_OPENMP
@@ -754,9 +888,23 @@ VectorXc assemble_diagonal(const Problem& p) {
                 before(tp, tm) ? std::array<Index, 2>{tp, tm} : std::array<Index, 2>{tm, tp};
             const std::array<Index, 2> sources = {std::min(tp, tm), std::max(tp, tm)};
             PairBlocks blk;
+            if (stretched_pair(tp, tm)) {
+                const bool fwd = evaluated_ordering(tp, tm);
+                const Index t = fwd ? tp : tm;
+                const Index s = fwd ? tm : tp;
+                pair_blocks(space, t, s, setup, p.kernel_options, p.stretch, blk);
+                const auto k = static_cast<std::size_t>(3 * slot_of(space.support(t), m) +
+                                                        slot_of(space.support(s), m));
+                d(m) += blk.jj[k];
+                d(N + m) += blk.mm[k];
+                d(m) = d(m) + d(m);
+                d(N + m) = d(N + m) + d(N + m);
+            }
             for (const Index t : tests) {
                 const int a = slot_of(space.support(t), m);
                 for (const Index s : sources) {
+                    if (s != t && stretched_pair(t, s))
+                        continue;
                     const int b = slot_of(space.support(s), m);
                     pair_blocks(space, t, s, setup, p.kernel_options, p.stretch, blk);
                     const auto k = static_cast<std::size_t>(3 * a + b);

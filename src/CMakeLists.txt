@@ -54,9 +54,11 @@ add_library(SpeckleBem::specklebem ALIAS specklebem)
 # std::sqrt) vectorises only without errno handling (sqrt) and without the trapping-math limit
 # on if-converting floating-point comparisons. Neither flag changes a computed value (no
 # reassociation, no contraction, no finite-math assumptions). WP-E1: the same for the plane-wave
-# sum of excitation/angular_spectrum_beam.cpp (fast_sincos).
+# sum of excitation/angular_spectrum_beam.cpp (fast_sincos). WP-PML2c: the batched kernel loops of
+# kernels/stretched_operators.cpp.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set_source_files_properties(kernels/operators.cpp excitation/angular_spectrum_beam.cpp PROPERTIES
+    set_source_files_properties(kernels/operators.cpp kernels/stretched_operators.cpp
+        excitation/angular_spectrum_beam.cpp PROPERTIES
         COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math")
 endif()
 

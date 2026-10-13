@@ -1742,6 +1742,44 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
     detail::stretched_element_blocks(space, t_test, t_src, region, opt, *stretch, L, K);
 }
 
+void element_blocks_both_regions(const basis::RwgSpace& space, Index t_test, Index t_src,
+                                 const std::array<RegionParams, 2>& regions,
+                                 const std::array<bool, 2>& active, const OperatorOptions& opt,
+                                 const geometry::CoordinateStretch* stretch,
+                                 std::array<Eigen::Matrix<Complex, 3, 3>, 2>& L,
+                                 std::array<Eigen::Matrix<Complex, 3, 3>, 2>& K) {
+    // The dispatch of the stretch overload above, once for both regions.
+    const geometry::TriangleMesh& mesh = space.mesh();
+    const bool in_range =
+        t_test >= 0 && t_test < mesh.num_triangles() && t_src >= 0 && t_src < mesh.num_triangles();
+    if (stretch == nullptr || stretch->is_identity() || !in_range ||
+        !(detail::triangle_stretched(*stretch, mesh, t_test) ||
+          detail::triangle_stretched(*stretch, mesh, t_src))) {
+        for (std::size_t i = 0; i < 2; ++i) {
+            if (active[i]) {
+                element_blocks(space, t_test, t_src, regions[i], opt, L[i], K[i]);
+            } else {
+                L[i].setZero();
+                K[i].setZero();
+            }
+        }
+        if (!(active[0] || active[1])) {
+            validate(opt);
+            if (!in_range) {
+                throw std::out_of_range("element_blocks_both_regions: triangle index out of range");
+            }
+        }
+        return;
+    }
+    detail::stretched_element_blocks_both(space, t_test, t_src, regions, active, opt, *stretch, L,
+                                          K);
+}
+
+bool is_stretched_triangle(const geometry::CoordinateStretch& stretch,
+                           const geometry::TriangleMesh& mesh, Index t) {
+    return detail::triangle_stretched(stretch, mesh, t);
+}
+
 StretchedPairInfo stretched_pair_info(const geometry::TriangleMesh& mesh, Index t_test, Index t_src,
                                       Complex k, const OperatorOptions& opt,
                                       const geometry::CoordinateStretch& stretch) {

@@ -32,6 +32,8 @@
 #include "specklebem/geometry/coordinate_stretch.hpp"
 #include "specklebem/kernels/singularity.hpp"
 
+#include <array>
+
 namespace specklebem::kernels {
 
 struct RegionParams {
@@ -176,24 +178,29 @@ struct OperatorOptions {
     /// per degree-19 far pair, x1.5 on the whole rough-box assembly, x2.9 for the isolated
     /// sin + cos loop; benchmarks/results/dense_assembly_profile.md). Used where the
     /// arguments are in range for the whole pair (|Re k| R <= 1e6, Im k <= 0); otherwise, and
-    /// with false, the C library (the pre-WP-P2 arithmetic, bitwise). Touching pairs always
-    /// use the C library.
+    /// with false, the C library (the pre-WP-P2 arithmetic, bitwise). Touching pairs of the
+    /// unstretched kernels always use the C library. Stretched (PML) pairs with K = 0 use the
+    /// fastmath kernel loop as well where the arguments are in range (WP-PML2c; blocks within
+    /// 7e-14 of the C library, src/kernels/stretched_operators.cpp "Evaluation").
     bool fast_plain_kernel = true;
     /// Touching pairs with a stretched (PML) triangle (WP-PML2, ADR 0009; element_blocks with a
     /// CoordinateStretch): Gauss-Legendre points p per plain and radial direction of the
     /// relative-coordinate (Sauter-Schwab type) rule on the analytic stretched kernel, and
     /// ceil(0.6 p) (at least 4) per panel of the directions graded toward the ridge of an
-    /// anisotropic stretch; both raised by max(0, ceil(0.75 |k| s_max h) - 4) for large |k s| h
-    /// (lossy media in the PML), at most 16 (src/kernels/stretched_operators.cpp, ADR 0004 note
-    /// WP-PML2). Kernel evaluations grow like p^4 (shared vertex) and p^3 (shared edge).
+    /// anisotropic stretch; for large |k s| h (lossy media in the PML) the plain and radial points
+    /// are raised to p_eff = p + max(0, ceil(0.75 |k| s_max h) - 4) and the graded ones to at
+    /// least ceil(p_eff / 2) (WP-PML2c), at most 16 (src/kernels/stretched_operators.cpp, ADR 0004
+    /// note WP-PML2). Kernel evaluations grow like p^4 (shared vertex) and p^3 (shared edge).
     /// Default 10, measured on all touching pairs of a structured grid (h = lambda / 10, order-2
     /// profile sigma_max = 4, vacuum and Ag, against p = 16;
     /// tests/unit/test_stretched_kernels.cpp): relative block error <= 5e-11 (identical), <= 4e-8
     /// (shared edge), <= 3e-8 (shared vertex) at sigma = 1, <= 6e-7 (shared vertex) at sigma
-    /// = 2.6-3.4 on one axis only, <= 1e-8 in the corner; mean cost per call 1.7e4-7e4
-    /// (identical), 3.5e5-1.6e6 (shared edge), 5e5-6e6 (shared vertex) kernel evaluations (vacuum
-    /// to Ag). p = 12 lowers the shared-vertex error to ~2e-7 at ~1.5 times the cost. Must be
-    /// in 4..16. Pairs without a stretched triangle do not use it.
+    /// = 2.6-3.4 on one axis only, <= 1e-8 in the corner; mean cost per call on the
+    /// 2 888-triangle surface of the slow test [stretched_cost] 1.9e4 / 2.6e4 (identical), 3.2e5 /
+    /// 5.4e5 (shared edge), 6.0e5 / 1.4e6 (shared vertex) kernel evaluations (vacuum / Ag); its
+    /// dense assembly takes 91 s with the PML against 1.9 s without (WP-PML2c, release, 12 cores;
+    /// ADR 0004 note WP-PML2, "Cost reduction"). p = 12 lowers the shared-vertex error to ~2e-7 at
+    /// ~1.5 times the cost. Must be in 4..16. Pairs without a stretched triangle do not use it.
     int stretched_touching_points = 10;
 };
 
@@ -264,8 +271,9 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
 ///  * near, far: double Dunavant rule of the degree selected for target_accuracy with the error
 ///    model of the plain kernel at kappa = sqrt((h / D_eff)^2 + (0.15 |k| s_max h)^2), s_max =
 ///    max |s| of the pair and D_eff <= D the distance shortened for the near-singular ridge of an
-///    anisotropic stretch (src/kernels/stretched_operators.cpp); no decay-aware relaxation, C
-///    library arithmetic; if no degree of the ladder meets the target, quad_degree_near
+///    anisotropic stretch (src/kernels/stretched_operators.cpp); no decay-aware relaxation, the
+///    fastmath or C-library arithmetic as fast_plain_kernel (C library where K != 0); if no
+///    degree of the ladder meets the target, quad_degree_near
 ///    (stretched_pair_info reports it). The model is calibrated on L-type blocks; non-flat pairs
 ///    (tilted triangle and PML triangle, K != 0) select their degree for target / 20, since their
 ///    small K block has ~20 times the relative error of L (ADR 0004 note WP-PML2);
@@ -288,6 +296,31 @@ void element_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
                     const RegionParams& region, const OperatorOptions& opt,
                     const geometry::CoordinateStretch* stretch, Eigen::Matrix<Complex, 3, 3>& L,
                     Eigen::Matrix<Complex, 3, 3>& K);
+
+/// The blocks of one triangle pair in both regions of a two-region problem in one call (WP-PML2c,
+/// the dense assembly with a PML): for every i with active[i], L[i] and K[i] are bitwise the
+/// blocks of element_blocks(space, t_test, t_src, regions[i], opt, stretch, L[i], K[i]); inactive
+/// regions get zero blocks and are not evaluated. For a stretched pair the geometry of the pair
+/// is set up once, and when both regions select the same rule (near / far: the same Dunavant
+/// degree; touching: the same stretched_touching_points-derived point counts, which differ only
+/// through the k-aware extra) the two kernels are integrated over the same point pairs in one pass
+/// (R~ and the stretch evaluated once); otherwise each region gets its own pass with its own rule
+/// (src/kernels/stretched_operators.cpp, "Regions"). Pairs on the unstretched path call
+/// element_blocks per active region. Allocation-free, safe to call concurrently.
+/// @throws as element_blocks.
+void element_blocks_both_regions(const basis::RwgSpace& space, Index t_test, Index t_src,
+                                 const std::array<RegionParams, 2>& regions,
+                                 const std::array<bool, 2>& active, const OperatorOptions& opt,
+                                 const geometry::CoordinateStretch* stretch,
+                                 std::array<Eigen::Matrix<Complex, 3, 3>, 2>& L,
+                                 std::array<Eigen::Matrix<Complex, 3, 3>, 2>& K);
+
+/// True if triangle t takes the stretched path of element_blocks(..., &stretch, ...): it has a
+/// vertex in the stretched zone (an axis with sigma_max > 0 and |x| > x.start or |y| > y.start).
+/// False for an identity stretch. A pair is stretched iff one of its triangles is.
+/// @throws std::out_of_range for t outside the mesh.
+[[nodiscard]] bool is_stretched_triangle(const geometry::CoordinateStretch& stretch,
+                                         const geometry::TriangleMesh& mesh, Index t);
 
 /// Rule of a stretched pair (diagnostics and cost studies, WP-PML2).
 struct StretchedPairInfo {

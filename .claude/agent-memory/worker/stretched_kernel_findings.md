@@ -43,6 +43,22 @@ WP-PML2 (2026-10-13), `src/kernels/stretched_operators.cpp`, tests `test_stretch
   probes shared edges, ~1e-12). Subdivided WP7b shared-edge reference: 5e-12 at n = 24.
   Hidden `[.]` scratch cases need a temporary add_test line to run through ctest.
 
+- WP-PML2c (2026-10-13, idle 5900X-class 12 cores): [stretched_cost] 296.6 s -> 90.8 s; PML3a
+  Si smoke h 250 nm 287.5 s -> 44.5 s (R_sim unchanged). Once-per-unordered-pair + transposes
+  halves evaluations (7.0e10 -> 3.5e10), batching/fastmath/shared geometry give the rest. Graded
+  points max(ceil(0.6p), ceil(p_eff/2)): Ag corners 2.6e-10 -> 6.3e-10, 9.8e-11 -> 9.5e-10,
+  strips/vacuum unchanged (kept). Remaining: shared vertex 55 %, far 35 % (almost all Ag: 1.5e6 of
+  3.9e6 far pairs at the degree cap, no decay relaxation for stretched pairs -> next lever).
+  Stretched fastmath vs C library on the small OpenCase: 3e-15. Clang -Werror flags unused
+  inline helpers in anonymous namespaces (GCC does not): build win-debug before reporting.
+  Catch2 wraps WARN lines at 80 cols: grep -A3 when extracting sweep rows from ctest -V logs.
+
+- WP-PML2c review fixes: debug (ASan) cost of the small OpenCase (72 triangles) is the stretched
+  touching pairs: 1-thread dense ~7-11 s even with degrees 1/2/2 and an x-only strip, a
+  single assemble_diagonal ~4-6 s; sigma_max 1 vs 2 barely changes it. Debug-time levers that
+  worked: Z_ref rows restricted to a lower-y triangle band, per-region checks on a stride.
+  test_concurrent_calls_are_serialised (pytest) can fail under heavy machine load (passes alone).
+
 **Why:** these took most of the WP-PML2 iterations; WP-PML3/4/5 build on the stretched path.
 **How to apply:** PML accuracy/cost questions, fast PML ring (WP-PML5), profile choice
 (smaller sigma_max with wider W reduces the ridge). See [[open-surface-pml-findings]].

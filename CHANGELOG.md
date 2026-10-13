@@ -5,6 +5,12 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- kernels / operator (WP-PML2c): 3.2–6.5× faster dense assembly with a PML stretch. Each unordered stretched pair is
+  evaluated once (sub-block transposes supply the other ordering), `kernels::element_blocks_both_regions` shares the
+  pair setup and, where both regions pick the same rule, the point loop; batched point loop with fastmath for pairs
+  with K = 0 (≤ 7e-14, decided per region; K ≠ 0 bitwise). Graded touching points max(ceil(0.6 p), ceil(p_eff/2))
+  instead of ceil(0.6 p) + extra (Ag corners ≤ 1e-9, strips unchanged). Unstretched path bitwise unchanged. Tests:
+  pair-by-pair reference assembly, thread-count determinism, fastmath vs C library.
 - operator / post / simulation / python (WP-PML3a, ADR 0009 decisions 4–5): the open-surface PML route end to end
   (dense). `op::assemble_rhs` accepts a stretch and masks every test function whose support has a vertex strictly
   inside the stretched zone (`op::pml_masked_functions`; Gap/Pml straddling functions masked; the incident field is

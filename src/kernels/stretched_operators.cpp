@@ -26,6 +26,23 @@
 /// therefore computed for the ordering (min(t, s), max(t, s)) and transposed for the other one: the
 /// stretched Galerkin matrix is bitwise complex symmetric.
 ///
+/// Regions (WP-PML2c, element_blocks_both_regions). The dense assembly needs the blocks of both
+/// regions of every pair. The pair setup (triangles, classification, slots) is done once; the rule
+/// is selected per region as for a single-region call (near / far: the degree of choose_plain at
+/// k_i; touching: touching_points at k_i, which differ between the regions only through the
+/// k-aware extra). If both regions select the same rule, one pass over the point pairs computes
+/// R~, 1 / R~ and the stretch factors once and accumulates the moments of both kernels (Accum<2>);
+/// otherwise each region gets its own pass with its own rule. The fastmath choice (see
+/// "Evaluation") is also made per region; in the rare shared pass where only one region's k exceeds
+/// the fastmath bound, R~ is computed in both variants. Either way every region's moments
+/// receive exactly the operations of a pass of its own, so the blocks are bitwise those of
+/// stretched_element_blocks for that region. A common rule at the larger of the two selections
+/// (the higher degree, the larger point counts) would also cover both regions at equal or better
+/// accuracy, but is more expensive where the selections differ: the Ag touching rule with the
+/// k-aware extra has 2-6 times the points of the vacuum rule, and the kernel part of a point pair
+/// (exp, sin, cos, the moments) costs more than the shared geometry, so evaluating the vacuum
+/// kernel on the Ag points costs more than its own pass (observed in WP-PML2c).
+///
 /// Jump term. For a horizontal triangle (normal +-z; required for stretched triangles, ADR 0009
 /// decision 1) with DS = diag(s_x, s_y, 1) and det DS = s_x s_y:
 ///   (DS f_m) . (z x DS f_n) = s_x s_y (f_my f_nx - f_mx f_ny) = det DS  f_m . (z x f_n),
@@ -41,7 +58,18 @@
 /// tau_ik = c S_i(x) eps_ijk (r~ - r~')_j S_k(y), so per pair the rule accumulates the moments
 /// sum w u_i {X_i Y_i, X_i, Y_i, 1} (u_i = g S_i(x) S_i(y)) and sum w tau_ik {X_i Y_k, X_i, Y_k, 1}
 /// and the 3 x 3 blocks follow at the end. Real arithmetic in the point loop (the library's
-/// complex multiplication checks for NaN), the C library's exp, sin, cos and sqrt (no fastmath).
+/// complex multiplication checks for NaN). The rules hand their point pairs to add_pair, which
+/// collects them in batches of kBatch (structure of arrays, WP-PML2c); per batch loop A computes
+/// R~ and 1 / R~ (shared by the regions, see "Regions"), loop B per region the kernel factors and
+/// loop C sums the moments in point order (the order of the unbatched WP-PML2 loop). Loops A and B
+/// are branch-free so that they vectorise (with -fno-math-errno -fno-trapping-math, value-neutral).
+/// With OperatorOptions::fast_plain_kernel (default) and |k| |R~| <= kFastSincosMax for the pair,
+/// pairs with K = 0 (flat near / far pairs, coplanar touching pairs) evaluate exp(-j k R~) with
+/// kernels::fastmath and |R~^2| as sqrt(re^2 + im^2): blocks within 7e-14 of the C-library
+/// arithmetic (measured on a 800-triangle open surface, every 7th pair); pairs with K != 0 keep the
+/// C library (their small K blocks, |K| eta / |L| down to 1e-6 near coplanarity, magnify the
+/// ulp-level differences to 2e-12 of K). The C-library variant is the WP-PML2 arithmetic up to the
+/// compiler's pairing of sin and cos into sincos (<= 5e-15 relative per block).
 /// The stretch is evaluated from CoordinateStretch::profile_x / profile_y with one power per
 /// stretched axis and point (CoordinateStretch::map and jacobian_diag need two; agreement to a few
 /// ulp is tested).
@@ -103,15 +131,17 @@
 /// the PML). stretched_pair_info reports the frozen-metric eps of these pairs too (ridge_split
 /// false).
 /// Points (touching_points): p = stretched_touching_points per plain and radial direction (plus a
-/// k-aware extra for |k| s_max h > 5.3), ceil(0.6 p) per graded panel. Measured with the default
-/// p = 10 (all touching pairs of the central triangle of a structured right-isosceles grid at
-/// h = lambda / 10, order-2 profile sigma_max = 4 on W = 2 lambda, vacuum and Ag, against p = 16;
-/// tests/unit/test_stretched_kernels.cpp): identical <= 5e-11, shared edge <= 4e-8, shared vertex
+/// k-aware extra for |k| s_max h > 5.3), max(ceil(0.6 p), ceil(p_eff / 2)) per graded panel.
+/// Measured with the default p = 10 (all touching pairs of the central triangle of a structured
+/// right-isosceles grid at h = lambda / 10, order-2 profile sigma_max = 4 on W = 2 lambda, vacuum
+/// and Ag, against p = 16; tests/unit/test_stretched_kernels.cpp): identical <= 5e-11, shared edge
+/// <= 4e-8, shared vertex
 /// <= 3e-8 at sigma = 1, <= 6e-7 at sigma = 2.6-3.4 (sigma_y = 0), <= 1e-8 in the corner (sigma_x
 /// 3.4, sigma_y 1.5); the isotropic case (eps >= kRidgeSplitBelow) needs no split (p = 8:
 /// ~1e-10). Mean point pairs per call (vacuum / Ag, the k-aware extra raises the latter):
 /// identical 1.7-3.2e4 / 3.8-7.2e4, shared edge 3.5-4.7e5 / 1.2-1.6e6, shared vertex 0.5-1.1e6 /
-/// 3.5-6.1e6.
+/// 3.5-6.1e6 (WP-PML2 rule; with the WP-PML2c graded points the Ag means of the [stretched_cost]
+/// surface drop from 3.1e4 / 6.5e5 / 2.0e6 to 2.6e4 / 5.4e5 / 1.4e6).
 ///
 /// Near and far pairs: the double Dunavant rule of operators.cpp with the degree selected by its
 /// error model at
@@ -123,9 +153,10 @@
 /// direction cone of the pair and the ridge directions; for pairs that are not flat also the ridge
 /// between the stretched plane and the unstretched z axis). The complex zero of R~^2 lies at
 /// transverse distance ~ delta R from a real point pair, which shortens the distance seen by the
-/// rule. No decay-aware relaxation (the stretched pairs keep the relative target), C library
-/// arithmetic. If no degree of the ladder meets the target (anisotropic near pairs along the
+/// rule. No decay-aware relaxation (the stretched pairs keep the relative target); arithmetic as
+/// in "Evaluation". If no degree of the ladder meets the target (anisotropic near pairs along the
 /// ridge), quad_degree_near is used; stretched_pair_info reports target_reached = false.
+#include "specklebem/kernels/fast_math.hpp"
 #include "specklebem/kernels/quadrature.hpp"
 #include "specklebem/kernels/singularity.hpp"
 
@@ -223,20 +254,6 @@ inline Cx& operator+=(Cx& a, Cx b) {
     a.re += b.re;
     a.im += b.im;
     return a;
-}
-inline Cx inverse(Cx a) {
-    const Real d = a.re * a.re + a.im * a.im;
-    return {a.re / d, -a.im / d};
-}
-/// Principal square root (Re >= 0), without cancellation for either sign of Re z.
-inline Cx principal_sqrt(Cx z) {
-    const Real r = std::hypot(z.re, z.im);
-    if (z.re >= 0.0) {
-        const Real re = std::sqrt(0.5 * (r + z.re));
-        return {re, re > 0.0 ? 0.5 * z.im / re : 0.0};
-    }
-    const Real im = std::copysign(std::sqrt(0.5 * (r - z.re)), z.im);
-    return {0.5 * z.im / im, im};
 }
 inline Cx complex_exp(Cx z) {
     const Real m = std::exp(z.re);
@@ -411,69 +428,268 @@ struct Sums {
 
 struct KernelParams {
     Real kr, ki;  ///< k = kr + j ki
-    bool need_k;
 };
 
-/// Adds w times the integrands at the point pair x = o + X (test), y = o + Y (source), dxy = x - y.
-inline void add_pair(const KernelParams& kp, const P3& X, const P3& Y, const P3& dxy,
-                     const StretchValue& sxv, const StretchValue& syv, Real w, Sums& s) {
-    const Cx d0{dxy.x, sxv.ix - syv.ix};
-    const Cx d1{dxy.y, sxv.iy - syv.iy};
-    const Real d2 = dxy.z;
-    const Cx r2 = d0 * d0 + d1 * d1 + Cx{d2 * d2, 0.0};
-    const Cx R = principal_sqrt(r2);
+/// Point pairs per kernel loop. A batch fills in visiting order and may span several outer points
+/// of a rule (add_pair flushes whenever it is full, finish_points at the end of the pair), so any
+/// size is correct; 80 balances the vector loop lengths against the stack footprint.
+constexpr std::size_t kBatch = 80;
+
+/// Point pairs collected for the kernel loops (file comment "Evaluation"), structure of arrays:
+/// X, Y relative to the rule origin, r~ - r~' = (d0r + j d0i, d1r + j d1i, d2), the stretch
+/// sigma_x, sigma_y at x (sxx, syx) and at y (sxy, syy), and the weight.
+struct Batch {
+    std::size_t n = 0;
+    std::array<Real, kBatch> xx{}, xy{}, xz{}, yx{}, yy{}, yz{};
+    std::array<Real, kBatch> d0r{}, d0i{}, d1r{}, d1i{}, d2{};
+    std::array<Real, kBatch> sxx{}, syx{}, sxy{}, syy{}, w{};
+};
+
+/// R~ and 1 / R~ per point pair of a batch (shared by the regions with the same `fast` choice).
+/// Deliberately not value-initialised (flush declares one per batch): geometry_values writes the
+/// first b.n entries before kernel_values reads them, and nothing reads beyond b.n.
+struct GeometryValues {
+    std::array<Real, kBatch> rr, ri, ir, ii;
+};
+
+/// Weighted kernel w G (times 4 pi) and the gradient factor c per point pair, one region. Not
+/// value-initialised either: kernel_values writes gr, gi (and cr, ci if need_k) for the first b.n
+/// entries before accumulate reads exactly those.
+struct KernelValues {
+    std::array<Real, kBatch> gr, gi, cr, ci;
+};
+
+/// Loop A: R~ = sqrt((r~ - r~') . (r~ - r~')) on the principal branch and 1 / R~. Written
+/// branch-free (selects) so that the fast variant vectorises; principal_sqrt's value for either
+/// sign of Re R~^2. kFast: |R~^2| as sqrt(re^2 + im^2) instead of std::hypot (no overflow or
+/// underflow for point distances between 1e-150 and 1e150 m).
+template <bool kFast>
+void geometry_values(const Batch& b, GeometryValues& v) {
+    const std::size_t n = b.n;
+    for (std::size_t q = 0; q < n; ++q) {
+        const Cx d0{b.d0r[q], b.d0i[q]};
+        const Cx d1{b.d1r[q], b.d1i[q]};
+        const Real d2 = b.d2[q];
+        const Cx z = d0 * d0 + d1 * d1 + Cx{d2 * d2, 0.0};
+        const Real r = kFast ? std::sqrt(z.re * z.re + z.im * z.im) : std::hypot(z.re, z.im);
+        const Real a = std::sqrt(0.5 * (r + std::abs(z.re)));
+        const Real h = 0.5 * z.im / a;
+        const Real bq = a > 0.0 ? h : 0.0;
+        const bool pos = z.re >= 0.0;
+        const Real abq = bq < 0.0 ? -bq : bq;
+        const Real sa = std::copysign(a, z.im);
+        const Real re = pos ? a : abq;
+        const Real im = pos ? bq : sa;
+        const Real d = re * re + im * im;
+        v.rr[q] = re;
+        v.ri[q] = im;
+        v.ir[q] = re / d;
+        v.ii[q] = -im / d;
+    }
 #ifndef NDEBUG
-    if (R.im > 1e-12 * std::hypot(R.re, R.im)) {
-        // Internal invariant (file comment "Mapping"): CoordinateStretch only builds monotone
-        // stretches, for which Im R~ <= 0 at every point pair.
-        throw std::logic_error(
-            "stretched element blocks: internal invariant violated, Im R~ > 0 at a point pair "
-            "(the principal-branch distance of the monotone stretch must have Im R~ <= 0; this is "
-            "a bug in the stretch evaluation or the quadrature points, not a user error)");
+    for (std::size_t q = 0; q < n; ++q) {
+        if (v.ri[q] > 1e-12 * std::hypot(v.rr[q], v.ri[q])) {
+            // Internal invariant (file comment "Mapping"): CoordinateStretch only builds monotone
+            // stretches, for which Im R~ <= 0 at every point pair.
+            throw std::logic_error(
+                "stretched element blocks: internal invariant violated, Im R~ > 0 at a point pair "
+                "(the principal-branch distance of the monotone stretch must have Im R~ <= 0; "
+                "this is a bug in the stretch evaluation or the quadrature points, not a user "
+                "error)");
+        }
     }
 #endif
-    // -j k R~ and j k R~.
-    const Real kRr = kp.kr * R.re - kp.ki * R.im;
-    const Real kRi = kp.kr * R.im + kp.ki * R.re;
-    const Cx e = complex_exp(Cx{kRi, -kRr});
-    const Cx inv_r = inverse(R);
-    const Cx wg = w * (e * inv_r);
-    // S_i(x) S_i(y), S = 1 - j sigma.
-    const Cx sxx{1.0, -sxv.sx};
-    const Cx syx{1.0, -sxv.sy};
-    const Cx sxy{1.0, -syv.sx};
-    const Cx syy{1.0, -syv.sy};
-    const std::array<Cx, 3> u = {wg * (sxx * sxy), wg * (syx * syy), wg};
-    const std::array<Real, 3> xa = {X.x, X.y, X.z};
-    const std::array<Real, 3> ya = {Y.x, Y.y, Y.z};
-    for (std::size_t i = 0; i < 3; ++i) {
-        s.lxy[i] += (xa[i] * ya[i]) * u[i];
-        s.lx[i] += xa[i] * u[i];
-        s.ly[i] += ya[i] * u[i];
-        s.l0[i] += u[i];
+}
+
+/// Loop B: w exp(-j k R~) / R~ and c = (1 + j k R~) w exp(-j k R~) / R~^3 per point pair for one
+/// region. kFast: kernels::fastmath (fast_exp_nonpositive, fast_sincos), else the C library's exp,
+/// cos and sin (the arithmetic of WP-PML2, bitwise). Returns false if kFast and an exponent
+/// Re(-j k R~) = k_r Im R~ + k_i Re R~ is positive (rounding of Im R~ ~ 0; fast_exp_nonpositive
+/// does not cover it): the caller then repeats the batch with the C library.
+template <bool kFast>
+bool kernel_values(const Batch& b, const GeometryValues& g, const KernelParams& kp, bool need_k,
+                   KernelValues& v) {
+    const std::size_t n = b.n;
+    bool positive = false;
+    for (std::size_t q = 0; q < n; ++q) {
+        const Real kRr = kp.kr * g.rr[q] - kp.ki * g.ri[q];
+        const Real kRi = kp.kr * g.ri[q] + kp.ki * g.rr[q];
+        Cx e;
+        if constexpr (kFast) {
+            positive = positive || kRi > 0.0;
+            const Real m = fastmath::fast_exp_nonpositive(kRi);
+            Real sn;
+            Real cs;
+            fastmath::fast_sincos(-kRr, sn, cs);
+            e = Cx{m * cs, m * sn};
+        } else {
+            e = complex_exp(Cx{kRi, -kRr});
+        }
+        const Cx inv_r{g.ir[q], g.ii[q]};
+        const Cx wg = b.w[q] * (e * inv_r);
+        v.gr[q] = wg.re;
+        v.gi[q] = wg.im;
+        if (need_k) {
+            const Cx c = wg * (Cx{1.0 - kRi, kRr} * (inv_r * inv_r));
+            v.cr[q] = c.re;
+            v.ci[q] = c.im;
+        }
     }
-    s.scalar += wg;
-    if (!kp.need_k) {
+    return !positive;
+}
+
+/// Loop C: the moments of one region, summed in point order (file comment "Evaluation"). If X_z
+/// and Y_z vanish for every point pair of the batch (flat pairs in the plane of the rule origin),
+/// the z moments lxy[2], lx[2], ly[2] would only accumulate signed zeros and l0[2] the same sum as
+/// `scalar`; they are skipped (l0[2] is set from `scalar` at the end), bitwise the same moments.
+void accumulate(const Batch& b, const KernelValues& v, bool need_k, bool planar, Sums& s) {
+    const std::size_t n = b.n;
+    const std::size_t nz = planar ? 2 : 3;
+    for (std::size_t q = 0; q < n; ++q) {
+        const Cx wg{v.gr[q], v.gi[q]};
+        // S_i(x) S_i(y), S = 1 - j sigma.
+        const Cx sxx{1.0, -b.sxx[q]};
+        const Cx syx{1.0, -b.syx[q]};
+        const Cx sxy{1.0, -b.sxy[q]};
+        const Cx syy{1.0, -b.syy[q]};
+        const std::array<Real, 3> xa = {b.xx[q], b.xy[q], b.xz[q]};
+        const std::array<Real, 3> ya = {b.yx[q], b.yy[q], b.yz[q]};
+        const std::array<Cx, 3> u = {wg * (sxx * sxy), wg * (syx * syy), wg};
+        for (std::size_t i = 0; i < nz; ++i) {
+            s.lxy[i] += (xa[i] * ya[i]) * u[i];
+            s.lx[i] += xa[i] * u[i];
+            s.ly[i] += ya[i] * u[i];
+            s.l0[i] += u[i];
+        }
+        s.scalar += wg;
+        if (!need_k) {
+            continue;
+        }
+        // grad~' G = c (r~ - r~').
+        const Cx c{v.cr[q], v.ci[q]};
+        const Cx d0{b.d0r[q], b.d0i[q]};
+        const Cx d1{b.d1r[q], b.d1i[q]};
+        const Cx dz{b.d2[q], 0.0};
+        std::array<Cx, 9> tau{};
+        tau[2] = c * sxx * d1;           // (x, z)
+        tau[1] = -(c * sxx * dz * syy);  // (x, y)
+        tau[3] = c * syx * dz * sxy;     // (y, x)
+        tau[5] = -(c * syx * d0);        // (y, z)
+        tau[7] = c * d0 * syy;           // (z, y)
+        tau[6] = -(c * d1 * sxy);        // (z, x)
+        for (const std::size_t ik : {std::size_t{1}, std::size_t{2}, std::size_t{3}, std::size_t{5},
+                                     std::size_t{6}, std::size_t{7}}) {
+            const Real xi = xa[ik / 3];
+            const Real yk = ya[ik % 3];
+            s.kxy[ik] += (xi * yk) * tau[ik];
+            s.kx[ik] += xi * tau[ik];
+            s.ky[ik] += yk * tau[ik];
+            s.k0[ik] += tau[ik];
+        }
+    }
+}
+
+/// Moments of NR regions accumulated over the same point pairs (file comment "Regions"): the
+/// geometry of a point pair (R~, 1 / R~, the stretch) is computed once, the kernel and the moments
+/// per region. Each region's sums receive exactly the operations of a single-region pass, so its
+/// blocks are bitwise those of a pass of its own over the same rule. `fast[r]`: the fastmath
+/// geometry and kernel loops for region r (OperatorOptions::fast_plain_kernel and the argument
+/// range checked for the pair at k_r), decided per region so that this holds also when only one
+/// region's k exceeds the fastmath bound.
+template <std::size_t NR>
+struct Accum {
+    std::array<KernelParams, NR> kp{};
+    bool need_k = true;
+    std::array<bool, NR> fast{};
+    /// Set once a batch had X_z or Y_z != 0: the z moments are accumulated from then on.
+    bool non_planar = false;
+    std::array<Sums, NR> sums{};
+    Batch b;
+};
+
+/// Evaluates and sums the collected point pairs.
+template <std::size_t NR>
+void flush(Accum<NR>& acc) {
+    Batch& b = acc.b;
+    if (b.n == 0) {
         return;
     }
-    // grad~' G = c (r~ - r~'), c = (1 + j k R~) g / R~^2 (times w).
-    const Cx c = wg * (Cx{1.0 - kRi, kRr} * (inv_r * inv_r));
-    const Cx dz{d2, 0.0};
-    std::array<Cx, 9> tau{};
-    tau[2] = c * sxx * d1;           // (x, z)
-    tau[1] = -(c * sxx * dz * syy);  // (x, y)
-    tau[3] = c * syx * dz * sxy;     // (y, x)
-    tau[5] = -(c * syx * d0);        // (y, z)
-    tau[7] = c * d0 * syy;           // (z, y)
-    tau[6] = -(c * d1 * sxy);        // (z, x)
-    for (const std::size_t ik : {std::size_t{1}, std::size_t{2}, std::size_t{3}, std::size_t{5},
-                                 std::size_t{6}, std::size_t{7}}) {
-        const Real xi = xa[ik / 3];
-        const Real yk = ya[ik % 3];
-        s.kxy[ik] += (xi * yk) * tau[ik];
-        s.kx[ik] += xi * tau[ik];
-        s.ky[ik] += yk * tau[ik];
-        s.k0[ik] += tau[ik];
+    if (!acc.non_planar) {
+        for (std::size_t q = 0; q < b.n; ++q) {
+            if (b.xz[q] != 0.0 || b.yz[q] != 0.0) {
+                // From here on the z moments are summed; l0[2] continues from the sum of wg so
+                // far (= scalar), lxy[2], lx[2], ly[2] from the zeros they would hold.
+                acc.non_planar = true;
+                for (Sums& s : acc.sums) {
+                    s.l0[2] = s.scalar;
+                }
+                break;
+            }
+        }
+    }
+    // g[0]: C-library geometry (std::hypot), g[1]: fast geometry; each computed only if a region
+    // uses it (normally one of them: both regions share the choice unless only one region's k
+    // exceeds the fastmath bound).
+    std::array<GeometryValues, 2> g;
+    bool any_fast = false;
+    bool any_slow = false;
+    for (const bool f : acc.fast) {
+        any_fast = any_fast || f;
+        any_slow = any_slow || !f;
+    }
+    if (any_slow) {
+        geometry_values<false>(b, g[0]);
+    }
+    if (any_fast) {
+        geometry_values<true>(b, g[1]);
+    }
+    KernelValues v;
+    for (std::size_t r = 0; r < NR; ++r) {
+        const GeometryValues& gr = g[acc.fast[r] ? 1 : 0];
+        if (!(acc.fast[r] && kernel_values<true>(b, gr, acc.kp[r], acc.need_k, v))) {
+            (void)kernel_values<false>(b, gr, acc.kp[r], acc.need_k, v);
+        }
+        accumulate(b, v, acc.need_k, !acc.non_planar, acc.sums[r]);
+    }
+    b.n = 0;
+}
+
+/// Ends the accumulation: flushes the last batch and completes the skipped planar z moments.
+template <std::size_t NR>
+void finish_points(Accum<NR>& acc) {
+    flush(acc);
+    if (!acc.non_planar) {
+        for (Sums& s : acc.sums) {
+            s.l0[2] = s.scalar;
+        }
+    }
+}
+
+/// Adds the point pair x = o + X (test), y = o + Y (source), dxy = x - y with weight w (evaluated
+/// in batches of kBatch point pairs; finish_points ends the sum).
+template <std::size_t NR>
+inline void add_pair(Accum<NR>& acc, const P3& X, const P3& Y, const P3& dxy,
+                     const StretchValue& sxv, const StretchValue& syv, Real w) {
+    Batch& b = acc.b;
+    const std::size_t q = b.n;
+    b.xx[q] = X.x;
+    b.xy[q] = X.y;
+    b.xz[q] = X.z;
+    b.yx[q] = Y.x;
+    b.yy[q] = Y.y;
+    b.yz[q] = Y.z;
+    b.d0r[q] = dxy.x;
+    b.d0i[q] = sxv.ix - syv.ix;
+    b.d1r[q] = dxy.y;
+    b.d1i[q] = sxv.iy - syv.iy;
+    b.d2[q] = dxy.z;
+    b.sxx[q] = sxv.sx;
+    b.syx[q] = sxv.sy;
+    b.sxy[q] = syv.sx;
+    b.syy[q] = syv.sy;
+    b.w[q] = w;
+    if (++b.n == kBatch) {
+        flush(acc);
     }
 }
 
@@ -1432,8 +1648,9 @@ PlainChoice choose_plain(Proximity prox, const Tri& ta, const Tri& tb, Complex k
 constexpr std::size_t kMaxRulePoints = 79;
 
 /// Double Dunavant rule on (tt, ts) of the given degree (origin tt.v[0]).
+template <std::size_t NR>
 void integrate_plain(const Tri& tt, const Tri& ts, int degree, const StretchEval& se,
-                     const KernelParams& kp, Sums& sums) {
+                     Accum<NR>& acc) {
     const TriangleRule& rule = triangle_rule(degree);
     const std::size_t nq = rule.weights.size();
     std::array<P3, kMaxRulePoints> xo{}, xi{};
@@ -1452,16 +1669,23 @@ void integrate_plain(const Tri& tt, const Tri& ts, int degree, const StretchEval
     for (std::size_t i = 0; i < nq; ++i) {
         const P3 X = xo[i] - o;
         for (std::size_t j = 0; j < nq; ++j) {
-            add_pair(kp, X, xi[j] - o, xo[i] - xi[j], so[i], si[j], wo[i] * wi[j], sums);
+            add_pair(acc, X, xi[j] - o, xo[i] - xi[j], so[i], si[j], wo[i] * wi[j]);
         }
     }
+    finish_points(acc);
 }
 
 /// Points of the touching rules of a stretched pair. With p = stretched_touching_points and the
 /// k-aware extra = max(0, ceil(0.75 |k| s_max h) - 4) (resolves exp(-j k R~) with |k R~| up to
 /// |k| s_max h, h the larger longest edge; no change for |k| s_max h <= 5.3):
-/// n = nr = min(p + extra, kMaxGl) plain and radial points, ng = min(max(4, ceil(0.6 p)) + extra,
-/// kMaxGl) points per graded panel (6 for p = 10), finest graded panel kFine eps. Measured
+/// n = nr = p_eff = min(p + extra, kMaxGl) plain and radial points, ng = min(max(ng0, ceil(p_eff /
+/// 2)), kMaxGl) points per graded panel with ng0 = max(4, ceil(0.6 p)) (6 for p = 10), finest
+/// graded panel kFine eps. The coarsest graded panel spans half of its direction (a quarter when
+/// both ends are graded), so ng points per panel resolve the oscillation of exp(-j k R~) at least
+/// as finely as the p_eff plain points do; WP-PML2 raised ng by the full extra (ng0 + extra), which
+/// WP-PML2c dropped: Ag self-convergence at p = 10 unchanged on the strips (2.9e-8, 2.0e-7,
+/// 2.1e-7), corners 2.6e-10 -> 6.3e-10 and 9.8e-11 -> 9.5e-10 (vacuum, extra 0: unchanged), 16 %
+/// fewer kernel evaluations in the dense assembly of the [stretched_cost] case. Measured
 /// (WP-PML2, all touching pairs of the central triangle of a structured grid, strip sigma 1 / 2.6
 /// / 3.4 and corner 3.4 / 1.5, vacuum and Ag, against p = 16): the error is set by n and nr
 /// (n = 6: shared vertex 3e-5; nr = 6: Ag 2e-6); ng = 6 instead of 10 leaves every error within
@@ -1482,7 +1706,7 @@ RuleParams touching_points(const Tri& ta, const Tri& tb, Complex k, const Operat
     const int p0 = opt.stretched_touching_points;
     const int p = std::min(p0 + extra, kMaxGl);
     const int ng0 = std::max(4, (3 * p0 + 4) / 5);  // ceil(0.6 p0)
-    return RuleParams{p, p, std::min(ng0 + extra, kMaxGl), kFine};
+    return RuleParams{p, p, std::min(std::max(ng0, (p + 1) / 2), kMaxGl), kFine};
 }
 
 /// Validated pair data: geometry of both triangles and the proximity class.
@@ -1501,6 +1725,156 @@ PairSetup setup_pair(const geometry::TriangleMesh& mesh, Index t_test, Index t_s
     require_horizontal(se, ps.tt, t_test);
     require_horizontal(se, ps.ts, t_src);
     return ps;
+}
+
+bool same_rule(const RuleParams& a, const RuleParams& b) {
+    return a.n == b.n && a.nr == b.nr && a.ng == b.ng && a.fine == b.fine;
+}
+
+/// One region of a stretched_blocks call: its parameters and output blocks.
+struct RegionJob {
+    const RegionParams* region = nullptr;
+    Eigen::Matrix<Complex, 3, 3>* L = nullptr;
+    Eigen::Matrix<Complex, 3, 3>* K = nullptr;
+};
+
+/// The blocks of the pair (t_test, t_src) for nj regions (file comment "Regions"): the rule of
+/// each region is selected on its own (near / far degree, touching points); regions with the same
+/// rule share one pass over the point pairs, the others get a pass each. Every region's blocks
+/// are therefore bitwise those of a call for that region alone.
+void stretched_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
+                      const std::array<RegionJob, 2>& jobs, std::size_t nj,
+                      const OperatorOptions& opt, const geometry::CoordinateStretch& stretch) {
+    validate(opt);
+    // Canonical ordering (file comment "Symmetry"): (min, max), transposed for the other.
+    const bool swap = t_test > t_src;
+    const Index t1 = swap ? t_src : t_test;
+    const Index t2 = swap ? t_test : t_src;
+    const Slots s1 = slots_of(space, t1);  // range checks
+    const Slots s2 = slots_of(space, t2);
+    for (std::size_t j = 0; j < nj; ++j) {
+        jobs[j].L->setZero();
+        jobs[j].K->setZero();
+    }
+    if (s1.count == 0 || s2.count == 0) {
+        return;
+    }
+    const geometry::TriangleMesh& mesh = space.mesh();
+    const StretchEval se(stretch);
+    const PairSetup ps = setup_pair(mesh, t1, t2, opt, se);
+    const auto kparams = [&](std::size_t j) {
+        return KernelParams{jobs[j].region->k.real(), jobs[j].region->k.imag()};
+    };
+    // Fastmath kernel loop (file comment "Evaluation"): opt.fast_plain_kernel and |k R~| <=
+    // kFastSincosMax for every point pair, with |R~| <= R sqrt(1 + sigma_max^2) (|R~^2| <= sum_i
+    // dx_i^2 |1 - j tau_i|^2) and R <= D + rho_t + rho_s.
+    const Real smax =
+        std::max(se.x.active ? se.x.sigma_max : 0.0, se.y.active ? se.y.sigma_max : 0.0);
+    const Real r_max = (norm(ps.tt.centroid - ps.ts.centroid) + ps.tt.radius + ps.ts.radius) *
+                       std::sqrt(1.0 + smax * smax);
+    // Decided per region (Accum::fast), so a shared pass keeps each region's single-region choice.
+    const auto set_fast = [&]<std::size_t NR>(const std::array<std::size_t, NR>& idx, bool need_k,
+                                              Accum<NR>& acc) {
+        for (std::size_t r = 0; r < NR; ++r) {
+            const Complex k = jobs[idx[r]].region->k;
+            acc.fast[r] = !need_k && opt.fast_plain_kernel && std::isfinite(std::abs(k)) &&
+                          std::abs(k) * r_max <= fastmath::kFastSincosMax;
+        }
+    };
+    // Blocks of job j from its moments (canonical ordering, then the requested one).
+    const auto output = [&](std::size_t j, const Sums& sums, const P3& origin, bool need_k) {
+        Eigen::Matrix<Complex, 3, 3> Lc;
+        Eigen::Matrix<Complex, 3, 3> Kc;
+        Lc.setZero();
+        Kc.setZero();
+        finish(sums, s1, s2, origin, *jobs[j].region, need_k, Lc, Kc);
+        if (t1 == t2) {
+            // Identical triangles: one ordering only; L is symmetric in exact arithmetic (K = 0
+            // for the horizontal triangle), symmetrised as in operators.cpp (free).
+            const Eigen::Matrix<Complex, 3, 3> raw = Lc;
+            Lc = 0.5 * (raw + raw.transpose());
+        }
+        Eigen::Matrix<Complex, 3, 3>& L = *jobs[j].L;
+        Eigen::Matrix<Complex, 3, 3>& K = *jobs[j].K;
+        if (swap) {
+            L = Lc.transpose();
+            K = Kc.transpose();
+        } else {
+            L = Lc;
+            K = Kc;
+        }
+        if (!(L.allFinite() && K.allFinite())) {
+            throw std::invalid_argument(
+                "element_blocks: non-finite stretched block for triangles " +
+                std::to_string(t_test) + " and " + std::to_string(t_src) +
+                " (geometrically intersecting or coincident triangles that do not share vertex "
+                "indices, or invalid region parameters)");
+        }
+    };
+    if (!ps.touching) {
+        const bool need_k = !flat_pair(ps.tt, ps.ts);
+        std::array<int, 2> degree{};
+        for (std::size_t j = 0; j < nj; ++j) {
+            degree[j] = choose_plain(ps.prox, ps.tt, ps.ts, jobs[j].region->k, opt, se).degree;
+        }
+        const P3 origin = ps.tt.v[0];
+        const auto run = [&]<std::size_t NR>(const std::array<std::size_t, NR>& idx) {
+            Accum<NR> acc;
+            acc.need_k = need_k;
+            set_fast(idx, need_k, acc);
+            for (std::size_t r = 0; r < NR; ++r) {
+                acc.kp[r] = kparams(idx[r]);
+            }
+            integrate_plain(ps.tt, ps.ts, degree[idx[0]], se, acc);
+            for (std::size_t r = 0; r < NR; ++r) {
+                output(idx[r], acc.sums[r], origin, need_k);
+            }
+        };
+        if (nj == 2 && degree[0] == degree[1]) {
+            run(std::array<std::size_t, 2>{0, 1});
+        } else {
+            for (std::size_t j = 0; j < nj; ++j) {
+                run(std::array<std::size_t, 1>{j});
+            }
+        }
+        return;
+    }
+    const bool coplanar = coplanar_pair(ps.tt, ps.ts);
+    const bool need_k = !coplanar;
+    std::array<RuleParams, 2> rule{};
+    for (std::size_t j = 0; j < nj; ++j) {
+        rule[j] = touching_points(ps.tt, ps.ts, jobs[j].region->k, opt, se);
+    }
+    // The visitor receives X, Y relative to the rule origin; the origin is known only after the
+    // rule is set up, so it is computed first (identical: v0, else the shared vertex A).
+    std::size_t sh = 0;
+    const P3 o =
+        ps.prox == Proximity::identical ? ps.tt.v[0] : ps.tt.v[shared_first(ps.tt, ps.ts, sh)[0]];
+    const auto run = [&]<std::size_t NR>(const std::array<std::size_t, NR>& idx) {
+        Accum<NR> acc;
+        acc.need_k = need_k;
+        set_fast(idx, need_k, acc);
+        for (std::size_t r = 0; r < NR; ++r) {
+            acc.kp[r] = kparams(idx[r]);
+        }
+        const auto visit = [&](const P3& X, const P3& Y, const P3& dxy, Real w) {
+            add_pair(acc, X, Y, dxy, se.at(o + X), se.at(o + Y), w);
+        };
+        Ridge rg;
+        const P3 origin =
+            touching_rule(ps.prox, ps.tt, ps.ts, se, rule[idx[0]], coplanar, rg, visit);
+        finish_points(acc);
+        for (std::size_t r = 0; r < NR; ++r) {
+            output(idx[r], acc.sums[r], origin, need_k);
+        }
+    };
+    if (nj == 2 && same_rule(rule[0], rule[1])) {
+        run(std::array<std::size_t, 2>{0, 1});
+    } else {
+        for (std::size_t j = 0; j < nj; ++j) {
+            run(std::array<std::size_t, 1>{j});
+        }
+    }
 }
 
 }  // namespace
@@ -1522,70 +1896,32 @@ void stretched_element_blocks(const basis::RwgSpace& space, Index t_test, Index 
                               const RegionParams& region, const OperatorOptions& opt,
                               const geometry::CoordinateStretch& stretch,
                               Eigen::Matrix<Complex, 3, 3>& L, Eigen::Matrix<Complex, 3, 3>& K) {
-    validate(opt);
-    // Canonical ordering (file comment "Symmetry"): (min, max), transposed for the other.
-    const bool swap = t_test > t_src;
-    const Index t1 = swap ? t_src : t_test;
-    const Index t2 = swap ? t_test : t_src;
-    const Slots s1 = slots_of(space, t1);  // range checks
-    const Slots s2 = slots_of(space, t2);
-    L.setZero();
-    K.setZero();
-    if (s1.count == 0 || s2.count == 0) {
+    const RegionJob job{&region, &L, &K};
+    stretched_blocks(space, t_test, t_src, {job}, 1, opt, stretch);
+}
+
+void stretched_element_blocks_both(const basis::RwgSpace& space, Index t_test, Index t_src,
+                                   const std::array<RegionParams, 2>& regions,
+                                   const std::array<bool, 2>& active, const OperatorOptions& opt,
+                                   const geometry::CoordinateStretch& stretch,
+                                   std::array<Eigen::Matrix<Complex, 3, 3>, 2>& L,
+                                   std::array<Eigen::Matrix<Complex, 3, 3>, 2>& K) {
+    std::array<RegionJob, 2> jobs{};
+    std::size_t nj = 0;
+    for (std::size_t i = 0; i < 2; ++i) {
+        L[i].setZero();
+        K[i].setZero();
+        if (active[i]) {
+            jobs[nj++] = RegionJob{&regions[i], &L[i], &K[i]};
+        }
+    }
+    if (nj == 0) {
+        validate(opt);
+        (void)slots_of(space, t_test);  // range checks as element_blocks
+        (void)slots_of(space, t_src);
         return;
     }
-    const geometry::TriangleMesh& mesh = space.mesh();
-    const StretchEval se(stretch);
-    const PairSetup ps = setup_pair(mesh, t1, t2, opt, se);
-    KernelParams kp{region.k.real(), region.k.imag(), true};
-    Sums sums;
-    P3 origin{};
-    Eigen::Matrix<Complex, 3, 3> Lc;
-    Eigen::Matrix<Complex, 3, 3> Kc;
-    if (!ps.touching) {
-        kp.need_k = !flat_pair(ps.tt, ps.ts);
-        const PlainChoice ch = choose_plain(ps.prox, ps.tt, ps.ts, region.k, opt, se);
-        integrate_plain(ps.tt, ps.ts, ch.degree, se, kp, sums);
-        origin = ps.tt.v[0];
-    } else {
-        const bool coplanar = coplanar_pair(ps.tt, ps.ts);
-        kp.need_k = !coplanar;
-        Ridge rg;
-        // The visitor receives X, Y relative to the rule origin; the origin is known only after
-        // the rule is set up, so it is computed first (identical: v0, else the shared vertex A).
-        std::size_t sh = 0;
-        const P3 o = ps.prox == Proximity::identical ? ps.tt.v[0]
-                                                     : ps.tt.v[shared_first(ps.tt, ps.ts, sh)[0]];
-        const auto visit = [&](const P3& X, const P3& Y, const P3& dxy, Real w) {
-            add_pair(kp, X, Y, dxy, se.at(o + X), se.at(o + Y), w, sums);
-        };
-        origin =
-            touching_rule(ps.prox, ps.tt, ps.ts, se,
-                          touching_points(ps.tt, ps.ts, region.k, opt, se), coplanar, rg, visit);
-    }
-    Lc.setZero();
-    Kc.setZero();
-    finish(sums, s1, s2, origin, region, kp.need_k, Lc, Kc);
-    if (t1 == t2) {
-        // Identical triangles: one ordering only; L is symmetric in exact arithmetic (K = 0 for
-        // the horizontal triangle), symmetrised as in operators.cpp (free).
-        const Eigen::Matrix<Complex, 3, 3> raw = Lc;
-        Lc = 0.5 * (raw + raw.transpose());
-    }
-    if (swap) {
-        L = Lc.transpose();
-        K = Kc.transpose();
-    } else {
-        L = Lc;
-        K = Kc;
-    }
-    if (!(L.allFinite() && K.allFinite())) {
-        throw std::invalid_argument(
-            "element_blocks: non-finite stretched block for triangles " + std::to_string(t_test) +
-            " and " + std::to_string(t_src) +
-            " (geometrically intersecting or coincident triangles that do not share vertex "
-            "indices, or invalid region parameters)");
-    }
+    stretched_blocks(space, t_test, t_src, jobs, nj, opt, stretch);
 }
 
 StretchedPairInfo stretched_info(const geometry::TriangleMesh& mesh, Index t_test, Index t_src,
