@@ -87,15 +87,22 @@ inline Vec3c cross_rc(const Vec3& a, const Vec3c& b) {
 }
 
 /// Validated RWG space of the solution (problem, space, currents length).
-const basis::RwgSpace& checked_space(const SurfaceSolution& s, const std::string& who) {
+/// allow_stretch: the caller handles a non-identity PML stretch itself (far_field with a
+/// window); otherwise a stretch is refused.
+const basis::RwgSpace& checked_space(const SurfaceSolution& s, const std::string& who,
+                                     bool allow_stretch = false) {
     if (s.problem == nullptr) {
         throw std::invalid_argument(who + ": SurfaceSolution::problem is null");
     }
     if (s.problem->space == nullptr) {
         throw std::invalid_argument(who + ": Problem::space is null");
     }
-    // Fields of the stretched problem need the windowed far field of ADR 0009 decision 5.
-    op::require_unstretched(*s.problem, who + " (the PML far field is WP-PML3)");
+    // Near fields of the stretched problem would need the continued currents and the stretched
+    // Green's function for PML sources; only the windowed far field (ADR 0009 decision 5) exists.
+    if (!allow_stretch) {
+        op::require_unstretched(
+            *s.problem, who + " (only post::far_field with a current window supports the PML)");
+    }
     const basis::RwgSpace& space = *s.problem->space;
     if (s.currents.size() != 2 * space.size()) {
         throw std::invalid_argument(who + ": currents have length " +
@@ -428,6 +435,11 @@ void radiate(const std::vector<Sample>& src, const Vec3& r, const Medium& med, R
 void scattered_impl(const SurfaceSolution& s, const Vertices& points, FieldMatrix& E,
                     FieldMatrix& H, const FieldOptions& opt, RegionVector& region,
                     const std::string& who) {
+    if (opt.window) {
+        throw std::invalid_argument(who +
+                                    ": FieldOptions::window applies to far_field only (a "
+                                    "windowed current has no physical near field)");
+    }
     const basis::RwgSpace& space = checked_space(s, who);
     const Real omega = resolve_omega(s, who);
     region = regions_impl(space.mesh(), points, opt.min_distance_factor, who);
@@ -506,6 +518,26 @@ void total_field(const SurfaceSolution& s, const Vertices& points, FieldMatrix& 
     }
 }
 
+Real current_window_value(const CurrentWindow& w, Real t) {
+    if (!(std::isfinite(w.inner_half) && std::isfinite(w.outer_half) && w.inner_half >= 0.0 &&
+          w.outer_half > w.inner_half)) {
+        throw std::invalid_argument(
+            "CurrentWindow: needs finite 0 <= inner_half < outer_half, got inner_half = " +
+            std::to_string(w.inner_half) + " m, outer_half = " + std::to_string(w.outer_half) +
+            " m");
+    }
+    if (!std::isfinite(t)) {
+        throw std::invalid_argument("CurrentWindow: non-finite argument");
+    }
+    const Real a = std::abs(t);
+    if (a <= w.inner_half)
+        return 1.0;
+    if (a >= w.outer_half)
+        return 0.0;
+    const Real u = (a - w.inner_half) / (w.outer_half - w.inner_half);
+    return 0.5 * (1.0 + std::cos(constants::pi * u));
+}
+
 void far_field(const SurfaceSolution& s, const Vertices& directions, FieldMatrix& F) {
     far_field(s, directions, F, FieldOptions{});
 }
@@ -513,7 +545,28 @@ void far_field(const SurfaceSolution& s, const Vertices& directions, FieldMatrix
 void far_field(const SurfaceSolution& s, const Vertices& directions, FieldMatrix& F,
                const FieldOptions& opt) {
     const std::string who = "far_field";
-    const basis::RwgSpace& space = checked_space(s, who);
+    const basis::RwgSpace& space = checked_space(s, who, /*allow_stretch=*/true);
+    if (opt.window)
+        (void)current_window_value(*opt.window, 0.0);  // validates the window
+    if (op::has_stretch(*s.problem)) {
+        // ADR 0009 decision 5: only the real part radiates; the window must end at or before
+        // the stretch start on both axes (a non-identity stretch has both profiles).
+        const geometry::CoordinateStretch& st = *s.problem->stretch;
+        if (!opt.window) {
+            throw std::invalid_argument(
+                who +
+                ": a non-identity PML stretch (Problem::stretch) needs FieldOptions::window "
+                "(the PML currents must not radiate, ADR 0009 decision 5; Simulation's PML route "
+                "provides it)");
+        }
+        const Real start = std::min(st.profile_x()->start, st.profile_y()->start);
+        if (!(opt.window->outer_half <= start)) {
+            throw std::invalid_argument(who + ": the current window ends at outer_half = " +
+                                        std::to_string(opt.window->outer_half) +
+                                        " m, beyond the PML stretch start " +
+                                        std::to_string(start) + " m");
+        }
+    }
     const Real omega = resolve_omega(s, who);
     const Index nd = directions.rows();
     std::vector<Vec3> k_hat(static_cast<std::size_t>(nd));
@@ -526,7 +579,22 @@ void far_field(const SurfaceSolution& s, const Vertices& directions, FieldMatrix
         }
         k_hat[static_cast<std::size_t>(i)] = d / len;
     }
-    const std::vector<Sample> src = sample_currents(space, s.currents, opt.quad_degree, who);
+    std::vector<Sample> src = sample_currents(space, s.currents, opt.quad_degree, who);
+    if (opt.window) {
+        // Weight w(t) per quadrature point (w = 1 leaves the weight bitwise unchanged); points
+        // with w = 0 (beyond outer_half) drop out.
+        std::size_t kept = 0;
+        for (const Sample& smp : src) {
+            const Real wv =
+                current_window_value(*opt.window, std::max(std::abs(smp.x), std::abs(smp.y)));
+            if (wv == 0.0)
+                continue;
+            src[kept] = smp;
+            src[kept].w *= wv;
+            ++kept;
+        }
+        src.resize(kept);
+    }
     const Medium med = medium_of(s.problem->exterior, omega);
     const Complex prefactor = kJ * med.k / kFourPi;
     const Real kr = med.k.real();

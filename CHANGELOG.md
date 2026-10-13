@@ -5,6 +5,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- operator / post / simulation / python (WP-PML3a, ADR 0009 decisions 4–5): the open-surface PML route end to end
+  (dense). `op::assemble_rhs` accepts a stretch and masks every test function whose support has a vertex strictly
+  inside the stretched zone (`op::pml_masked_functions`; Gap/Pml straddling functions masked; the incident field is
+  never evaluated in the PML); `post::CurrentWindow` / `FieldOptions::window` (C¹ raised cosine on max(|x|,|y|)),
+  required by `far_field` with a stretch, refused by the near-field functions; `PmlTermination` and the
+  `Simulation(OpenSurfaceMesh, PmlTermination, excitation, config)` constructor (dense only; checks orientation,
+  gap > 0 (≥ longest edge for order < 1), taper ≥ correlation length on rough patches, dark band ≤ 1e-4 amplitude,
+  controlled radius over the unmasked supports); `far_field_window()` / `far_field_options()`. Python:
+  `make_open_surface_mesh`, `OpenSurfaceParams`, `OpenSurfaceMesh`, `SurfaceZone`, `PmlTermination`,
+  `CurrentWindow`, `Simulation.with_pml`, windowed `far_field` (`bistatic_rcs` refused on the PML route).
+  Tests `[pml_rhs]`, `[pml_far_field]`, `[pml_simulation]`, `tests/python/test_pml.py`; validation-large smoke:
+  flat Si, 2N = 11 440 (h = λ/4), R 0.388091 vs Fresnel beam 0.388176 (−0.022 %), edge currents ≤ 6.5e-9 of max.
 - kernels / operator (WP-PML2, ADR 0009 decisions 2–3): stretch-aware dense element blocks for the PML
   route. `op::Problem::stretch` (a `geometry::CoordinateStretch`) is passed by the dense assembler and
   `assemble_diagonal`; pairs with a stretched triangle use Piola-transformed RWG functions and the complex

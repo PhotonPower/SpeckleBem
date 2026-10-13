@@ -10,6 +10,7 @@
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/linear_operator.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -33,9 +34,10 @@ struct Problem {
     /// Complex coordinate stretch of the PML (ADR 0009, WP-PML2), non-owning; nullptr or an
     /// identity stretch: none (every result bitwise as without the field). A non-identity stretch
     /// is supported by DenseStrategy and assemble_diagonal (kernels::element_blocks with the
-    /// stretch, both regions); assemble_sparse, assemble_region_sparse, assemble_rhs, the MLFMM
-    /// operators and post:: refuse it (require_unstretched) until the PML right-hand side, far
-    /// field (WP-PML3) and fast path (WP-PML5) exist.
+    /// stretch, both regions), by assemble_rhs (masked PML right-hand side, WP-PML3a) and by
+    /// post::far_field with a current window (WP-PML3a); assemble_sparse,
+    /// assemble_region_sparse, the MLFMM operators and post::scattered_field / total_field refuse
+    /// it (require_unstretched) until the fast path (WP-PML5) exists.
     const geometry::CoordinateStretch* stretch = nullptr;
 };
 
@@ -45,6 +47,16 @@ struct Problem {
 /// @throws std::invalid_argument naming `who` if has_stretch(p): the caller does not support the
 ///         PML stretch (Problem::stretch).
 void require_unstretched(const Problem& p, const std::string& who);
+
+/// PML mask of the test functions (ADR 0009 decision 4, implementation WP-PML3a): entry n is 1
+/// iff a support triangle of basis n (T_n^+ or T_n^-) has a vertex strictly inside the stretched
+/// zone (stretch.in_pml(): |x| > x.start or |y| > y.start), else 0. Masking rule: an RWG function
+/// straddling the Gap/Pml line (one triangle in the gap, one in the PML) is masked; a function
+/// whose triangles only touch the PML start line (vertices on it, none beyond) is not. The
+/// identity stretch masks nothing; a stretch with sigma_max = 0 still masks by the geometric
+/// zone (in_pml). Size N = space.size(); O(N).
+[[nodiscard]] std::vector<std::uint8_t> pml_masked_functions(
+    const basis::RwgSpace& space, const geometry::CoordinateStretch& stretch);
 
 /// Checks a Problem before assembly (WP9): space and formulation non-null, omega finite and
 /// > 0, eps_r and mu_r of both regions finite and non-zero, omega equal to excitation->omega()
@@ -135,8 +147,16 @@ std::shared_ptr<RegionSparseOperator> assemble_region_sparse(const Problem& p, i
 /// <f_m, E_inc> = sum over the two support triangles of int f_m . E_inc dS with the Dunavant
 /// rule of degree p.kernel_options.quad_degree_rhs (positive-interior; WP7c, before:
 /// quad_degree_near).
-/// @throws std::invalid_argument for an invalid Problem (validate), a null excitation or a
-///         non-identity stretch (the masked PML right-hand side is WP-PML3).
+///
+/// PML (non-identity Problem::stretch, ADR 0009 decision 4, WP-PML3a): the entries of every
+/// test function masked by pml_masked_functions() are exactly 0 in both the J and the M rows
+/// (the continued incident field would grow like exp(+k Im x~) in the PML; with a dark band it is
+/// below the PML target there anyway). All other entries are bitwise equal to the unstretched
+/// right-hand side: the stretch is the identity on their support, so the incident field is
+/// evaluated at the real r. The incident field is evaluated only on triangles that carry at
+/// least one unmasked function (never inside the PML). Without a stretch or with an identity
+/// stretch the result is bitwise unchanged.
+/// @throws std::invalid_argument for an invalid Problem (validate) or a null excitation.
 VectorXc assemble_rhs(const Problem& p);
 
 /// Diagonal of Z (for the left Jacobi preconditioner used in the paper), computed without

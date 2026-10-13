@@ -64,10 +64,12 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   iterations identical to the desktop, server 1.45–1.88× slower for Ag).
 - **Merged:** WP-PML2 (stretch-aware dense kernels: Piola factors, complex distance, ridge-split touching rules;
   bitwise unchanged without stretch; dense assembly with a PML ≈ 150× the plain cost, fine for the dense prototype).
-- **In flight:** WP-V2b (Si waist confirmation).
+- **Merged:** WP-PML3a (PML right-hand side masking, windowed far field, `Simulation` PML constructor, Python
+  `Simulation.with_pml`; flat Si smoke −0.022 % vs Fresnel).
+- **In flight:** WP-V2b (Si waist confirmation; σ = 100 nm fails L ×1.2), WP-PML2c (stretched assembly cost).
 - **Next:** WP-PML3b (validation 7a) after WP-PML3a (in flight: PML RHS, windowed far field, `Simulation`); Ag scaling on the uniform box (WP22b4,
   optional now that the graded-box series meets the DoD); Phases 5/6.
-- Test counts on `main`: 478 ctest (`-LE "validation-large|slow"`), 103 pytest; labels `slow`, `validation`
+- Test counts on `main`: 489 ctest (`-LE "validation-large|slow"`), 108 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

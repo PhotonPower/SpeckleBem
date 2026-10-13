@@ -531,11 +531,11 @@ struct HemispherePower {
     Real grazing = 0;
 };
 
+/// With field options (e.g. the current window of the PML route, Simulation::far_field_options());
+/// fo.quad_degree is the Dunavant degree.
 inline HemispherePower hemisphere_power(const post::SurfaceSolution& s, const HemisphereGrid& g,
-                                        int degree, Real eta1, const Vec3& specular,
-                                        Real cone_angle) {
-    post::FieldOptions fo;
-    fo.quad_degree = degree;
+                                        const post::FieldOptions& fo, Real eta1,
+                                        const Vec3& specular, Real cone_angle) {
     Eigen::Matrix<Complex, Eigen::Dynamic, 3> F;
     post::far_field(s, g.dirs, F, fo);
     const Real cos_cone = std::cos(cone_angle);
@@ -549,6 +549,14 @@ inline HemispherePower hemisphere_power(const post::SurfaceSolution& s, const He
             p.grazing += dp;
     }
     return p;
+}
+
+inline HemispherePower hemisphere_power(const post::SurfaceSolution& s, const HemisphereGrid& g,
+                                        int degree, Real eta1, const Vec3& specular,
+                                        Real cone_angle) {
+    post::FieldOptions fo;
+    fo.quad_degree = degree;
+    return hemisphere_power(s, g, fo, eta1, specular, cone_angle);
 }
 
 /// P_abs = 1/2 Re oint (n x M) . J* dS from the RWG currents (exact for the quadratic integrand

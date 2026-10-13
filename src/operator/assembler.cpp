@@ -87,6 +87,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <stdexcept>
 #include <string>
@@ -346,8 +347,35 @@ void require_unstretched(const Problem& p, const std::string& who) {
         throw std::invalid_argument(
             who +
             ": a non-identity PML coordinate stretch (Problem::stretch, ADR 0009) is supported "
-            "only by DenseStrategy and assemble_diagonal (WP-PML2)");
+            "only by DenseStrategy, assemble_diagonal, assemble_rhs and post::far_field with a "
+            "current window");
     }
+}
+
+std::vector<std::uint8_t> pml_masked_functions(const basis::RwgSpace& space,
+                                               const geometry::CoordinateStretch& stretch) {
+    const geometry::TriangleMesh& mesh = space.mesh();
+    const Index F = mesh.num_triangles();
+    const Vertices& V = mesh.vertices();
+    const Triangles& T = mesh.triangles();
+    // Triangles with a vertex strictly inside the stretched zone.
+    std::vector<std::uint8_t> tri_pml(static_cast<std::size_t>(F), 0);
+    for (Index t = 0; t < F; ++t) {
+        for (Index c = 0; c < 3; ++c) {
+            if (stretch.in_pml(V.row(T(t, c)).transpose())) {
+                tri_pml[static_cast<std::size_t>(t)] = 1;
+                break;
+            }
+        }
+    }
+    const Index N = space.size();
+    std::vector<std::uint8_t> masked(static_cast<std::size_t>(N), 0);
+    for (Index n = 0; n < N; ++n) {
+        const bool m = tri_pml[static_cast<std::size_t>(space.plus_triangle(n))] != 0 ||
+                       tri_pml[static_cast<std::size_t>(space.minus_triangle(n))] != 0;
+        masked[static_cast<std::size_t>(n)] = m ? 1 : 0;
+    }
+    return masked;
 }
 
 void validate(const Problem& p) {
@@ -613,12 +641,28 @@ VectorXc assemble_rhs(const Problem& p) {
     if (p.excitation == nullptr) {
         throw std::invalid_argument("assemble_rhs: Problem has no excitation");
     }
-    require_unstretched(p, "assemble_rhs (the masked PML right-hand side is WP-PML3)");
     const basis::RwgSpace& space = *p.space;
     const geometry::TriangleMesh& mesh = space.mesh();
     const excitation::Excitation& exc = *p.excitation;
     const Index N = space.size();
     const Index F = mesh.num_triangles();
+    // PML (ADR 0009 decision 4): masked test functions get exactly 0; only triangles carrying an
+    // unmasked function are integrated (never a triangle with a vertex inside the PML). Without
+    // a stretch both vectors stay empty and the loop below is the unstretched one.
+    const bool use_mask = has_stretch(p);
+    std::vector<std::uint8_t> masked;
+    std::vector<std::uint8_t> active;  // per triangle: carries an unmasked function
+    if (use_mask) {
+        masked = pml_masked_functions(space, *p.stretch);
+        active.assign(static_cast<std::size_t>(F), 0);
+        for (Index t = 0; t < F; ++t) {
+            const basis::RwgSpace::Support sup = space.support(t);
+            for (int a = 0; a < sup.count; ++a) {
+                if (masked[static_cast<std::size_t>(sup.n[a])] == 0)
+                    active[static_cast<std::size_t>(t)] = 1;
+            }
+        }
+    }
     const Setup setup = make_setup(p);
     // kernels::validate (in validate) guarantees a positive-interior rule.
     const kernels::TriangleRule& rule = kernels::triangle_rule(p.kernel_options.quad_degree_rhs);
@@ -635,7 +679,7 @@ VectorXc assemble_rhs(const Problem& p) {
     for (Index t = 0; t < F; ++t) {
         try {
             const basis::RwgSpace::Support sup = space.support(t);
-            if (sup.count == 0)
+            if (sup.count == 0 || (use_mask && active[static_cast<std::size_t>(t)] == 0))
                 continue;
             const Vec3 v0 = mesh.vertices().row(mesh.triangles()(t, 0)).transpose();
             const Vec3 v1 = mesh.vertices().row(mesh.triangles()(t, 1)).transpose();
@@ -669,6 +713,12 @@ VectorXc assemble_rhs(const Problem& p) {
     }
     b.head(N) *= setup.e[0];
     b.tail(N) *= setup.h[0];
+    for (Index n = 0; n < static_cast<Index>(masked.size()); ++n) {
+        if (masked[static_cast<std::size_t>(n)] != 0) {
+            b(n) = Complex(0.0, 0.0);
+            b(N + n) = Complex(0.0, 0.0);
+        }
+    }
     if (!b.allFinite()) {
         throw std::invalid_argument("assemble_rhs: non-finite incident field");
     }

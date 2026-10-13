@@ -346,6 +346,26 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   keywords yet, and `sim.save` / HDF5 are not available (`open_npy_directory` instead).
 - Paths are `str` or `os.PathLike` (not bytes), passed to C++ as UTF-8 (ADR 0007).
 
+## Bound in WP-PML3a: open surface with a PML (ADR 0009, dense prototype)
+
+```python
+om = sb.make_open_surface_mesh(height_map, sb.OpenSurfaceParams(
+    patch_size=1.5e-6, taper_width=0.5e-6, gap_width=0.5e-6, pml_width=1.0e-6))
+om.zones, om.patch_half, om.taper_end, om.pml_start, om.outer_half   # SurfaceZone ints, [m]
+sim = sb.Simulation.with_pml(om, beam, pml=sb.PmlTermination(sigma_max=4.0, order=2.0,
+                             correlation_length=0.0, dark_band_tolerance=1e-4),
+                             object=sb.silicon_500nm(), solver="direct")   # compression "dense"
+sim.has_pml, sim.far_field_window, sim.dark_band_ratio, sim.zone_half_widths
+F = sim.far_field(directions)            # windowed (taper_end -> pml_start) by default
+F = sim.far_field(directions, window=sb.CurrentWindow(inner_half, outer_half))
+# sim.bistatic_rcs raises ValueError on the PML route (no window there); use sim.far_field
+```
+
+`Simulation.with_pml` raises `ValueError` for what the C++ PML constructor rejects (no gap,
+taper < Lc of a rough patch, no dark band, controlled ball, compression other than "dense",
+orientation). `field()` raises `ValueError` on the PML route (no near fields). The kernel key
+`stretched_touching_points` (4..16) sets the touching-pair rule of PML triangles.
+
 ## Rules
 
 - SI units; no implicit scaling.

@@ -5,6 +5,7 @@
 
 #include <pybind11/stl.h>
 
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -205,6 +206,8 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
             o.decay_aware_target = dict_value<bool>(v, key, "kernels");
         } else if (key == "fast_plain_kernel") {
             o.fast_plain_kernel = dict_value<bool>(v, key, "kernels");
+        } else if (key == "stretched_touching_points") {
+            o.stretched_touching_points = dict_value<int>(v, key, "kernels");
         } else {
             throw py::value_error("kernels: unknown key '" + key + "'");
         }
@@ -258,13 +261,15 @@ std::optional<Kind> parse_formulation(const py::object& f) {
     throw py::value_error("formulation: expected \"auto\", \"PMCHWT\", \"ICTF\" or \"MCTF\"");
 }
 
-std::unique_ptr<PySimulation> make_simulation(
-    const geometry::TriangleMesh& mesh, std::shared_ptr<excitation::Excitation> exc,
-    const material::Material& object, const std::optional<material::Material>& exterior,
-    std::optional<Real> wavelength, const py::object& form, const std::string& preconditioner,
-    const std::string& solver_name, const std::string& compression,
-    const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
-    const std::optional<py::dict>& mlfmm_opts) {
+/// SimulationConfig from the keyword arguments shared by both Simulation constructors.
+SimulationConfig make_config(const std::shared_ptr<excitation::Excitation>& exc,
+                             const material::Material& object,
+                             const std::optional<material::Material>& exterior,
+                             std::optional<Real> wavelength, const py::object& form,
+                             const std::string& preconditioner, const std::string& solver_name,
+                             const std::string& compression, const std::optional<py::dict>& gmres,
+                             const std::optional<py::dict>& kernel_opts,
+                             const std::optional<py::dict>& mlfmm_opts) {
     if (!exc) {
         throw py::value_error("excitation: must not be None");
     }
@@ -294,9 +299,37 @@ std::unique_ptr<PySimulation> make_simulation(
     if (mlfmm_opts) {
         apply_mlfmm(c.mlfmm, *mlfmm_opts);
     }
+    return c;
+}
+
+std::unique_ptr<PySimulation> make_simulation(
+    const geometry::TriangleMesh& mesh, std::shared_ptr<excitation::Excitation> exc,
+    const material::Material& object, const std::optional<material::Material>& exterior,
+    std::optional<Real> wavelength, const py::object& form, const std::string& preconditioner,
+    const std::string& solver_name, const std::string& compression,
+    const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
+    const std::optional<py::dict>& mlfmm_opts) {
+    SimulationConfig c = make_config(exc, object, exterior, wavelength, form, preconditioner,
+                                     solver_name, compression, gmres, kernel_opts, mlfmm_opts);
     geometry::TriangleMesh copy = mesh;
     py::gil_scoped_release release;
     return std::make_unique<PySimulation>(std::move(copy), std::move(exc), std::move(c));
+}
+
+/// PML route (ADR 0009): open surface + PmlTermination.
+std::unique_ptr<PySimulation> make_pml_simulation(
+    const geometry::OpenSurfaceMesh& open, std::shared_ptr<excitation::Excitation> exc,
+    const std::optional<PmlTermination>& pml, const material::Material& object,
+    const std::optional<material::Material>& exterior, std::optional<Real> wavelength,
+    const py::object& form, const std::string& preconditioner, const std::string& solver_name,
+    const std::string& compression, const std::optional<py::dict>& gmres,
+    const std::optional<py::dict>& kernel_opts) {
+    SimulationConfig c = make_config(exc, object, exterior, wavelength, form, preconditioner,
+                                     solver_name, compression, gmres, kernel_opts, std::nullopt);
+    geometry::OpenSurfaceMesh copy = open;
+    const PmlTermination term = pml.value_or(PmlTermination{});
+    py::gil_scoped_release release;
+    return std::make_unique<PySimulation>(std::move(copy), term, std::move(exc), std::move(c));
 }
 
 GmresResult solve(PySimulation& sim, std::optional<Real> tol, std::optional<int> max_iter,
@@ -350,6 +383,11 @@ py::object vector_or_scalar(const VectorXr& v, bool scalar) {
 }
 
 py::object bistatic_rcs(PySimulation& sim, const py::object& angles, const py::object& plane) {
+    if (sim.has_pml()) {
+        throw py::value_error(
+            "bistatic_rcs: not available on the PML route (the far field must be windowed); use "
+            "Simulation.far_field(directions), which applies the window across the gap");
+    }
     Vec3 normal;
     if (py::isinstance<py::str>(plane)) {
         const std::string s = to_lower(plane.cast<std::string>());
@@ -384,7 +422,9 @@ py::tuple field(PySimulation& sim, const py::object& points, const std::string& 
     if (k != "scattered" && k != "total") {
         throw py::value_error("kind: expected \"scattered\" or \"total\"");
     }
-    const post::FieldOptions opt{quad_degree, min_distance_factor};
+    post::FieldOptions opt;
+    opt.quad_degree = quad_degree;
+    opt.min_distance_factor = min_distance_factor;
     FieldMatrix E, H;
     sim.locked([&] {
         if (k == "total") {
@@ -396,13 +436,17 @@ py::tuple field(PySimulation& sim, const py::object& points, const std::string& 
     return py::make_tuple(fields_to_array(E, single), fields_to_array(H, single));
 }
 
-py::object far_field(PySimulation& sim, const py::object& directions, int quad_degree) {
+py::object far_field(PySimulation& sim, const py::object& directions, int quad_degree,
+                     const std::optional<post::CurrentWindow>& window) {
     bool single = false;
     const Vertices d = points_from_array(directions, "directions", &single);
     require_all_finite(d, "directions");
+    // None: the Simulation's default (the PML route's window across the gap; none for the box).
+    post::FieldOptions opt = sim.far_field_options(quad_degree);
+    if (window)
+        opt.window = window;
     FieldMatrix F;
-    sim.locked(
-        [&] { post::far_field(sim.solution(), d, F, post::FieldOptions{quad_degree, 1e-3}); });
+    sim.locked([&] { post::far_field(sim.solution(), d, F, opt); });
     return fields_to_array(F, single);
 }
 
@@ -692,6 +736,56 @@ ndarray of complex128, shape (n,)
         .def("__repr__",
              [](const op::LinearOperator& A) { return "<LinearOperator " + A.describe() + ">"; });
 
+    py::class_<post::CurrentWindow>(m, "CurrentWindow", R"doc(
+Raised-cosine window on the surface currents of far_field (ADR 0009 decision 5): w = 1 for
+t = max(|x|, |y|) <= inner_half, C^1 fall to 0 at outer_half, 0 beyond [m]. The PML route's
+default is (taper_end, pml_start), i.e. across the gap.
+)doc")
+        .def(py::init([](Real inner_half, Real outer_half) {
+                 const post::CurrentWindow w{inner_half, outer_half};
+                 (void)post::current_window_value(w, 0.0);  // validates (ValueError)
+                 return w;
+             }),
+             py::arg("inner_half"), py::arg("outer_half"))
+        .def_readonly("inner_half", &post::CurrentWindow::inner_half)
+        .def_readonly("outer_half", &post::CurrentWindow::outer_half)
+        .def(
+            "__call__",
+            [](const post::CurrentWindow& w, Real t) { return post::current_window_value(w, t); },
+            py::arg("t"), "Window value w(t) for t = max(|x|, |y|) [m].")
+        .def("__repr__", [](const post::CurrentWindow& w) {
+            return "<CurrentWindow inner_half=" + std::to_string(w.inner_half) +
+                   " outer_half=" + std::to_string(w.outer_half) + ">";
+        });
+    const PmlTermination dp;
+    py::class_<PmlTermination>(m, "PmlTermination", R"doc(
+PML termination of an open surface (ADR 0009; Simulation.with_pml).
+
+sigma_max : profile maximum (> 0; 3-5 recommended), sigma(t) = sigma_max ((t - a_2) / W)^order
+order : polynomial order (>= 0; < 1 needs a gap >= the longest mesh edge)
+correlation_length : Lc [m] of the height map; required (> 0) for a rough patch, the taper must
+    be at least Lc wide; 0 for a flat patch
+dark_band_tolerance : largest allowed |E_inc| on the PML-start square relative to its maximum on
+    the patch (> 0, default 1e-4)
+)doc")
+        .def(py::init([](Real sigma_max, Real order, Real correlation_length,
+                         Real dark_band_tolerance) {
+                 return PmlTermination{sigma_max, order, correlation_length, dark_band_tolerance};
+             }),
+             py::kw_only(), py::arg("sigma_max") = dp.sigma_max, py::arg("order") = dp.order,
+             py::arg("correlation_length") = dp.correlation_length,
+             py::arg("dark_band_tolerance") = dp.dark_band_tolerance)
+        .def_readwrite("sigma_max", &PmlTermination::sigma_max)
+        .def_readwrite("order", &PmlTermination::order)
+        .def_readwrite("correlation_length", &PmlTermination::correlation_length)
+        .def_readwrite("dark_band_tolerance", &PmlTermination::dark_band_tolerance)
+        .def("__repr__", [](const PmlTermination& t) {
+            return "<PmlTermination sigma_max=" + std::to_string(t.sigma_max) +
+                   " order=" + std::to_string(t.order) +
+                   " correlation_length=" + std::to_string(t.correlation_length) +
+                   " dark_band_tolerance=" + std::to_string(t.dark_band_tolerance) + ">";
+        });
+
     py::class_<PySimulation>(m, "Simulation", R"doc(
 Dense SIE simulation of one object (C++ specklebem::Simulation): assemble, solve, post-process.
 
@@ -731,7 +825,8 @@ kernels : dict, optional
     symmetrize_touching_above_kh, target_accuracy, quad_degree_rhs, fold_adaptive,
     decay_aware_target (True: relaxed near/far target in lossy regions, ADR 0004),
     fast_plain_kernel (True: vectorised sin/cos/exp in near/far pairs; False reproduces the
-    pre-WP-P2 C-library arithmetic bitwise).
+    pre-WP-P2 C-library arithmetic bitwise), stretched_touching_points (4..16, touching pairs
+    with a PML triangle; Simulation.with_pml only).
 mlfmm : dict, optional
     MLFMM parameters (used with compression="mlfmm"): ``accuracy_digits`` (3; d0 in (0, 5]),
     ``max_elements_per_leaf`` (100), ``min_box_size_lambda`` (0.25; leaf-edge floor in
@@ -768,6 +863,35 @@ works). A main thread waiting for the lock stays interruptible with Ctrl-C
              py::arg("preconditioner") = "auto", py::arg("solver") = "gmres",
              py::arg("compression") = "dense", py::arg("gmres") = py::none(),
              py::arg("kernels") = py::none(), py::arg("mlfmm") = py::none())
+        .def_static("with_pml", &make_pml_simulation, py::arg("open_mesh"), py::arg("excitation"),
+                    py::kw_only(), py::arg("pml") = py::none(), py::arg("object"),
+                    py::arg("exterior") = py::none(), py::arg("wavelength") = py::none(),
+                    py::arg("formulation") = "auto", py::arg("preconditioner") = "auto",
+                    py::arg("solver") = "gmres", py::arg("compression") = "dense",
+                    py::arg("gmres") = py::none(), py::arg("kernels") = py::none(), R"doc(
+Simulation of an open surface terminated by a PML (ADR 0009, dense prototype).
+
+Parameters
+----------
+open_mesh : OpenSurfaceMesh
+    From make_open_surface_mesh (copied); needs a gap (gap_width > 0).
+excitation : Excitation
+    Incident field in R1 with a dark band at the PML start (e.g. an AngularSpectrumBeam with
+    waist <~ pml_start / 3.5 whose region_radius covers the gap corners).
+pml : PmlTermination, optional
+    None = PmlTermination() (sigma_max 4, order 2, flat patch, dark band 1e-4).
+object, exterior, wavelength, formulation, preconditioner, solver, gmres, kernels :
+    As for Simulation(); compression must be "dense" (the MLFMM does not support the PML).
+
+The right-hand side is zero on test functions touching the PML; far_field uses the window
+across the gap (far_field_window) by default. Near fields (field()) are not available.
+
+Raises
+------
+ValueError
+    For everything the C++ constructor rejects (orientation, gap, taper < Lc, dark band,
+    controlled region, compression, options).
+)doc")
         .def(
             "assemble", [](PySimulation& s) { s.locked([&] { s.assemble(); }); },
             "Assemble Z, the right-hand side and (Jacobi GMRES) the diagonal; idempotent.")
@@ -817,6 +941,26 @@ SolveResult
             "Vacuum wavelength [m].")
         .def_property_readonly("num_unknowns", &Simulation::num_unknowns,
                                "Number of unknowns 2N (N interior edges).")
+        .def_property_readonly("has_pml", &Simulation::has_pml,
+                               "True for Simulation.with_pml (open surface with a PML).")
+        .def_property_readonly(
+            "far_field_window",
+            [](const PySimulation& s) -> std::optional<post::CurrentWindow> {
+                return s.far_field_window();
+            },
+            "Default CurrentWindow of far_field (PML route: (taper_end, pml_start)); None for "
+            "the box route.")
+        .def_property_readonly("dark_band_ratio", &Simulation::dark_band_ratio,
+                               "PML route: measured max |E_inc| on the PML-start square over its "
+                               "maximum on the patch; RuntimeError for the box route.")
+        .def_property_readonly(
+            "zone_half_widths",
+            [](const PySimulation& s) {
+                const std::array<Real, 4> a = s.zone_half_widths();
+                return py::make_tuple(a[0], a[1], a[2], a[3]);
+            },
+            "PML route: (patch_half, taper_end, pml_start, outer_half) [m]; RuntimeError for the "
+            "box route.")
         .def_property_readonly(
             "currents",
             [](PySimulation& s) {
@@ -856,8 +1000,11 @@ Returns
 (E, H) : ndarrays of complex128, shape (n, 3) or (3,)
 )doc")
         .def("far_field", &far_field, py::arg("directions"), py::arg("quad_degree") = 6,
+             py::arg("window") = py::none(),
              "Far-field amplitude F [V] with E_s ~ F exp(-jkr) / r for directions (n, 3) "
-             "(normalised internally); returns (n, 3) complex128.")
+             "(normalised internally); returns (n, 3) complex128. window: CurrentWindow on the "
+             "currents; None = far_field_window (the PML route's window across the gap, none "
+             "for the box route).")
         .def("bistatic_rcs", &bistatic_rcs, py::arg("angles"), py::arg("plane") = "xz", R"doc(
 Bistatic radar cross section sigma(theta) [m^2] (incidence along +z).
 

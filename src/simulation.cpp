@@ -11,7 +11,11 @@
 #include "specklebem/solver/preconditioner.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -70,8 +74,10 @@ void check_mlfmm_params(const mlfmm::MlfmmParams& m) {
 /// The incident field is evaluated at surface quadrature points, which lie in the convex hull
 /// of the vertices; every vertex must lie in the ball where the excitation is controlled
 /// (AngularSpectrumBeam: |r - focus| <= region_radius; infinite for the other sources).
-void check_controlled_region(const geometry::TriangleMesh& mesh,
-                             const excitation::Excitation& exc) {
+/// use_vertex (optional, one entry per vertex): only the vertices with a non-zero entry must lie
+/// in the ball (PML route: the vertices of the triangles the masked right-hand side integrates).
+void check_controlled_region(const geometry::TriangleMesh& mesh, const excitation::Excitation& exc,
+                             const std::vector<std::uint8_t>* use_vertex = nullptr) {
     const Real radius = exc.controlled_radius();
     if (std::isnan(radius) || !(radius > 0)) {
         throw std::invalid_argument("Simulation: the excitation's controlled_radius() must be > 0");
@@ -82,6 +88,8 @@ void check_controlled_region(const geometry::TriangleMesh& mesh,
     Real extent = 0;
     const auto& v = mesh.vertices();
     for (Index i = 0; i < v.rows(); ++i) {
+        if (use_vertex != nullptr && (*use_vertex)[static_cast<std::size_t>(i)] == 0)
+            continue;
         extent = std::max(extent, (v.row(i).transpose() - center).norm());
     }
     if (extent > radius) {
@@ -90,9 +98,12 @@ void check_controlled_region(const geometry::TriangleMesh& mesh,
         const Real suggested = std::ceil(extent / scale) * scale;
         std::ostringstream msg;
         msg.precision(4);
-        msg << "Simulation: the mesh extends to " << extent << " m from the excitation's centre ("
-            << center.x() << ", " << center.y() << ", " << center.z()
-            << ") m, but its fields are controlled only within " << radius
+        msg << (use_vertex != nullptr
+                    ? "Simulation: the unmasked part of the mesh (triangles carrying an unmasked "
+                      "test function, outside the PML) extends to "
+                    : "Simulation: the mesh extends to ")
+            << extent << " m from the excitation's centre (" << center.x() << ", " << center.y()
+            << ", " << center.z() << ") m, but its fields are controlled only within " << radius
             << " m; set AngularSpectrumBeam region_radius >= " << suggested << " m";
         throw std::invalid_argument(msg.str());
     }
@@ -361,24 +372,29 @@ struct Simulation::Impl {
     post::SurfaceSolution solution;
     solver::GmresResult result;  ///< last result (x moved into solution.currents)
     solver::DirectSolveInfo direct_info;
+
+    /// PML route (second constructor) only.
+    struct Pml {
+        PmlTermination termination;
+        std::vector<geometry::SurfaceZone> zone;
+        std::array<Real, 4> half{};  ///< patch_half, taper_end, pml_start, outer_half
+        geometry::CoordinateStretch stretch;
+        Real dark_band_ratio = 0;
+    };
+    std::optional<Pml> pml;
+    std::optional<post::CurrentWindow> window;
+
+    /// Formulation, preconditioner and Problem (both constructors; the stretch is set by the
+    /// PML constructor afterwards).
+    void setup(const formulation::Recommendation& rec, formulation::Kind k,
+               std::unique_ptr<formulation::Formulation> f);
 };
 
-Simulation::Simulation(geometry::TriangleMesh mesh,
-                       std::shared_ptr<excitation::Excitation> excitation,
-                       SimulationConfig config) {
-    // A constructed TriangleMesh is always consistently oriented (the constructor repairs the
-    // orientation) and its closed components point outward, but flip_normals() can turn them
-    // inward afterwards; the SIE needs normals out of R2 into R1 (docs/06).
-    if (!mesh.is_closed()) {
-        throw std::invalid_argument("Simulation: the mesh must be closed (" +
-                                    std::to_string(mesh.num_boundary_edges()) + " boundary edges)");
-    }
-    if (!(mesh.signed_volume() > 0)) {
-        throw std::invalid_argument(
-            "Simulation: the mesh normals point inward (signed volume " +
-            std::to_string(mesh.signed_volume()) +
-            " m^3); they must point out of the object R2 into R1 (flip_normals())");
-    }
+namespace {
+
+/// Excitation checks of both constructors: non-null, wavelength, background.
+void check_excitation(const std::shared_ptr<excitation::Excitation>& excitation,
+                      const SimulationConfig& config) {
     if (excitation == nullptr) {
         throw std::invalid_argument("Simulation: excitation is null");
     }
@@ -396,10 +412,10 @@ Simulation::Simulation(geometry::TriangleMesh mesh,
         throw std::invalid_argument(
             "Simulation: the excitation's background differs from config.exterior");
     }
-    check_controlled_region(mesh, *excitation);
-    check_compression(config.compression);
-    // Closed mesh: every edge is interior and carries one RWG function (N = num_edges()).
-    const Index unknowns = 2 * mesh.num_edges();
+}
+
+/// Operator / solver checks of both constructors (compression already checked by name).
+void check_operator_config(const SimulationConfig& config, Index unknowns) {
     if (config.compression == "mlfmm")
         check_mlfmm_params(config.mlfmm);
     if (config.compression == "mlfmm" && config.solver == SolverKind::Direct) {
@@ -415,35 +431,273 @@ Simulation::Simulation(geometry::TriangleMesh mesh,
     }
     kernels::validate(config.kernels);
     check_gmres_params(config.gmres);
+}
 
-    const formulation::Recommendation rec = formulation::recommend(config.object.eps_r);
-    const formulation::Kind kind = config.formulation.value_or(rec.kind);
-    std::unique_ptr<formulation::Formulation> form;
+std::unique_ptr<formulation::Formulation> checked_formulation(formulation::Kind kind) {
     try {
-        form = formulation::make_formulation(kind);
+        return formulation::make_formulation(kind);
     } catch (const std::logic_error& e) {  // JMCFIE (reserved) or an unknown Kind
         throw std::invalid_argument(std::string("Simulation: formulation not available: ") +
                                     e.what());
     }
+}
 
-    impl_ = std::make_unique<Impl>(std::move(mesh), std::move(excitation), std::move(config));
-    Impl& s = *impl_;
-    s.kind_auto = !s.config.formulation.has_value();
-    s.kind = kind;
-    s.jacobi_auto = !s.config.diagonal_preconditioner.has_value();
-    s.jacobi = s.config.diagonal_preconditioner.value_or(rec.diagonal_preconditioner);
-    s.form = std::move(form);
+}  // namespace
 
-    s.problem.space = &s.space;
-    s.problem.exterior = s.config.exterior;
-    s.problem.object = s.config.object;
-    s.problem.formulation = s.form.get();
-    s.problem.excitation = s.excitation.get();
-    s.problem.kernel_options = s.config.kernels;
+void Simulation::Impl::setup(const formulation::Recommendation& rec, formulation::Kind k,
+                             std::unique_ptr<formulation::Formulation> f) {
+    kind_auto = !config.formulation.has_value();
+    kind = k;
+    jacobi_auto = !config.diagonal_preconditioner.has_value();
+    jacobi = config.diagonal_preconditioner.value_or(rec.diagonal_preconditioner);
+    form = std::move(f);
+
+    problem.space = &space;
+    problem.exterior = config.exterior;
+    problem.object = config.object;
+    problem.formulation = form.get();
+    problem.excitation = excitation.get();
+    problem.kernel_options = config.kernels;
     // The excitation's omega (its wavelength equals config.wavelength, checked above), so the
     // Problem and the incident field use the same frequency.
-    s.problem.omega = s.excitation->omega();
+    problem.omega = excitation->omega();
+}
+
+Simulation::Simulation(geometry::TriangleMesh mesh,
+                       std::shared_ptr<excitation::Excitation> excitation,
+                       SimulationConfig config) {
+    // A constructed TriangleMesh is always consistently oriented (the constructor repairs the
+    // orientation) and its closed components point outward, but flip_normals() can turn them
+    // inward afterwards; the SIE needs normals out of R2 into R1 (docs/06).
+    if (!mesh.is_closed()) {
+        throw std::invalid_argument("Simulation: the mesh must be closed (" +
+                                    std::to_string(mesh.num_boundary_edges()) + " boundary edges)");
+    }
+    if (!(mesh.signed_volume() > 0)) {
+        throw std::invalid_argument(
+            "Simulation: the mesh normals point inward (signed volume " +
+            std::to_string(mesh.signed_volume()) +
+            " m^3); they must point out of the object R2 into R1 (flip_normals())");
+    }
+    check_excitation(excitation, config);
+    check_controlled_region(mesh, *excitation);
+    check_compression(config.compression);
+    // Closed mesh: every edge is interior and carries one RWG function (N = num_edges()).
+    check_operator_config(config, 2 * mesh.num_edges());
+
+    const formulation::Recommendation rec = formulation::recommend(config.object.eps_r);
+    const formulation::Kind kind = config.formulation.value_or(rec.kind);
+    std::unique_ptr<formulation::Formulation> form = checked_formulation(kind);
+
+    impl_ = std::make_unique<Impl>(std::move(mesh), std::move(excitation), std::move(config));
+    impl_->setup(rec, kind, std::move(form));
+    op::validate(impl_->problem);
+}
+
+namespace {
+
+/// Consistency of an OpenSurfaceMesh (as built by geometry::make_open_surface_mesh).
+void check_open_mesh(const geometry::OpenSurfaceMesh& open) {
+    const geometry::TriangleMesh& mesh = open.mesh;
+    if (static_cast<Index>(open.zone.size()) != mesh.num_triangles()) {
+        throw std::invalid_argument("Simulation (PML): OpenSurfaceMesh::zone has " +
+                                    std::to_string(open.zone.size()) + " entries for " +
+                                    std::to_string(mesh.num_triangles()) + " triangles");
+    }
+    const Real a0 = open.patch_half, a1 = open.taper_end, a2 = open.pml_start, a3 = open.outer_half;
+    if (!(std::isfinite(a0) && std::isfinite(a3) && a0 > 0.0 && a0 < a1 && a1 <= a2 && a2 < a3)) {
+        throw std::invalid_argument(
+            "Simulation (PML): OpenSurfaceMesh half widths must be finite with 0 < patch_half < "
+            "taper_end <= pml_start < outer_half");
+    }
+    const Vertices& V = mesh.vertices();
+    for (Index i = 0; i < V.rows(); ++i) {
+        if (std::max(std::abs(V(i, 0)), std::abs(V(i, 1))) > a3 * (1.0 + 1e-9)) {
+            throw std::invalid_argument(
+                "Simulation (PML): a mesh vertex lies beyond OpenSurfaceMesh::outer_half");
+        }
+    }
+    // Orientation (docs/06): the object occupies z > xi, light comes from z < 0, so the normal
+    // points out of R2 into R1, n_z < 0; the flat zones show it unambiguously.
+    for (Index t = 0; t < mesh.num_triangles(); ++t) {
+        const geometry::SurfaceZone z = open.zone[static_cast<std::size_t>(t)];
+        if ((z == geometry::SurfaceZone::Gap || z == geometry::SurfaceZone::Pml) &&
+            !(mesh.normal(t).z() < 0.0)) {
+            throw std::invalid_argument(
+                "Simulation (PML): triangle " + std::to_string(t) +
+                " of the flat zones has n_z >= 0; the normals must point out of the object R2 "
+                "(z > xi) into R1 (n_z < 0, docs/06; make_open_surface_mesh emits this "
+                "orientation)");
+        }
+    }
+}
+
+void check_pml_termination(const PmlTermination& p) {
+    if (!(std::isfinite(p.sigma_max) && p.sigma_max > 0.0)) {
+        throw std::invalid_argument(
+            "Simulation (PML): PmlTermination::sigma_max must be finite and > 0 (0 is no PML)");
+    }
+    if (!(std::isfinite(p.order) && p.order >= 0.0)) {
+        throw std::invalid_argument(
+            "Simulation (PML): PmlTermination::order must be finite and >= 0");
+    }
+    if (!(std::isfinite(p.correlation_length) && p.correlation_length >= 0.0)) {
+        throw std::invalid_argument(
+            "Simulation (PML): PmlTermination::correlation_length must be finite and >= 0");
+    }
+    if (!(std::isfinite(p.dark_band_tolerance) && p.dark_band_tolerance > 0.0)) {
+        throw std::invalid_argument(
+            "Simulation (PML): PmlTermination::dark_band_tolerance must be finite and > 0");
+    }
+}
+
+Real longest_edge(const geometry::TriangleMesh& mesh) {
+    const Vertices& V = mesh.vertices();
+    const Triangles& T = mesh.triangles();
+    Real h = 0;
+    for (Index t = 0; t < mesh.num_triangles(); ++t) {
+        for (Index c = 0; c < 3; ++c) {
+            const Vec3 a = V.row(T(t, c)).transpose();
+            const Vec3 b = V.row(T(t, (c + 1) % 3)).transpose();
+            h = std::max(h, (a - b).norm());
+        }
+    }
+    return h;
+}
+
+/// Dark band of ADR 0009 decision 4: max |E_inc| on the PML-start square (z = 0) over max
+/// |E_inc| on the patch vertices.
+Real measure_dark_band(const geometry::TriangleMesh& mesh, Real patch_half, Real pml_start,
+                       const excitation::Excitation& exc, Real lambda1) {
+    Real patch_max = 0;
+    const Vertices& V = mesh.vertices();
+    for (Index i = 0; i < V.rows(); ++i) {
+        if (std::max(std::abs(V(i, 0)), std::abs(V(i, 1))) <= patch_half * (1.0 + 1e-9)) {
+            patch_max = std::max(patch_max, exc.electric_field(V.row(i).transpose()).norm());
+        }
+    }
+    if (!(patch_max > 0.0) || !std::isfinite(patch_max)) {
+        throw std::invalid_argument(
+            "Simulation (PML): the incident field vanishes (or is not finite) on the patch");
+    }
+    const Real a = pml_start;
+    const auto n = static_cast<Index>(std::ceil(2.0 * a / (0.125 * lambda1)));
+    Real edge_max = 0;
+    for (Index i = 0; i <= n; ++i) {
+        const Real u = -a + 2.0 * a * static_cast<Real>(i) / static_cast<Real>(n);
+        const Vec3 pts[4] = {Vec3(u, -a, 0.0), Vec3(u, a, 0.0), Vec3(-a, u, 0.0), Vec3(a, u, 0.0)};
+        for (const Vec3& p : pts) edge_max = std::max(edge_max, exc.electric_field(p).norm());
+    }
+    if (!std::isfinite(edge_max)) {
+        throw std::invalid_argument(
+            "Simulation (PML): the incident field is not finite on the PML-start square");
+    }
+    return edge_max / patch_max;
+}
+
+}  // namespace
+
+Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
+                       std::shared_ptr<excitation::Excitation> excitation,
+                       SimulationConfig config) {
+    check_open_mesh(open);
+    check_pml_termination(pml);
+    check_excitation(excitation, config);
+    check_compression(config.compression);
+    if (config.compression != "dense") {
+        throw std::invalid_argument(
+            "Simulation (PML): compression \"" + config.compression +
+            "\" does not support the PML stretch; use \"dense\" (the fast PML ring is WP-PML5)");
+    }
+    const Real gap = open.pml_start - open.taper_end;
+    if (!(gap > 0.0)) {
+        throw std::invalid_argument(
+            "Simulation (PML): the gap W_g = pml_start - taper_end must be > 0 (the far-field "
+            "window falls to zero across it); set OpenSurfaceParams::gap_width");
+    }
+    if (pml.order < 1.0) {
+        const Real h = longest_edge(open.mesh);
+        if (gap < h) {
+            std::ostringstream os;
+            os << "Simulation (PML): profile order " << pml.order
+               << " < 1 needs a gap W_g = " << gap << " m >= the longest mesh edge " << h
+               << " m (non-coplanar touching pairs at the PML start have no ridge split, "
+                  "WP-PML2 review W5)";
+            throw std::invalid_argument(os.str());
+        }
+    }
+    const Real taper = open.taper_end - open.patch_half;
+    const Vertices& V0 = open.mesh.vertices();
+    bool rough = false;
+    for (Index i = 0; i < V0.rows() && !rough; ++i) rough = V0(i, 2) != 0.0;
+    if (rough && !(pml.correlation_length > 0.0)) {
+        throw std::invalid_argument(
+            "Simulation (PML): the patch is rough; set PmlTermination::correlation_length (Lc "
+            "of the height map) so that the taper W_t >= Lc can be checked (ADR 0009 decision "
+            "1)");
+    }
+    if (rough && taper < pml.correlation_length * (1.0 - 1e-9)) {
+        std::ostringstream os;
+        os << "Simulation (PML): the taper W_t = taper_end - patch_half = " << taper
+           << " m is narrower than the correlation length " << pml.correlation_length
+           << " m (ADR 0009 decision 1: W_t >= Lc); widen OpenSurfaceParams::taper_width";
+        throw std::invalid_argument(os.str());
+    }
+    const Real lambda1 = exterior_wavelength(config.exterior, config.wavelength);
+
+    geometry::CoordinateStretch stretch =
+        geometry::make_pml_stretch(open, pml.sigma_max, pml.order);
+    impl_ = std::make_unique<Impl>(std::move(open.mesh), std::move(excitation), std::move(config));
+    Impl& s = *impl_;
+    s.pml.emplace(Impl::Pml{pml,
+                            std::move(open.zone),
+                            {open.patch_half, open.taper_end, open.pml_start, open.outer_half},
+                            stretch,
+                            0.0});
+
+    // Controlled region: the vertices of the triangles the masked right-hand side integrates
+    // (those carrying an unmasked test function); masked PML vertices may lie outside.
+    const std::vector<std::uint8_t> masked = op::pml_masked_functions(s.space, s.pml->stretch);
+    std::vector<std::uint8_t> use_vertex(static_cast<std::size_t>(s.mesh.num_vertices()), 0);
+    for (Index t = 0; t < s.mesh.num_triangles(); ++t) {
+        const basis::RwgSpace::Support sup = s.space.support(t);
+        bool active = false;
+        for (int a = 0; a < sup.count; ++a)
+            active = active || masked[static_cast<std::size_t>(sup.n[a])] == 0;
+        if (!active)
+            continue;
+        for (Index c = 0; c < 3; ++c)
+            use_vertex[static_cast<std::size_t>(s.mesh.triangles()(t, c))] = 1;
+    }
+    check_controlled_region(s.mesh, *s.excitation, &use_vertex);
+
+    const Real ratio =
+        measure_dark_band(s.mesh, s.pml->half[0], s.pml->half[2], *s.excitation, lambda1);
+    s.pml->dark_band_ratio = ratio;
+    if (ratio > pml.dark_band_tolerance) {
+        std::ostringstream os;
+        os << "Simulation (PML): no dark band: max |E_inc| on the PML-start square "
+              "max(|x|, |y|) = "
+           << s.pml->half[2] << " m is " << ratio
+           << " of its maximum on the patch, above PmlTermination::dark_band_tolerance = "
+           << pml.dark_band_tolerance
+           << " (ADR 0009 decision 4: the right-hand side is zero in the PML); use a smaller "
+              "beam waist or a wider gap";
+        throw std::invalid_argument(os.str());
+    }
+    check_operator_config(s.config, 2 * s.mesh.num_edges());
+
+    const formulation::Recommendation rec = formulation::recommend(s.config.object.eps_r);
+    const formulation::Kind kind = s.config.formulation.value_or(rec.kind);
+    s.setup(rec, kind, checked_formulation(kind));
+    s.problem.stretch = &s.pml->stretch;
+    s.window = post::CurrentWindow{s.pml->half[1], s.pml->half[2]};
     op::validate(s.problem);
+    SBEM_INFO(
+        "Simulation (PML): sigma_max {}, order {}, gap {:.4g} m, window [{:.4g}, {:.4g}] m, "
+        "dark band ratio {:.3e}, {} of {} test functions masked",
+        pml.sigma_max, pml.order, gap, s.pml->half[1], s.pml->half[2], ratio,
+        std::count(masked.begin(), masked.end(), std::uint8_t{1}), masked.size());
 }
 
 Simulation::~Simulation() = default;
@@ -616,6 +870,13 @@ std::string Simulation::report() const {
           << m.max_exact_far_bytes << ")";
     }
     o << "\n";
+    if (s.pml) {
+        const Impl::Pml& p = *s.pml;
+        o << "  termination:    PML (ADR 0009; sigma_max " << p.termination.sigma_max << ", order "
+          << p.termination.order << "), half widths patch " << p.half[0] << " / taper " << p.half[1]
+          << " / PML start " << p.half[2] << " / outer " << p.half[3] << " m, far-field window ["
+          << p.half[1] << ", " << p.half[2] << "] m, dark band ratio " << p.dark_band_ratio << "\n";
+    }
     if (s.op == nullptr) {
         o << "  operator:       not assembled\n";
         return o.str();
@@ -676,6 +937,57 @@ const VectorXc& Simulation::rhs() const {
         throw std::logic_error("Simulation: rhs() called before assemble()");
     }
     return impl_->rhs;
+}
+
+bool Simulation::has_pml() const {
+    return impl_->pml.has_value();
+}
+
+const std::optional<post::CurrentWindow>& Simulation::far_field_window() const {
+    return impl_->window;
+}
+
+post::FieldOptions Simulation::far_field_options(int quad_degree) const {
+    post::FieldOptions o;
+    o.quad_degree = quad_degree;
+    o.window = impl_->window;
+    return o;
+}
+
+namespace {
+
+void require_pml(bool has, const char* who) {
+    if (!has) {
+        throw std::logic_error(std::string("Simulation: ") + who +
+                               "() is defined only for the PML route (open-surface constructor)");
+    }
+}
+
+}  // namespace
+
+const PmlTermination& Simulation::pml_termination() const {
+    require_pml(has_pml(), "pml_termination");
+    return impl_->pml->termination;
+}
+
+const std::vector<geometry::SurfaceZone>& Simulation::zones() const {
+    require_pml(has_pml(), "zones");
+    return impl_->pml->zone;
+}
+
+const geometry::CoordinateStretch& Simulation::stretch() const {
+    require_pml(has_pml(), "stretch");
+    return impl_->pml->stretch;
+}
+
+std::array<Real, 4> Simulation::zone_half_widths() const {
+    require_pml(has_pml(), "zone_half_widths");
+    return impl_->pml->half;
+}
+
+Real Simulation::dark_band_ratio() const {
+    require_pml(has_pml(), "dark_band_ratio");
+    return impl_->pml->dark_band_ratio;
 }
 
 }  // namespace specklebem

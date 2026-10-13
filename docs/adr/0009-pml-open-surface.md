@@ -75,13 +75,32 @@ regression. The PML route becomes the default for plasmonic objects once it pass
      taper and gap, and **zero on test functions in the PML**.
    - This requires a dark band: |E_inc| at the PML start below the PML target (≈ 1e-4 relative), which with the
      rigorous beam means w₀ ≲ (L/2 + W_t + W_g)/2. The waist rule is restated for the PML route after validation.
+     *Provisional rule (WP-PML3a, superseding the estimate above):* the enforced amplitude ratio
+     |E_inc|(PML start) / max |E_inc|(patch) ≤ 1e-4 (amplitude, i.e. 1e-8 in intensity) needs
+     pml_start ≳ 3.5 w₀ with w₀ ≳ λ for the rigorous beam (w₀ ≲ (L/2 + W_t + W_g)/2 only reaches ≈ 2e-2); to be
+     confirmed by 7a (WP-PML3b), including the larger footprint at oblique incidence.
    - Not evaluating the continued angular spectrum inside the PML avoids its exp(+k Im x̃) growth.
+   - *Implementation (WP-PML3a).* `op::pml_masked_functions` / `op::assemble_rhs`: a test function is masked (its J
+     and M entries are exactly 0) iff one of its two support triangles has a vertex strictly inside the stretched
+     zone (`CoordinateStretch::in_pml`: |x| > x_p or |y| > y_p). An RWG function straddling the Gap/Pml line (one
+     triangle in the gap, one in the PML) is therefore masked; one whose triangles only touch the start line is
+     not. Every other entry is bitwise the unstretched one (the stretch is the identity on its support, so the
+     incident field is evaluated at the real r), and the incident field is evaluated only on triangles carrying an
+     unmasked function. `Simulation` (PML constructor) measures the dark band as max |E_inc| on the PML-start
+     square (z = 0, spacing ≤ λ₁/8) over max |E_inc| on the patch vertices and rejects ratios above
+     `PmlTermination::dark_band_tolerance` (default 1e-4); the excitation's controlled ball must cover the
+     vertices of the triangles the masked right-hand side integrates.
 5. **Far field and power.**
    - Far fields are computed from the currents on the real part of the surface only (patch, taper, gap), with a
      smooth window across the gap. The PML currents are excluded (their radiation integral grows like
      exp(+k Im x̃)).
    - The window and gap width are validated by the flat-surface test (7a). A Huygens-plane alternative is kept as a
      fallback if the windowed far field does not pass.
+   - *Implementation (WP-PML3a).* `post::FieldOptions::window` (`post::CurrentWindow{inner_half, outer_half}`)
+     weights the currents at each quadrature point by a raised-cosine C¹ window of t = max(|x|, |y|) (1 up to
+     inner_half, 0 from outer_half). `post::far_field` requires it for a non-identity stretch, with outer_half ≤ the
+     stretch start; `Simulation` uses inner_half = taper_end, outer_half = pml_start (across the gap, so W_g > 0 is
+     required). Near fields (`scattered_field`, `total_field`) refuse the stretch and the window.
    - A_ext (ADR 0006 amendment 2026-10-12) remains the absorption measure. A_local over the patch is reported only as
      a diagnostic.
 6. **Fast method.**

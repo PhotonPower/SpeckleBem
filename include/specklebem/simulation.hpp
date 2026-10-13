@@ -7,15 +7,18 @@
 #include "specklebem/excitation/excitation.hpp"
 #include "specklebem/formulation/formulation.hpp"
 #include "specklebem/geometry/mesh.hpp"
+#include "specklebem/geometry/open_surface.hpp"
 #include "specklebem/geometry/rough_surface.hpp"
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/postprocessing/fields.hpp"
 #include "specklebem/solver/gmres.hpp"
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace specklebem {
 
@@ -267,6 +270,26 @@ struct SimulationConfig {
     SolverKind solver = SolverKind::Gmres;
 };
 
+/// PML termination of an open rough surface (ADR 0009, Simulation's second constructor). The
+/// stretch is geometry::make_pml_stretch(open, sigma_max, order) (start = pml_start, width =
+/// outer_half - pml_start, the same profile on x and y).
+struct PmlTermination {
+    /// sigma_max > 0 of the profile sigma(t) = sigma_max ((t - x_p) / W_pml)^order
+    /// (dimensionless; ADR 0009 lead decision 2: 3-5).
+    Real sigma_max = 4.0;
+    /// Polynomial order m >= 0 (lead decision 2: 2). m < 1 needs a gap W_g >= the longest mesh
+    /// edge (WP-PML2 review W5: non-coplanar touching pairs at the PML start have no ridge split).
+    Real order = 2.0;
+    /// Correlation length Lc [m] of the patch's height map: the taper must be at least Lc wide
+    /// (W_t = taper_end - patch_half >= Lc, ADR 0009 decision 1). Required (> 0) for a rough
+    /// patch; a flat patch (every patch vertex at z = 0) may leave it at 0.
+    Real correlation_length = 0.0;
+    /// Dark band (ADR 0009 decision 4): the largest |E_inc| on the PML-start square (z = 0,
+    /// max(|x|, |y|) = pml_start) relative to the largest |E_inc| on the patch vertices must not
+    /// exceed this (> 0; the PML target 1e-4 by default).
+    Real dark_band_tolerance = 1e-4;
+};
+
 /// Owns everything a solve needs: the mesh, the RWG space, the formulation, the excitation
 /// (shared), the op::Problem (omega = 2 pi c0 / wavelength), the operator, the right-hand side,
 /// the Jacobi diagonal (if used) and the solution. solution().problem points into this object,
@@ -292,6 +315,41 @@ public:
     ///         everything op::validate rejects.
     Simulation(geometry::TriangleMesh mesh, std::shared_ptr<excitation::Excitation> excitation,
                SimulationConfig config);
+    /// Open rough surface terminated by a complex-coordinate-stretching PML (ADR 0009, WP-PML3a):
+    /// the dense prototype of the PML route. Cheap (no assembly), like the box constructor.
+    ///
+    /// Builds the stretch geometry::make_pml_stretch(open, pml.sigma_max, pml.order) and sets
+    /// op::Problem::stretch, so that the dense operator uses the stretched kernels, the
+    /// right-hand side is masked in the PML (op::assemble_rhs) and far_field_options() carries
+    /// the default current window inner_half = open.taper_end, outer_half = open.pml_start
+    /// (across the gap; pass it to post::far_field, which requires a window for the stretched
+    /// problem). The physical model is a rough spot in a polished surface with absorbing
+    /// surroundings (ADR 0009, lead decision 1).
+    ///
+    /// @throws std::invalid_argument (each message names the violated rule) for
+    ///  * an inconsistent open mesh: zone.size() != triangles, half widths not finite with
+    ///    0 < patch_half < taper_end <= pml_start < outer_half, a vertex beyond outer_half;
+    ///  * a wrong orientation: a triangle of the flat zones (Gap, Pml) with n_z >= 0 (normals
+    ///    must point out of R2 (z > xi) into R1, n_z < 0, docs/06; no closedness check: the
+    ///    open boundary is the outer square, which carries no RWG function);
+    ///  * PmlTermination: sigma_max not finite and > 0, order not finite and >= 0,
+    ///    correlation_length not finite and >= 0, dark_band_tolerance not finite and > 0;
+    ///  * compression other than "dense" (the MLFMM refuses a stretch until WP-PML5); GMRES and
+    ///    the direct solver are both allowed;
+    ///  * gap width W_g = pml_start - taper_end <= 0 (the far-field window needs it), or, for
+    ///    order < 1, W_g < the longest mesh edge;
+    ///  * a rough patch (some patch vertex with z != 0) with correlation_length = 0, or a taper
+    ///    W_t = taper_end - patch_half < correlation_length (relative slack 1e-9);
+    ///  * a vertex of a triangle that carries an unmasked test function (op::pml_masked_functions)
+    ///    outside the excitation's controlled ball (masked PML vertices may lie outside it);
+    ///  * the dark band: max |E_inc| on the PML-start square (z = 0, sampled at spacing
+    ///    <= lambda_1 / 8) over max |E_inc| on the patch vertices > dark_band_tolerance (the
+    ///    message reports the ratio and suggests a smaller waist or a wider gap);
+    ///  * everything the box constructor checks that applies here (null excitation, wavelength,
+    ///    exterior material, unknown compression, dense limit, formulation, kernel options,
+    ///    GMRES parameters, op::validate).
+    Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
+               std::shared_ptr<excitation::Excitation> excitation, SimulationConfig config);
     ~Simulation();
     Simulation(const Simulation&) = delete;
     Simulation& operator=(const Simulation&) = delete;
@@ -343,6 +401,23 @@ public:
     /// System operator and right-hand side. @throws std::logic_error before assemble().
     [[nodiscard]] std::shared_ptr<const op::LinearOperator> system_operator() const;
     [[nodiscard]] const VectorXc& rhs() const;
+
+    /// True for the PML constructor (open surface with Problem::stretch).
+    [[nodiscard]] bool has_pml() const;
+    /// The PML route's default far-field window (taper_end, pml_start); empty for the box route.
+    [[nodiscard]] const std::optional<post::CurrentWindow>& far_field_window() const;
+    /// FieldOptions for post::far_field on solution(): quad_degree, the default
+    /// min_distance_factor and far_field_window() (none for the box route).
+    [[nodiscard]] post::FieldOptions far_field_options(int quad_degree = 6) const;
+    /// PML route only: the termination, the open mesh's zone tags and half widths (mesh moved
+    /// into mesh()), the stretch and the measured dark-band ratio.
+    /// @throws std::logic_error for the box route.
+    [[nodiscard]] const PmlTermination& pml_termination() const;
+    [[nodiscard]] const std::vector<geometry::SurfaceZone>& zones() const;
+    [[nodiscard]] const geometry::CoordinateStretch& stretch() const;
+    /// Half widths a_0 .. a_3 (patch_half, taper_end, pml_start, outer_half) [m].
+    [[nodiscard]] std::array<Real, 4> zone_half_widths() const;
+    [[nodiscard]] Real dark_band_ratio() const;
 
 private:
     struct Impl;

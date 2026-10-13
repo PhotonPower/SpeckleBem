@@ -1,14 +1,18 @@
-/// Bindings of geometry/: TriangleMesh (zero-copy read-only views), spheres, rough surfaces.
+/// Bindings of geometry/: TriangleMesh (zero-copy read-only views), spheres, rough surfaces,
+/// open surfaces with PML zones (ADR 0009).
 #include "specklebem/geometry/mesh.hpp"
+#include "specklebem/geometry/open_surface.hpp"
 #include "specklebem/geometry/rough_surface.hpp"
 #include "specklebem/geometry/sphere.hpp"
 
 #include <pybind11/stl.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common.hpp"
 
@@ -257,6 +261,77 @@ rough_surface_box_params chooses all four from the materials: uniform box by def
 = top-face cells), graded lambda_1 / 5 on request (grading=). A caller who takes uniform
 parameters and then sets a coarse box_mesh_size must re-check box_fine_depth (the uniform
 parameters drop the band when it would reach the bottom plate).
+)doc");
+
+    // Open rough surface with taper, gap and PML zones (ADR 0009, WP-PML1).
+    py::enum_<geometry::SurfaceZone>(m, "SurfaceZone",
+                                     "Zone of a triangle of an open surface (by its centroid).")
+        .value("Patch", geometry::SurfaceZone::Patch)
+        .value("Taper", geometry::SurfaceZone::Taper)
+        .value("Gap", geometry::SurfaceZone::Gap)
+        .value("Pml", geometry::SurfaceZone::Pml);
+    py::class_<geometry::OpenSurfaceParams>(m, "OpenSurfaceParams", R"doc(
+Requested zone sizes [m] of make_open_surface_mesh (rounded up to the grid there).
+
+patch_size : full roughness on |x|, |y| <= patch_size / 2 (> 0)
+taper_width : raised-cosine taper of the heights to 0 (>= the map spacing; the PML Simulation
+    requires >= the correlation length for a rough patch)
+gap_width : flat, unstretched band between taper and PML (>= 0; the PML Simulation needs > 0)
+pml_width : flat, stretched band (> 0), e.g. 2 lambda_1 (ADR 0009 lead decision 2)
+)doc")
+        .def(py::init([](Real patch_size, Real taper_width, Real gap_width, Real pml_width) {
+                 geometry::OpenSurfaceParams p;
+                 p.patch_size = patch_size;
+                 p.taper_width = taper_width;
+                 p.gap_width = gap_width;
+                 p.pml_width = pml_width;
+                 return p;
+             }),
+             py::kw_only(), py::arg("patch_size"), py::arg("taper_width"),
+             py::arg("gap_width") = 0.0, py::arg("pml_width"))
+        .def_readwrite("patch_size", &geometry::OpenSurfaceParams::patch_size)
+        .def_readwrite("taper_width", &geometry::OpenSurfaceParams::taper_width)
+        .def_readwrite("gap_width", &geometry::OpenSurfaceParams::gap_width)
+        .def_readwrite("pml_width", &geometry::OpenSurfaceParams::pml_width)
+        .def("__repr__", [](const geometry::OpenSurfaceParams& p) {
+            return "<OpenSurfaceParams patch_size=" + std::to_string(p.patch_size) +
+                   " taper_width=" + std::to_string(p.taper_width) +
+                   " gap_width=" + std::to_string(p.gap_width) +
+                   " pml_width=" + std::to_string(p.pml_width) + ">";
+        });
+    py::class_<geometry::OpenSurfaceMesh>(m, "OpenSurfaceMesh", R"doc(
+Open, oriented surface mesh with per-triangle zones (make_open_surface_mesh). Normals point
+out of the object (z > xi) into R1 (n_z < 0); the outer square is an open edge without RWG
+functions. Half widths are the rounded values actually meshed [m].
+)doc")
+        .def_property_readonly(
+            "mesh", [](const geometry::OpenSurfaceMesh& o) { return o.mesh; },
+            "The TriangleMesh (copy).")
+        .def_property_readonly(
+            "zones",
+            [](const geometry::OpenSurfaceMesh& o) {
+                std::vector<int> z(o.zone.size());
+                for (std::size_t i = 0; i < z.size(); ++i) z[i] = static_cast<int>(o.zone[i]);
+                return py::array_t<int>(static_cast<py::ssize_t>(z.size()), z.data());
+            },
+            "Zone per triangle as int (0 Patch, 1 Taper, 2 Gap, 3 Pml; SurfaceZone values).")
+        .def_readonly("patch_half", &geometry::OpenSurfaceMesh::patch_half, "a_0 [m]")
+        .def_readonly("taper_end", &geometry::OpenSurfaceMesh::taper_end, "a_1 [m]")
+        .def_readonly("pml_start", &geometry::OpenSurfaceMesh::pml_start, "a_2 [m]")
+        .def_readonly("outer_half", &geometry::OpenSurfaceMesh::outer_half, "a_3 [m]")
+        .def("__repr__", [](const geometry::OpenSurfaceMesh& o) {
+            return "<OpenSurfaceMesh triangles=" + std::to_string(o.mesh.num_triangles()) +
+                   " patch_half=" + std::to_string(o.patch_half) +
+                   " taper_end=" + std::to_string(o.taper_end) +
+                   " pml_start=" + std::to_string(o.pml_start) +
+                   " outer_half=" + std::to_string(o.outer_half) + ">";
+        });
+    m.def("make_open_surface_mesh", &geometry::make_open_surface_mesh, py::arg("height_map"),
+          py::arg("params"), py::call_guard<py::gil_scoped_release>(), R"doc(
+Open rough-surface mesh with taper, gap and PML zones (ADR 0009 decision 1): z = xi w(x) w(y)
+on the patch and taper, flat (z = 0) in the gap and the PML, on the grid of the height map
+continued to the outer square. Use with Simulation.with_pml. Raises ValueError for invalid
+parameters or a map that does not cover the patch and taper.
 )doc");
 }
 

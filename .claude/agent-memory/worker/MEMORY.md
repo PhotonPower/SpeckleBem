@@ -27,3 +27,4 @@
 - [Open surface + PML stretch](open_surface_pml_findings.md) — WP-PML1: grid rounding, corner diagonals, C1 test (2nd-order slopes), Eigen cross link error
 - [Server kit waist](server_kit_waist.md) — run kit pins w0 = L/4 (Si + --allow-wide-beam); pre-WP-B3 Si commands need the waist explicit
 - [Ag box mechanism (WP-V3)](ag_box_mechanism_findings.md) — surface waves (SPP?) on the finite block, not cavity modes; flat box D=2 resonant; k_w ~ k0 fit; window refs
+- [PML route findings (WP-PML3a)](pml_route_findings.md) — Si PML cost via k-aware touching order, dark band a2 >~ 3.5 w0, masked share, test design

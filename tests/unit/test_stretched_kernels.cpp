@@ -1718,7 +1718,6 @@ TEST_CASE("stretched kernels: paths without stretch support refuse a PML stretch
     CHECK_THROWS_AS(op::assemble_sparse(c.problem, pat), std::invalid_argument);
     std::vector<Index> row_ptr(static_cast<std::size_t>(N) + 1, 0);
     CHECK_THROWS_AS(op::assemble_region_sparse(c.problem, 0, row_ptr, {}), std::invalid_argument);
-    CHECK_THROWS_AS(op::assemble_rhs(c.problem), std::invalid_argument);
     CHECK_THROWS_AS(mlfmm::MlfmmStrategy().build(c.problem), std::invalid_argument);
     CHECK_THROWS_AS(mlfmm::MlfmmOperator(c.problem, mlfmm::MlfmmParams{}), std::invalid_argument);
     const post::SurfaceSolution sol{&c.problem, VectorXc::Zero(2 * N)};
@@ -1731,8 +1730,10 @@ TEST_CASE("stretched kernels: paths without stretch support refuse a PML stretch
     Vertices pts(1, 3);
     pts << 0.0, 0.0, -1e-6;
     CHECK_THROWS_AS(post::scattered_field(sol, pts, E, H), std::invalid_argument);
-    // The dense paths accept it.
+    // The dense paths accept it, and (WP-PML3a) the masked right-hand side; far_field needs a
+    // current window (above: none given).
     CHECK_NOTHROW(op::assemble_diagonal(c.problem));
+    CHECK_NOTHROW(op::assemble_rhs(c.problem));
 }
 
 TEST_CASE("stretched kernels: options, horizontal guard and rule information",

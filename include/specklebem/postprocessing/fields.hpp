@@ -35,6 +35,7 @@
 #include "specklebem/operator/assembler.hpp"
 
 #include <cmath>
+#include <optional>
 
 namespace specklebem::post {
 
@@ -44,6 +45,25 @@ struct SurfaceSolution {
     VectorXc currents;  ///< [J; M]
 };
 
+/// Smooth window on the surface currents of far_field() (ADR 0009 decision 5, WP-PML3a): the
+/// open PML surface radiates only from its real part (patch, taper, gap), and the window takes
+/// the currents smoothly to zero across the flat gap so that the truncation at the PML start does
+/// not diffract. It acts on t = max(|x|, |y|) of each quadrature point:
+///   w(t) = 1                                                     for t <= inner_half,
+///   w(t) = 1/2 (1 + cos(pi (t - inner_half) / (outer_half - inner_half)))   in between,
+///   w(t) = 0                                                     for t >= outer_half,
+/// which is C^1 (value and slope continuous at both ends). Simulation's PML route uses
+/// inner_half = OpenSurfaceMesh::taper_end and outer_half = OpenSurfaceMesh::pml_start.
+struct CurrentWindow {
+    Real inner_half{};  ///< >= 0 [m]: w = 1 up to here
+    Real outer_half{};  ///< > inner_half [m]: w = 0 from here on
+};
+
+/// w(t) of the window (see CurrentWindow), t = max(|x|, |y|) of a surface point (t < 0 is
+/// treated as |t|). @throws std::invalid_argument for a non-finite t, inner_half or outer_half,
+/// inner_half < 0 or outer_half <= inner_half.
+[[nodiscard]] Real current_window_value(const CurrentWindow& w, Real t);
+
 /// Quadrature options of the field evaluation (additive API, WP10).
 struct FieldOptions {
     /// Dunavant degree per source triangle; must be a positive-interior rule
@@ -52,6 +72,12 @@ struct FieldOptions {
     /// Points closer than min_distance_factor * (longest edge of the nearest triangle) to the
     /// surface are rejected.
     Real min_distance_factor = 1e-3;
+    /// far_field() only: multiply the currents at each quadrature point by the window value
+    /// (points with w = 0 drop out). Required with a non-identity PML stretch (outer_half <= the
+    /// stretch start on x and y); optional otherwise. Empty: no window, every result bitwise as
+    /// before WP-PML3a. scattered_field() / total_field() reject a window (a windowed current
+    /// has no physical near field).
+    std::optional<CurrentWindow> window;
 };
 
 namespace detail {
@@ -92,8 +118,11 @@ struct GreenFactors {
 /// In R2 the "scattered" field is the total field there (no incident field in R2).
 /// @throws std::invalid_argument for a null problem or space, currents.size() != 2N, a
 ///         Problem::omega that is not finite and > 0 or differs from the excitation's omega()
-///         (relative 1e-12, as op::validate), a non-identity PML stretch (Problem::stretch; the
-///         windowed PML far field is WP-PML3), or points too close to the surface.
+///         (relative 1e-12, as op::validate), a FieldOptions::window (far_field() only), a
+///         non-identity PML stretch (Problem::stretch: near fields of the PML route would need
+///         the analytically continued currents and the stretched Green's function for sources
+///         in the PML; out of scope, ADR 0009 decision 5 covers the far field only), or points
+///         too close to the surface.
 void scattered_field(const SurfaceSolution& s, const Vertices& points,
                      Eigen::Matrix<Complex, Eigen::Dynamic, 3>& E,
                      Eigen::Matrix<Complex, Eigen::Dynamic, 3>& H);
@@ -115,8 +144,15 @@ void total_field(const SurfaceSolution& s, const Vertices& points,
 /// Far-field amplitude F(k_hat) such that E_s ~ F exp(-jkr)/r.
 /// Radiated by the exterior currents in R1:
 ///   F(k_hat) = (j k1 / 4 pi) k_hat x int exp(j k1 k_hat . r') [eta1 (k_hat x J) + M] dS'.
-/// The rows of `directions` are normalised internally (zero or non-finite rows throw). A
-/// non-identity PML stretch (Problem::stretch) throws std::invalid_argument (WP-PML3).
+/// The rows of `directions` are normalised internally (zero or non-finite rows throw).
+/// With FieldOptions::window the currents are weighted by current_window_value() at each
+/// quadrature point (the radiation integral over the windowed real part of an open surface).
+/// A non-identity PML stretch (Problem::stretch, ADR 0009 decision 5) requires a window with
+/// outer_half <= the stretch start of both axes, so that no PML current (whose radiation
+/// integral grows like exp(+k Im x~)) contributes. Without a window every result is bitwise
+/// unchanged. @throws std::invalid_argument additionally for an invalid window
+/// (current_window_value()), a stretch without a window or a window reaching past the stretch
+/// start.
 void far_field(const SurfaceSolution& s, const Vertices& directions,
                Eigen::Matrix<Complex, Eigen::Dynamic, 3>& F);
 void far_field(const SurfaceSolution& s, const Vertices& directions,
