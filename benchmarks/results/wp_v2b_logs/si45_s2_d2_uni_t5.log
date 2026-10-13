@@ -1,0 +1,31 @@
+[2026-10-13 11:17:11.890] [info] [rough_surface.cpp:1269] rough box mesh: 91 x 91 grid, 16200 top + 162720 wall + 16200 bottom triangles (closing box / top = 11.044), depth 1.1291024613727742e-05 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 90 x 90 cells (target spacing 5e-08 m)
+[2026-10-13 11:17:11.914] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 91 x 91 grid, box depth 1.1291e-05 m: 0.025 s
+SETUP | si45_s2_d2_uni_t5 | si | eps_r 18.478-0.606j | delta 1.129e-06 m | L 4.5e-06 m (map 5.4e-06 m, seed 2, sigma 5e-08 m) | depth 1.129e-05 m | box_mesh_size uniform | M 0 | fine band 3.537e-06 m (0 rows) | triangles 195120 (top 16200, box 178920 = 1104.4 %) | 2N 585360 | Z 5482.34 GB | w0 7.5e-07 m (L/6) | beam spectrum (7392 plane waves, 132 x 56, alpha_max 90.0 deg, grid check 4.1e-14, 0.3 s) | |E_inc| bottom centre 3.039e-01, rim x 1.975e-04, rim y 1.234e-04, corner 2.597e-08, wall foot x 1.346e-01
+ESTIMATE | si45_s2_d2_uni_t5 | d0 3 | leaf quantile 1 | triangles 195120 (top 16200, box 178920 = 1104.44 %), box M = 0, fine rows 0, depth 11.291 um, fine band 3.53731 um; 2N = 585360; r_max 65.0632 nm; octree 7 levels, leaf edge 179.599 nm (lambda / 2.78398), 7565 leaves; 0 elevated functions (home levels 6: 292680); near estimate 10.3601 GB, exact R2 estimate 0 GB (0 pairs), budget 20.7202 GB; leaf orders 13 / 35 (expansion levels 5 / 5), patterns 27.9474 GB (elevated 0 GB), far tables 7.2064 GB; setup peak estimate 55.2094 GB | Krylov at max-iter 400: 3.76 GB | peak estimate 58.97 GB | available 119.9 GB
+[2026-10-13 11:17:17.455] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 6 (a = 0.359 lambda_i): expansion, L = 13, search error 5.94e-04, block check 1.86e-02 (3 pairs)
+[2026-10-13 11:17:17.853] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 5 (a = 0.718 lambda_i): expansion, L = 18, search error 2.10e-06, block check 4.03e-03 (3 pairs)
+[2026-10-13 11:17:18.281] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 4 (a = 1.44 lambda_i): expansion, L = 27, search error 6.72e-09, block check 1.15e-05 (3 pairs)
+[2026-10-13 11:17:19.335] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 3 (a = 2.87 lambda_i): expansion, L = 45, search error 1.12e-12, block check 9.50e-06 (3 pairs)
+[2026-10-13 11:17:22.004] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 2 (a = 5.75 lambda_i): expansion, L = 80, search error 3.11e-13, block check 9.77e-06 (3 pairs)
+[2026-10-13 11:17:23.708] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 6 (a = 1.54 lambda_i): expansion, L = 35, search error 6.88e-08, block check 5.92e-04 (3 pairs)
+[2026-10-13 11:17:26.092] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 5 (a = 3.09 lambda_i): expansion, L = 54, search error 1.73e-10, block check 1.73e-05 (3 pairs)
+[2026-10-13 11:17:32.415] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 4 (a = 6.18 lambda_i): expansion, L = 90, search error 5.79e-12, block check 1.29e-06 (3 pairs)
+[2026-10-13 11:17:46.476] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 3 (a = 12.4 lambda_i): expansion, L = 161, search error 1.20e-11, block check 1.10e-06 (3 pairs)
+[2026-10-13 11:18:11.521] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 2 (a = 24.7 lambda_i): expansion, L = 301, search error 1.32e-10, block check 1.29e-06 (3 pairs)
+[2026-10-13 11:18:41.785] [info] [far_operator.cpp:1216] MlfmmFarOperator: 2N = 585360, 7 octree levels, d0 = 3, 33526.3 MB (incl. one apply workspace of 6289.5 MB)
+[2026-10-13 11:18:41.831] [info] [near_field.cpp:123] near field: 7 levels, 7565 leaves, leaf edge 1.796e-07 m, 2768721 column-list entries
+[2026-10-13 11:18:43.698] [info] [assembler.cpp:465] sparse assembly: N = 292680, 2N = 585360, nnz = 431476312 (737 per row), matrix 10355.431 MB
+[2026-10-13 11:20:49.685] [info] [timer.cpp:13] [timer] sparse assembly (2N = 585360, nnz = 431476312): 125.985 s
+[2026-10-13 11:20:49.686] [info] [mlfmm_operator.cpp:167] MlfmmOperator: 2N = 585360, 7 levels, leaf edge 0.359 lambda1, near nnz 431476312 (9880.2 MB, 127.90 s), far 33526.3 MB (85.20 s)
+[2026-10-13 11:20:49.686] [info] [timer.cpp:13] [timer] Simulation: MLFMM operator: 213.333 s
+[2026-10-13 11:21:33.128] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 43.442 s
+[2026-10-13 11:21:33.133] [info] [gmres.cpp:319] gmres: n = 585360, left preconditioner 'none', tol = 1.0e-05, max_iter = 400, full (no restart)
+[2026-10-13 11:29:43.989] [info] [gmres.cpp:420] gmres: iteration 50: relative residual 3.662e-03
+[2026-10-13 11:35:30.636] [info] [gmres.cpp:420] gmres: iteration 100: relative residual 3.815e-04
+[2026-10-13 11:44:52.799] [info] [gmres.cpp:420] gmres: iteration 150: relative residual 8.431e-05
+[2026-10-13 11:53:23.723] [info] [gmres.cpp:420] gmres: iteration 200: relative residual 1.692e-05
+[2026-10-13 11:55:29.804] [info] [gmres.cpp:497] gmres: converged in 217 iterations, 2036.65 s (CGS2 orthogonalisation 28.99 s, 217 re-orthogonalisations): relative residual 9.981e-06 (preconditioned), true residual 9.981e-06
+[2026-10-13 11:55:29.859] [info] [simulation.cpp:565] Simulation: ICTF GMRES, 2N = 585360: 217 it, converged true, true residual 9.981e-06, assembly 256.775 s, solve 2036.655 s
+RESULT | si45_s2_d2_uni_t5 | si | eps_r 18.478-0.606j | L 4.5e-06 | w0 7.5e-07 | depth 1.129e-05 | box_mesh_size uniform | fine 3.537e-06 m | beam spectrum | 2N 585360 | iterations 217 | converged yes | true residual 9.981e-06 | assembly 256.8 s | solve 2036.7 s | far field 548.7 s | ff degree check 2.44e-13 | P_refl 3.504210e-13 | P_fwd 9.051747e-13 | compression mlfmm | d0 3 | lq 1 | jacobi no | tol 1.0e-05 | operator 45.53 GB | peak after setup 39.09 GB | peak 47.92 GB | peak estimate 58.97 GB
+PARTS | si45_s2_d2_uni_t5 | P_part / P_refl | top 1.000e+00 (24120) | walls 1.070e-06 (243720) | bottom 9.297e-08 (24120) | rim 3.195e-07 (360) | foot 1.093e-10 (360)
+COMPARE | si45_s2_d2_uni_t5 vs out/v2b/runs/si45_s2_d1_uni_t5 | l2_refl 8.597e-05 | l2_off30 3.887e-04 | l2_fwd 1.591e-03 | dP_refl +3.512e-06 | eps_xz 4.425e-05 | eps_yz 2.361e-05

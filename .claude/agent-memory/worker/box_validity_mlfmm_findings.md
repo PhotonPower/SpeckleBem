@@ -30,6 +30,18 @@ benchmarks/results/box_validity_mlfmm.md; reviewed and reworded 2026-10-12 after
   The rows file lacks SETUP/ESTIMATE lines and --max-iter: record them when a value is quoted.
 - ctest without --preset (plain --test-dir) hangs on Windows (DLL dialog); always use the preset.
 
+WP-V2b (2026-10-13, `--sigma` added; same settings, L 4.5 -> 5.4 um, one solve at a time):
+- sigma 50: seed 2 at L/6 depth 0.0086 %, L x1.2 0.229 % (pass); seed 1 L/5 depth 0.0071 %, L x1.2 0.152 % (LOWER
+  than L/6's 0.19 % despite 12x rim field: residual not beam-controlled below L/5).
+- sigma 100 (seed 1): depth x2 0.028 % pass; L x1.2 1.19 % at L/6 and 1.28 % at L/8 -> FAIL, waist
+  not the lever (rim field 240-700x lower, wall share 7.6e-6 unchanged, 7-14x sigma 50). Hypothesis:
+  grazing scattered fields / extra rough annulus; controlling quantity likely L/2 - 2 w0 (untested).
+- Costs sequential, 12 thr: L 4.5 31-38 min (28-31 GB), L 5.4 39-51 min (35-38 GB), depth x2
+  65-72 min (48-53 GB); sigma 100 depth x2 estimate 64 GB > default --max-gb 60. Peak/estimate 0.80-0.82.
+  sigma 100 needs 237-261 it vs 196-217.
+- WP-V3 (merged on main during WP-V2b) added the same `--sigma`; merge main and keep its version.
+  Before adding a study option, check sibling branches / main for the same option.
+
 **Why:** evidence base for ADR 0006 amendment (uniform box, Si w0 <= L/6; metals: SPP termination
 only if SPP-dominated, else resonance-free formulation).
 **How to apply:** box/beam rule changes and any rerun of the rough-surface checks; for metals do not

@@ -34,6 +34,7 @@ benchmarks/results/*.json
 *.log
 # ...except the curated raw run logs of a study record (path-free, WP22b2)
 !benchmarks/results/wp22b2_logs/*.log
+!benchmarks/results/wp_v2b_logs/*.log
 !benchmarks/results/wp_v3_logs/*.log
 # Run directories of scripts/server_run_kit/run_large_area.sh (sent back as tarballs)
 server_runs/

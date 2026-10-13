@@ -41,6 +41,11 @@ in `box_validity_mlfmm_rows.txt`.
 - WP-V1's hypothesis (depth sensitivity follows the rim illumination **by the incident beam**)
   holds for Si and is **falsified for Ag**; illumination of the rim and walls by surface waves or
   grazing scattered fields is not excluded.
+- **WP-V2b (2026-10-13, last section): the Si rule w₀ ≤ L/6 holds at σ = 50 nm (second seed:
+  depth ×2 0.009 %, L ×1.2 0.23 %; L/5 passes both on seed 1: 0.007 % / 0.15 %), but not at σ = 100 nm**:
+  L ×1.2 fails with 1.19 % at L/6 and 1.28 % at L/8 (L = 4.5 µm). The depth ×2 check passes
+  (0.03 %). At σ = 100 nm a tighter waist does not help (measured); the likely cause, roughness-scattered
+  fields reaching the rim, is a hypothesis not separated from radiation by the added rough annulus.
 
 ## Setup
 
@@ -104,7 +109,7 @@ the total; partial fields interfere). The |E_inc| column comes from the SETUP li
 (not committed; **not recorded** in the rows file, which holds only the RESULT, PARTS and COMPARE
 lines); the PARTS values are in the rows file.
 
-| Run | walls | bottom | rim | foot | |E_inc| at the rim (x, y) [V/m] |
+| Run | walls | bottom | rim | foot | \|E_inc\| at the rim (x, y) [V/m] |
 |---|---:|---:|---:|---:|---|
 | Si 3 µm, L/4, uniform, depth 5.65 (tol 1e-4 run `si3_d1_uni`) / 11.29 µm | 1.4e-5 / 1.4e-5 | 1.1e-6 / 1.2e-7 | 3.7e-6 / 3.6e-6 | 7e-9 / 4e-10 | 2.3e-2, 1.8e-2 |
 | Si 4.5 µm, L/6, uniform, depth 5.65 / 11.29 µm | 8.2e-7 / 7.7e-7 | 3.1e-7 / 7.6e-8 | 2.9e-7 / 3.0e-7 | 9e-10 / 1e-10 | 2.0e-4, 1.2e-4 |
@@ -372,3 +377,185 @@ $B --compare ag4_d2_uni_t5 ag4_d2_b100                                # stored r
 Every run of this record is one process (`OMP_NUM_THREADS=12`), with `--summary` collecting the
 RESULT/PARTS lines and `--history` the GMRES residuals; all converged (true residual ≤ 1.2 × tol).
 About 21 h of process time (30 runs) in two parallel streams over 12 h of wall time.
+
+## WP-V2b: Si waist rule confirmation
+
+Question: does the provisional Si rule of the ADR 0006 amendment 2026-10-12b (decision 2,
+w₀ ≤ L cos θ_in / 6 for weakly absorbing objects, from the single seed-1 / σ = 50 nm pair above)
+hold (a) for a second seed, (b) at σ = 100 nm, and (c) is L/6 needed, or does L/5 suffice? Runs of
+2026-10-13; raw logs in `wp_v2b_logs/<tag>.log`, the SETUP / ESTIMATE / RESULT / PARTS / COMPARE
+lines in `box_validity_mlfmm_rows.txt` (block "WP-V2b").
+
+**Settings: those of the WP-V2 Si runs at L/6 (rows `si45_*` / `si54_*`), with the box and the
+waist passed explicitly.** The changes:
+
+- the option `--sigma` (before, the study's rms roughness was a constant of 50 nm). WP-V3 added
+  the same option on `main` with the same semantics (generator σ, fine band 3δ + 3σ, SETUP line,
+  attribute `rms_roughness`), and that implementation is the one kept. The runs used the WP-V2b
+  build. Checked after the merge: `main`'s binary prints the same SETUP line (mesh, 2N, fine band,
+  beam probes) for σ = 100 nm and re-derives the COMPARE metrics from the stored runs;
+- `--max-iter 400` everywhere (also for depth ×2);
+- `--max-gb 70` where the estimate exceeded the default of 60 GB (σ = 100 nm depth ×2: 64.0 GB);
+- one solve at a time (WP-V2 ran two).
+
+Fixed settings:
+
+- **Mesh and patch.** Si at 500 nm, uniform box (`--box-mesh-size uniform`: 50 nm box cells =
+  top-face cells, M = 0, ≤ λ₁/5 = 100 nm). Fine band `--fine-band`: 3δ + 3σ = 3.54 µm at σ = 50 nm
+  and 3.69 µm at σ = 100 nm, as in the WP22d σ = 100 nm runs; with the uniform box the band does
+  not change the mesh. Depth 5.65 µm (`default_box_depth`) and ×2 = 11.29 µm. Lc = 500 nm, h = 50 nm.
+  Height map generated on 5.4 µm and cropped to L = 4.5 µm, so the L ×1.2 partner (5.4 µm) has the
+  same surface on the common area.
+- **Beam and solver.** Rigorous spectrum beam, normal incidence, E along x. MLFMM d₀ = 3 with the
+  global leaf rule (leaf edge 178.4–184.4 nm), ICTF without Jacobi,
+  full GMRES tol 1e-5. All runs converged (true residual ≤ 1.0 × tol).
+- **Waist.** w₀ = L/6 (0.75 µm) unless stated; the L ×1.2 partner keeps the waist of its base
+  run.
+- **Metric.** That of WP-V2 (`l2_refl`, docs/05 thresholds); the noise floor of section 1 applies
+  (Si, tol 1e-5: 3.7e-5 per run, about 5e-5 per pair; measured for σ = 50 nm at L = 3 µm only).
+
+### Results (measured)
+
+| Config | Check | 2N base / test | It. base / test | l2_refl | Threshold | l2_off30 | ε_rr xz / yz | dP | Verdict |
+|---|---|---|---|---:|---:|---:|---:|---:|---|
+| WP-V2 reference: seed 1, σ = 50 nm, L/6 | depth ×2 | 341 280 / 585 360 | 202 / 220 | 0.0072 % | < 0.1 % | 0.032 % | 0.0016 / 0.0014 % | +5e-6 | pass |
+| WP-V2 reference: seed 1, σ = 50 nm, L/6 | L ×1.2 | 341 280 / 432 864 | 202 / 199 | 0.19 % | < 0.5 % | 0.64 % | 0.028 / 0.022 % | −2.5e-5 | pass |
+| (a) seed 2, σ = 50 nm, L/6 | depth ×2 | 341 280 / 585 360 | 207 / 217 | **0.0086 %** | < 0.1 % | 0.039 % | 0.0044 / 0.0024 % | +3.5e-6 | **pass** |
+| (a) seed 2, σ = 50 nm, L/6 | L ×1.2 | 341 280 / 432 864 | 207 / 206 | **0.229 %** | < 0.5 % | 0.79 % | 0.036 / 0.058 % | −4.1e-5 | **pass** |
+| (b) seed 1, σ = 100 nm, L/6 | depth ×2 | 341 280 / 585 360 | 247 / 261 | **0.028 %** | < 0.1 % | 0.037 % | 0.0060 / 0.0036 % | −2.7e-6 | **pass** |
+| (b) seed 1, σ = 100 nm, L/6 | L ×1.2 | 341 280 / 432 864 | 247 / 237 | **1.19 %** | < 0.5 % | 1.25 % | 0.33 / 0.32 % | −2.6e-4 | **fail** |
+| (c) seed 1, σ = 50 nm, L/5 (w₀ = 0.9 µm) | L ×1.2 | 341 280 / 432 864 | 199 / 196 | **0.152 %** | < 0.5 % | 0.63 % | 0.025 / 0.027 % | −1.6e-5 | **pass** |
+| (c) seed 1, σ = 50 nm, L/5 (w₀ = 0.9 µm) | depth ×2 | 341 280 / 585 360 | 199 / 219 | **0.0071 %** | < 0.1 % | 0.032 % | 0.0012 / 0.0011 % | +3.0e-6 | **pass** |
+| (d) seed 1, σ = 100 nm, L/8 (w₀ = 0.5625 µm) | L ×1.2 | 341 280 / 432 864 | 251 / 239 | **1.28 %** | < 0.5 % | 1.24 % | 0.50 / 0.37 % | −2.7e-4 | **fail** |
+
+Row (d) is the extra point that the brief asks for after a failure. L/8 was chosen instead of the
+suggested L/7: at L/6 the incident field at the rim is already 2·10⁻⁴, so a point that darkens the
+rim by orders of magnitude tests whether the waist is the lever at all. L/7 would only have
+bracketed a threshold if one existed.
+
+PARTS of the base runs (power radiated into the reflection hemisphere by the currents of one part,
+relative to the total; definitions as in section 2) and the incident field at the rim from the
+SETUP lines:
+
+| Base run | walls | bottom | rim | \|E_inc\| at the rim (x, y) [V/m] |
+|---|---:|---:|---:|---|
+| WP-V2, seed 1, σ = 50 nm, L = 3 µm, L/4 (`si3_d1_uni`, tol 1e-4) | 1.4e-5 | 1.1e-6 | 3.7e-6 | 2.3e-2, 1.8e-2 |
+| WP-V2, seed 1, σ = 50 nm, L/6 | 8.2e-7 | 3.1e-7 | 2.9e-7 | 2.0e-4, 1.2e-4 |
+| (a) seed 2, σ = 50 nm, L/6 | 1.1e-6 | 4.6e-7 | 3.2e-7 | 2.0e-4, 1.2e-4 |
+| (c) seed 1, σ = 50 nm, L/5 | 9.5e-7 | 3.1e-7 | 3.0e-7 | 2.5e-3, 1.9e-3 |
+| (b) seed 1, σ = 100 nm, L/6 | 7.6e-6 | 1.6e-6 | 3.5e-6 | 2.0e-4, 1.2e-4 |
+| (d) seed 1, σ = 100 nm, L/8 | 7.6e-6 | 1.4e-6 | 4.0e-6 | 2.8e-7, 5.0e-7 |
+
+At L/8 the Gaussian tail at the rim is e^(−(L/2w₀)²) ≈ 1e-7. The corner value of that beam,
+1.6e-7 (Gaussian ≈ 1e-14), shows that the spectrum beam evaluates to a floor of about 1e-7 there,
+so the L/8 rim values are upper bounds.
+
+### What the data show
+
+- **σ = 50 nm: both checks pass at L/6 for both seeds.** Depth ×2: 0.0072 % (seed 1) and 0.0086 %
+  (seed 2), 1.4–1.7× the pair noise floor and 12× below the threshold. L ×1.2: 0.19 % and
+  0.23 %, 2.2–2.6× below 0.5 %.
+- **L/5 passes both checks too (seed 1 only).** Depth ×2 0.0071 %. The L ×1.2 change at L/5
+  (0.15 %) is *lower* than at L/6 (0.19 %), although the incident field at the rim is 12×
+  stronger (2.5e-3 vs 2.0e-4); the wall, bottom and rim shares are the same as at L/6. So between
+  L/5 and L/6 the residual edge effect of 0.15–0.23 % is not set by the incident beam. Its
+  seed-to-seed spread (0.19 vs 0.23 % at L/6) is as large as the L/5–L/6 difference. The failing
+  L/4 point of WP-V2 (1.28 %) was at L = 3 µm, with the rim lit (2.3e-2) *and* the footprint
+  closer to the rim; which of the two made it fail is not separated.
+- **σ = 100 nm: the depth check passes, the edge check fails, and the waist is not the lever.**
+  - Depth ×2 changes the far field by 0.028 % (3.6× below the threshold).
+  - L ×1.2 changes it by 1.19 % at L/6 and 1.28 % at L/8, 2.4–2.6× the threshold, spread over
+    the hemisphere (θ ≥ 30°: 1.24–1.25 %; ε_rr on the cuts 0.3–0.5 %).
+  - From L/6 to L/8 the incident field at the rim drops by 240–700× (2.0e-4 / 1.2e-4 →
+    ≤ 5e-7), yet the wall share (7.6e-6) and the rim share (3.5 → 4.0e-6) stay the same. Both are 7–14× the
+    σ = 50 nm shares at the same incident rim field. The rim and walls are therefore not driven by
+    the incident beam (measured); that they are lit by fields scattered by the rough top face is the likely
+    explanation (hypothesis).
+- **Roughness dependence.** Same seed, same L/6: from σ = 50 to 100 nm the L ×1.2 change grows
+  6× (0.19 → 1.19 %) and the wall share 9× (8.2e-7 → 7.6e-6).
+
+### Interpretation (hypotheses, not tested here)
+
+- The σ = 100 nm edge effect is consistent with **grazing fields scattered by the roughness inside
+  the beam footprint** that reach the rim and the walls at L/2 = 2.25 µm. Equally consistent: the
+  extra rough annulus of the L ×1.2 partner (2.25–2.7 µm from the axis), lit by the same fields,
+  scattering them out again (multiple scattering that an infinite surface also has). The docs/05
+  check enlarges the patch and moves the box at the same time, so it does not separate these two.
+- Either way the controlling quantity would be the **distance from the footprint to the rim** (in
+  λ, at the given σ / Lc), not w₀/L alone. At fixed L = 4.5 µm a smaller waist barely increases that
+  distance (L/2 − 2w₀ = 0.75 → 1.13 µm from L/6 to L/8), which fits the unchanged result. That a
+  larger L at fixed w₀ helps is **not tested**.
+- One seed per σ = 100 nm point and two seeds at σ = 50 nm: **not a statistic**. The seed-to-seed
+  spread at σ = 50 nm (0.19 / 0.23 %) suggests ±20 % on these values, which does not change any
+  verdict (the closest is the 0.23 % pass, 2.2× below the threshold).
+
+### Conclusion
+
+- **σ = 50 nm (σ/λ = 0.1, Lc = 500 nm): rule confirmed** on two seeds. w₀ ≤ L/6 passes both
+  checks (depth ×2 ≤ 0.009 %, L ×1.2 ≤ 0.23 %). On one seed L/5 also passes both (0.007 % /
+  0.15 %), so for this roughness L/6 is sufficient and probably not necessary. No relaxation to
+  L/5 is proposed on a single seed.
+- **σ = 100 nm (σ/λ = 0.2, the Phase-4 target roughness): rule not confirmed.** At L = 4.5 µm the
+  L ×1.2 check fails at w₀ = L/6 and at L/8 (1.2–1.3 %); the depth check passes (0.03 %). A tighter
+  waist does not fix it at this L, so L/8 did not repair it at this L.
+
+**Proposed ADR 0006 change (for the coordinator; the ADR is not edited here):**
+
+1. Restrict decision 2 of the amendment 2026-10-12b to what is measured: w₀ ≤ L cos θ_in / 6
+   suffices for Si at σ ≤ 50 nm (σ/λ ≤ 0.1, Lc = 500 nm; two seeds, normal incidence, x
+   polarisation, L = 4.5 µm). Keep L/6 as the library default (`kWeakAbsorberBeamWaistFraction`):
+   L/5 passed on one seed only, and L/4 failed (WP-V2, at L = 3 µm).
+2. Add a roughness caveat. At σ = 100 nm the docs/05 edge-effect check is not met at L = 4.5 µm for
+   any waist tried (L/6, L/8: 1.2–1.3 %), most likely (hypothesis) because fields scattered by the
+   roughness reach the rim independently of the beam. Until a σ = 100 nm rule is measured, quantitative σ = 100 nm Si
+   results from patches of this size carry an edge uncertainty of about 1.2–1.3 % (the docs/05 L ×1.2 change as a stand-in for the edge error, not a measured bound; L2 of |F|²
+   over the reflection hemisphere). This includes the Phase-4 target at σ = 100 nm; at L = 30 µm the larger
+   footprint-to-rim distance may change the picture, which is untested.
+3. Follow-up WP (proposed): σ = 100 nm, seed 1, fixed w₀ = 0.75 µm, L ×1.2 pairs at L = 6 → 7.2 µm
+   and 9 → 10.8 µm. This tests whether the footprint-to-rim distance controls the edge effect, and
+   it yields a rule in the form w₀ ≤ L/n or L/2 − 2w₀ ≥ d(σ). Not run, since it would expand the
+   scope of this WP: L = 7.2 µm alone is about 2N ≈ 6.4·10⁵ (≈ 55–60 GB, ≈ 1 h on this machine),
+   and L = 10.8 µm about 2N ≈ 1.1·10⁶ (≈ 90–100 GB, like the WP22d proxy at L = 10.5 µm).
+   If no usable rule comes out of it, the open surface with a PML of ADR 0009 (decided for Ag;
+   "Si stays on the box") would be the alternative for σ = 100 nm Si as well. For Ag, WP-V3 meets
+   the same ambiguity in the L ×1.2 check (rim scattering vs radiation from the added rough
+   annulus, not separated).
+
+### Costs (one solve at a time, 12 threads, machine otherwise lightly loaded)
+
+| Run type | 2N | Peak [GB] | Assembly + solve + far field (+ PARTS) |
+|---|---|---:|---|
+| L = 4.5 µm, depth 5.65 µm | 341 280 | 28 (σ 50) / 31 (σ 100) | 2–3 + 13–21 + 5–6 min, 31–38 min with PARTS |
+| L = 5.4 µm, depth 5.65 µm | 432 864 | 35 / 38 | 2–3 + 19–25 + 6–11 min, 39–51 min |
+| L = 4.5 µm, depth 11.29 µm | 585 360 | 48 / 53 | 3–4 + 30–38 + 9–13 min, 65–72 min |
+
+σ = 100 nm needs 10–30 % more iterations than σ = 50 nm (237–261 vs 196–219), in line with WP22d.
+The peaks are 0.80–0.82 of the RESULT peak estimates. In total the 11 solves took 8.8 h of wall
+time.
+
+### Reproduce (WP-V2b)
+
+```bash
+cmake --preset win-release -DSPECKLEBEM_BUILD_BENCHMARKS=ON && cmake --build --preset win-release
+B=build/win-release/benchmarks/specklebem_box_validity
+S="--compression mlfmm --material si --fine-band --box-mesh-size uniform --d0 3 --tol 1e-5 --max-iter 400 --max-gb 70"
+G="--L-gen 5.4e-6"
+# (a) seed 2, sigma 50 nm, w0 = L/6
+$B $S --seed 2 --sigma 50e-9 --L 4.5e-6 $G --waist 0.75e-6 --depth-factor 1 --out si45_s2_d1_uni_t5
+$B $S --seed 2 --sigma 50e-9 --L 5.4e-6 $G --waist 0.75e-6 --depth-factor 1 --out si54_s2_d1_uni_t5 --reference si45_s2_d1_uni_t5
+$B $S --seed 2 --sigma 50e-9 --L 4.5e-6 $G --waist 0.75e-6 --depth-factor 2 --out si45_s2_d2_uni_t5 --reference si45_s2_d1_uni_t5
+# (b) seed 1, sigma 100 nm, w0 = L/6 (fine band 3.69 um); (d) the same with --waist 0.5625e-6 (L/8), tags si45w056_sg100_* / si54w056_sg100_*
+$B $S --seed 1 --sigma 100e-9 --L 4.5e-6 $G --waist 0.75e-6 --depth-factor 1 --out si45_sg100_d1_uni_t5
+$B $S --seed 1 --sigma 100e-9 --L 5.4e-6 $G --waist 0.75e-6 --depth-factor 1 --out si54_sg100_d1_uni_t5 --reference si45_sg100_d1_uni_t5
+$B $S --seed 1 --sigma 100e-9 --L 4.5e-6 $G --waist 0.75e-6 --depth-factor 2 --out si45_sg100_d2_uni_t5 --reference si45_sg100_d1_uni_t5
+# (c) seed 1, sigma 50 nm, w0 = L/5
+$B $S --seed 1 --sigma 50e-9 --L 4.5e-6 $G --waist 0.9e-6 --depth-factor 1 --out si45w09_d1_uni_t5
+$B $S --seed 1 --sigma 50e-9 --L 5.4e-6 $G --waist 0.9e-6 --depth-factor 1 --out si54w09_d1_uni_t5 --reference si45w09_d1_uni_t5
+$B $S --seed 1 --sigma 50e-9 --L 4.5e-6 $G --waist 0.9e-6 --depth-factor 2 --out si45w09_d2_uni_t5 --reference si45w09_d1_uni_t5
+```
+
+Each run is one process with `OMP_NUM_THREADS=12`, `--tag` = the `--out` name, `--summary` and
+`--history`; the logged runs wrote into `out/v2b/runs/<tag>` (the COMPARE lines name those
+paths). The waist is always given as `--waist` (the study does not apply the library's
+`beam_waist_fraction`), and `--box-mesh-size uniform` pins the box (the study's own default is
+400 nm, not the library's uniform default).

@@ -66,7 +66,11 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   bitwise unchanged without stretch; dense assembly with a PML ≈ 150× the plain cost, fine for the dense prototype).
 - **Merged:** WP-PML3a (PML right-hand side masking, windowed far field, `Simulation` PML constructor, Python
   `Simulation.with_pml`; flat Si smoke −0.022 % vs Fresnel).
-- **In flight:** WP-V2b (Si waist confirmation; σ = 100 nm fails L ×1.2), WP-PML2c (stretched assembly cost).
+- **Merged:** WP-V2b (Si waist rule): w₀ ≤ L/6 confirmed at σ = 50 nm (second seed; L/5 also passes on seed 1);
+  at σ = 100 nm L ×1.2 fails (1.19 % at L/6, 1.28 % at L/8, L = 4.5 µm): the waist is not the lever (measured);
+  likely cause roughness-scattered fields reaching the rim (hypothesis, not separated from the added annulus).
+  Proposed ADR 0006 change (rule restricted to σ ≤ 50 nm, σ = 100 nm caveat, larger-L follow-up): lead decision open.
+- **In flight:** WP-PML2c (stretched assembly cost).
 - **Next:** WP-PML3b (validation 7a) after WP-PML3a (in flight: PML RHS, windowed far field, `Simulation`); Ag scaling on the uniform box (WP22b4,
   optional now that the graded-box series meets the DoD); Phases 5/6.
 - Test counts on `main`: 489 ctest (`-LE "validation-large|slow"`), 108 pytest; labels `slow`, `validation`
@@ -74,7 +78,9 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 
 ## Open questions / findings for the project lead
 
-1. **Box validity (WP-V2):** Si is fine with the uniform box and w₀ ≤ L/6; **Ag rough surfaces do not pass**
+1. **Box validity (WP-V2, WP-V2b):** Si is fine with the uniform box and w₀ ≤ L/6 at σ = 50 nm; at
+   σ = 100 nm (the Phase-4 roughness) the L ×1.2 check fails at L = 4.5 µm for every waist tried (1.2–1.3 %,
+   WP-V2b; ADR 0006 change proposed, lead decision open). **Ag rough surfaces do not pass**
    the docs/05 box checks at L = 4 µm (0.8–8 %). WP-V3: the cause is physical (surface waves, most likely
    surface plasmons, on the finite block, decay length 41.5 µm ≫ L), so a resonance-free formulation or
    tighter solver settings do not help. Since SPPs also radiate off roughness far outside a small patch,

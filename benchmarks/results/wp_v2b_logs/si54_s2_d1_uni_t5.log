@@ -1,0 +1,29 @@
+[2026-10-13 10:28:19.545] [info] [rough_surface.cpp:1269] rough box mesh: 109 x 109 grid, 23328 top + 97632 wall + 23328 bottom triangles (closing box / top = 5.185), depth 5.645512306863871e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 108 x 108 cells (target spacing 5e-08 m)
+[2026-10-13 10:28:19.559] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 109 x 109 grid, box depth 5.64551e-06 m: 0.015 s
+SETUP | si54_s2_d1_uni_t5 | si | eps_r 18.478-0.606j | delta 1.129e-06 m | L 5.4e-06 m (map 5.4e-06 m, seed 2, sigma 5e-08 m) | depth 5.646e-06 m | box_mesh_size uniform | M 0 | fine band 3.537e-06 m (0 rows) | triangles 144288 (top 23328, box 120960 = 518.5 %) | 2N 432864 | Z 2997.94 GB | w0 7.5e-07 m (L/7.2) | beam spectrum (5376 plane waves, 84 x 64, alpha_max 90.0 deg, grid check 3.6e-14, 0.1 s) | |E_inc| bottom centre 5.346e-01, rim x 4.381e-06, rim y 2.353e-06, corner 1.586e-11, wall foot x 1.713e-02
+ESTIMATE | si54_s2_d1_uni_t5 | d0 3 | leaf quantile 1 | triangles 144288 (top 23328, box 120960 = 518.519 %), box M = 0, fine rows 0, depth 5.64551 um, fine band 3.53731 um; 2N = 432864; r_max 64.9726 nm; octree 6 levels, leaf edge 182.776 nm (lambda / 2.73559), 5366 leaves; 0 elevated functions (home levels 5: 216432); near estimate 8.15597 GB, exact R2 estimate 0 GB (0 pairs), budget 16.3119 GB; leaf orders 13 / 35 (expansion levels 4 / 4), patterns 20.6667 GB (elevated 0 GB), far tables 4.7638 GB; setup peak estimate 41.2075 GB | Krylov at max-iter 400: 2.78 GB | peak estimate 43.98 GB | available 122.6 GB
+[2026-10-13 10:28:19.975] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 5 (a = 0.366 lambda_i): expansion, L = 13, search error 5.56e-04, block check 2.07e-02 (3 pairs)
+[2026-10-13 10:28:20.008] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 4 (a = 0.731 lambda_i): expansion, L = 18, search error 2.08e-06, block check 2.91e-03 (3 pairs)
+[2026-10-13 10:28:20.069] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 3 (a = 1.46 lambda_i): expansion, L = 28, search error 2.27e-09, block check 9.59e-05 (3 pairs)
+[2026-10-13 10:28:20.222] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 2 (a = 2.92 lambda_i): expansion, L = 46, search error 5.41e-13, block check 9.65e-06 (3 pairs)
+[2026-10-13 10:28:20.438] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 5 (a = 1.57 lambda_i): expansion, L = 35, search error 6.12e-08, block check 7.27e-04 (3 pairs)
+[2026-10-13 10:28:20.955] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 4 (a = 3.14 lambda_i): expansion, L = 55, search error 2.47e-10, block check 1.72e-06 (3 pairs)
+[2026-10-13 10:28:22.262] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 3 (a = 6.29 lambda_i): expansion, L = 92, search error 7.16e-12, block check 1.47e-06 (3 pairs)
+[2026-10-13 10:28:26.879] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 2 (a = 12.6 lambda_i): expansion, L = 164, search error 3.17e-12, block check 9.59e-07 (3 pairs)
+[2026-10-13 10:28:54.295] [info] [far_operator.cpp:1216] MlfmmFarOperator: 2N = 432864, 6 octree levels, d0 = 3, 24253.0 MB (incl. one apply workspace of 4098.9 MB)
+[2026-10-13 10:28:54.337] [info] [near_field.cpp:123] near field: 6 levels, 5366 leaves, leaf edge 1.828e-07 m, 2092689 column-list entries
+[2026-10-13 10:28:56.450] [info] [assembler.cpp:465] sparse assembly: N = 216432, 2N = 432864, nnz = 339687792 (785 per row), matrix 8152.507 MB
+[2026-10-13 10:30:26.156] [info] [timer.cpp:13] [timer] sparse assembly (2N = 432864, nnz = 339687792): 89.705 s
+[2026-10-13 10:30:26.157] [info] [mlfmm_operator.cpp:167] MlfmmOperator: 2N = 432864, 6 levels, leaf edge 0.366 lambda1, near nnz 339687792 (7778.1 MB, 91.86 s), far 24253.0 MB (34.35 s)
+[2026-10-13 10:30:26.157] [info] [timer.cpp:13] [timer] Simulation: MLFMM operator: 126.247 s
+[2026-10-13 10:30:48.655] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 22.498 s
+[2026-10-13 10:30:48.658] [info] [gmres.cpp:319] gmres: n = 432864, left preconditioner 'none', tol = 1.0e-05, max_iter = 400, full (no restart)
+[2026-10-13 10:36:45.486] [info] [gmres.cpp:420] gmres: iteration 50: relative residual 3.025e-03
+[2026-10-13 10:41:01.959] [info] [gmres.cpp:420] gmres: iteration 100: relative residual 2.938e-04
+[2026-10-13 10:45:56.987] [info] [gmres.cpp:420] gmres: iteration 150: relative residual 6.151e-05
+[2026-10-13 10:51:42.882] [info] [gmres.cpp:420] gmres: iteration 200: relative residual 1.188e-05
+[2026-10-13 10:52:27.715] [info] [gmres.cpp:497] gmres: converged in 206 iterations, 1299.05 s (CGS2 orthogonalisation 23.43 s, 206 re-orthogonalisations): relative residual 9.739e-06 (preconditioned), true residual 9.739e-06
+[2026-10-13 10:52:27.767] [info] [simulation.cpp:565] Simulation: ICTF GMRES, 2N = 432864: 206 it, converged true, true residual 9.739e-06, assembly 148.745 s, solve 1299.046 s
+RESULT | si54_s2_d1_uni_t5 | si | eps_r 18.478-0.606j | L 5.4e-06 | w0 7.5e-07 | depth 5.646e-06 | box_mesh_size uniform | fine 3.537e-06 m | beam spectrum | 2N 432864 | iterations 206 | converged yes | true residual 9.739e-06 | assembly 148.7 s | solve 1299.0 s | far field 660.0 s | ff degree check 2.10e-13 | P_refl 3.504053e-13 | P_fwd 9.051208e-13 | compression mlfmm | d0 3 | lq 1 | jacobi no | tol 1.0e-05 | operator 33.60 GB | peak after setup 29.41 GB | peak 35.21 GB | peak estimate 43.98 GB
+PARTS | si54_s2_d1_uni_t5 | P_part / P_refl | top 1.000e+00 (34776) | walls 9.353e-07 (146016) | bottom 3.963e-07 (34776) | rim 2.663e-07 (432) | foot 1.106e-09 (432)
+COMPARE | si54_s2_d1_uni_t5 vs out/v2b/runs/si45_s2_d1_uni_t5 | l2_refl 2.289e-03 | l2_off30 7.875e-03 | l2_fwd 2.776e-04 | dP_refl -4.132e-05 | eps_xz 3.563e-04 | eps_yz 5.763e-04

@@ -17,6 +17,15 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `CurrentWindow`, `Simulation.with_pml`, windowed `far_field` (`bistatic_rcs` refused on the PML route).
   Tests `[pml_rhs]`, `[pml_far_field]`, `[pml_simulation]`, `tests/python/test_pml.py`; validation-large smoke:
   flat Si, 2N = 11 440 (h = λ/4), R 0.388091 vs Fresnel beam 0.388176 (−0.022 %), edge currents ≤ 6.5e-9 of max.
+- tests / docs (WP-V2b): Si waist rule confirmation. Uses the `--sigma` option of
+  `benchmarks/box_validity.cpp` (WP-V3). Study (`benchmarks/results/box_validity_mlfmm.md`,
+  section "WP-V2b"; rows in `box_validity_mlfmm_rows.txt`, raw logs in
+  `benchmarks/results/wp_v2b_logs/`): 11 MLFMM solves at L = 4.5 → 5.4 µm, uniform box, tol 1e-5.
+  At σ = 50 nm the provisional rule w₀ ≤ L/6 holds for a second seed (depth ×2 0.009 %, L ×1.2
+  0.23 %), and L/5 passes both on seed 1 (0.007 % / 0.15 %). At σ = 100 nm the depth check passes (0.03 %) but
+  L ×1.2 fails at L/6 (1.19 %) and at L/8 (1.28 %): the waist is not the lever (measured); likely cause
+  (hypothesis, not separated from radiation by the added rough annulus): roughness-scattered fields reaching the rim. ADR 0006 change proposed (rule restricted to
+  σ ≤ 50 nm, σ = 100 nm caveat, larger-L follow-up), not applied.
 - kernels / operator (WP-PML2, ADR 0009 decisions 2–3): stretch-aware dense element blocks for the PML
   route. `op::Problem::stretch` (a `geometry::CoordinateStretch`) is passed by the dense assembler and
   `assemble_diagonal`; pairs with a stretched triangle use Piola-transformed RWG functions and the complex
