@@ -140,4 +140,9 @@ Vec3c GaussianBeam::magnetic_field(const Vec3& r) const {
     return (h_hat_.cast<Complex>() * s.amplitude + k_hat_.cast<Complex>() * h_zeta) / eta_;
 }
 
+Real GaussianBeam::power() const {
+    // int |A|^2 / (2 eta) dA over a plane normal to k_hat: (w0 / w)^2 pi w^2 / 2 / (2 eta).
+    return constants::pi * p_.waist_radius * p_.waist_radius / (4.0 * eta_.real());
+}
+
 }  // namespace specklebem::excitation

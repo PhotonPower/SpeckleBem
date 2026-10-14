@@ -75,11 +75,16 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Merged:** WP23 (HDF5 on the Python side, lead decision 2026-10-13: `specklebem.io.save_hdf5` / `load_hdf5`,
   `npy_to_hdf5`, `Simulation.save`, bitwise round trip incl. a PML case; h5py optional extra `specklebem[io]`;
   the C++ HDF5 stub, `SPECKLEBEM_ENABLE_HDF5` and `has_hdf5()` removed; ADR 0001 amendment).
+- **Merged:** WP25 (absolute DRC per steradian D = |F|²/(2η₁P_inc), radiated / reflected / scattered power,
+  `Simulation::incident_power`, `far_field`, Python `reflectance`; flat Si PML 0° −0.022 % vs R_beam, Si sphere
+  −1.17 % vs Mie C_sca). Direct far-field evaluation is cheap (1° hemisphere ≈ 790 s extrapolated at 2N ≈ 10⁶,
+  4 threads): no MLFMM far-field acceleration; follow-up only if Phase 6 needs ≥ 10⁵ directions per solve.
+  PML-route exception rule: wrong state → `std::logic_error` / RuntimeError, k_z > 0 direction → ValueError.
 - **In flight:** WP-PML3b (validation 7a, flat Ag/Si with PML, 0°/45°, s/p; 45° Si needs h ≤ λ/6, sensitivities
-  running), WP25 (absolute DRC per steradian, radiated / reflected power, `Simulation::incident_power`).
-- **Next:** after WP-PML3b: WP24 (Ag sphere near field vs Mie), WP25 (absolute DRC), WP-PML4 (7b–7e); Ag scaling
+  running).
+- **Next:** after WP-PML3b: WP24 (Ag sphere near field vs Mie), WP-PML4 (7b–7e); Ag scaling
   on the uniform box (WP22b4, optional now that the graded-box series meets the DoD); Phase 6.
-- Test counts on `main`: 492 ctest (`-LE "validation-large|slow"`), 121 pytest; labels `slow`, `validation`
+- Test counts on `main`: 508 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

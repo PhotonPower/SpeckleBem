@@ -5,6 +5,7 @@
 #include "specklebem/compression/mlfmm/interpolation.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/core/timer.hpp"
+#include "specklebem/excitation/angular_spectrum_beam.hpp"
 #include "specklebem/kernels/operators.hpp"
 #include "specklebem/operator/dense_operator.hpp"
 #include "specklebem/solver/direct.hpp"
@@ -960,6 +961,95 @@ post::FieldOptions Simulation::far_field_options(int quad_degree) const {
     o.quad_degree = quad_degree;
     o.window = impl_->window;
     return o;
+}
+
+namespace {
+
+/// PML route: R1 is the half space below the surface, so far-field directions must point into
+/// the reflection hemisphere (k_z <= 1e-12 |k_hat|).
+void require_reflection_directions(bool pml, const Vertices& directions, const char* who) {
+    if (!pml)
+        return;
+    for (Index i = 0; i < directions.rows(); ++i) {
+        const Real len = directions.row(i).norm();
+        if (directions(i, 2) > 1e-12 * len) {
+            throw std::invalid_argument(
+                std::string("Simulation::") + who + ": direction " + std::to_string(i) +
+                " has k_z > 0; on the PML route R1 is the half space below the surface, so only "
+                "the reflection hemisphere k_z <= 0 has a far field");
+        }
+    }
+}
+
+}  // namespace
+
+Eigen::Matrix<Complex, Eigen::Dynamic, 3> Simulation::far_field(
+    const Vertices& directions, const post::FieldOptions& opt) const {
+    const post::SurfaceSolution& s = solution();
+    require_reflection_directions(has_pml(), directions, "far_field");
+    Eigen::Matrix<Complex, Eigen::Dynamic, 3> F;
+    post::far_field(s, directions, F, opt);
+    return F;
+}
+
+Eigen::Matrix<Complex, Eigen::Dynamic, 3> Simulation::far_field(const Vertices& directions,
+                                                                int quad_degree) const {
+    return far_field(directions, far_field_options(quad_degree));
+}
+
+Real Simulation::incident_power() const {
+    const excitation::Excitation* e = impl_->excitation.get();
+    if (const auto* asb = dynamic_cast<const excitation::AngularSpectrumBeam*>(e))
+        return asb->power();
+    if (const auto* gb = dynamic_cast<const excitation::GaussianBeam*>(e))
+        return gb->power();
+    if (dynamic_cast<const excitation::PlaneWave*>(e) != nullptr) {
+        throw std::logic_error(
+            "Simulation::incident_power: a plane wave carries infinite power; normalise by its "
+            "intensity |E_0|^2 / (2 eta_1) instead (cross sections, bistatic_rcs)");
+    }
+    throw std::logic_error(
+        "Simulation::incident_power: the excitation has no finite power known to Simulation "
+        "(AngularSpectrumBeam and GaussianBeam have one)");
+}
+
+VectorXr Simulation::drc(const Vertices& directions, int quad_degree) const {
+    const post::SurfaceSolution& s = solution();
+    require_reflection_directions(has_pml(), directions, "drc");
+    return post::drc(s, directions, incident_power(), far_field_options(quad_degree));
+}
+
+post::PolarizedIntensity Simulation::drc_polarized(const Vertices& directions,
+                                                   const Vec3& co_pol_direction,
+                                                   int quad_degree) const {
+    const post::SurfaceSolution& s = solution();
+    require_reflection_directions(has_pml(), directions, "drc_polarized");
+    return post::drc_polarized(s, directions, incident_power(), co_pol_direction,
+                               far_field_options(quad_degree));
+}
+
+Real Simulation::radiated_power(const Vertices& directions, const VectorXr& weights,
+                                int quad_degree) const {
+    const post::SurfaceSolution& s = solution();
+    require_reflection_directions(has_pml(), directions, "radiated_power");
+    return post::radiated_power(s, directions, weights, far_field_options(quad_degree));
+}
+
+Real Simulation::reflected_power(int n_theta, int n_phi, int quad_degree) const {
+    const post::SurfaceSolution& s = solution();
+    return post::radiated_power(s, post::hemisphere_grid(-1.0, n_theta, n_phi),
+                                far_field_options(quad_degree));
+}
+
+Real Simulation::scattered_power(int n_theta, int n_phi, int quad_degree) const {
+    const post::SurfaceSolution& s = solution();
+    if (has_pml()) {
+        throw std::logic_error(
+            "Simulation::scattered_power: not defined on the PML route (the forward hemisphere "
+            "lies in R2, which has no far field); use reflected_power()");
+    }
+    return post::radiated_power(s, post::sphere_grid(n_theta, n_phi),
+                                far_field_options(quad_degree));
 }
 
 namespace {

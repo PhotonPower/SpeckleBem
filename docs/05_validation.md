@@ -30,6 +30,8 @@ analytic (Mie, Fresnel, static integrals)
 | Mesh refinement λ/8 → λ/16 → λ/32 | Mie | ε_rr monotone decrease | — | 2 |
 | Power balance, Ag and Si spheres d = 1 µm, PMCHWT + LU (P_abs = ½ Re ∮ (n̂ × M)·J* dS from the surface currents) | — | |P_ext − P_sca − P_abs| / P_ext | < 1 %: Si at λ/6.6 (icosphere n = 3), Ag at λ/13 (n = 4, `validation-large`); at λ/6.6 the Ag defect is 2.3 % because P_abs ≈ 1.6 % of P_ext | 2 |
 | Flat box, tapered beam, 0° and 45° | Fresnel r_p, r_s | rel on |r|² | < 1 % (met, WP22c: `benchmarks/results/fresnel_flat.md`; Ag needs GMRES tol 1e-5) | 2 → 4 |
+| Total scattered power, Si sphere d = 1 µm, PMCHWT + LU, icosphere n = 3 (`Simulation::scattered_power`, full-sphere grid 64 × 128 / (\|E₀\|²/2η₁); tests/validation/test_drc_power.cpp) | Mie C_sca | rel | < 2 % (the bound of the Si power-balance case; met, WP25: −1.17 %) | 5 |
+| Absolute DRC per steradian, flat Si, PML route, 0°, w₀ = 0.5 µm, h = 125 nm, dense (`Simulation::drc` on the 1° reflection hemisphere; tests/validation_large/test_drc_fresnel_large.cpp, `validation-large`) | Fresnel beam reflectance R_beam | rel on ∫_{k_z<0} D dΩ | < 1 % (met, WP25: −0.022 %; evaluation cost `benchmarks/results/drc_evaluation.md`) | 5 |
 | GMRES vs LU, 2·10⁴ unknowns | dense LU | true relative residual ≤ tol (solution difference vs LU documented, κ-limited) | < tol | 3 |
 | MLFMM matvec, Si & Ag, 2·10⁴–10⁵ unknowns | dense matvec | rel | < 1e-3 (3 digits), < 1e-5 (5 digits) | 4 |
 | Ag sphere d = 4 µm, λ/27¹, MLFMM | Mie | ε_rr normal/parallel planes | ≤ 0.5 % | 4 |

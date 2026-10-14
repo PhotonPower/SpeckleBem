@@ -12,6 +12,7 @@
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/postprocessing/fields.hpp"
+#include "specklebem/postprocessing/scattering.hpp"
 #include "specklebem/solver/gmres.hpp"
 
 #include <array>
@@ -415,6 +416,65 @@ public:
     /// FieldOptions for post::far_field on solution(): quad_degree, the default
     /// min_distance_factor and far_field_window() (none for the box route).
     [[nodiscard]] post::FieldOptions far_field_options(int quad_degree = 6) const;
+    /// Far-field amplitude F [V] per row of `directions` (E_s ~ F exp(-j k_1 r) / r in R1):
+    /// post::far_field on solution() with `opt` (e.g. far_field_options() with another window).
+    /// On the PML route the rows must lie in the reflection hemisphere, as for drc() below; the
+    /// box route accepts every direction.
+    /// @throws std::logic_error before solve(); std::invalid_argument for k_z > 0 rows on the
+    ///         PML route and everything post::far_field throws for.
+    [[nodiscard]] Eigen::Matrix<Complex, Eigen::Dynamic, 3> far_field(
+        const Vertices& directions, const post::FieldOptions& opt) const;
+    /// Same with far_field_options(quad_degree) (the PML route's window applied automatically).
+    [[nodiscard]] Eigen::Matrix<Complex, Eigen::Dynamic, 3> far_field(const Vertices& directions,
+                                                                      int quad_degree = 6) const;
+
+    /// Absolute far-field observables (WP25). All of them evaluate post::far_field on
+    /// solution() with far_field_options(quad_degree), so the PML route's current window is
+    /// applied automatically. On the PML route R1 is the half space below the surface: every
+    /// direction must point into the reflection hemisphere, k_z <= 1e-12 |k_hat| (rows with
+    /// k_z > 0 throw std::invalid_argument, as far_field() does), and scattered_power() is
+    /// refused (std::logic_error: a valid call in the wrong state; the same rule as the Python
+    /// binding's bistatic_rcs and field on that route).
+    ///
+    /// Incident power P_inc [W] of the excitation: AngularSpectrumBeam::power() (through any
+    /// plane normal to the beam axis, the normalisation of the WP22c / PML reflectances) or
+    /// GaussianBeam::power() (paraxial, pi w0^2 / (4 eta_1)). Needs no solve.
+    /// @throws std::logic_error for a plane wave (infinite power: normalise by the intensity
+    ///         |E_0|^2 / (2 eta_1) instead, i.e. use cross sections) and for any other excitation
+    ///         type without a known finite power.
+    [[nodiscard]] Real incident_power() const;
+    /// Absolute DRC D(k_hat) = |F|^2 / (2 eta_1 P_inc) [1/sr] per row of `directions`
+    /// (post::drc with P_inc = incident_power()); its integral over the reflection hemisphere
+    /// is the reflectance.
+    /// @throws std::logic_error before solve() and from incident_power(); std::invalid_argument
+    ///         for k_z > 0 rows on the PML route and everything post::drc throws for.
+    [[nodiscard]] VectorXr drc(const Vertices& directions, int quad_degree = 6) const;
+    /// Co- and cross-polarised parts of drc() (post::drc_polarized, fixed Cartesian co_pol
+    /// vector, e.g. the incident polarisation). Same exceptions as drc() plus a zero or
+    /// non-finite co_pol_direction.
+    [[nodiscard]] post::PolarizedIntensity drc_polarized(const Vertices& directions,
+                                                         const Vec3& co_pol_direction,
+                                                         int quad_degree = 6) const;
+    /// Power [W] radiated into the solid angle of a quadrature rule (post::radiated_power:
+    /// (1 / 2 eta_1) sum w |F|^2, weights in sr). Needs no incident power (works for a plane
+    /// wave). @throws std::logic_error before solve(); std::invalid_argument for k_z > 0 rows on
+    /// the PML route and everything post::radiated_power throws for.
+    [[nodiscard]] Real radiated_power(const Vertices& directions, const VectorXr& weights,
+                                      int quad_degree = 6) const;
+    /// Power [W] radiated into the reflection hemisphere k_z < 0 (towards the source side of a
+    /// beam travelling in +z; for a sphere the backward hemisphere): radiated_power over
+    /// post::hemisphere_grid(-1, n_theta, n_phi). reflected_power() / incident_power() is the
+    /// reflectance R (1 deg grid: n_theta = 90, n_phi = 180).
+    /// @throws std::logic_error before solve(); std::invalid_argument for n_theta < 1 or
+    ///         n_phi < 4 and everything post::radiated_power throws for.
+    [[nodiscard]] Real reflected_power(int n_theta, int n_phi, int quad_degree = 6) const;
+    /// Total scattered power [W] over the full sphere (post::sphere_grid(n_theta, n_phi)); the
+    /// scattering cross section of a plane wave is scattered_power() / (|E_0|^2 / (2 eta_1)).
+    /// Box route only (closed mesh in R1).
+    /// @throws std::logic_error before solve() and on the PML route (the forward hemisphere lies
+    ///         in R2 there: no far field); std::invalid_argument as reflected_power().
+    [[nodiscard]] Real scattered_power(int n_theta, int n_phi, int quad_degree = 6) const;
+
     /// PML route only: the termination, the open mesh's zone tags and half widths (mesh moved
     /// into mesh()), the stretch and the measured dark-band ratio.
     /// @throws std::logic_error for the box route.

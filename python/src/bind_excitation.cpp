@@ -252,7 +252,10 @@ ValueError
             "focus", [](const GaussianBeam& b) { return b.params().focus; }, "Focus [m].")
         .def_property_readonly(
             "polarization", [](const GaussianBeam& b) { return b.params().polarization; },
-            "Polarization.P or Polarization.S.");
+            "Polarization.P or Polarization.S.")
+        .def_property_readonly("power", &GaussianBeam::power,
+                               "Time-averaged power [W] through any plane normal to the beam "
+                               "axis, pi w0^2 / (4 eta) for 1 V/m on axis (paraxial model).");
 
     py::class_<AngularSpectrumBeam, Excitation, std::shared_ptr<AngularSpectrumBeam>>(
         m, "AngularSpectrumBeam", R"doc(

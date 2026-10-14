@@ -135,7 +135,14 @@ def test_with_pml_tiny_solve():
     np.testing.assert_array_equal(F2, F[0])
     with pytest.raises(ValueError, match="beyond the PML stretch start"):
         sim.far_field([0.0, 0.0, -1.0], window=sb.CurrentWindow(om.taper_end, om.outer_half))
-    with pytest.raises(ValueError):
+    # PML-route exception rule (WP25 review): valid call, wrong state -> RuntimeError; an
+    # invalid direction (k_z > 0: R2 on this route) -> ValueError.
+    with pytest.raises(RuntimeError, match="not available on the PML route"):
         sim.field([0.0, 0.0, -1e-6])
-    with pytest.raises(ValueError, match="not available on the PML route"):
+    with pytest.raises(RuntimeError, match="not available on the PML route"):
         sim.bistatic_rcs([0.0, 0.1])
+    with pytest.raises(ValueError, match="k_z > 0"):
+        sim.far_field([0.0, 0.0, 1.0])
+    with pytest.raises(ValueError, match="k_z > 0"):
+        sim.far_field([[0.0, 0.0, -1.0], [0.6, 0.0, 0.8]], window=sim.far_field_window)
+    assert np.all(np.isfinite(sim.far_field([1.0, 0.0, 0.0])))  # grazing k_z = 0 is accepted

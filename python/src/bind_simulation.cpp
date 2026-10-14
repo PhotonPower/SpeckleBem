@@ -407,7 +407,8 @@ py::object vector_or_scalar(const VectorXr& v, bool scalar) {
 
 py::object bistatic_rcs(PySimulation& sim, const py::object& angles, const py::object& plane) {
     if (sim.has_pml()) {
-        throw py::value_error(
+        // A valid call in the wrong state (std::logic_error -> RuntimeError), as scattered_power.
+        throw std::logic_error(
             "bistatic_rcs: not available on the PML route (the far field must be windowed); use "
             "Simulation.far_field(directions), which applies the window across the gap");
     }
@@ -445,6 +446,12 @@ py::tuple field(PySimulation& sim, const py::object& points, const std::string& 
     if (k != "scattered" && k != "total") {
         throw py::value_error("kind: expected \"scattered\" or \"total\"");
     }
+    if (sim.has_pml()) {
+        // A valid call in the wrong state (std::logic_error -> RuntimeError), as bistatic_rcs.
+        throw std::logic_error(
+            "field: near fields are not available on the PML route (they would need the "
+            "continued currents of the stretched problem); use Simulation.far_field");
+    }
     post::FieldOptions opt;
     opt.quad_degree = quad_degree;
     opt.min_distance_factor = min_distance_factor;
@@ -468,9 +475,38 @@ py::object far_field(PySimulation& sim, const py::object& directions, int quad_d
     post::FieldOptions opt = sim.far_field_options(quad_degree);
     if (window)
         opt.window = window;
-    FieldMatrix F;
-    sim.locked([&] { post::far_field(sim.solution(), d, F, opt); });
+    // Simulation::far_field: on the PML route k_z > 0 rows raise ValueError, as drc.
+    const FieldMatrix F = sim.locked([&] { return sim.far_field(d, opt); });
     return fields_to_array(F, single);
+}
+
+/// Simulation.drc: D (n,) or a float for one (3,) direction; with co_pol the tuple (co, cross).
+py::object drc(PySimulation& sim, const py::object& directions, int quad_degree,
+               const std::optional<Vec3>& co_pol) {
+    bool single = false;
+    const Vertices d = points_from_array(directions, "directions", &single);
+    require_all_finite(d, "directions");
+    if (co_pol) {
+        require_all_finite(*co_pol, "co_pol");
+        const post::PolarizedIntensity p =
+            sim.locked([&] { return sim.drc_polarized(d, *co_pol, quad_degree); });
+        return py::make_tuple(vector_or_scalar(p.co, single), vector_or_scalar(p.cross, single));
+    }
+    const VectorXr v = sim.locked([&] { return sim.drc(d, quad_degree); });
+    return vector_or_scalar(v, single);
+}
+
+/// Simulation.radiated_power(directions, weights): (n, 3) directions and (n,) weights [sr].
+Real radiated_power(PySimulation& sim, const py::object& directions, const py::object& weights,
+                    int quad_degree) {
+    const Vertices d = points_from_array(directions, "directions");
+    require_all_finite(d, "directions");
+    const auto w = real_array(weights, "weights");
+    if (w.ndim() != 1) {
+        throw py::value_error("weights: expected a 1-D array");
+    }
+    const VectorXr wv = Eigen::Map<const VectorXr>(w.data(), static_cast<Index>(w.size()));
+    return sim.locked([&] { return sim.radiated_power(d, wv, quad_degree); });
 }
 
 VectorXc matvec(const op::LinearOperator& A, const py::object& x) {
@@ -957,7 +993,8 @@ Notes
 Thread-safe, with limits: calls on one Simulation from several threads are serialised by a
 per-object lock (taken with the GIL released), so they run one after another, not in
 parallel (use one Simulation per thread for parallel work). The methods that take the lock
-are assemble, solve, report, currents, operator, rhs, field, far_field and bistatic_rcs.
+are assemble, solve, report, currents, operator, rhs, field, far_field, bistatic_rcs, drc,
+radiated_power, reflected_power, reflectance and scattered_power.
 From inside a solve() callback they raise RuntimeError instead of waiting: always on the
 Simulation being solved, and on another Simulation while that one is busy (an idle one
 works). A main thread waiting for the lock stays interruptible with Ctrl-C
@@ -1179,13 +1216,20 @@ quad_degree, min_distance_factor :
 Returns
 -------
 (E, H) : ndarrays of complex128, shape (n, 3) or (3,)
+
+Raises
+------
+RuntimeError
+    Before solve() and on the PML route (no near fields there; use far_field).
 )doc")
         .def("far_field", &far_field, py::arg("directions"), py::arg("quad_degree") = 6,
              py::arg("window") = py::none(),
              "Far-field amplitude F [V] with E_s ~ F exp(-jkr) / r for directions (n, 3) "
              "(normalised internally); returns (n, 3) complex128. window: CurrentWindow on the "
              "currents; None = far_field_window (the PML route's window across the gap, none "
-             "for the box route).")
+             "for the box route). On the PML route the directions must lie in the reflection "
+             "hemisphere k_z <= 0 (ValueError otherwise; R1 is the half space below the "
+             "surface). RuntimeError before solve().")
         .def("bistatic_rcs", &bistatic_rcs, py::arg("angles"), py::arg("plane") = "xz", R"doc(
 Bistatic radar cross section sigma(theta) [m^2] (incidence along +z).
 
@@ -1200,6 +1244,150 @@ plane : str or array_like, shape (3,)
 Returns
 -------
 float or ndarray of float64, shape (n,)
+
+Raises
+------
+RuntimeError
+    Before solve() and on the PML route (use far_field or drc there).
+)doc")
+        // Unlocked: depends only on the excitation, fixed at construction.
+        .def("incident_power", &Simulation::incident_power, R"doc(
+Incident power P_inc [W] of the excitation (no solve needed).
+
+AngularSpectrumBeam: its power (through any plane normal to the beam axis); GaussianBeam:
+pi w0^2 / (4 eta_1) (paraxial). The normalisation of drc and of the reflectance
+reflected_power() / incident_power().
+
+Raises
+------
+RuntimeError
+    For a plane wave (infinite power: normalise by |E_0|^2 / (2 eta_1), i.e. cross sections).
+)doc")
+        .def("drc", &drc, py::arg("directions"), py::arg("quad_degree") = 6,
+             py::arg("co_pol") = py::none(), R"doc(
+Absolute differential reflection coefficient D = |F|^2 / (2 eta_1 P_inc) [1/sr].
+
+Parameters
+----------
+directions : array_like, shape (n, 3) or (3,)
+    Finite, non-zero far-field directions (normalised internally). On the PML route they must
+    lie in the reflection hemisphere (k_z <= 0), otherwise ValueError.
+quad_degree : int
+    Dunavant degree of the source quadrature (positive-interior rule).
+co_pol : array_like, shape (3,), optional
+    Fixed Cartesian co-polarisation vector (e.g. the incident polarisation); then the tuple
+    (co, cross) with co = |F . e_co|^2 / (2 eta_1 P_inc) and cross = D - co is returned.
+
+Returns
+-------
+float or ndarray of float64, shape (n,), or a tuple (co, cross) of them
+    Its integral over the reflection hemisphere (weights of hemisphere_grid(-1, ...)) is the
+    reflectance. The PML route's current window is applied automatically.
+
+Raises
+------
+RuntimeError
+    Before solve() and for a plane wave (no finite incident power).
+)doc")
+        .def("radiated_power", &radiated_power, py::arg("directions"), py::arg("weights"),
+             py::arg("quad_degree") = 6, R"doc(
+Power [W] radiated into the solid angle of a quadrature rule: (1 / 2 eta_1) sum w |F|^2.
+
+Parameters
+----------
+directions : array_like, shape (n, 3)
+    Far-field directions (e.g. SphereGrid.directions; k_z <= 0 on the PML route).
+weights : array_like, shape (n,)
+    Solid-angle weights [sr] (finite, >= 0; e.g. SphereGrid.weights).
+quad_degree : int
+    Dunavant degree of the source quadrature.
+
+Returns
+-------
+float
+    Works for a plane wave too (no incident power needed). RuntimeError before solve().
+)doc")
+        .def(
+            "reflected_power",
+            [](PySimulation& s, int n_theta, int n_phi, int quad_degree) {
+                return s.locked([&] { return s.reflected_power(n_theta, n_phi, quad_degree); });
+            },
+            py::arg("n_theta"), py::arg("n_phi"), py::arg("quad_degree") = 6, R"doc(
+Power [W] into the reflection hemisphere k_z < 0 over hemisphere_grid(-1, n_theta, n_phi).
+
+reflected_power(90, 180) / incident_power() is the reflectance on a 1 deg grid. Needs
+n_theta >= 1 and n_phi >= 4 (ValueError otherwise); RuntimeError before solve().
+)doc")
+        .def(
+            "scattered_power",
+            [](PySimulation& s, int n_theta, int n_phi, int quad_degree) {
+                return s.locked([&] { return s.scattered_power(n_theta, n_phi, quad_degree); });
+            },
+            py::arg("n_theta"), py::arg("n_phi"), py::arg("quad_degree") = 6, R"doc(
+Total scattered power [W] over the full sphere (sphere_grid(n_theta, n_phi)).
+
+For a plane wave the scattering cross section is scattered_power / (|E_0|^2 / (2 eta_1)).
+RuntimeError before solve() and on the PML route (the forward hemisphere lies in R2 there).
+)doc")
+        .def(
+            "reflectance",
+            [](PySimulation& s, int n_theta, int n_phi, int quad_degree) {
+                const Real p_inc = s.incident_power();  // fixed at construction: no lock
+                return s.locked([&] { return s.reflected_power(n_theta, n_phi, quad_degree); }) /
+                       p_inc;
+            },
+            py::arg("n_theta"), py::arg("n_phi"), py::arg("quad_degree") = 6, R"doc(
+Reflectance R = reflected_power(n_theta, n_phi, quad_degree) / incident_power() (dimensionless).
+
+The integral of drc over the reflection hemisphere k_z < 0 (1 deg grid: n_theta = 90,
+n_phi = 180). RuntimeError before solve() and for a plane wave (no finite incident power);
+ValueError for n_theta < 1 or n_phi < 4.
+)doc");
+
+    py::class_<post::SphereGrid>(m, "SphereGrid", R"doc(
+Direction grid with solid-angle weights (hemisphere_grid, sphere_grid).
+
+Gauss-Legendre in the polar angle theta from the grid's pole times the trapezoid rule in phi,
+row i * n_phi + j. The weights sum to 2 pi (hemisphere) or 4 pi (sphere) to rounding from
+n_theta >= 7 / 8 (Gauss-Legendre rule for int sin(theta)).
+)doc")
+        .def_property_readonly(
+            "directions", [](const post::SphereGrid& g) -> const Vertices& { return g.dirs; },
+            py::return_value_policy::reference_internal, "(n, 3) unit directions (read-only view).")
+        .def_property_readonly(
+            "weights", [](const post::SphereGrid& g) -> const VectorXr& { return g.weights; },
+            py::return_value_policy::reference_internal, "(n,) solid-angle weights [sr].")
+        .def_property_readonly(
+            "theta", [](const post::SphereGrid& g) -> const VectorXr& { return g.theta; },
+            py::return_value_policy::reference_internal,
+            "(n,) polar angle from the grid's pole [rad].")
+        .def("__len__", [](const post::SphereGrid& g) { return g.dirs.rows(); })
+        .def("__repr__", [](const post::SphereGrid& g) {
+            std::ostringstream o;
+            o << "SphereGrid(" << g.dirs.rows() << " directions, sum of weights " << g.weights.sum()
+              << " sr)";
+            return o.str();
+        });
+    m.def("hemisphere_grid", &post::hemisphere_grid, py::arg("z_sign"), py::arg("n_theta"),
+          py::arg("n_phi"), R"doc(
+Hemisphere grid around the pole z_sign * z (z_sign = -1: the reflection hemisphere k_z < 0).
+
+n_theta Gauss-Legendre nodes in theta in (0, pi / 2) times n_phi azimuths phi_j = 2 pi j / n_phi;
+weights (pi / 4) w_GL sin(theta) (2 pi / n_phi) [sr]. 1 deg grid: n_theta = 90, n_phi = 180.
+ValueError for z_sign not +1 / -1, n_theta < 1 or n_phi < 4.
+
+Returns
+-------
+SphereGrid
+)doc");
+    m.def("sphere_grid", &post::sphere_grid, py::arg("n_theta"), py::arg("n_phi"), R"doc(
+Full-sphere grid: n_theta Gauss-Legendre nodes in theta in (0, pi) from +z times n_phi azimuths.
+
+Weights (pi / 2) w_GL sin(theta) (2 pi / n_phi) [sr]. ValueError for n_theta < 1 or n_phi < 4.
+
+Returns
+-------
+SphereGrid
 )doc");
 
     m.def(
@@ -1237,13 +1425,49 @@ float or ndarray of float64, shape (n,)
         py::arg("E"), "|E|^2 [V^2/m^2] per row of E (n, 3) (a float for one (3,) vector).");
     m.def(
         "differential_reflection_coefficient",
-        [](const py::object& E, int n_theta, int n_y) {
-            return post::differential_reflection_coefficient(fields_from_array(E, "E"), n_theta,
-                                                             n_y);
+        [](const py::object& E, int n_theta, int n_y, const std::optional<Real>& radius,
+           const std::optional<Real>& incident_power,
+           const std::optional<material::Material>& background) {
+            const FieldMatrix f = fields_from_array(E, "E_cyl");
+            if (radius.has_value() != incident_power.has_value()) {
+                throw py::value_error(
+                    "differential_reflection_coefficient: give both radius and incident_power "
+                    "(absolute DRC) or neither (relative DRC)");
+            }
+            if (!radius) {
+                if (background) {
+                    throw py::value_error(
+                        "differential_reflection_coefficient: background is used only by the "
+                        "absolute DRC (with radius and incident_power)");
+                }
+                return post::differential_reflection_coefficient(f, n_theta, n_y);
+            }
+            return post::differential_reflection_coefficient(
+                f, n_theta, n_y, *radius, *incident_power, background.value_or(material::vacuum()));
         },
-        py::arg("E_cyl"), py::arg("n_theta"), py::arg("n_y"),
-        "Relative DRC: mean |E|^2 [V^2/m^2] over the n_y axial samples per theta of fields on "
-        "cylinder_grid (row k * n_y + l).");
+        py::arg("E_cyl"), py::arg("n_theta"), py::arg("n_y"), py::kw_only(),
+        py::arg("radius") = py::none(), py::arg("incident_power") = py::none(),
+        py::arg("background") = py::none(), R"doc(
+DRC from fields on cylinder_grid (row k * n_y + l), averaged over the n_y axial samples.
+
+Parameters
+----------
+E_cyl : array_like, shape (n_theta * n_y, 3)
+    Scattered field [V/m] on the cylinder.
+n_theta, n_y : int
+    Grid counts of cylinder_grid.
+radius, incident_power : float, optional
+    Cylinder radius [m] and incident power [W] (e.g. Simulation.incident_power()). Without
+    them: the relative DRC, mean |E|^2 [V^2/m^2]. With both: the absolute DRC [1/sr],
+    r^2 / (2 eta_1 P_inc) mean |E|^2, which approximates the far-field drc only in the far
+    zone (deviation ~ 1 / r; r >> L^2 / lambda).
+background : Material, optional
+    Lossless medium R1 for eta_1 (absolute DRC only; default vacuum).
+
+Returns
+-------
+ndarray of float64, shape (n_theta,)
+)doc");
     bind_box_defaults(m);
 }
 

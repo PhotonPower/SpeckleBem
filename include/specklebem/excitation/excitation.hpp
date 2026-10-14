@@ -101,6 +101,14 @@ public:
     [[nodiscard]] Vec3c electric_field(const Vec3& r) const override;
     [[nodiscard]] Vec3c magnetic_field(const Vec3& r) const override;
     [[nodiscard]] const Params& params() const { return p_; }
+    /// Time-averaged power [W] through any plane normal to k_hat (WP25): pi w0^2 / (4 eta) for
+    /// the unit on-axis amplitude. Exact within this model: the Poynting component along k_hat is
+    /// |A|^2 / (2 eta) (only the transverse fields e_hat A and (k_hat x e_hat) A / eta contribute
+    /// to it), and |A|^2 = (w0 / w)^2 exp(-2 rho^2 / w^2) integrates to pi w0^2 / 2 at every
+    /// zeta. It is the paraxial limit of AngularSpectrumBeam::power() (same unit on-axis
+    /// amplitude): that one is power() (1 + f^2 / 2 + O(f^4)), f = lambda / (pi w0 n1), e.g.
+    /// 5.1e-4 relative more at w0 = 10 lambda (tests/unit/test_scattering.cpp).
+    [[nodiscard]] Real power() const;
 
 private:
     struct Sample {

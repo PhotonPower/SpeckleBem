@@ -24,6 +24,7 @@ add_executable(specklebem_unit_tests
     unit/test_angular_spectrum_beam.cpp
     unit/test_direct.cpp
     unit/test_fields.cpp
+    unit/test_scattering.cpp
     unit/test_operators.cpp
     unit/test_stretched_kernels.cpp
     unit/test_pml_route.cpp
@@ -104,6 +105,7 @@ add_executable(specklebem_validation_tests
     # validation/test_mlfmm_vs_dense.cpp
     validation/test_flat_interface_fresnel.cpp
     validation/test_ag_absorption.cpp
+    validation/test_drc_power.cpp
 )
 target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
@@ -120,6 +122,7 @@ add_executable(specklebem_validation_large_tests
     validation_large/test_ag_sphere_mlfmm_large.cpp
     validation_large/test_flat_interface_fresnel_large.cpp
     validation_large/test_pml_smoke_large.cpp
+    validation_large/test_drc_fresnel_large.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_large_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)

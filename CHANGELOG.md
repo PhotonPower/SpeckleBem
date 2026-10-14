@@ -5,6 +5,15 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- post / simulation / python (WP25): absolute observables. `post::SphereGrid`, `hemisphere_grid`, `sphere_grid`
+  (Gauss–Legendre θ × trapezoid φ, weights in sr), `post::radiated_power` = (1/2η₁) Σ w |F|², `post::drc` /
+  `drc_polarized` (D = |F|²/(2η₁ P_inc) per steradian, ∫_{k_z<0} D dΩ = R), absolute cylinder DRC overload
+  (far-zone approximation). `GaussianBeam::power()` = πw₀²/(4η). `Simulation::incident_power`, `far_field`, `drc`,
+  `drc_polarized`, `radiated_power`, `reflected_power`, `scattered_power` (PML window applied automatically; on the
+  PML route k_z > 0 directions are refused and `scattered_power` is unavailable); Python bindings and
+  `Simulation.reflectance`. Validation: Si sphere scattered power vs Mie −1.17 % (< 2 %), flat Si PML 0° ∫D dΩ vs
+  R_beam −0.022 % (validation-large); CI check that the public API reproduces the support-code reflectance;
+  evaluation cost in `benchmarks/results/drc_evaluation.md`.
 - python / io (WP23, lead decision 2026-10-13: HDF5 on the Python side, ADR 0001 amendment): `specklebem.io.save_hdf5` /
   `load_hdf5` (mesh, currents, right-hand side, fields with nested attrs, `/far_fields`, solver history and
   parameters, config / excitation / PML metadata, format version and self-descriptions), `npy_to_hdf5` for the C++
@@ -486,6 +495,8 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `Simulation` (validation-large), 2N = 61 440 icosphere exact-rows case, memory guards.
 
 ### Removed
+- python (WP25): PML-route refusals use one rule: a valid call in the wrong state raises RuntimeError
+  (`bistatic_rcs`, `field` changed from ValueError), invalid arguments raise ValueError.
 - io / core (WP23): the C++ `io::open_hdf5` stub, the CMake option `SPECKLEBEM_ENABLE_HDF5` and
   `has_hdf5()` (C++ and Python); HDF5 is written by the Python package only, the C++ library keeps its `.npy` writer.
 

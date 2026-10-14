@@ -311,7 +311,8 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   Simulation per thread for parallel work); from inside a `solve()` callback a busy Simulation
   raises `RuntimeError` instead of waiting; a main thread waiting for the lock stays
   interruptible with Ctrl-C. Design: every locking wrapper (`assemble`, `solve`, `report`,
-  `currents`, `operator`, `rhs`, `field`, `far_field`, `bistatic_rcs`) releases the GIL first
+  `currents`, `operator`, `rhs`, `field`, `far_field`, `bistatic_rcs`; since WP25 also `drc`,
+  `radiated_power`, `reflected_power`, `reflectance`, `scattered_power`) releases the GIL first
   and then waits for the mutex, so no thread waits for it while holding the GIL; the holder may
   re-acquire the GIL (callback, signal check). Waiting is bounded three ways:
   - a locking call from inside a `solve()` callback on the same Simulation would wait for
@@ -341,9 +342,10 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
 - Deviations from the target sketch above: `field` has no `region` argument (the region of every
   point is found from the winding number; `kind="total"` adds the incident field in R1);
   `bistatic_rcs(angles, plane=...)` takes the angles first; `plane_grid` / `cylinder_grid` follow
-  the C++ signatures (origin and full extent vectors, point counts); there is no `sim.drc` (use
-  `cylinder_grid` + `field` + `differential_reflection_coefficient`), no `mlfmm` / `backend`
-  keywords yet. `sim.save` / HDF5: see "HDF5 (WP23)" below.
+  the C++ signatures (origin and full extent vectors, point counts); `sim.drc` (WP25, below)
+  takes far-field directions instead of a cylinder (the cylinder route is `cylinder_grid` +
+  `field` + `differential_reflection_coefficient`), no `mlfmm` / `backend` keywords yet.
+  `sim.save` / HDF5: see "HDF5 (WP23)" below.
 - Paths are `str` or `os.PathLike` (not bytes), passed to C++ as UTF-8 (ADR 0007).
 
 ## Bound in WP-PML3a: open surface with a PML (ADR 0009, dense prototype)
@@ -356,15 +358,71 @@ sim = sb.Simulation.with_pml(om, beam, pml=sb.PmlTermination(sigma_max=4.0, orde
                              correlation_length=0.0, dark_band_tolerance=1e-4),
                              object=sb.silicon_500nm(), solver="direct")   # compression "dense"
 sim.has_pml, sim.far_field_window, sim.dark_band_ratio, sim.zone_half_widths
-F = sim.far_field(directions)            # windowed (taper_end -> pml_start) by default
+F = sim.far_field(directions)            # windowed (taper_end -> pml_start) by default; k_z <= 0
 F = sim.far_field(directions, window=sb.CurrentWindow(inner_half, outer_half))
-# sim.bistatic_rcs raises ValueError on the PML route (no window there); use sim.far_field
+# sim.bistatic_rcs and sim.field raise RuntimeError on the PML route; use sim.far_field / sim.drc
 ```
 
 `Simulation.with_pml` raises `ValueError` for what the C++ PML constructor rejects (no gap,
 taper < Lc of a rough patch, no dark band, controlled ball, compression other than "dense",
-orientation). `field()` raises `ValueError` on the PML route (no near fields). The kernel key
+orientation). On the PML route R1 is the half space below the surface, so `far_field` (like
+`drc` / `radiated_power`, WP25) raises `ValueError` for directions with k_z > 0. The kernel key
 `stretched_touching_points` (4..16) sets the touching-pair rule of PML triangles.
+
+Exceptions on the PML route (rule since the WP25 review): a call that is valid on the box route
+but not in the PML route's state (`field`: no near fields; `bistatic_rcs`: no window;
+`scattered_power`: the forward hemisphere lies in R2) raises `RuntimeError` (C++
+`std::logic_error`, "valid call, wrong state", like a call before `solve()`); an invalid
+argument of a call the route supports (a direction with k_z > 0, a window reaching into the
+PML, an empty grid) raises `ValueError` (C++ `std::invalid_argument`). Until the WP25 review
+`field` and `bistatic_rcs` raised `ValueError` there.
+
+## Bound in WP25: absolute DRC, incident and radiated power
+
+```python
+g = sb.hemisphere_grid(-1, 90, 180)       # sb.SphereGrid: 1 deg reflection hemisphere (k_z < 0)
+g.directions, g.weights, g.theta          # (n, 3), (n,) [sr], (n,) [rad]; read-only views
+s = sb.sphere_grid(n_theta, n_phi)        # full sphere (theta from +z)
+P_inc = sim.incident_power()              # [W]: AngularSpectrumBeam / GaussianBeam .power
+D = sim.drc(g.directions, quad_degree=6)  # [1/sr], D = |F|^2 / (2 eta_1 P_inc)
+R = g.weights @ D                         # reflectance (= sim.reflected_power(90, 180) / P_inc)
+co, cross = sim.drc(g.directions, co_pol=[1, 0, 0])   # fixed Cartesian co-pol vector
+P = sim.radiated_power(g.directions, g.weights)       # [W], (1 / 2 eta_1) sum w |F|^2
+P_refl = sim.reflected_power(90, 180)     # [W] into k_z < 0
+R = sim.reflectance(90, 180)              # = sim.reflected_power(90, 180) / sim.incident_power()
+P_sca = sim.scattered_power(64, 128)      # [W] full sphere; C_sca = P_sca / (|E0|^2 / (2 eta_1))
+sb.GaussianBeam(...).power                # pi w0^2 / (4 eta) [W] (paraxial)
+D_cyl = sb.differential_reflection_coefficient(E_cyl, n_theta, n_y, radius=r,
+                                               incident_power=P_inc)  # [1/sr], far zone only
+```
+
+- C++: `post::SphereGrid`, `post::hemisphere_grid`, `post::sphere_grid`, `post::radiated_power`,
+  `post::drc`, `post::drc_polarized`, the absolute overload of
+  `post::differential_reflection_coefficient`, `GaussianBeam::power()` and
+  `Simulation::incident_power / drc / drc_polarized / radiated_power / reflected_power /
+  scattered_power` (postprocessing/scattering.hpp, simulation.hpp); since the WP25 review also
+  `Simulation::far_field` (the PML-route direction check of `Simulation.far_field`).
+  `reflectance` is Python only (`reflected_power / incident_power`).
+- Grids: Gauss-Legendre nodes in the polar angle from the pole (no node at grazing incidence)
+  times the trapezoid rule in phi, row `i * n_phi + j`; the weights sum to 2 pi / 4 pi to
+  rounding from n_theta >= 7 / 8 (spectral in n_theta: the WP22c reflectance rule, now in the
+  library). `ValueError` for z_sign other than +1 / -1, n_theta < 1, n_phi < 4.
+- All far-field observables use `far_field_options(quad_degree)`, so the PML route's current
+  window is applied automatically. On the PML route R1 is the half space below the surface:
+  directions with k_z > 0 raise `ValueError` (as in `far_field`) and `scattered_power` raises
+  `RuntimeError` (the PML-route exception rule above).
+  A lossy exterior raises `ValueError` (no far-field power at infinity).
+- `incident_power()` needs no solve; for a plane wave it raises `RuntimeError` (infinite power:
+  use `scattered_power / (|E0|^2 / (2 eta_1))`, a cross section). `drc` with one `(3,)`
+  direction returns a float (a tuple of floats with `co_pol`). The methods lock the Simulation
+  like `far_field`.
+- The absolute cylinder DRC is r^2 / (2 eta_1 P_inc) times the relative one (mean |E|^2 of the
+  scattered field over the axial samples); it approaches `drc` like 1 / r and is meaningful only
+  in the far zone r >> L^2 / lambda. `background` (absolute DRC only, default vacuum) gives
+  eta_1; giving only one of `radius` / `incident_power` raises `ValueError`.
+- Validation (docs/05): scattered power of the d = 1 um Si sphere against Mie C_sca; the integral
+  of `Simulation.drc` over the reflection hemisphere of a flat Si surface (PML route) against the
+  Fresnel beam reflectance. Evaluation cost: `benchmarks/results/drc_evaluation.md`.
 
 ## HDF5 (WP23)
 

@@ -66,6 +66,7 @@
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/sparse_operator.hpp"
 #include "specklebem/postprocessing/fields.hpp"
+#include "specklebem/postprocessing/scattering.hpp"
 #include "specklebem/simulation.hpp"
 
 #include <Eigen/Geometry>
@@ -481,38 +482,13 @@ inline Estimate estimate(const Geometry& geo, const Case& c,
 /// pole z_sign z_hat; z_sign = -1: the reflection hemisphere k_z < 0) x n_phi equispaced phi_j =
 /// j 2 pi / n_phi (trapezoid), solid-angle weights w_GL sin(theta) dphi. Spectrally accurate for
 /// the smooth far-field intensity (Gauss-Legendre needs no vanishing integrand at grazing
-/// theta = pi / 2, where edge diffraction of the box radiates).
-struct HemisphereGrid {
-    Vertices dirs;
-    VectorXr weights;
-    VectorXr theta;  ///< polar angle from the pole per row [rad]
-};
+/// theta = pi / 2, where edge diffraction of the box radiates). Promoted to the library in WP25
+/// (post::hemisphere_grid, the same operations: nodes and weights are bitwise those of the former
+/// helper, so the recorded reflectances are unchanged).
+using HemisphereGrid = post::SphereGrid;
 
 inline HemisphereGrid hemisphere_grid(Real z_sign, int n_theta, int n_phi) {
-    if (n_theta < 1 || n_phi < 4)
-        throw std::invalid_argument("hemisphere_grid: grid too coarse");
-    const kernels::LineRule gl = kernels::gauss_legendre(n_theta);
-    const Real dp = 2.0 * constants::pi / static_cast<Real>(n_phi);
-    HemisphereGrid g;
-    const Index rows = static_cast<Index>(n_theta) * n_phi;
-    g.dirs.resize(rows, 3);
-    g.weights.resize(rows);
-    g.theta.resize(rows);
-    for (int i = 0; i < n_theta; ++i) {
-        const auto ui = static_cast<std::size_t>(i);
-        const Real t = 0.25 * constants::pi * (gl.nodes[ui] + 1.0);
-        const Real wt = 0.25 * constants::pi * gl.weights[ui] * std::sin(t) * dp;
-        for (int j = 0; j < n_phi; ++j) {
-            const Real p = static_cast<Real>(j) * dp;
-            const Index row = static_cast<Index>(i) * n_phi + j;
-            g.dirs(row, 0) = std::sin(t) * std::cos(p);
-            g.dirs(row, 1) = std::sin(t) * std::sin(p);
-            g.dirs(row, 2) = z_sign * std::cos(t);
-            g.weights(row) = wt;
-            g.theta(row) = t;
-        }
-    }
-    return g;
+    return post::hemisphere_grid(z_sign, n_theta, n_phi);
 }
 
 /// Grid of a case: n_theta = round(90 deg / dtheta), n_phi = round(360 deg / (2 dtheta)) (scaled

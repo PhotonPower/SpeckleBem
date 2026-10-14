@@ -4,13 +4,16 @@
 // beam power against the numerical flux through z = 0 and the edge loss of the ADR 0006 waist
 // rule (tests/support/fresnel_flat_support.hpp). The simulated flat box (MLFMM, 2N >= 7 10^4) is
 // the validation-large case tests/validation_large/test_flat_interface_fresnel_large.cpp;
-// results: benchmarks/results/fresnel_flat.md.
+// results: benchmarks/results/fresnel_flat.md. The last case checks on a tiny solved flat box
+// that the public Simulation DRC / power API gives the support code's reflectance (WP25).
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
+#include <utility>
 
 #include "fresnel_flat_support.hpp"
 
@@ -151,4 +154,57 @@ TEST_CASE("Hemisphere grid integrates the solid angle", "[validation][fresnel]")
                    WithinRel(2.0 * constants::pi / 3.0, 1e-12));
     }
     CHECK(hemisphere_grid(+1.0, 1.0, 2).dirs.rows() == 45 * 90);
+}
+
+TEST_CASE("Public DRC / power API reproduces the support-code reflectance of a flat box",
+          "[validation][fresnel][drc_power]") {
+    // CI coverage of the acceptance API (WP25 review W2): the flat-box reflectance of the
+    // validation-large cases is R_sim = hemisphere_power(...).total / AngularSpectrumBeam::power()
+    // (fresnel_flat::run); the public Simulation::reflected_power / incident_power / drc must give
+    // the same number. Structural check on a tiny solved flat Si box (L = 0.4 um, uniform 100 nm
+    // cells, depth 0.3 um, cheap quadrature, direct LU): the physics (R against Fresnel) is the
+    // validation-large case; here only the agreement of the two evaluations.
+    const Real h = 100e-9;
+    const geometry::HeightMap hm = flat_height_map(0.4e-6, h);
+    geometry::TriangleMesh mesh = geometry::make_mesh_from_height_map(hm, 0.3e-6, h);
+    Real r_max = 0.0;
+    for (Index v = 0; v < mesh.num_vertices(); ++v)
+        r_max = std::max(r_max, mesh.vertices().row(v).norm());
+    const auto b = beam(0.2e-6, 0.0, excitation::Polarization::P, 1.02 * r_max);
+    SimulationConfig cfg;
+    cfg.wavelength = kLambda;
+    cfg.object = material::silicon_500nm();
+    cfg.compression = "dense";
+    cfg.solver = SolverKind::Direct;
+    cfg.kernels.quad_degree_far = 1;
+    cfg.kernels.quad_degree_near = 2;
+    cfg.kernels.quad_degree_sing = 2;
+    cfg.kernels.outer_grading_levels = 0;
+    cfg.kernels.target_accuracy = 0.0;
+    Simulation sim(std::move(mesh), b, cfg);
+    sim.solve();
+
+    // Support-code evaluation of fresnel_flat::run (grid of a case, Dunavant degree 6).
+    const Real eta1 = material::vacuum().wave_impedance(b->omega()).real();
+    const HemisphereGrid g = hemisphere_grid(-1.0, 5.0);  // 18 x 36 nodes
+    REQUIRE(g.dirs.rows() == 18 * 36);
+    const HemispherePower support =
+        hemisphere_power(sim.solution(), g, 6, eta1, Vec3(0.0, 0.0, -1.0), 0.1);
+    const Real r_support = support.total / b->power();
+    REQUIRE(support.total > 0.0);
+    INFO("2N = " << sim.num_unknowns() << ", R_support = " << r_support);
+
+    // Same far fields, the same row-by-row summation w |F|^2 / (2 eta1) and bitwise the same
+    // eta1 and P_inc: bitwise equal.
+    CHECK(sim.incident_power() == b->power());
+    const Real p_refl = sim.reflected_power(18, 36, 6);
+    CHECK(p_refl == support.total);
+    CHECK(sim.radiated_power(g.dirs, g.weights, 6) == support.total);
+    CHECK(p_refl / sim.incident_power() == r_support);
+    // sum w D: D is scaled by 1 / (2 eta1 P_inc) per row before the summation (another rounding
+    // order), so equal to rounding only.
+    const VectorXr d = sim.drc(g.dirs, 6);
+    CHECK(d.allFinite());
+    CHECK(d.minCoeff() >= 0.0);
+    CHECK_THAT(g.weights.dot(d), WithinRel(r_support, 1e-13));
 }
