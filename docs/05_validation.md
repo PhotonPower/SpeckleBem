@@ -61,6 +61,20 @@ analytic (Mie, Fresnel, static integrals)
 - **Flat-surface limit**: σ → 0 recovers the specular Fresnel reflection of the beam.
 - **Regression**: height map for `seed = 42`, L = 10 µm is stored in `tests/data`; a change in the generator that alters it must be deliberate.
 
+## PML route (open surface, ADR 0009 decision 7)
+
+For the open rough surface terminated by the complex-coordinate-stretching PML these checks replace the box-depth
+check above; the physical model is a rough spot in a polished surface with absorbing surroundings (ADR 0009, lead
+decision 1). Tolerances are not loosened relative to the box route.
+
+| Check | Reference | Metric | Tolerance | Status |
+|-------|-----------|--------|-----------|--------|
+| 7a Flat Ag and flat Si with PML, rigorous beam, 0° and 45°, s and p | beam reflectance R_beam of the same beam on the infinite interface (Fresnel per plane wave) | rel on \|r\|² (R) | < 1 % | met (WP-PML3b, `benchmarks/results/pml_validation.md`): Ag 0°/45° and Si 0° at h = λ/4 with the 1e-4 dark band (≤ 0.28 %; 45°: w₀ = 0.75 µm, pml_start 4.5 µm); Si 45° accepted at the mesh-converged h = λ/6 (+0.18 % / +0.03 %, smaller geometry w₀ = λ, L = 3 µm with the dark band relaxed to 1e-2, as the 7a geometry at λ/6 is infeasible densely; the dark band is a decision-4 configuration check, and at λ/6 the 5.9e-3 and 2.6e-2 geometries agree within 0.05 % / 0.08 %); Si 45° at λ/4 (−0.76 % / −0.41 %) is not mesh-converged (λ/5: +5.9 %) and only reported |
+| 7b SPP launched on flat Ag, reflected at the PML start | — | \|r_spp\| | < 1e-2 | pending (WP-PML4) |
+| 7c PML parameters W_pml ×1.5 and σ_max ×1.5 | the unperturbed run | far-field change (box-check metric) | < 0.1 % | pending (WP-PML4; 7a preview in the record) |
+| 7d L ×1.2 at fixed waist | the unperturbed run | far-field change (box-check metric) | < 0.5 % | pending (WP-PML4) |
+| 7e Si cross-check: PML route vs the validated uniform box, L = 4 µm, w₀ = L/6 | uniform-box far field | agreement within the box's own sensitivity | — | pending (WP-PML4) |
+
 ## Test organisation
 
 - `tests/unit` – fast (< 1 s each in release; assembly tests that call `element_blocks` on an icosphere may take up to ~5 s under the sanitizer preset, documented per test), run on every push.

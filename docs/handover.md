@@ -80,9 +80,15 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   −1.17 % vs Mie C_sca). Direct far-field evaluation is cheap (1° hemisphere ≈ 790 s extrapolated at 2N ≈ 10⁶,
   4 threads): no MLFMM far-field acceleration; follow-up only if Phase 6 needs ≥ 10⁵ directions per solve.
   PML-route exception rule: wrong state → `std::logic_error` / RuntimeError, k_z > 0 direction → ValueError.
-- **In flight:** WP-PML3b (validation 7a done by the worker, in review: all 8 cases < 1 % at λ/4; Si 45° needs
-  h ≤ λ/6 to converge, +0.18 % / +0.03 %), WP24 (Ag sphere near field vs Mie, d = 1 and 4 µm).
-- **Next:** after WP-PML3b: WP24 (Ag sphere near field vs Mie), WP-PML4 (7b–7e); Ag scaling
+- **Merged:** WP-PML3b (validation 7a met): Ag 0°/45° and Si 0° at λ/4 ≤ 0.28 %; Si 45° only at the
+  mesh-converged λ/6 (+0.18 % / +0.03 %) on a smaller geometry with the dark band relaxed to 1e-2 (the 7a geometry
+  at λ/6 needs 173 GB dense); accepted by the coordinator on the measured dark-band insensitivity (≤ 0.08 % at λ/6),
+  lead informed 2026-10-14. Rules: w₀ cos θ ≳ λ; 45°: w₀ = 0.75 µm, pml_start 4.5 µm; Si oblique h ≤ λ/6. The flat
+  surface does not exercise the PML (sensitivities ≤ 2e-7): 7b (SPP) is the real PML test (WP-PML4). Proposed for
+  WP-PML4: a warning (not an error) for oblique Si with h > λ/6 or a waist below the 45° rule; decide the default
+  dark band (1e-4 costs ≈ 2.5× surface at 45°, R insensitive) with 7c/7d.
+- **In flight:** WP24 (Ag sphere near field vs Mie, d = 1 and 4 µm).
+- **Next:** WP-PML4 (7b–7e) after WP24; WP-LU1 (LAPACK dense LU, small); Ag scaling
   on the uniform box (WP22b4, optional now that the graded-box series meets the DoD); Phase 6.
 - Test counts on `main`: 508 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).

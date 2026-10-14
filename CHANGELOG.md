@@ -5,6 +5,13 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / benchmarks (WP-PML3b, ADR 0009 decision 7a): validation 7a of the PML route met. Benchmark
+  `specklebem_pml_fresnel` (flat open surface + PML, rigorous beam, s and p from one LAPACK LU, `--estimate-only`
+  dark-band scan), shared code `tests/support/pml_fresnel_support.hpp`, five validation-large cases, record
+  `benchmarks/results/pml_validation.md` + rows. Ag 0°/45° and Si 0° at h = λ/4 within 0.28 % of R_beam; Si 45°
+  converges only at h ≤ λ/6 (+0.18 % / +0.03 %, λ/8 −0.03 % / −0.07 %; the λ/4 value is reported only). Oblique
+  configuration rule w₀ cos θ ≳ λ (45°: w₀ = 0.75 µm, pml_start 4.5 µm); quadrature, gap, W_pml and σ_max
+  sensitivities ≤ 1.2e-5. docs/05 "PML route" block and ADR 0009 rule updated.
 - post / simulation / python (WP25): absolute observables. `post::SphereGrid`, `hemisphere_grid`, `sphere_grid`
   (Gauss–Legendre θ × trapezoid φ, weights in sr), `post::radiated_power` = (1/2η₁) Σ w |F|², `post::drc` /
   `drc_polarized` (D = |F|²/(2η₁ P_inc) per steradian, ∫_{k_z<0} D dΩ = R), absolute cylinder DRC overload

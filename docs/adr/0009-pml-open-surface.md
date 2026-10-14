@@ -79,6 +79,21 @@ regression. The PML route becomes the default for plasmonic objects once it pass
      |E_inc|(PML start) / max |E_inc|(patch) ≤ 1e-4 (amplitude, i.e. 1e-8 in intensity) needs
      pml_start ≳ 3.5 w₀ with w₀ ≳ λ for the rigorous beam (w₀ ≲ (L/2 + W_t + W_g)/2 only reaches ≈ 2e-2); to be
      confirmed by 7a (WP-PML3b), including the larger footprint at oblique incidence.
+     *Rule after 7a (WP-PML3b, measured, `benchmarks/results/pml_validation.md`):* at 0° the provisional rule holds
+     (w₀ = λ, pml_start = 3.5 w₀: ratio 1.3e-5). At oblique incidence it is not sufficient (measured), and
+     **w₀ cos θ ≳ λ** is needed. Explanation, consistent with but not fitted to the measured ratios: the rigorous
+     beam's spectrum, cut at k_t = k about the beam axis, puts grazing plane waves of relative amplitude
+     ≈ exp(−(k w₀ cos θ)²/4) into the surface, and the beam defocuses along its footprint (Rayleigh range
+     π w₀²/λ), so pml_start grows faster than w₀/cos θ. At 45°, w₀ = 0.5 µm never
+     reaches 1e-4 (≥ 2e-3 up to pml_start 3.75 µm). The smallest measured passes are w₀ = 0.75 µm with
+     pml_start = 4.25 µm (L = 6.5 µm, 8.9e-5, 2N = 4.2·10⁴ at λ/4) and w₀ = 0.7 µm with pml_start = 4.5 µm
+     (7.7e-5); 7a uses w₀ = 0.75 µm with pml_start = 4.5 µm (L = 7 µm, 5.2e-5 / 4.0e-5 for p / s, ≈ 2× below
+     1e-4), chosen with margin, i.e. 2N = 4.6·10⁴ at λ/4. **7a does not need the 1e-4 level.** At a dark-band ratio of
+     5.9e-3 (tolerance relaxed) R changed by ≤ 0.06 % against the 5e-5 geometry (2.6e-2: ≤ 0.15 %, Si 45°, λ/4; at λ/6 the 5.9e-3 and 2.6e-2 geometries agree within 0.05 % (p) / 0.08 % (s)). The 1e-4 default is therefore
+     conservative for the far field. Relaxing it for rough-surface runs (which would cut the 45° surface by ≈ 2.5×)
+     is left to WP-PML4 (7c/7d at both levels). Mesh found by 7a: h = λ/4 suffices for Ag and for Si at normal
+     incidence. **Si at oblique incidence needs h ≤ λ/6** (≈ 0.7 λ/n_Si). At λ/4 it passed only by chance:
+     λ/5 was +5.9 % off. Indicator: the power balance 1 − R − A_real.
    - Not evaluating the continued angular spectrum inside the PML avoids its exp(+k Im x̃) growth.
    - *Implementation (WP-PML3a).* `op::pml_masked_functions` / `op::assemble_rhs`: a test function is masked (its J
      and M entries are exactly 0) iff one of its two support triangles has a vertex strictly inside the stretched
@@ -101,6 +116,9 @@ regression. The PML route becomes the default for plasmonic objects once it pass
      inner_half, 0 from outer_half). `post::far_field` requires it for a non-identity stretch, with outer_half ≤ the
      stretch start; `Simulation` uses inner_half = taper_end, outer_half = pml_start (across the gap, so W_g > 0 is
      required). Near fields (`scattered_field`, `total_field`) refuse the stretch and the window.
+   - *Validated by 7a (WP-PML3b).* The windowed far field passes with W_g = 0.5 µm (= λ). The Huygens-plane
+     fallback is not needed. Gap/window ×1.5 (0.75 µm) changes R by ≤ 1.2·10⁻⁵ relative (Si and Ag, 45°, λ/4), and
+     W_pml ×1.5 or σ_max ×1.5 by ≤ 2·10⁻⁷ (preview of 7c; flat surface, no SPP channel).
    - A_ext (ADR 0006 amendment 2026-10-12) remains the absorption measure. A_local over the patch is reported only as
      a diagnostic.
 6. **Fast method.**

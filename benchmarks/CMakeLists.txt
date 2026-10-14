@@ -67,3 +67,10 @@ target_link_libraries(specklebem_gmres_orthogonalization PRIVATE SpeckleBem::spe
 # case per process, run by hand, see benchmarks/results/ag_absorption.md.
 add_executable(specklebem_ag_absorption ag_absorption.cpp)
 target_link_libraries(specklebem_ag_absorption PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
+# Validation 7a of the open-surface PML route (WP-PML3b, ADR 0009): flat Ag / Si open surface with
+# PML, rigorous beam, dense operator + LU (one factorisation for s and p); one run per process, run
+# by hand, see benchmarks/results/pml_validation.md. Shares the case code with the
+# validation-large test (tests/support/pml_fresnel_support.hpp).
+add_executable(specklebem_pml_fresnel pml_fresnel.cpp)
+target_link_libraries(specklebem_pml_fresnel PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
