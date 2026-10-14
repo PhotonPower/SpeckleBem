@@ -87,7 +87,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   surface does not exercise the PML (sensitivities ≤ 2e-7): 7b (SPP) is the real PML test (WP-PML4). Proposed for
   WP-PML4: a warning (not an error) for oblique Si with h > λ/6 or a waist below the 45° rule; decide the default
   dark band (1e-4 costs ≈ 2.5× surface at 45°, R insensitive) with 7c/7d.
-- **In flight:** WP24 (Ag sphere near field vs Mie, d = 1 and 4 µm).
+- **In flight:** WP24 (Ag sphere near field vs Mie, d = 1 and 4 µm), WP-LU1 (LAPACK dense LU in the library).
 - **Next:** WP-PML4 (7b–7e) after WP24; WP-LU1 (LAPACK dense LU, small); Ag scaling
   on the uniform box (WP22b4, optional now that the graded-box series meets the DoD); Phase 6.
 - Test counts on `main`: 508 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
