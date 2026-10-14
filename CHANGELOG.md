@@ -5,6 +5,13 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- python / io (WP23, lead decision 2026-10-13: HDF5 on the Python side, ADR 0001 amendment): `specklebem.io.save_hdf5` /
+  `load_hdf5` (mesh, currents, right-hand side, fields with nested attrs, `/far_fields`, solver history and
+  parameters, config / excitation / PML metadata, format version and self-descriptions), `npy_to_hdf5` for the C++
+  `.npy` directory, `Simulation.save` (one locked snapshot, errors not swallowed); atomic writes via `mkstemp` +
+  `os.replace`; complex data for real datasets refused. h5py is the optional extra `specklebem[io]`; CI installs it
+  and requires the HDF5 tests (`SPECKLEBEM_REQUIRE_H5PY`). New `Simulation::assembled()` / `solved()` (C++ and
+  Python properties), `PlaneWave::direction()` / `polarization()`. Root `ruff.toml` (line length 100).
 - kernels / operator (WP-PML2c): 3.2–6.5× faster dense assembly with a PML stretch. Each unordered stretched pair is
   evaluated once (sub-block transposes supply the other ordering), `kernels::element_blocks_both_regions` shares the
   pair setup and, where both regions pick the same rule, the point loop; batched point loop with fastmath for pairs
@@ -477,6 +484,10 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   fallback with per-region complementarity to 1e-12 when forced exact, leaf rule, pool failure
   injection, basis patterns), Ag icosphere / rough box matvec vs dense and Ag GMRES through
   `Simulation` (validation-large), 2N = 61 440 icosphere exact-rows case, memory guards.
+
+### Removed
+- io / core (WP23): the C++ `io::open_hdf5` stub, the CMake option `SPECKLEBEM_ENABLE_HDF5` and
+  `has_hdf5()` (C++ and Python); HDF5 is written by the Python package only, the C++ library keeps its `.npy` writer.
 
 ### Fixed
 - operator (WP22a-f, WP22a review follow-ups): `SparseOperator(Matrix&& Z)` takes the near-field

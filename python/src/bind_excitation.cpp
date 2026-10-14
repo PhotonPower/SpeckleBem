@@ -199,7 +199,11 @@ ValueError
 )doc")
         .def(py::init<Real, const Vec3&, const Vec3c&, Material>(), py::arg("wavelength"),
              py::arg("direction"), py::arg("polarization"),
-             py::arg("background") = material::vacuum());
+             py::arg("background") = material::vacuum())
+        .def_property_readonly("direction", &PlaneWave::direction,
+                               "Propagation direction k_hat (normalised).")
+        .def_property_readonly("polarization", &PlaneWave::polarization,
+                               "Complex amplitude e0 [V/m] (transverse to k_hat).");
 
     py::class_<GaussianBeam, Excitation, std::shared_ptr<GaussianBeam>>(m, "GaussianBeam", R"doc(
 Paraxial Gaussian beam with first-order longitudinal fields, 1 V/m on axis at the focus.

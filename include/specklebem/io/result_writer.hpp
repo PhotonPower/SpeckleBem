@@ -1,8 +1,10 @@
 #pragma once
 /// @file result_writer.hpp
-/// Persistent output of meshes, currents, fields and statistics. Implemented: a
-/// dependency-free directory of NumPy .npy files (open_npy_directory). Planned: HDF5
-/// (open_hdf5, self-describing, readable from Python via h5py), which throws until then.
+/// Persistent output of meshes, currents, fields and statistics: a dependency-free directory of
+/// NumPy .npy files (open_npy_directory). HDF5 files are written and read on the Python side
+/// with h5py (specklebem.io: save_hdf5, load_hdf5 and npy_to_hdf5, which converts a directory
+/// of this writer losslessly; lead decision 2026-10-13, WP23), so the library has no HDF5
+/// dependency.
 #include "specklebem/core/types.hpp"
 #include "specklebem/geometry/mesh.hpp"
 
@@ -36,10 +38,6 @@ public:
     /// Real attribute; must be finite (std::invalid_argument otherwise).
     virtual void write_attribute(const std::string& name, Real value) = 0;
 };
-
-/// HDF5 writer. Not implemented yet: always throws std::runtime_error (with a message
-/// saying whether the library was built with SPECKLEBEM_ENABLE_HDF5). path is UTF-8 (ADR 0007).
-std::unique_ptr<ResultWriter> open_hdf5(const std::string& path);
 
 /// Writer into the directory dir of NumPy .npy files (format version 1.0, little-endian, C order),
 /// dir being a UTF-8 path on every platform (ADR 0007; error messages name paths in UTF-8),

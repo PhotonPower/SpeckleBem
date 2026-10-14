@@ -118,6 +118,9 @@ TEST_CASE("plane wave: constant amplitude and outgoing phase along k_hat", "[exc
     const Vec3c e0 = Vec3c(Complex(2, 0), Complex(1, 0), Complex(0, 0));  // e0 . k_hat = 0
     const PlaneWave pw(lambda, Vec3(1, -2, 2), e0, glass);  // k_hat not normalised on input
     const Real k = 2 * kPi * 1.5 / lambda;
+    // Accessors (WP23, metadata of the Python HDF5 writer): normalised k_hat, e0 as given.
+    CHECK((pw.direction() - k_hat).norm() < 1e-15);
+    CHECK(pw.polarization() == e0);
 
     std::mt19937_64 rng(808);
     std::uniform_real_distribution<Real> u(-5 * lambda, 5 * lambda);

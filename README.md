@@ -35,7 +35,7 @@ SpeckleBem/
 │   ├── postprocessing/ fields, RCS, DRC, speckle statistics
 │   ├── reference/     Mie series
 │   ├── backend/       CPU (OpenMP/BLAS) and CUDA execution backends
-│   └── io/            HDF5 / NumPy result writers
+│   └── io/            NumPy .npy result writer (HDF5 files: Python package, h5py)
 ├── src/                                 implementations, mirrors include/
 ├── python/                              pybind11 module + `specklebem` package
 ├── tests/                               unit/, validation/ (Catch2), python/ (pytest), data/
@@ -78,7 +78,9 @@ pip install -e python/[dev]
 python -c "import specklebem as sb; print(sb.__version__, sb.silver_500nm().n)"
 ```
 
-Optional: `-DSPECKLEBEM_USE_MKL=ON`, `-DSPECKLEBEM_ENABLE_CUDA=ON`, `-DSPECKLEBEM_ENABLE_HDF5=ON`.
+Optional: `-DSPECKLEBEM_USE_MKL=ON`, `-DSPECKLEBEM_ENABLE_CUDA=ON`. HDF5 result files are written and read
+by the Python package (`specklebem.io`, needs h5py: `pip install specklebem[io]`); the C++ library writes `.npy`
+directories.
 
 ### Windows (MSYS2)
 

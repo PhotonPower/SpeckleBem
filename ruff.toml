@@ -1,0 +1,4 @@
+# Ruff settings for the Python files outside python/ (tests/python, examples/python, scripts);
+# python/ uses [tool.ruff] of python/pyproject.toml. Keep both identical: line length 100 and
+# ruff's default rule selection.
+line-length = 100

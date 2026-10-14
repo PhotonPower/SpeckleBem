@@ -24,7 +24,6 @@ option(SPECKLEBEM_BUILD_EXAMPLES    "Build C++ examples"                     ON)
 option(SPECKLEBEM_BUILD_BENCHMARKS  "Build benchmarks"                       OFF)
 option(SPECKLEBEM_ENABLE_OPENMP     "Enable OpenMP shared-memory parallelism" ON)
 option(SPECKLEBEM_ENABLE_CUDA       "Enable the CUDA backend (experimental)"  OFF)
-option(SPECKLEBEM_ENABLE_HDF5       "Enable HDF5 result output"              OFF)
 option(SPECKLEBEM_USE_MKL           "Prefer Intel MKL as BLAS/LAPACK"        OFF)
 option(SPECKLEBEM_WARNINGS_AS_ERRORS "Treat compiler warnings as errors"     OFF)
 

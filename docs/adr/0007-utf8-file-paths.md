@@ -5,8 +5,9 @@
 - **Phase**: 3
 
 ## Context
-Public functions that touch the file system (`geometry::read_mesh`/`write_*`, `io::open_npy_directory`,
-`io::open_hdf5`) take `const std::string&` paths and build `std::filesystem::path` from them. On Linux and
+Public functions that touch the file system (`geometry::read_mesh`/`write_*`, `io::open_npy_directory`;
+also the `io::open_hdf5` stub until its removal in WP23) take `const std::string&` paths and build
+`std::filesystem::path` from them. On Linux and
 macOS a narrow string is interpreted as UTF-8 (the de-facto file-system encoding). On Windows, the
 development platform since WP-W1, `std::filesystem::path(std::string)` interprets the bytes in the active
 ANSI code page (cp1252 here), so a UTF-8 path with non-ASCII characters (e.g. `C:/Users/Jürgen/run`) is

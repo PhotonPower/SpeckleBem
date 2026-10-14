@@ -833,6 +833,14 @@ const post::SurfaceSolution& Simulation::solution() const {
     return impl_->solution;
 }
 
+bool Simulation::assembled() const {
+    return impl_->op != nullptr;
+}
+
+bool Simulation::solved() const {
+    return impl_->solved;
+}
+
 std::string Simulation::report() const {
     const Impl& s = *impl_;
     const bool direct = s.config.solver == SolverKind::Direct;

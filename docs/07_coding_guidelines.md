@@ -12,7 +12,7 @@
 - **Parallelism**: OpenMP for shared-memory loops; parallel regions live in the backend or in assembly/translation loops, not in low-level kernels. No `std::thread` ad hoc. Deterministic reductions where results feed tests.
 - **Numerics**: no premature optimisation in kernels before the dense oracle exists. Keep a slow reference path (`_reference` suffix or `#ifdef SPECKLEBEM_REFERENCE_PATH`) wherever an optimised path replaces it.
 - **Logging**: `SBEM_INFO` etc.; timings via `ScopedTimer`. No `std::cout` in the library.
-- **Dependencies**: Eigen, spdlog, BLAS/LAPACK, OpenMP; optional CUDA, HDF5. Anything else needs an ADR.
+- **Dependencies**: Eigen, spdlog, BLAS/LAPACK, OpenMP; optional CUDA. HDF5 only on the Python side (optional h5py, `specklebem[io]`; no HDF5 in C++). Anything else needs an ADR.
 - **GPU code**: `.cu` files only under `src/backend/gpu/`; no CUDA types in public headers.
 
 ## Python

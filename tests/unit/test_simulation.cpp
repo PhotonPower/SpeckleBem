@@ -520,6 +520,38 @@ TEST_CASE("simulation: non-converged GMRES keeps the solution", "[simulation]") 
     CHECK(contains(sim.report(), "1 iterations, NOT converged"));
 }
 
+TEST_CASE("simulation: assembled() and solved() report the state without throwing",
+          "[simulation]") {
+    SimulationConfig cfg = base_config(lossless_n15());
+    cfg.formulation = Kind::ICTF;
+    cfg.diagonal_preconditioner = false;
+    cfg.gmres.tolerance = 1e-10;
+    cfg.gmres.max_iter = 1;  // a non-converged solve still counts as solved
+    Simulation sim(sphere_mesh(), plane_wave(), cfg);
+    CHECK_FALSE(sim.assembled());
+    CHECK_FALSE(sim.solved());
+
+    solver::GmresParams invalid = cfg.gmres;
+    invalid.max_iter = 0;
+    CHECK_THROWS_AS(sim.solve(invalid), std::invalid_argument);  // rejected before assembly
+    CHECK_FALSE(sim.assembled());
+    CHECK_FALSE(sim.solved());
+
+    sim.assemble();
+    CHECK(sim.assembled());
+    CHECK_FALSE(sim.solved());
+    CHECK_NOTHROW(sim.rhs());
+    CHECK_THROWS_AS(sim.solution(), std::logic_error);
+
+    const solver::GmresResult r = sim.solve();
+    CHECK_FALSE(r.converged);
+    CHECK(sim.assembled());
+    CHECK(sim.solved());
+    CHECK_NOTHROW(sim.solution());
+    CHECK_THROWS_AS(sim.solve(invalid), std::invalid_argument);
+    CHECK(sim.solved());  // a rejected solve keeps the previous solution
+}
+
 TEST_CASE("simulation: the direct solver assembles no diagonal", "[simulation]") {
     SimulationConfig cfg = pmchwt_config(SolverKind::Direct);
     cfg.diagonal_preconditioner = true;

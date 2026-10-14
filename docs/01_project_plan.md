@@ -85,7 +85,7 @@ The plan is organised in phases. Each phase has deliverables, a *definition of d
 - Field evaluation on planes, cylinders and arbitrary point clouds; MLFMM-accelerated evaluation for large observation grids.
 - Bistatic RCS, DRC on a cylinder (Fig. 9), co/cross-polarised intensities, total scattered power.
 - Rigorous Gaussian beam as an angular-spectrum superposition of plane waves (exact Maxwell solution) replacing the paraxial model; `θ_in` support.
-- HDF5 result writer (mesh, currents, fields, metadata, solver history); `.npy` fallback. HDF5 is written and read on the Python side with h5py; the C++ library writes `.npy` (lead decision 2026-10-13, WP23).
+- HDF5 result writer (mesh, currents, fields, metadata, solver history; written and read on the Python side with h5py, lead decision 2026-10-13, WP23); `.npy` fallback written by C++.
 
 **DoD**
 - Near field of the Ag sphere in the xz-plane matches Mie with the error profile of Fig. 1(b) (relative error < 0.1 along x, < 1 in the shadow).

@@ -88,12 +88,6 @@ if(SPECKLEBEM_ENABLE_CUDA)
     set_target_properties(specklebem PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 endif()
 
-if(SPECKLEBEM_ENABLE_HDF5)
-    target_link_libraries(specklebem PUBLIC ${HDF5_CXX_LIBRARIES})
-    target_include_directories(specklebem PUBLIC ${HDF5_INCLUDE_DIRS})
-    target_compile_definitions(specklebem PUBLIC SPECKLEBEM_HAVE_HDF5=1)
-endif()
-
 set_target_properties(specklebem PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR})

@@ -1,6 +1,8 @@
 """SpeckleBem - rigorous light scattering from rough surfaces (SIE + fast BEM).
 
-Headless Python front end for the C++ core. See docs/10_python_api.md.
+Headless Python front end for the C++ core. See docs/10_python_api.md. HDF5 result files:
+``specklebem.io`` (``save_hdf5``, ``load_hdf5``, ``npy_to_hdf5``; needs h5py) and
+``Simulation.save``.
 SI units throughout (metres, seconds, V/m, A/m); time convention exp(+jwt).
 """
 
@@ -44,7 +46,6 @@ from ._specklebem import (  # noqa: F401
     graded_box_mesh_size,
     has_blas_lapack,
     has_cuda,
-    has_hdf5,
     has_openmp,
     intensity,
     is_plasmonic,
@@ -72,7 +73,12 @@ from ._specklebem import (  # noqa: F401
     write_obj,
     write_stl,
 )
+from . import io  # HDF5 result files (h5py is imported lazily)
 from .rough_surface import RoughSurface
+
+# Simulation.save(path, ...) = io.save_hdf5(path, sim, ...): a Python method added to the
+# pybind11 class, so that all HDF5 code stays on the Python side (lead decision 2026-10-13).
+Simulation.save = io._simulation_save
 
 __all__ = [
     "MAX_BEAM_WAIST_FRACTION",
@@ -115,7 +121,6 @@ __all__ = [
     "graded_box_mesh_size",
     "has_blas_lapack",
     "has_cuda",
-    "has_hdf5",
     "has_openmp",
     "intensity",
     "is_plasmonic",

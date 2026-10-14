@@ -39,7 +39,6 @@ PYBIND11_MODULE(_specklebem, m) {
 
     m.def("has_openmp", &has_openmp, "True if the core was built with OpenMP.");
     m.def("has_cuda", &has_cuda, "True if the core was built with CUDA.");
-    m.def("has_hdf5", &has_hdf5, "True if the core was built with HDF5.");
     m.def("has_blas_lapack", &has_blas_lapack, "True if the core links BLAS/LAPACK.");
 
     py::enum_<log::Level>(m, "LogLevel", "Log level of the C++ core (spdlog).")

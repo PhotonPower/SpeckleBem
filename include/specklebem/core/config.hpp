@@ -12,6 +12,5 @@ inline constexpr const char* version_string() {
 }
 bool has_openmp();
 bool has_cuda();
-bool has_hdf5();
 bool has_blas_lapack();
 }  // namespace specklebem

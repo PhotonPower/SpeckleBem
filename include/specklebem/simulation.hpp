@@ -383,6 +383,12 @@ public:
                               const solver::IterationCallback& cb = {});
     /// @throws std::logic_error before the first solve().
     [[nodiscard]] const post::SurfaceSolution& solution() const;
+    /// True once assemble() has completed (operator and right-hand side, committed together),
+    /// i.e. system_operator() and rhs() do not throw. Never throws.
+    [[nodiscard]] bool assembled() const;
+    /// True once a solve() has completed (also a non-converged GMRES solve, whose solution is
+    /// stored), i.e. solution() does not throw. Never throws.
+    [[nodiscard]] bool solved() const;
     /// Multi-line report: mesh size, formulation / preconditioner used (and whether automatic),
     /// solver (with the GMRES parameters of the last solve, config().gmres before the first),
     /// compression, operator memory, timings, iterations and residuals.

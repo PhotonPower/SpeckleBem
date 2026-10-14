@@ -3,7 +3,7 @@
 #
 # Policy: prefer system / package-manager installations (find_package).
 # Header-only or small dependencies fall back to FetchContent so that a fresh
-# clone builds without manual steps. Heavy dependencies (MKL, CUDA, HDF5)
+# clone builds without manual steps. Heavy dependencies (MKL, CUDA)
 # are always found, never fetched.
 # ---------------------------------------------------------------------------
 include(FetchContent)
@@ -59,11 +59,6 @@ if(SPECKLEBEM_ENABLE_CUDA)
     enable_language(CUDA)
     set(CMAKE_CUDA_STANDARD 20)
     find_package(CUDAToolkit REQUIRED)
-endif()
-
-# --- HDF5 (optional result output) -----------------------------------------
-if(SPECKLEBEM_ENABLE_HDF5)
-    find_package(HDF5 REQUIRED COMPONENTS CXX)
 endif()
 
 # --- spdlog (logging) ------------------------------------------------------

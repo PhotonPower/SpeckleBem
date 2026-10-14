@@ -72,17 +72,20 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   **Lead decision 2026-10-13 (option A):** ADR 0006 amendment 2026-10-13: L/6 rule for σ ≤ 50 nm; σ = 100 nm box
   results carry ≈ 1.2–1.3 % edge uncertainty; no follow-up scheduled.
 - **Merged:** WP-PML2c (stretched assembly 3.2–6.5× faster, accuracy unchanged).
-- **In flight:** WP-PML3b (validation 7a, flat Ag/Si with PML, 0°/45°, s/p), WP23 (HDF5 on the Python side, lead decision 2026-10-13).
-- **Next:** WP-PML3b (validation 7a) after WP-PML3a (in flight: PML RHS, windowed far field, `Simulation`); Ag scaling on the uniform box (WP22b4,
-  optional now that the graded-box series meets the DoD); Phases 5/6.
-- Test counts on `main`: 492 ctest (`-LE "validation-large|slow"`), 108 pytest; labels `slow`, `validation`
+- **Merged:** WP23 (HDF5 on the Python side, lead decision 2026-10-13: `specklebem.io.save_hdf5` / `load_hdf5`,
+  `npy_to_hdf5`, `Simulation.save`, bitwise round trip incl. a PML case; h5py optional extra `specklebem[io]`;
+  the C++ HDF5 stub, `SPECKLEBEM_ENABLE_HDF5` and `has_hdf5()` removed; ADR 0001 amendment).
+- **In flight:** WP-PML3b (validation 7a, flat Ag/Si with PML, 0°/45°, s/p).
+- **Next:** after WP-PML3b: WP24 (Ag sphere near field vs Mie), WP25 (absolute DRC), WP-PML4 (7b–7e); Ag scaling
+  on the uniform box (WP22b4, optional now that the graded-box series meets the DoD); Phase 6.
+- Test counts on `main`: 492 ctest (`-LE "validation-large|slow"`), 121 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
 
 1. **Box validity (WP-V2, WP-V2b):** Si is fine with the uniform box and w₀ ≤ L/6 at σ = 50 nm; at
    σ = 100 nm (the Phase-4 roughness) the L ×1.2 check fails at L = 4.5 µm for every waist tried (1.2–1.3 %,
-   WP-V2b; ADR 0006 change proposed, lead decision open). **Ag rough surfaces do not pass**
+   WP-V2b; decided 2026-10-13, option A: ADR 0006 amendment, documented edge uncertainty, no follow-up). **Ag rough surfaces do not pass**
    the docs/05 box checks at L = 4 µm (0.8–8 %). WP-V3: the cause is physical (surface waves, most likely
    surface plasmons, on the finite block, decay length 41.5 µm ≫ L), so a resonance-free formulation or
    tighter solver settings do not help. Since SPPs also radiate off roughness far outside a small patch,

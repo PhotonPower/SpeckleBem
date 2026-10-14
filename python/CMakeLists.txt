@@ -21,6 +21,7 @@ set_target_properties(_specklebem PROPERTIES
 # (CI and local tests). Listed explicitly, like the C++ sources.
 set(SPECKLEBEM_PYTHON_FILES
     specklebem/__init__.py
+    specklebem/io.py
     specklebem/rough_surface.py)
 foreach(_py IN LISTS SPECKLEBEM_PYTHON_FILES)
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/${_py} ${CMAKE_CURRENT_BINARY_DIR}/${_py} COPYONLY)

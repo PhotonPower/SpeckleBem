@@ -302,18 +302,6 @@ TEST_CASE("result_writer: a target that is a directory throws and leaves no temp
     CHECK(count_temp_files(tmp.path()) == 0);
 }
 
-TEST_CASE("result_writer: open_hdf5 is unavailable", "[io]") {
-    try {
-        (void)io::open_hdf5("out.h5");
-        FAIL("expected std::runtime_error");
-    } catch (const std::runtime_error& e) {
-        CHECK_THAT(e.what(), ContainsSubstring("out.h5"));
-#ifndef SPECKLEBEM_HAVE_HDF5
-        CHECK_THAT(e.what(), ContainsSubstring("SPECKLEBEM_ENABLE_HDF5"));
-#endif
-    }
-}
-
 TEST_CASE("result_writer: .npy directory under a non-ASCII directory name (UTF-8 paths)", "[io]") {
     TempDir tmp;
     const std::string dir = core::path_to_utf8(tmp.path()) + "/" + test::non_ascii_dir_name() +

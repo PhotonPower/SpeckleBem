@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cstdint>
 #include <iomanip>
 #include <memory>
 #include <mutex>
@@ -60,6 +61,18 @@ bool on_main_thread() {
 class PySimulation final : public Simulation {
 public:
     using Simulation::Simulation;
+
+    /// The excitation passed to the constructor (Simulation keeps it alive but exposes only a
+    /// raw pointer through problem()); returned by the Python property `excitation`.
+    std::shared_ptr<excitation::Excitation> excitation_ref;
+
+    /// Parameters (after the per-call overrides) and result of the last successful solve();
+    /// written and read with the mutex held (properties last_result / last_solve_params).
+    struct LastSolve {
+        solver::GmresParams params;
+        solver::GmresResult result;
+    };
+    std::optional<LastSolve> last_solve;
 
     /// Returns f() computed with the GIL released and the mutex held (f must return a value
     /// or void, never a reference into the Simulation). Call with the GIL held.
@@ -312,8 +325,11 @@ std::unique_ptr<PySimulation> make_simulation(
     SimulationConfig c = make_config(exc, object, exterior, wavelength, form, preconditioner,
                                      solver_name, compression, gmres, kernel_opts, mlfmm_opts);
     geometry::TriangleMesh copy = mesh;
+    std::shared_ptr<excitation::Excitation> keep = exc;
     py::gil_scoped_release release;
-    return std::make_unique<PySimulation>(std::move(copy), std::move(exc), std::move(c));
+    auto sim = std::make_unique<PySimulation>(std::move(copy), std::move(exc), std::move(c));
+    sim->excitation_ref = std::move(keep);
+    return sim;
 }
 
 /// PML route (ADR 0009): open surface + PmlTermination.
@@ -328,8 +344,11 @@ std::unique_ptr<PySimulation> make_pml_simulation(
                                      solver_name, compression, gmres, kernel_opts, std::nullopt);
     geometry::OpenSurfaceMesh copy = open;
     const PmlTermination term = pml.value_or(PmlTermination{});
+    std::shared_ptr<excitation::Excitation> keep = exc;
     py::gil_scoped_release release;
-    return std::make_unique<PySimulation>(std::move(copy), term, std::move(exc), std::move(c));
+    auto sim = std::make_unique<PySimulation>(std::move(copy), term, std::move(exc), std::move(c));
+    sim->excitation_ref = std::move(keep);
+    return sim;
 }
 
 GmresResult solve(PySimulation& sim, std::optional<Real> tol, std::optional<int> max_iter,
@@ -375,7 +394,11 @@ GmresResult solve(PySimulation& sim, std::optional<Real> tol, std::optional<int>
             }
         };
     }
-    return sim.locked([&] { return sim.solve(p, cb); });
+    return sim.locked([&] {
+        GmresResult r = sim.solve(p, cb);
+        sim.last_solve = PySimulation::LastSolve{p, r};
+        return r;
+    });
 }
 
 py::object vector_or_scalar(const VectorXr& v, bool scalar) {
@@ -464,6 +487,89 @@ VectorXc matvec(const op::LinearOperator& A, const py::object& x) {
     require_all_finite(v, "x");
     py::gil_scoped_release release;
     return A * v;
+}
+
+/// GmresParams as a dict with the keys of the gmres keyword (restart 0 = full GMRES).
+py::dict gmres_dict(const GmresParams& p) {
+    py::dict g;
+    g["tol"] = p.tolerance;
+    g["max_iter"] = p.max_iter;
+    g["restart"] = p.restart;
+    g["side"] = p.side == PreconditionerSide::Left ? "left" : "right";
+    g["verbose"] = p.verbose;
+    g["orthogonalization"] =
+        p.orthogonalization == solver::Orthogonalization::CGS2 ? "cgs2" : "mgs";
+    g["keep_hessenberg"] = p.keep_hessenberg;
+    return g;
+}
+
+/// Resolved configuration as nested dicts whose keys are those of the constructor keywords
+/// (gmres / kernels / mlfmm), for the self-describing HDF5 file (specklebem.io, WP23).
+py::dict config_dict(const PySimulation& s) {
+    const SimulationConfig& c = s.config();
+    py::dict d;
+    d["wavelength"] = c.wavelength;
+    d["formulation"] = py::cast(s.formulation_kind()).attr("name");
+    d["formulation_automatic"] = !c.formulation.has_value();
+    d["preconditioner"] = s.diagonal_preconditioner() ? "diagonal" : "none";
+    d["preconditioner_automatic"] = !c.diagonal_preconditioner.has_value();
+    d["solver"] = c.solver == SolverKind::Direct ? "direct" : "gmres";
+    d["compression"] = c.compression;
+    d["gmres"] = gmres_dict(c.gmres);
+    const kernels::OperatorOptions& o = c.kernels;
+    py::dict k;
+    k["quad_degree_far"] = o.quad_degree_far;
+    k["quad_degree_near"] = o.quad_degree_near;
+    k["quad_degree_sing"] = o.quad_degree_sing;
+    k["outer_grading_levels"] = o.outer_grading_levels;
+    k["near_distance_factor"] = o.near_distance_factor;
+    k["symmetrize_touching_above_kh"] = o.symmetrize_touching_above_kh;
+    k["target_accuracy"] = o.target_accuracy;
+    k["quad_degree_rhs"] = o.quad_degree_rhs;
+    k["fold_adaptive"] = o.fold_adaptive;
+    k["decay_aware_target"] = o.decay_aware_target;
+    k["fast_plain_kernel"] = o.fast_plain_kernel;
+    k["stretched_touching_points"] = o.stretched_touching_points;
+    d["kernels"] = k;
+    const mlfmm::MlfmmParams& p = c.mlfmm;
+    py::dict f;
+    f["accuracy_digits"] = p.accuracy_digits;
+    f["max_elements_per_leaf"] = p.octree.max_elements_per_leaf;
+    f["min_box_size_lambda"] = p.octree.min_box_size_lambda;
+    f["automatic_leaf_size"] = p.automatic_leaf_size;
+    f["leaf_radius_quantile"] = p.leaf_radius_quantile;
+    f["max_exact_far_bytes"] = p.max_exact_far_bytes;
+    d["mlfmm"] = f;
+    return d;
+}
+
+/// Copy of the state that specklebem.io.save_hdf5 stores, taken under one lock acquisition so
+/// that a concurrent solve() cannot mix two solves in one file.
+struct SaveSnapshot {
+    std::optional<PySimulation::LastSolve> last_solve;
+    std::optional<VectorXc> currents;  ///< if solved()
+    std::optional<VectorXc> rhs;       ///< if assembled()
+};
+
+/// dict(result=SolveResult | None, params=dict | None, currents=ndarray | None,
+/// rhs=ndarray | None): the last successful solve (result and its effective GMRES parameters),
+/// the currents if a solution exists and the right-hand side if assembled, all from one lock.
+py::dict save_snapshot(PySimulation& s) {
+    SaveSnapshot snap = s.locked([&] {
+        SaveSnapshot out;
+        out.last_solve = s.last_solve;
+        if (s.solved())
+            out.currents = s.solution().currents;
+        if (s.assembled())
+            out.rhs = s.rhs();
+        return out;
+    });
+    py::dict d;
+    d["result"] = snap.last_solve ? py::cast(std::move(snap.last_solve->result)) : py::none();
+    d["params"] = snap.last_solve ? py::object(gmres_dict(snap.last_solve->params)) : py::none();
+    d["currents"] = snap.currents ? py::cast(std::move(*snap.currents)) : py::none();
+    d["rhs"] = snap.rhs ? py::cast(std::move(*snap.rhs)) : py::none();
+    return d;
 }
 
 std::string result_repr(const GmresResult& r) {
@@ -962,6 +1068,70 @@ SolveResult
             "PML route: (patch_half, taper_end, pml_start, outer_half) [m]; RuntimeError for the "
             "box route.")
         .def_property_readonly(
+            "mesh", [](const PySimulation& s) { return s.mesh(); },
+            "The mesh actually used (TriangleMesh copy; triangles as re-oriented by the "
+            "constructor, interior edges = RWG functions in the order of the currents).")
+        .def_property_readonly(
+            "excitation", [](const PySimulation& s) { return s.excitation_ref; },
+            "The excitation (shared with the caller).")
+        .def_property_readonly(
+            "object", [](const PySimulation& s) { return s.config().object; },
+            "Material of R2 (copy).")
+        .def_property_readonly(
+            "exterior", [](const PySimulation& s) { return s.config().exterior; },
+            "Material of R1 (copy).")
+        .def_property_readonly(
+            "zones",
+            [](const PySimulation& s) -> py::object {
+                if (!s.has_pml())
+                    return py::none();
+                const std::vector<geometry::SurfaceZone>& z = s.zones();
+                py::array_t<std::int64_t> a(static_cast<py::ssize_t>(z.size()));
+                auto v = a.mutable_unchecked<1>();
+                for (py::ssize_t i = 0; i < a.shape(0); ++i)
+                    v(i) = static_cast<std::int64_t>(z[static_cast<std::size_t>(i)]);
+                return a;
+            },
+            "PML route: zone per triangle as int64 (SurfaceZone values: 0 Patch, 1 Taper, 2 Gap, "
+            "3 Pml); None for the box route.")
+        .def_property_readonly(
+            "pml_termination",
+            [](const PySimulation& s) -> std::optional<PmlTermination> {
+                if (!s.has_pml())
+                    return std::nullopt;
+                return s.pml_termination();
+            },
+            "PML route: the PmlTermination (copy); None for the box route.")
+        .def_property_readonly("config", &config_dict, R"doc(
+Resolved configuration (a new dict): wavelength [m], formulation (name), formulation_automatic,
+preconditioner ("diagonal" / "none"), preconditioner_automatic, solver, compression, and the
+dicts gmres, kernels and mlfmm with every key of the constructor keywords (restart 0 = full
+GMRES). Used by specklebem.io.save_hdf5.
+)doc")
+        .def_property_readonly(
+            "last_result",
+            [](PySimulation& s) -> std::optional<GmresResult> {
+                return s.locked([&]() -> std::optional<GmresResult> {
+                    if (!s.last_solve)
+                        return std::nullopt;
+                    return s.last_solve->result;
+                });
+            },
+            "SolveResult of the last successful solve() (a copy); None before.")
+        .def_property_readonly(
+            "last_solve_params",
+            [](PySimulation& s) -> py::object {
+                const std::optional<GmresParams> p = s.locked([&]() -> std::optional<GmresParams> {
+                    if (!s.last_solve)
+                        return std::nullopt;
+                    return s.last_solve->params;
+                });
+                return p ? py::object(gmres_dict(*p)) : py::none();
+            },
+            "GMRES parameters of the last successful solve() after its per-call overrides, as a "
+            "dict with the keys of the gmres keyword (the direct solver validates but ignores "
+            "them); None before.")
+        .def_property_readonly(
             "currents",
             [](PySimulation& s) {
                 return s.locked([&] { return VectorXc(s.solution().currents); });
@@ -980,6 +1150,17 @@ SolveResult
         .def(
             "rhs", [](PySimulation& s) { return s.locked([&] { return VectorXc(s.rhs()); }); },
             "Right-hand side b (copy); RuntimeError before assemble().")
+        .def_property_readonly(
+            "assembled", [](PySimulation& s) { return s.locked([&] { return s.assembled(); }); },
+            "True once assemble() has completed (operator() and rhs() do not raise).")
+        .def_property_readonly(
+            "solved", [](PySimulation& s) { return s.locked([&] { return s.solved(); }); },
+            "True once a solve() has completed, also a non-converged GMRES solve (currents "
+            "does not raise).")
+        .def("_save_snapshot", &save_snapshot,
+             "Private (specklebem.io.save_hdf5): dict with result (last_result), params "
+             "(last_solve_params), currents (None before solve()) and rhs (None before "
+             "assemble()), copied under one lock acquisition.")
         .def("field", &field, py::arg("points"), py::arg("kind") = "scattered",
              py::arg("quad_degree") = 6, py::arg("min_distance_factor") = 1e-3, R"doc(
 E [V/m] and H [A/m] at points [m] from the solved currents.

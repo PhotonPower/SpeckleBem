@@ -16,13 +16,6 @@ bool has_cuda() {
     return false;
 #endif
 }
-bool has_hdf5() {
-#ifdef SPECKLEBEM_HAVE_HDF5
-    return true;
-#else
-    return false;
-#endif
-}
 bool has_blas_lapack() {
 #ifdef SPECKLEBEM_HAVE_BLAS_LAPACK
     return true;

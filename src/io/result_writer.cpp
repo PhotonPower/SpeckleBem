@@ -1,5 +1,5 @@
 /// @file result_writer.cpp
-/// NumPy .npy directory writer (NPY format version 1.0, numpy.lib.format) and the HDF5 stub.
+/// NumPy .npy directory writer (NPY format version 1.0, numpy.lib.format).
 ///
 /// Values are serialised byte by byte in little-endian order from their bit patterns, so the
 /// files are identical on little- and big-endian hosts. Arrays are written in C order through
@@ -317,17 +317,6 @@ private:
 };
 
 }  // namespace
-
-std::unique_ptr<ResultWriter> open_hdf5(const std::string& path) {
-#ifdef SPECKLEBEM_HAVE_HDF5
-    throw std::runtime_error("open_hdf5('" + path +
-                             "'): the HDF5 writer is not implemented yet; use open_npy_directory");
-#else
-    throw std::runtime_error("open_hdf5('" + path +
-                             "'): SpeckleBem was built without HDF5 support "
-                             "(SPECKLEBEM_ENABLE_HDF5=OFF); use open_npy_directory");
-#endif
-}
 
 std::unique_ptr<ResultWriter> open_npy_directory(const std::string& dir) {
     if (dir.empty())

@@ -55,6 +55,10 @@ public:
               material::Material background = material::vacuum());
     [[nodiscard]] Vec3c electric_field(const Vec3& r) const override;
     [[nodiscard]] Vec3c magnetic_field(const Vec3& r) const override;
+    /// Propagation direction k_hat (normalised).
+    [[nodiscard]] const Vec3& direction() const { return k_hat_; }
+    /// Complex amplitude e0 [V/m] (transverse to k_hat).
+    [[nodiscard]] const Vec3c& polarization() const { return e0_; }
 
 private:
     Vec3 k_hat_;

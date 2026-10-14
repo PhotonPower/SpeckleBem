@@ -62,7 +62,7 @@ sb.speckle_size(mu_A, pixel_size=1e-6)
 mie = sb.Mie(radius=2e-6, wavelength=500e-9, material=ag)
 mie.bistatic_rcs(theta, phi); mie.scattered_E(pts)
 sim.save("run.h5")                                # mesh, currents, config, history
-sb.load_fields("run.h5")
+r = sb.io.load_hdf5("run.h5")                     # WP23 (the sketch had sb.load_fields)
 ```
 
 ## Bound so far (WP14b1) and differences from the target
@@ -343,7 +343,7 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   `bistatic_rcs(angles, plane=...)` takes the angles first; `plane_grid` / `cylinder_grid` follow
   the C++ signatures (origin and full extent vectors, point counts); there is no `sim.drc` (use
   `cylinder_grid` + `field` + `differential_reflection_coefficient`), no `mlfmm` / `backend`
-  keywords yet, and `sim.save` / HDF5 are not available (`open_npy_directory` instead).
+  keywords yet. `sim.save` / HDF5: see "HDF5 (WP23)" below.
 - Paths are `str` or `os.PathLike` (not bytes), passed to C++ as UTF-8 (ADR 0007).
 
 ## Bound in WP-PML3a: open surface with a PML (ADR 0009, dense prototype)
@@ -365,6 +365,116 @@ F = sim.far_field(directions, window=sb.CurrentWindow(inner_half, outer_half))
 taper < Lc of a rough patch, no dark band, controlled ball, compression other than "dense",
 orientation). `field()` raises `ValueError` on the PML route (no near fields). The kernel key
 `stretched_touching_points` (4..16) sets the touching-pair rule of PML triangles.
+
+## HDF5 (WP23)
+
+HDF5 result files are written and read on the Python side with h5py (lead decision
+2026-10-13); the C++ library has no HDF5 dependency and writes `.npy` directories
+(`open_npy_directory`), which `npy_to_hdf5` converts. h5py is optional (`pip install
+specklebem[io]`; MSYS2 `mingw-w64-ucrt-x86_64-python-h5py`, Ubuntu `python3-h5py`): `import
+specklebem` never needs it, and the functions below raise `ImportError` with that hint without it.
+
+```python
+from specklebem import io as sio
+rec = sio.HistoryRecorder()                       # optional: per-iteration wall times
+res = sim.solve(callback=rec)
+pts = sb.plane_grid([-2e-6, 0, -2e-6], [4e-6, 0, 0], [0, 0, 4e-6], 41, 41)
+dirs = np.array([[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]])
+path = sim.save("run.h5",                         # = sio.save_hdf5("run.h5", sim, ...)
+                fields={"xz": (pts, *sim.field(pts))},       # (points, E, H)
+                far_fields={"axis": (dirs, sim.far_field(dirs))},
+                history=rec, metadata={"seed": 42, "note": "Si, L = 4 um"},
+                overwrite=False)                  # FileExistsError if run.h5 exists
+r = sio.load_hdf5("run.h5")                       # sio.Result
+r.currents, r.J, r.M, r.N, r.mesh["vertices"], r.fields["xz"]["E"], r.history["residual"]
+r.config["object"]["eps_r"], r.solver["true_residual"], r.excitation["type"], r.metadata
+sio.npy_to_hdf5("result_dir", "result.h5")        # C++ .npy directory -> HDF5, lossless
+```
+
+API (`specklebem.io`, pure Python; type hints and docstrings in the module):
+
+- `save_hdf5(path, sim=None, *, result=None, history=None, fields=None, far_fields=None,
+  mesh=None, metadata=None, overwrite=False) -> pathlib.Path`. With `sim` it stores the mesh
+  actually used (re-oriented triangles, interior edges, PML zones), the currents (if solved),
+  the right-hand side (if assembled), `/config`, `/excitation` and `/solver`; the last solve,
+  its parameters, the currents and the right-hand side are copied under one lock acquisition
+  (private binding `Simulation._save_snapshot()`), so a concurrent solve cannot mix two solves.
+  `result` defaults to `sim.last_result`; the solver parameters are those of the last solve
+  (`sim.last_solve_params`, i.e. after the per-call overrides of `solve(tol=...)`). An explicit
+  `result` gets these parameters only if it is the last solve (equal statistics and residual
+  history); otherwise, and before any solve, `tolerance`, `max_iter`, `restart`, `side` and
+  `orthogonalization` are omitted from `/solver` (the configured values are in
+  `/config/gmres`); `/currents` are always those of the last solve. `history` is
+  a `HistoryRecorder` (used as the solve callback: iterations 1..k with times), a mapping with
+  `residual` and optional `iteration` / `time`, or None (the result's residual history,
+  iterations 0..k, no times). `fields` maps a name to `(points, E, H)` or
+  `{"points", "E", "H", "attrs"}` (H optional), `far_fields` to `(directions, F)` or
+  `{"directions", "F", "attrs"}` (stored in `/far_fields`); names must not contain '/';
+  `attrs` take the values of `metadata` (nested mappings become sub-groups and are read back as
+  nested dicts). Complex values for the real datasets (`points`, `directions`, mesh vertices)
+  raise `ValueError` instead of dropping the imaginary parts. `mesh` (a `TriangleMesh` or
+  `(vertices, triangles)`) only without `sim`. `metadata` values: str, bool, int, float,
+  complex, numeric arrays (small: they are HDF5 attributes), lists of str (str subclasses such
+  as `np.str_` are stored as str); nested mappings become sub-groups; anything else (e.g. None)
+  raises `TypeError`. The file is written to a unique temporary file (`tempfile.mkstemp`,
+  `<name>.<random>.tmp`) in the same directory and renamed over `path` when complete
+  (`os.replace`; an existing file is never left half-written, a failed write leaves nothing
+  behind). `overwrite=False` is a best-effort check: a file created at `path` by another
+  writer between the check and the rename is replaced. Paths are `str` or
+  `os.PathLike` (bytes: `TypeError`); non-ASCII names work (tested on Windows with h5py 3.16 /
+  HDF5 2.1).
+- `Simulation.save(path, **kwargs)` = `save_hdf5(path, sim, **kwargs)`: a Python function
+  assigned to the pybind11 class in `specklebem/__init__.py` (so all HDF5 code stays in Python).
+- `load_hdf5(path) -> Result`: a dataclass with `attrs` (root), `mesh`, `currents`, `rhs`,
+  `fields`, `far_fields`, `solver`, `history`, `config`, `excitation`, `metadata` (attributes
+  as Python scalars / str / arrays, sub-groups as nested dicts), `datasets` (every dataset by
+  its absolute path) and the properties `N`, `J`, `M`. It refuses (`ValueError`) a file whose
+  root attribute `format` is missing or not `"specklebem-hdf5"`, and a `format_version` newer
+  than `io.FORMAT_VERSION` (1).
+- `npy_to_hdf5(npy_dir, h5_path, *, overwrite=False) -> pathlib.Path`: every
+  `<dir>/<a>/<b>.npy` becomes the dataset `/<a>/<b>` (same dtype, shape and values;
+  sub-directories are groups), `attributes.json` the attributes of `/metadata` in their order;
+  root attribute `source = "npy"`. Leftover `*~tmp` files of an interrupted C++ write are
+  skipped with a warning, any other unexpected file raises `ValueError`.
+- `HistoryRecorder()`: callable `(iteration, residual)` recording `iteration`, `residual` and
+  `time` (seconds since construction or `reset()`).
+- Simulation properties added for the file (also useful on their own): `mesh` (TriangleMesh
+  copy), `excitation`, `object`, `exterior`, `zones` (PML route, else None), `pml_termination`
+  (PML route, else None), `config` (dict: wavelength, resolved formulation / preconditioner with
+  `*_automatic` flags, solver, compression and the `gmres`, `kernels`, `mlfmm` dicts with every
+  constructor key), `last_result` (SolveResult copy of the last successful solve or None),
+  `last_solve_params` (its GMRES parameters as a dict or None), `assembled` and `solved`
+  (bools, C++ `Simulation::assembled()` / `solved()`); `PlaneWave.direction` /
+  `PlaneWave.polarization`.
+
+File layout (format `specklebem-hdf5`, `format_version` 1; SI units, exp(+jwt); strings UTF-8;
+complex attributes are HDF5 compound (r, i) types, read back by h5py as complex; groups and
+attributes keep their creation order; a mapping read back lists its attributes first, then its
+sub-groups):
+
+| Path | Content |
+|---|---|
+| `/` attrs | `format`, `format_version`, `library_version`, `units` ("SI"), `time_convention` ("exp(+jwt)"), `normal_convention`, `material_convention` ("eps_r, mu_r relative; passive media Im <= 0 (exp(+jwt))"), `created_utc` (ISO 8601); `source` ("npy") for converted directories |
+| `/mesh/vertices` | (V, 3) float64 [m] |
+| `/mesh/triangles` | (F, 3) int64, 0-based, counter-clockwise seen from R1 |
+| `/mesh/edges` | (N, 2) int64 interior edges (a < b); edge n carries RWG basis n, whose plus triangle T+ is the adjacent triangle in which the edge appears as a -> b in counter-clockwise order (T-: b -> a); attr `description` |
+| `/mesh/zones` | (F,) int64 `SurfaceZone` per triangle (PML route only) |
+| `/currents` | (2N,) complex128 x = [J; M] (J in A/m, M in V/m); attrs `N`, `layout`, `units` |
+| `/rhs` | (2N,) complex128 right-hand side (if assembled) |
+| `/fields/<name>/{points,E,H}` | (n, 3) float64 [m]; (n, 3) complex128 [V/m], [A/m]; optional user attrs (nested: sub-groups) |
+| `/far_fields/<name>/{directions,F}` | (n, 3) float64; (n, 3) complex128 [V], E_s ~ F exp(-j k1 r) / r with k1 the exterior (R1) wavenumber (attr `description` of `F`) |
+| `/solver` attrs | `formulation`, `preconditioner`, `solver`, `tolerance`, `max_iter`, `restart`, `side`, `orthogonalization` (the parameters only for the last solve, see `result`), `iterations`, `converged`, `residual` (last monitored), `true_residual`, `wall_seconds`, `orthogonalization_seconds`, `reorthogonalizations` |
+| `/solver/history/{iteration,residual,time}` | (k,) int64, float64, float64 [s] (`time` only if recorded) |
+| `/config` attrs | `wavelength`, `formulation`, `formulation_automatic`, `preconditioner`, `preconditioner_automatic`, `solver`, `compression`, `termination` ("box" / "pml"), `num_unknowns` |
+| `/config/{object,exterior}` attrs | `eps_r`, `mu_r` (complex) |
+| `/config/{gmres,kernels,mlfmm}` attrs | every key of the constructor keyword dicts (`mlfmm/max_exact_far_bytes` as uint64) |
+| `/config/pml` attrs | PML route: `sigma_max`, `order`, `correlation_length`, `dark_band_tolerance`, `patch_half`, `taper_end`, `pml_start`, `outer_half`, `dark_band_ratio`, `window_inner_half`, `window_outer_half` |
+| `/excitation` attrs | `type`, `wavelength`, `omega`, `controlled_radius`, `controlled_center`; PlaneWave: `direction`, `polarization` (complex e0); GaussianBeam / AngularSpectrumBeam: `waist`, `polarization` ("P" / "S"), `incidence_angle`, `focus`; AngularSpectrumBeam also `tolerance`, `region_radius`, `grid_change`, `max_polar_angle`, `power`, `num_plane_waves`, `polar_order`, `azimuth_order` |
+| `/excitation/background` attrs | `eps_r`, `mu_r` (complex) |
+| `/metadata` attrs and sub-groups | user metadata; `attributes.json` of a converted `.npy` directory |
+
+Not stored: the closing-box parameters of a rough patch (the Simulation only sees the closed
+mesh; pass them as `metadata`), the operator and the height map.
 
 ## Rules
 
