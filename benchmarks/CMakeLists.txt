@@ -62,6 +62,16 @@ target_link_libraries(specklebem_fresnel_flat PRIVATE SpeckleBem::specklebem spe
 add_executable(specklebem_gmres_orthogonalization gmres_orthogonalization.cpp)
 target_link_libraries(specklebem_gmres_orthogonalization PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
 
+# Dense LU timing (WP-LU1): solver::DenseLu with the LAPACK and the Eigen backend on random
+# complex matrices (n = 2000, 5000, 11440: up to 4.2 GB) or a dumped operator (--matrix). Run by
+# hand, see benchmarks/results/dense_lu.md.
+add_executable(specklebem_dense_lu dense_lu.cpp)
+target_link_libraries(specklebem_dense_lu PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
+if(SPECKLEBEM_HAVE_LAPACK)
+    # --raw times the bare zgetrf_ (its link is verified by the probe in cmake/Dependencies.cmake).
+    target_compile_definitions(specklebem_dense_lu PRIVATE SPECKLEBEM_HAVE_LAPACK=1)
+endif()
+
 # Absorbed power of the flat box (WP-A1, follow-up of WP22c): the fresnel_flat case with
 # diagnostics of P_abs from the currents (parts, extinction, analytic interface currents); one
 # case per process, run by hand, see benchmarks/results/ag_absorption.md.

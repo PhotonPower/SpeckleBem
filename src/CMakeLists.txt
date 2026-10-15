@@ -80,6 +80,10 @@ if(SPECKLEBEM_HAVE_BLAS_LAPACK)
     target_link_libraries(specklebem PUBLIC ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
     target_compile_definitions(specklebem PUBLIC SPECKLEBEM_HAVE_BLAS_LAPACK=1 EIGEN_USE_BLAS=1)
 endif()
+if(SPECKLEBEM_HAVE_LAPACK)
+    # Private: only src/solver/direct.cpp calls LAPACK; users query solver::lapack_available().
+    target_compile_definitions(specklebem PRIVATE SPECKLEBEM_HAVE_LAPACK=1)
+endif()
 
 if(SPECKLEBEM_ENABLE_CUDA)
     target_sources(specklebem PRIVATE backend/gpu/cuda_backend.cu)

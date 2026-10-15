@@ -12,16 +12,19 @@
 /// One run = one geometry and one operator, several polarisations: the dense operator does not
 /// depend on the excitation, so it is assembled and LU-factorised once and every polarisation is
 /// one more right-hand side (op::assemble_rhs of a second Simulation built with that beam, which
-/// also runs the dark-band and controlled-region checks of the PML constructor). The LU uses
-/// LAPACK zgetrf/zgetrs when CMake found BLAS/LAPACK (multithreaded, ~10-30x faster than Eigen's
-/// PartialPivLU at 2N ~ 2e4..5e4) and Eigen's PartialPivLU otherwise; it factors a copy of the
-/// matrix (2 x 16 (2N)^2 bytes peak) so that the residual |b - Z x| / |b| is checked against the
-/// assembled matrix.
+/// also runs the dark-band and controlled-region checks of the PML constructor). The LU is the
+/// library's solver::DenseLu (WP-LU1): LAPACK zgetrf/zgetrs when the library was built with
+/// LAPACK (multithreaded; measured 2-3x faster than Eigen's PartialPivLU at 2N = 11440 on a
+/// loaded machine and as fast on one thread, benchmarks/results/dense_lu.md) and Eigen's
+/// PartialPivLU otherwise (or with use_lapack = false); it factors an equilibrated copy of the
+/// matrix (2 x 16 (2N)^2 bytes peak) and refines each solution against the assembled matrix, and
+/// the residual |b - Z x| / |b| is checked against the assembled matrix. (Up to WP-LU1 this
+/// file had its own unequilibrated, unrefined zgetrf/zgetrs wrapper; the results agree to
+/// rounding.)
 #include "specklebem/geometry/open_surface.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/operator/dense_operator.hpp"
-
-#include <Eigen/LU>
+#include "specklebem/solver/direct.hpp"
 
 #include <algorithm>
 #include <array>
@@ -40,17 +43,6 @@
 
 #include "fresnel_flat_support.hpp"
 #include "system_memory.hpp"
-
-#ifdef SPECKLEBEM_HAVE_BLAS_LAPACK
-extern "C" {
-// LAPACK (Fortran interface, LP64 integers as in OpenBLAS / reference LAPACK / MKL LP64).
-void zgetrf_(const int* m, const int* n, std::complex<double>* a, const int* lda, int* ipiv,
-             int* info);
-void zgetrs_(const char* trans, const int* n, const int* nrhs, const std::complex<double>* a,
-             const int* lda, const int* ipiv, std::complex<double>* b, const int* ldb, int* info,
-             std::size_t trans_len);
-}
-#endif
 
 namespace pml_fresnel {
 
@@ -80,7 +72,7 @@ struct PmlCase {
     std::optional<Real> window_outer;
     Real ff_dtheta_deg = 1.0;  ///< hemisphere grid (Gauss-Legendre in theta, phi twice as coarse)
     int ff_degree = 6;         ///< Dunavant degree of the far-field source quadrature
-    bool use_lapack = true;    ///< LAPACK LU when available (else Eigen PartialPivLU)
+    bool use_lapack = true;    ///< LAPACK LU when available (else / false: Eigen PartialPivLU)
 };
 
 /// The validation 7a configuration at h = lambda / 4 (benchmarks/results/pml_validation.md) for
@@ -203,60 +195,6 @@ struct Size {
     s.dense_bytes = 16.0 * static_cast<Real>(s.unknowns) * static_cast<Real>(s.unknowns);
     return s;
 }
-
-/// Dense LU of a copy of Z, solving several right-hand sides.
-class DenseLu {
-public:
-    DenseLu(const MatrixXc& Z, bool use_lapack) : n_(Z.rows()) {
-        if (Z.rows() != Z.cols())
-            throw std::invalid_argument("DenseLu: matrix must be square");
-#ifdef SPECKLEBEM_HAVE_BLAS_LAPACK
-        lapack_ = use_lapack;
-#else
-        (void)use_lapack;
-#endif
-        if (lapack_) {
-#ifdef SPECKLEBEM_HAVE_BLAS_LAPACK
-            if (n_ > static_cast<Index>(std::numeric_limits<int>::max()))
-                throw std::invalid_argument("DenseLu: n too large for LP64 LAPACK");
-            lu_ = Z;
-            const int n = static_cast<int>(n_);
-            ipiv_.resize(static_cast<std::size_t>(n_));
-            int info = 0;
-            zgetrf_(&n, &n, lu_.data(), &n, ipiv_.data(), &info);
-            if (info != 0)
-                throw std::runtime_error("DenseLu: zgetrf failed, info = " + std::to_string(info));
-#endif
-        } else {
-            eigen_ = std::make_unique<Eigen::PartialPivLU<MatrixXc>>(Z);
-        }
-    }
-    [[nodiscard]] VectorXc solve(const VectorXc& b) const {
-        if (b.size() != n_)
-            throw std::invalid_argument("DenseLu: right-hand side size mismatch");
-        if (!lapack_)
-            return eigen_->solve(b);
-        VectorXc x = b;
-#ifdef SPECKLEBEM_HAVE_BLAS_LAPACK
-        const int n = static_cast<int>(n_);
-        const int nrhs = 1;
-        int info = 0;
-        const char trans = 'N';
-        zgetrs_(&trans, &n, &nrhs, lu_.data(), &n, ipiv_.data(), x.data(), &n, &info, 1);
-        if (info != 0)
-            throw std::runtime_error("DenseLu: zgetrs failed, info = " + std::to_string(info));
-#endif
-        return x;
-    }
-    [[nodiscard]] bool lapack() const { return lapack_; }
-
-private:
-    Index n_;
-    bool lapack_ = false;
-    MatrixXc lu_;
-    std::vector<int> ipiv_;
-    std::unique_ptr<Eigen::PartialPivLU<MatrixXc>> eigen_;
-};
 
 /// Largest |J|, |M| at the centroids of the outermost ring of triangles (max(|x|, |y|) > a_3 -
 /// h) relative to the largest over all triangles.
@@ -430,8 +368,9 @@ inline RunResult run(const PmlCase& c) {
     const MatrixXc& Z = dense->matrix();
     std::vector<VectorXc> x(c.pols.size());
     {
-        const DenseLu lu(Z, c.use_lapack);
-        r.lapack = lu.lapack();
+        const solver::DenseLu lu(Z,
+                                 c.use_lapack ? solver::LuBackend::Auto : solver::LuBackend::Eigen);
+        r.lapack = lu.backend() == solver::LuBackend::Lapack;
         const auto t3 = Clock::now();
         r.lu_s = secs(t2, t3);
         for (std::size_t i = 0; i < c.pols.size(); ++i) {

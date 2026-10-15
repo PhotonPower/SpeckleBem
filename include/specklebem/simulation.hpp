@@ -379,7 +379,8 @@ public:
     /// cb is not called.
     /// @throws std::invalid_argument for invalid params (tolerance not finite or <= 0,
     ///         max_iter < 1, restart < 0). std::runtime_error from the solvers (singular
-    ///         system, non-finite values).
+    ///         system, non-finite values; Direct: std::invalid_argument for a non-finite
+    ///         matrix or right-hand side, see solver::DenseLu).
     solver::GmresResult solve(const solver::GmresParams& params,
                               const solver::IterationCallback& cb = {});
     /// @throws std::logic_error before the first solve().

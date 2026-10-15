@@ -40,6 +40,13 @@ endif()
 if(SPECKLEBEM_USE_MKL)
     set(BLA_VENDOR Intel10_64lp)
 endif()
+# 32-bit (LP64) BLAS/LAPACK integers only: the dense LU and Eigen's BLAS calls pass int. With
+# BLA_SIZEOF_INTEGER (CMake >= 3.22) FindBLAS/FindLAPACK search only the LP64 variants of the
+# vendors they know (e.g. MKL lp64, openblas rather than openblas64). An ILP64 LAPACK exporting the
+# unsuffixed zgetrf_ would otherwise pass the link probe below and then read 64-bit integers from
+# 32-bit arguments (memory corruption); an ILP64 build installed under an LP64 library name is
+# still not detected.
+set(BLA_SIZEOF_INTEGER 4)
 find_package(BLAS)
 find_package(LAPACK)
 if(BLAS_FOUND AND LAPACK_FOUND)
@@ -47,6 +54,43 @@ if(BLAS_FOUND AND LAPACK_FOUND)
 else()
     message(WARNING "BLAS/LAPACK not found - dense reference solver will use Eigen only (slow)")
     set(SPECKLEBEM_HAVE_BLAS_LAPACK OFF)
+endif()
+
+# The dense LU (solver::DenseLu, WP-LU1) calls the LAPACK routines zgetrf_ and zgetrs_ through
+# the Fortran interface with 32-bit (LP64) integers. FindLAPACK checks one routine only (cheev),
+# so link a probe that calls exactly these symbols; SPECKLEBEM_HAVE_LAPACK selects the LAPACK
+# path in src/solver/direct.cpp (Eigen's PartialPivLU otherwise, reported in
+# solver::DirectSolveInfo::backend).
+set(SPECKLEBEM_HAVE_LAPACK OFF)
+if(SPECKLEBEM_HAVE_BLAS_LAPACK)
+    include(CheckCXXSourceCompiles)
+    include(CMakePushCheckState)
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_LIBRARIES ${LAPACK_LIBRARIES} ${BLAS_LIBRARIES})
+    set(CMAKE_REQUIRED_QUIET ON)
+    check_cxx_source_compiles([=[
+#include <complex>
+#include <cstddef>
+extern "C" {
+void zgetrf_(const int*, const int*, std::complex<double>*, const int*, int*, int*);
+void zgetrs_(const char*, const int*, const int*, const std::complex<double>*, const int*,
+             const int*, std::complex<double>*, const int*, int*, std::size_t);
+}
+int main() {
+    int n = 1, info = 0, ipiv = 0;
+    std::complex<double> a(2.0, 0.0), b(1.0, 0.0);
+    zgetrf_(&n, &n, &a, &n, &ipiv, &info);
+    zgetrs_("N", &n, &n, &a, &n, &ipiv, &b, &n, &info, 1);
+    return info;
+}
+]=] SPECKLEBEM_LAPACK_GETRF_GETRS_LINK)
+    cmake_pop_check_state()
+    if(SPECKLEBEM_LAPACK_GETRF_GETRS_LINK)
+        set(SPECKLEBEM_HAVE_LAPACK ON)
+        message(STATUS "LAPACK zgetrf_/zgetrs_ link: the dense LU uses LAPACK")
+    else()
+        message(WARNING "LAPACK found but zgetrf_/zgetrs_ do not link - the dense LU uses Eigen")
+    endif()
 endif()
 
 # --- OpenMP ----------------------------------------------------------------

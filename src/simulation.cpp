@@ -905,7 +905,8 @@ std::string Simulation::report() const {
     o << "  residuals:      monitored " << s.result.residual_history.back() << ", true "
       << s.result.true_relative_residual;
     if (direct)
-        o << ", rcond " << s.direct_info.rcond;
+        o << ", rcond " << s.direct_info.rcond << " (LU "
+          << solver::to_string(s.direct_info.backend) << ")";
     o << "\n";
     return o.str();
 }
