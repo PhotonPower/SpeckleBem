@@ -166,4 +166,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - Raw logs of local benchmark runs that a record cites by basename (WP24, WP-PML4a, WP-LU1) are archived in the
   git-ignored `results/local_runs/<wp>/` on the development machine (server logs: `server_runs/`); the session
   scratchpad is not permanent.
+- Two branches that are each green can break `main` together (WP-LU1 removed the LAPACK prototypes of
+  `pml_fresnel_support.hpp` that WP-PML4a's support header had been using): always build and test `main`
+  itself after a squash merge, before pushing; fix forward on `main` with a small commit.
 - Literature PDFs live in `docs/papers/` (git-ignored, never commit).
