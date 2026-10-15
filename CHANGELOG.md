@@ -5,6 +5,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver (WP-LU1): reusable dense LU `solver::DenseLu` (factor once, solve one or many right-hand sides) with a
+  LAPACK zgetrf/zgetrs backend when a configure-time link probe succeeds (`SPECKLEBEM_HAVE_LAPACK`, private to the
+  library; `solver::lapack_available()`) and Eigen `PartialPivLU` otherwise or on request (`LuBackend`). Column
+  equilibration by powers of two, rcond by the Hager/Higham estimator (LAPACK zlacn2's algorithm) driven by the
+  backend's solves instead of zgecon (whose BLAS-1/2 triangular solves cost more than the factorisation on PML
+  matrices), up to two refinement steps against the original Z, 32-bit LAPACK integer guard, backend reported in
+  `DirectSolveInfo::backend` and `Simulation::report`. `solve_direct` is a thin wrapper with unchanged results;
+  `tests/support/pml_fresnel_support.hpp` uses it (7a Si 0° reproduced, −0.022 %). Benchmark `specklebem_dense_lu`
+  (`--matrix`, `--repeat`, `--raw`), record `benchmarks/results/dense_lu.md`: LAPACK 19.4 s vs Eigen 60.7 s at
+  n = 11 440 and 16.9 vs 35.7 s on the 2N = 11 440 PML matrix (loaded machine, minima; equal on one thread since
+  Eigen uses the OpenBLAS kernels through `EIGEN_USE_BLAS`; the difference is the parallel schedule under load);
+  the 10–40× of the WP-PML3b observation was not reproduced (that Eigen figure was taken under a concurrent build).
 - tests / benchmarks (WP-PML4a, ADR 0009 decision 7b): validation 7b of the PML route met — an SPP launched on flat Ag
   (sub-wavelength groove under the rigorous beam, grooved minus flat solution; or a localized source) is reflected at
   the PML start with |r_spp| = 7.9e-5 (J_x) / 3.5e-5 (M_y) for the default profile (σ_max 4, m 2, W_pml = 2λ), at the
@@ -890,6 +902,8 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - Documentation: project plan, architecture, SIE and MLFMM theory, validation, conventions, coding guidelines, GPU strategy, compression survey, Python API, ADRs.
 
 ### Changed
+- solver (WP-LU1): `solve_direct` raises `std::invalid_argument` (Python `ValueError`) for a matrix with non-finite
+  entries instead of `std::runtime_error`; singular matrices still raise `std::runtime_error`.
 - core / python / tests (WP-B3, ADR 0006 amendment 2026-10-12b): **uniform closing box by
   default.** `rough_surface_box_params(object, background, wavelength, sigma, mesh_size,
   grading = BoxGradingMode::Uniform)` returns `box_mesh_size = mesh_size` (box cells = top-face

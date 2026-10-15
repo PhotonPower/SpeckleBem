@@ -40,7 +40,7 @@ The plan is organised in phases. Each phase has deliverables, a *definition of d
 **Deliverables**
 - `kernels::element_blocks`: Galerkin blocks of `L_i` and `K_i` for a triangle pair, with singularity subtraction (ADR 0004) and adaptive quadrature degree by proximity.
 - `op::DenseStrategy`: full 2N×2N assembly for both regions combined by the formulation weights; `assemble_rhs`; `assemble_diagonal`.
-- `solver::solve_direct` (dense LU; Eigen with BLAS acceleration, LAPACK `zgesv` optional later).
+- `solver::solve_direct` / `solver::DenseLu` (dense LU; LAPACK `zgetrf`/`zgetrs` when available, Eigen otherwise; WP-LU1).
 - `reference::MieSolution` (Bohren–Huffman, `exp(+jωt)` adapted; near/far field, bistatic RCS, cross sections, Wiscombe n_max).
 - `post::scattered_field`, `far_field`, `bistatic_rcs` (direct evaluation).
 - `excitation::PlaneWave`.

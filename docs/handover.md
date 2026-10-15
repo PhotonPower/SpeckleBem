@@ -100,12 +100,16 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   (WP-PML4b), defaults unchanged (coordinator decision 2026-10-15). Method notes: M_y is the clean observable, the
   local-source J_x carries 2.5–7× non-SPP field (SPP impedance 18–50 Ω vs 127 Ω; groove launch 111 Ω); the 9–10
   sample fit amplifies 1e-4 noise to |Δr| ≲ 1e-3 at r = 1e-2 (unit-tested at the real sampling).
-- **In flight:** WP-LU1 (LAPACK dense LU in the library, record pending), WP-PML4c (7e Si cross-check PML route vs
-  uniform box, started 2026-10-15). WP-PML4b (7c/7d rough Ag, dark-band default, oblique-Si/waist warnings, W = λ
-  option) is next.
-- **Next:** WP-PML4b after 4a; WP-PML5 (fast PML ring) after WP-PML4; Ag scaling on the uniform box (WP22b4,
-  optional now that the graded-box series meets the DoD); Phase 6.
-- Test counts on `main`: 533 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
+- **Merged:** WP-LU1 (`solver::DenseLu`, LAPACK zgetrf/zgetrs or Eigen, backend reported; `solve_direct` a wrapper).
+  Measured on the loaded machine: LAPACK 2–3× faster than Eigen at n = 11 440 (19.4 vs 60.7 s; PML matrix 16.9 vs
+  35.7 s), equal on one thread — both run OpenBLAS kernels (`EIGEN_USE_BLAS`), the gap is Eigen's fork–join schedule
+  under load (inferred). The 10–40× expected from WP-PML3b was an artefact of a concurrent build. zgecon replaced by
+  the Hager/Higham estimator on the backend's solves (63 s → 1.5 s on the PML matrix). Non-finite Z → invalid_argument.
+- **In flight:** WP-PML4c (7e Si cross-check PML route vs uniform box), WP-PML4b (7c/7d rough Ag, dark-band default,
+  oblique-Si/waist warnings, W = λ option), both started 2026-10-15.
+- **Next:** WP-PML5 (fast PML ring) after WP-PML4; Ag scaling on the uniform box (WP22b4, optional now that the
+  graded-box series meets the DoD); Phase 6.
+- Test counts on `main`: 540 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
@@ -159,4 +163,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - While other workers run heavy jobs, the permission classifier may refuse a worker's `cmake --build` ("interfere
   with workloads"); the worker then reports it and the coordinator runs the gate builds and ctest itself (both
   presets) before merging — which it does anyway. Workers never work around a refusal.
+- Raw logs of local benchmark runs that a record cites by basename (WP24, WP-PML4a, WP-LU1) are archived in the
+  git-ignored `results/local_runs/<wp>/` on the development machine (server logs: `server_runs/`); the session
+  scratchpad is not permanent.
 - Literature PDFs live in `docs/papers/` (git-ignored, never commit).
