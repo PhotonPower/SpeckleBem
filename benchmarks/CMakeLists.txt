@@ -81,3 +81,11 @@ target_link_libraries(specklebem_pml_fresnel PRIVATE SpeckleBem::specklebem spec
 # (tests/support/ag_near_field_support.hpp).
 add_executable(specklebem_ag_near_field ag_near_field.cpp)
 target_link_libraries(specklebem_ag_near_field PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
+# Validation 7b of the open-surface PML route (WP-PML4a, ADR 0009): an SPP launched on flat Ag (a
+# small groove under the rigorous beam, grooved minus flat solution; or a localized source) and its
+# reflection |r_spp| at the PML start, fitted along the x-axis; one run per process, run by hand, see
+# benchmarks/results/pml_validation.md. Shares the case code with the validation-large test
+# (tests/support/pml_spp_support.hpp).
+add_executable(specklebem_pml_spp pml_spp.cpp)
+target_link_libraries(specklebem_pml_spp PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)

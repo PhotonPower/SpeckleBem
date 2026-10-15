@@ -28,6 +28,9 @@ metadata:
 - No `python3` on PATH in Git Bash (Windows Store alias only).
 - `scripts/format.sh` uses the clang-format from the registry Python's Scripts dir; `ruff` is not
   installed, so Python files must be kept within 100 columns by hand (python/pyproject.toml).
+- Format check: `/c/msys64/clang64/bin/clang-format.exe` (22.1 on 2026-10-15) passes all of main;
+  the clang-format 18 first on PATH does not (case-label indentation, short loops). Check new files
+  with `--dry-run --Werror` against it before committing (WP-PML4a files had slipped through).
 - Test helper executables built in `build/<preset>/tests/` can be located from Python via the
   build-tree package: `Path(specklebem.__file__).parents[2] / "tests"` (WP16 npy fixture).
 - `std::istreambuf_iterator` file reads trip GCC 13/14 `-O3 -Wnull-dereference` on Linux CI

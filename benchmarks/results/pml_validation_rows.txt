@@ -48,3 +48,89 @@ ROW | si | theta 45 | pol p | w0 5e-07 | patch 1.5e-06 | taper 5e-07 | gap 5e-07
 ROW | si | theta 45 | pol s | w0 5e-07 | patch 1.5e-06 | taper 5e-07 | gap 5e-07 | pml 1e-06 | h 8.333e-08 | sigma 4 | m 2 | acc 1.0e-05 | stp 10 | half 7.5e-07/1.25e-06/1.75e-06/2.75e-06 | window 1.25e-06/1.75e-06 | 2N 25872 | masked 7728 of 12936 | dark 2.046e-02 | R_sim 0.5154938 | R_beam 0.5157891 | F 0.5101420 | err -0.0572 % | grid +2.00e-15 | deg8 +2.44e-10 | cone 0.999998 | grazing 9.09e-04 | A_real 0.482322 | 1-R-A +2.184e-03 | edge J 7.33e-08 M 4.47e-09 | res 2.0e-15 | lapack | assembly 700.9 s | LU 99.4 s | solve 1.6 s | post 4.1 s | peak 21.53 GB
 ROW | si | theta 45 | pol p | w0 5e-07 | patch 1.5e-06 | taper 5e-07 | gap 5e-07 | pml 1e-06 | h 6.25e-08 | sigma 4 | m 2 | acc 1.0e-05 | stp 10 | half 7.5e-07/1.25e-06/1.75e-06/2.75e-06 | window 1.25e-06/1.75e-06 | 2N 46112 | masked 13760 of 23056 | dark 2.610e-02 | R_sim 0.2542263 | R_beam 0.2543137 | F 0.2602448 | err -0.0344 % | grid -1.44e-15 | deg8 -3.72e-11 | cone 0.999997 | grazing 1.95e-04 | A_real 0.745076 | 1-R-A +6.976e-04 | edge J 2.05e-08 M 7.02e-09 | res 2.7e-15 | lapack | assembly 1564.5 s | LU 481.2 s | solve 5.0 s | post 6.7 s | peak 68.22 GB
 ROW | si | theta 45 | pol s | w0 5e-07 | patch 1.5e-06 | taper 5e-07 | gap 5e-07 | pml 1e-06 | h 6.25e-08 | sigma 4 | m 2 | acc 1.0e-05 | stp 10 | half 7.5e-07/1.25e-06/1.75e-06/2.75e-06 | window 1.25e-06/1.75e-06 | 2N 46112 | masked 13760 of 23056 | dark 2.046e-02 | R_sim 0.5154143 | R_beam 0.5157891 | F 0.5101420 | err -0.0727 % | grid +4.66e-15 | deg8 +1.56e-11 | cone 0.999999 | grazing 9.07e-04 | A_real 0.483847 | 1-R-A +7.383e-04 | edge J 7.60e-08 M 2.77e-09 | res 2.8e-15 | lapack | assembly 1564.5 s | LU 481.2 s | solve 5.0 s | post 6.7 s | peak 68.22 GB
+
+# WP-PML4a (7b, SPP absorption) ROW lines of benchmarks/pml_spp.cpp (record: pml_validation.md, "7b SPP absorption"), in run
+# order, 2026-10-14/15. Row 1: the defaults with the groove launch; rows 2-20: local source at h = 100 nm (row 2: defaults;
+# rows 3/4: the weak-PML geometric check, PML start 1.5 / 1.6 um; then the sigma_max, W_pml and order scan); rows 21-24:
+# mesh check (h = lambda/6 at the defaults, at W = lambda with sigma_max 2 and 4; h = lambda/7 at the defaults). '|r| Jx a b'
+# lists the +x and -x half-axes. The SPREAD lines after them: min .. max of |r| (+x side) over the refits of each run's dump
+# with rho_min 0.5 / 0.6 / 0.8 um, background powers {1.5, 2} / {1, 1.5, 2, 2.5} and Im k fitted (the measurement floor).
+ROW | spp | groove | h 1e-07 | sigma 4 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 14800 | masked 4760 of 7400 | dark 2.93e-04 | |r| Jx 7.967e-05 7.967e-05 | My 3.404e-05 3.404e-05 | divJ 2.300e-04 2.300e-04 | arg Jx+ +1.5499 | k/kspp Jx+ 1.00510+0.00001j | res Jx 1.43e-04 1.43e-04 | n 10 | lin res 8.9e-14 | lapack | assembly 1050.1 s | LU 68.1 s | solve 0.5 s | post 0.1 s | peak 3.60 GB
+ROW | spp | local | h 1e-07 | sigma 4 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 14800 | masked 4760 of 7400 | dark 2.93e-04 | |r| Jx 7.898e-05 7.898e-05 | My 3.510e-05 3.510e-05 | divJ 1.846e-03 1.846e-03 | arg Jx+ +1.5270 | k/kspp Jx+ 1.00506+0.00001j | res Jx 1.46e-04 1.46e-04 | n 10 | lin res 8.9e-14 | lapack | assembly 1050.1 s | LU 68.1 s | solve 0.5 s | post 0.1 s | peak 3.60 GB
+ROW | spp | local | h 1e-07 | sigma 0.25 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 9440 | masked 2080 of 4720 | dark 2.93e-04 | |r| Jx 1.465e-01 1.465e-01 | My 1.716e-02 1.716e-02 | divJ 1.140e-01 1.140e-01 | arg Jx+ +0.8595 | k/kspp Jx+ 1.04000+0.00007j | res Jx 8.51e-03 8.51e-03 | n 10 | lin res 2.4e-14 | lapack | assembly 48.3 s | LU 84.3 s | solve 0.3 s | post 0.0 s | peak 1.49 GB
+ROW | spp | local | h 1e-07 | sigma 0.25 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.6e-06/2.1e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 10416 | masked 2200 of 5208 | dark 9.06e-05 | |r| Jx 9.926e-02 9.926e-02 | My 2.285e-02 2.285e-02 | divJ 6.694e-02 6.694e-02 | arg Jx+ +1.3143 | k/kspp Jx+ 1.02352+0.00004j | res Jx 9.07e-03 9.07e-03 | n 11 | lin res 1.7e-15 | lapack | assembly 28.3 s | LU 12.9 s | solve 0.3 s | post 0.0 s | peak 1.81 GB
+ROW | spp | local | h 1e-07 | sigma 0.5 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 9440 | masked 2080 of 4720 | dark 2.93e-04 | |r| Jx 5.157e-02 5.157e-02 | My 5.116e-03 5.116e-03 | divJ 5.172e-02 5.172e-02 | arg Jx+ +1.0619 | k/kspp Jx+ 1.04000+0.00007j | res Jx 2.08e-03 2.08e-03 | n 10 | lin res 1.8e-14 | lapack | assembly 39.0 s | LU 18.4 s | solve 1.5 s | post 0.1 s | peak 1.49 GB
+ROW | spp | local | h 1e-07 | sigma 1 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 9440 | masked 2080 of 4720 | dark 2.93e-04 | |r| Jx 3.164e-03 3.164e-03 | My 4.658e-04 4.658e-04 | divJ 8.229e-03 8.229e-03 | arg Jx+ +1.0819 | k/kspp Jx+ 1.00645+0.00001j | res Jx 2.54e-04 2.54e-04 | n 10 | lin res 2.4e-14 | lapack | assembly 48.2 s | LU 18.5 s | solve 1.5 s | post 0.1 s | peak 1.49 GB
+ROW | spp | local | h 1e-07 | sigma 2 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 9440 | masked 2080 of 4720 | dark 2.93e-04 | |r| Jx 4.009e-05 4.011e-05 | My 4.435e-05 4.435e-05 | divJ 1.759e-03 1.759e-03 | arg Jx+ -1.2175 | k/kspp Jx+ 1.00070+0.00000j | res Jx 2.96e-04 2.96e-04 | n 10 | lin res 2.3e-14 | lapack | assembly 130.9 s | LU 11.9 s | solve 0.3 s | post 0.0 s | peak 1.49 GB
+ROW | spp | local | h 1e-07 | sigma 4 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 9440 | masked 2080 of 4720 | dark 2.93e-04 | |r| Jx 1.325e-03 1.325e-03 | My 4.466e-04 4.466e-04 | divJ 6.347e-03 6.347e-03 | arg Jx+ +2.5324 | k/kspp Jx+ 0.99714-0.00001j | res Jx 5.92e-04 5.92e-04 | n 10 | lin res 2.7e-14 | lapack | assembly 155.8 s | LU 17.3 s | solve 1.4 s | post 0.1 s | peak 1.49 GB
+ROW | spp | local | h 1e-07 | sigma 8 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 9440 | masked 2080 of 4720 | dark 2.93e-04 | |r| Jx 2.584e-03 2.584e-03 | My 2.069e-03 2.069e-03 | divJ 1.513e-02 1.513e-02 | arg Jx+ +1.4683 | k/kspp Jx+ 0.97988-0.00004j | res Jx 1.07e-03 1.07e-03 | n 10 | lin res 1.9e-14 | lapack | assembly 340.6 s | LU 31.8 s | solve 0.5 s | post 0.1 s | peak 1.49 GB
+ROW | spp | local | h 1e-07 | sigma 2 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 14800 | masked 4760 of 7400 | dark 2.93e-04 | |r| Jx 3.946e-05 3.946e-05 | My 1.759e-05 1.759e-05 | divJ 1.671e-03 1.671e-03 | arg Jx+ +1.4942 | k/kspp Jx+ 1.00748+0.00001j | res Jx 7.12e-05 7.12e-05 | n 10 | lin res 1.4e-15 | lapack | assembly 422.4 s | LU 50.6 s | solve 2.4 s | post 0.1 s | peak 3.59 GB
+ROW | spp | local | h 1e-07 | sigma 3 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 14800 | masked 4760 of 7400 | dark 2.93e-04 | |r| Jx 5.593e-05 5.593e-05 | My 2.473e-05 2.473e-05 | divJ 1.754e-03 1.754e-03 | arg Jx+ +1.6166 | k/kspp Jx+ 1.00627+0.00001j | res Jx 1.08e-04 1.08e-04 | n 10 | lin res 1.2e-15 | lapack | assembly 463.2 s | LU 64.8 s | solve 1.9 s | post 0.1 s | peak 3.59 GB
+ROW | spp | local | h 1e-07 | sigma 6 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 14800 | masked 4760 of 7400 | dark 2.93e-04 | |r| Jx 8.140e-05 8.140e-05 | My 3.529e-05 3.529e-05 | divJ 1.831e-03 1.830e-03 | arg Jx+ +0.7286 | k/kspp Jx+ 1.00270+0.00000j | res Jx 2.21e-04 2.21e-04 | n 10 | lin res 8.6e-16 | lapack | assembly 734.8 s | LU 60.5 s | solve 0.3 s | post 0.1 s | peak 3.59 GB
+ROW | spp | local | h 1e-07 | sigma 4 | m 1 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 14800 | masked 4760 of 7400 | dark 2.93e-04 | |r| Jx 1.750e-03 1.750e-03 | My 1.186e-03 1.186e-03 | divJ 6.478e-04 6.478e-04 | arg Jx+ -0.7967 | k/kspp Jx+ 0.98566-0.00003j | res Jx 2.95e-03 2.95e-03 | n 10 | lin res 1.2e-15 | lapack | assembly 603.5 s | LU 57.8 s | solve 1.7 s | post 0.1 s | peak 3.59 GB
+ROW | spp | local | h 1e-07 | sigma 4 | m 3 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 14800 | masked 4760 of 7400 | dark 2.93e-04 | |r| Jx 2.780e-05 2.780e-05 | My 1.961e-05 1.961e-05 | divJ 1.546e-03 1.546e-03 | arg Jx+ +0.9188 | k/kspp Jx+ 1.00940+0.00002j | res Jx 1.48e-05 1.48e-05 | n 10 | lin res 6.0e-16 | lapack | assembly 508.9 s | LU 79.9 s | solve 3.8 s | post 0.1 s | peak 3.59 GB
+ROW | spp | local | h 1e-07 | sigma 2 | m 1 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 9440 | masked 2080 of 4720 | dark 2.93e-04 | |r| Jx 1.750e-03 1.750e-03 | My 1.186e-03 1.186e-03 | divJ 6.478e-04 6.478e-04 | arg Jx+ -0.7966 | k/kspp Jx+ 0.98565-0.00003j | res Jx 2.95e-03 2.95e-03 | n 10 | lin res 2.1e-14 | lapack | assembly 171.1 s | LU 20.1 s | solve 2.1 s | post 0.1 s | peak 1.49 GB
+ROW | spp | local | h 1e-07 | sigma 2 | m 3 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 9440 | masked 2080 of 4720 | dark 2.93e-04 | |r| Jx 7.673e-04 7.673e-04 | My 3.207e-04 3.207e-04 | divJ 3.063e-03 3.063e-03 | arg Jx+ +1.2831 | k/kspp Jx+ 1.00706+0.00001j | res Jx 4.07e-05 4.07e-05 | n 10 | lin res 2.6e-14 | lapack | assembly 116.1 s | LU 16.7 s | solve 0.2 s | post 0.1 s | peak 1.49 GB
+ROW | spp | local | h 1e-07 | sigma 3 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 9440 | masked 2080 of 4720 | dark 2.93e-04 | |r| Jx 5.879e-04 5.879e-04 | My 2.648e-04 2.648e-04 | divJ 3.405e-03 3.405e-03 | arg Jx+ +3.0810 | k/kspp Jx+ 0.99890-0.00000j | res Jx 4.52e-04 4.52e-04 | n 10 | lin res 2.3e-14 | lapack | assembly 96.0 s | LU 4.9 s | solve 0.1 s | post 0.0 s | peak 1.49 GB
+ROW | spp | local | h 1e-07 | sigma 5 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 14800 | masked 4760 of 7400 | dark 2.93e-04 | |r| Jx 9.133e-05 9.133e-05 | My 4.135e-05 4.135e-05 | divJ 1.880e-03 1.880e-03 | arg Jx+ +1.1930 | k/kspp Jx+ 1.00386+0.00001j | res Jx 1.83e-04 1.83e-04 | n 10 | lin res 1.4e-15 | lapack | assembly 472.4 s | LU 15.8 s | solve 0.2 s | post 0.0 s | peak 3.59 GB
+ROW | spp | local | h 1e-07 | sigma 8 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 14800 | masked 4760 of 7400 | dark 2.93e-04 | |r| Jx 6.306e-05 6.307e-05 | My 4.729e-05 4.729e-05 | divJ 1.732e-03 1.732e-03 | arg Jx+ -1.6767 | k/kspp Jx+ 1.00083+0.00000j | res Jx 2.98e-04 2.98e-04 | n 10 | lin res 1.3e-15 | lapack | assembly 611.4 s | LU 20.6 s | solve 0.4 s | post 0.0 s | peak 3.60 GB
+ROW | spp | local | h 1e-07 | sigma 4 | m 2 | pml 1.5e-06 | half 5e-07/1e-06/1.5e-06/3e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 21360 | masked 8040 of 10680 | dark 2.93e-04 | |r| Jx 3.597e-05 3.596e-05 | My 1.613e-05 1.613e-05 | divJ 1.655e-03 1.655e-03 | arg Jx+ +1.4770 | k/kspp Jx+ 1.00775+0.00001j | res Jx 6.30e-05 6.30e-05 | n 10 | lin res 1.2e-15 | lapack | assembly 1009.9 s | LU 94.9 s | solve 0.6 s | post 0.1 s | peak 7.42 GB
+ROW | spp | local | h 8.333e-08 | sigma 4 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 21360 | masked 6864 of 10680 | dark 2.93e-04 | |r| Jx 2.186e-05 2.185e-05 | My 2.491e-05 2.492e-05 | divJ 1.561e-04 1.561e-04 | arg Jx+ +1.3379 | k/kspp Jx+ 1.00218+0.00000j | res Jx 6.98e-05 6.98e-05 | n 11 | lin res 1.0e-15 | lapack | assembly 728.1 s | LU 47.3 s | solve 0.5 s | post 0.0 s | peak 7.42 GB
+ROW | spp | local | h 8.333e-08 | sigma 2 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 13632 | masked 3000 of 6816 | dark 2.93e-04 | |r| Jx 8.235e-05 8.236e-05 | My 4.853e-05 4.853e-05 | divJ 2.211e-04 2.211e-04 | arg Jx+ +1.2062 | k/kspp Jx+ 0.99848-0.00000j | res Jx 1.39e-04 1.39e-04 | n 11 | lin res 1.2e-15 | lapack | assembly 164.3 s | LU 38.4 s | solve 0.3 s | post 0.0 s | peak 3.06 GB
+ROW | spp | local | h 8.333e-08 | sigma 4 | m 2 | pml 5e-07 | half 5e-07/1e-06/1.5e-06/2e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 13632 | masked 3000 of 6816 | dark 2.93e-04 | |r| Jx 7.401e-05 7.401e-05 | My 1.124e-04 1.124e-04 | divJ 2.034e-04 2.034e-04 | arg Jx+ +1.0950 | k/kspp Jx+ 0.99180-0.00001j | res Jx 2.89e-04 2.89e-04 | n 11 | lin res 1.3e-15 | lapack | assembly 248.3 s | LU 102.4 s | solve 0.3 s | post 0.1 s | peak 3.06 GB
+ROW | spp | local | h 7.143e-08 | sigma 4 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.5e-06/2.5e-06 | groove 5e-08/1e-07 | src 1.5e-07 | rho_min 6e-07 | bg 1.00,1.50,2.00 | fit_im 0 | acc 1.0e-05 | stp 10 | 2N 29120 | masked 9352 of 14560 | dark 2.93e-04 | |r| Jx 1.063e-05 1.063e-05 | My 2.801e-05 2.801e-05 | divJ 1.253e-04 1.253e-04 | arg Jx+ +1.4658 | k/kspp Jx+ 1.00199+0.00000j | res Jx 4.06e-05 4.06e-05 | n 13 | lin res 2.2e-15 | lapack | assembly 1021.8 s | LU 165.2 s | solve 3.3 s | post 0.2 s | peak 13.72 GB
+SPREAD geo_a150 local / Jx |r| 1.02e-01 .. 4.05e-01
+SPREAD geo_a150 local / My |r| 1.29e-02 .. 2.01e-02
+SPREAD mesh_h71 local / Jx |r| 5.49e-06 .. 2.78e-05
+SPREAD mesh_h71 local / My |r| 1.16e-05 .. 1.17e-04
+SPREAD mesh_h83 local / Jx |r| 1.12e-05 .. 5.03e-05
+SPREAD mesh_h83 local / My |r| 4.67e-06 .. 1.17e-04
+SPREAD mesh_h83_w05_s2 local / Jx |r| 1.85e-05 .. 1.14e-04
+SPREAD mesh_h83_w05_s2 local / My |r| 1.06e-05 .. 1.66e-04
+SPREAD mesh_h83_w05_s4 local / Jx |r| 1.28e-05 .. 1.51e-04
+SPREAD mesh_h83_w05_s4 local / My |r| 5.32e-05 .. 3.53e-04
+SPREAD pilot_h100 groove / Jx |r| 4.14e-05 .. 1.22e-04
+SPREAD pilot_h100 groove / My |r| 1.27e-05 .. 1.07e-04
+SPREAD pilot_h100 local / Jx |r| 3.97e-05 .. 1.39e-04
+SPREAD pilot_h100 local / My |r| 1.28e-05 .. 1.16e-04
+SPREAD w05_s05 local / Jx |r| 3.03e-02 .. 8.92e-02
+SPREAD w05_s05 local / My |r| 4.95e-03 .. 8.26e-03
+SPREAD w05_s1 local / Jx |r| 3.12e-03 .. 4.68e-03
+SPREAD w05_s1 local / My |r| 2.70e-04 .. 5.84e-04
+SPREAD w05_s2 local / Jx |r| 1.40e-05 .. 1.42e-04
+SPREAD w05_s2 local / My |r| 1.14e-05 .. 1.79e-04
+SPREAD w05_s2_m1 local / Jx |r| 3.72e-04 .. 3.74e-03
+SPREAD w05_s2_m1 local / My |r| 8.81e-04 .. 2.26e-03
+SPREAD w05_s2_m3 local / Jx |r| 6.81e-04 .. 7.92e-04
+SPREAD w05_s2_m3 local / My |r| 2.46e-04 .. 3.37e-04
+SPREAD w05_s3 local / Jx |r| 1.77e-04 .. 5.88e-04
+SPREAD w05_s3 local / My |r| 1.36e-04 .. 6.48e-04
+SPREAD w05_s4 local / Jx |r| 8.37e-04 .. 1.71e-03
+SPREAD w05_s4 local / My |r| 4.14e-04 .. 1.15e-03
+SPREAD w05_s8 local / Jx |r| 1.85e-03 .. 5.48e-03
+SPREAD w05_s8 local / My |r| 2.07e-03 .. 8.13e-03
+SPREAD w10_s2 local / Jx |r| 2.72e-05 .. 8.34e-05
+SPREAD w10_s2 local / My |r| 5.24e-06 .. 9.58e-05
+SPREAD w10_s3 local / Jx |r| 3.31e-05 .. 1.05e-04
+SPREAD w10_s3 local / My |r| 3.53e-06 .. 1.07e-04
+SPREAD w10_s4_m1 local / Jx |r| 3.72e-04 .. 3.74e-03
+SPREAD w10_s4_m1 local / My |r| 8.81e-04 .. 2.26e-03
+SPREAD w10_s4_m3 local / Jx |r| 1.98e-05 .. 5.79e-05
+SPREAD w10_s4_m3 local / My |r| 1.01e-05 .. 9.39e-05
+SPREAD w10_s5 local / Jx |r| 4.01e-05 .. 1.76e-04
+SPREAD w10_s5 local / My |r| 1.45e-05 .. 1.16e-04
+SPREAD w10_s6 local / Jx |r| 2.95e-05 .. 1.92e-04
+SPREAD w10_s6 local / My |r| 1.35e-05 .. 1.14e-04
+SPREAD w10_s8 local / Jx |r| 1.48e-05 .. 1.21e-04
+SPREAD w10_s8 local / My |r| 1.22e-05 .. 1.83e-04
+SPREAD w15_s4 local / Jx |r| 2.49e-05 .. 7.83e-05
+SPREAD w15_s4 local / My |r| 6.82e-06 .. 9.38e-05
+SPREAD geo_a160 local / Jx |r| 4.69e-02 .. 1.11e-01
+SPREAD geo_a160 local / My |r| 1.37e-02 .. 2.83e-02
+# WP-PML4a review rerun of the validation-large test (ctest, 2026-10-15) after the review fixes: the two weak-PML check
+# rows (PML start 1.5 / 1.6 um) and the 7b case (groove, local source). Same |r| as the scan rows; the ROW format now
+# carries the SPP-impedance diagnostic |out My/Jx| (TM SPP: 127 Ohm).
+ROW | spp | local | h 1e-07 | sigma 0.25 | m 2 | pml 5e-07 | half 5e-07/1e-
+ROW | spp | local | h 1e-07 | sigma 0.25 | m 2 | pml 5e-07 | half 5e-07/1e-
+ROW | spp | groove | h 1e-07 | sigma 4 | m 2 | pml 1e-06 | half 5e-07/1e-06/
+ROW | spp | local | h 1e-07 | sigma 4 | m 2 | pml 1e-06 | half 5e-07/1e-06/1.

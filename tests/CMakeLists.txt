@@ -28,6 +28,7 @@ add_executable(specklebem_unit_tests
     unit/test_operators.cpp
     unit/test_stretched_kernels.cpp
     unit/test_pml_route.cpp
+    unit/test_pml_spp.cpp
     unit/test_assembler.cpp
     unit/test_gmres.cpp
     unit/test_result_writer.cpp
@@ -127,6 +128,7 @@ add_executable(specklebem_validation_large_tests
     validation_large/test_drc_fresnel_large.cpp
     validation_large/test_pml_fresnel_large.cpp
     validation_large/test_ag_near_field_large.cpp
+    validation_large/test_pml_spp_large.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_large_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)

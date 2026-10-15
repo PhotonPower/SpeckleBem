@@ -93,12 +93,19 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   (1.14×: the error is GMRES-limited there, so acceptance runs at 1e-4); 1 µm: 0.0050 / 0.0049; CI n = 3: 0.050 /
   0.086. Lessons: the error rises steeply below ≈ h/2 from the surface (discretisation, not quadrature); direct
   field evaluation ≈ 4.5 ns per point × source sample (24 threads), 4 µm grid ≈ 7–13 min, comparable to the solve.
-- **In flight:** WP-LU1 (LAPACK dense LU in the library, record pending), WP-PML4a (7b SPP absorption: default
-  profile |r_spp| ≈ 8e-5, scan being completed, record pending). WP-PML4 is split into 4a (7b), 4b (7c/7d rough
-  Ag, dark band default, warnings) and 4c (7e Si cross-check).
-- **Next:** WP-PML4c (7e, starts when WP-LU1 frees its slot), WP-PML4b after 4a; Ag scaling on the uniform box
-  (WP22b4, optional now that the graded-box series meets the DoD); Phase 6.
-- Test counts on `main`: 517 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
+- **Merged:** WP-PML4a (validation 7b met, defaults confirmed): SPP on flat Ag reflected at the PML start with
+  |r_spp| = 7.9e-5 / 3.5e-5 (J_x / M_y) for σ_max 4, m 2, W = 2λ — at the measurement floor (1–2e-4), 125× below
+  1e-2; W = 2λ is a broad optimum (σ_max 2–8, stable at λ/6 and λ/7), m = 1 ≈ 10× above the floor, m = 3 no gain.
+  W = λ also passes for σ_max 1–8 (≤ 3.2e-3) but varies > 10× with σ and h: kept as a cost option to be judged in 7c
+  (WP-PML4b), defaults unchanged (coordinator decision 2026-10-15). Method notes: M_y is the clean observable, the
+  local-source J_x carries 2.5–7× non-SPP field (SPP impedance 18–50 Ω vs 127 Ω; groove launch 111 Ω); the 9–10
+  sample fit amplifies 1e-4 noise to |Δr| ≲ 1e-3 at r = 1e-2 (unit-tested at the real sampling).
+- **In flight:** WP-LU1 (LAPACK dense LU in the library, record pending), WP-PML4c (7e Si cross-check PML route vs
+  uniform box, started 2026-10-15). WP-PML4b (7c/7d rough Ag, dark-band default, oblique-Si/waist warnings, W = λ
+  option) is next.
+- **Next:** WP-PML4b after 4a; WP-PML5 (fast PML ring) after WP-PML4; Ag scaling on the uniform box (WP22b4,
+  optional now that the graded-box series meets the DoD); Phase 6.
+- Test counts on `main`: 533 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
@@ -149,4 +156,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   continuation workers therefore commit on a `<branch>-final`/`-2` branch in their own worktree, which the
   coordinator fast-forwards onto the WP branch. Parallel Bash calls of the coordinator share one cwd: use
   `git -C <path>` and absolute paths, never `cd` in parallel calls.
+- While other workers run heavy jobs, the permission classifier may refuse a worker's `cmake --build` ("interfere
+  with workloads"); the worker then reports it and the coordinator runs the gate builds and ctest itself (both
+  presets) before merging — which it does anyway. Workers never work around a refusal.
 - Literature PDFs live in `docs/papers/` (git-ignored, never commit).

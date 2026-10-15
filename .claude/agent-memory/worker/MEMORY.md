@@ -30,5 +30,6 @@
 - [PML route findings (WP-PML3a)](pml_route_findings.md) — Si PML cost via k-aware touching order, dark band a2 >~ 3.5 w0, masked share, test design
 - [DRC / power findings (WP25)](drc_power_findings.md) — GL-in-theta weight sums, Mie power errors, Si C_sca, DRC timing, debug cost, PML exception rule, ASB/GB power
 - [PML Fresnel 7a findings](pml_fresnel_findings.md) — WP-PML3b: oblique dark band, Si 45 deg needs h <= lambda/6, PML inert, LAPACK LU, TaskStop leaves bash loops
+- [PML SPP 7b findings](pml_spp_findings.md) — WP-PML4a: M_y clean (local J_x 18-50 vs 127 Ohm), floor 1-2e-4, defaults 8e-5, 9-sample noise x10, m = 1 1e-3
 - [Python HDF5 I/O (WP23)](python_hdf5_io.md) — h5py MSYS2 3.16 UTF-8 ok, .py mirror list, root ruff.toml, snapshot lock, attrs-then-groups order
 - [Ag near field (WP24)](ag_near_field_findings.md) — e vs Mie per zone/tol (4 um tol 1e-4 lit 0.012, 1e-3 0.088), d_min = h/2, degrees, test cost, z = 0 trap

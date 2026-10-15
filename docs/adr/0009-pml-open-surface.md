@@ -134,6 +134,16 @@ regression. The PML route becomes the default for plasmonic objects once it pass
      must reproduce Fresnel r_s, r_p to < 1 % on |r|². This is the PML analogue of WP22c and the gate for 5.
    - **(b) SPP absorption:** an SPP launched on a flat Ag surface (dipole or a sub-wavelength groove) must be
      reflected by the PML start with |r_spp| < 1e-2.
+     *7b (WP-PML4a, measured, `benchmarks/results/pml_validation.md`):* met; **the defaults σ_max = 4, m = 2,
+     W_pml = 2λ are confirmed**, |r_spp| = 8·10⁻⁵ (h = λ/5, at the ≈ 1–2·10⁻⁴ measurement floor, also at λ/6 and λ/7), with
+     W_pml = 2λ a broad optimum (σ_max 2–8 at the floor) and m = 1 ≈ 10× above the measurement floor
+     (1.2–1.75·10⁻³). Caveat: at W_pml = λ the reflection depends on σ_max and h by more than 10× (σ_max 4:
+     1.3·10⁻³ at λ/5, 1·10⁻⁴ at λ/6), still < 1e-2 for σ_max 1–8 (σ_max 0.25 / 0.5: 0.15 / 0.052). Method: the
+     SPP is launched by a groove (grooved minus flat solution) or a localized source, and an outgoing plus a
+     reflected cylindrical SPP wave plus outgoing background terms are fitted to M_y and J_x along the x-axis,
+     the reflection referred to the PML start (checked by shifting a weak PML's start); M_y is the SPP-clean
+     observable (J_x of the localized source carries non-SPP field), r_spp = max(J_x, M_y) the conservative
+     acceptance value.
    - **(c) PML-parameter sensitivity:** far field change < 0.1 % for W_pml ×1.5 and for σ_max ×1.5. This replaces
      depth ×2.
    - **(d) L ×1.2 sensitivity**, unchanged, read for the "rough spot in a polished surface" model.

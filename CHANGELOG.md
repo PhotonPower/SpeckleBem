@@ -5,6 +5,17 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / benchmarks (WP-PML4a, ADR 0009 decision 7b): validation 7b of the PML route met — an SPP launched on flat Ag
+  (sub-wavelength groove under the rigorous beam, grooved minus flat solution; or a localized source) is reflected at
+  the PML start with |r_spp| = 7.9e-5 (J_x) / 3.5e-5 (M_y) for the default profile (σ_max 4, m 2, W_pml = 2λ), at the
+  measurement floor 1–2e-4 and 125× below the 1e-2 limit; the defaults are confirmed (W = 2λ a broad optimum for
+  σ_max 2–8, stable at h = λ/6 and λ/7; m = 1 ≈ 10× above the floor; W = λ passes for σ_max 1–8 but varies > 10×
+  with σ and h — a cost option for 7c). Benchmark `specklebem_pml_spp` (fit of outgoing + reflected cylindrical SPP
+  waves with background terms, `--dump`/`--refit`, SPP-impedance diagnostic |out(M_y)/out(J_x)|), shared code
+  `tests/support/pml_spp_support.hpp` (Hankel expansion, fit, in-place LU), 16 unit tests (synthetic recovery incl.
+  the real 7b sampling, asymptotic reflected wave, plane shift, impedance), validation-large test (7b case plus a
+  weak-PML geometric check with a shifted PML start), record section "7b SPP absorption" in
+  `benchmarks/results/pml_validation.md` + rows, docs/05 row 7b, ADR 0009 note.
 - tests / benchmarks (WP24, docs/05 row "Near field Ag sphere"): total field of the Ag sphere in the xz-plane vs
   Mie, relative error per point e = |E_sim − E_Mie| / |E_Mie| < 0.1 outside the sphere beyond d_min = h/2 and < 1 in
   the geometric shadow (|x| < a, z > 0). Shared code `tests/support/ag_near_field_support.hpp` (zones, exact
