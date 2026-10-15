@@ -78,7 +78,23 @@ decision 1). Tolerances are not loosened relative to the box route.
 | 7b SPP launched on flat Ag, reflected at the PML start | — | \|r_spp\| | < 1e-2 | met (WP-PML4a, `benchmarks/results/pml_validation.md`): \|r_spp\| = 8.0e-5 (J_x) / 3.4e-5 (M_y) at the PML defaults (σ_max 4, m 2, W_pml = 2λ), λ = 500 nm, Ag, groove launch (d 50 nm, r_g 100 nm, grooved minus flat solution) under the rigorous beam at 0°, h = λ/5, PML start 1.5 µm, fit of outgoing + reflected cylindrical SPP waves plus outgoing background terms along the x-axis (measurement floor ≈ 1–2e-4; λ/6 and λ/7 at the floor too); defaults confirmed (W_pml = 2λ: σ_max 2–8 at the floor; m = 1 ≈ 1e-3; W_pml = λ with σ_max 1–8 ≤ 3.2e-3, σ- and h-dependent, σ_max 0.25 / 0.5 not: 0.15 / 0.052) |
 | 7c PML parameters W_pml ×1.5 and σ_max ×1.5 | the unperturbed run | far-field change (box-check metric) | < 0.1 % | pending (WP-PML4; 7a preview in the record) |
 | 7d L ×1.2 at fixed waist | the unperturbed run | far-field change (box-check metric) | < 0.5 % | pending (WP-PML4) |
-| 7e Si cross-check: PML route vs the validated uniform box, L = 4 µm, w₀ = L/6 | uniform-box far field | agreement within the box's own sensitivity | — | pending (WP-PML4) |
+| 7e Si cross-check: PML route vs the validated uniform box, L = 4.5 µm, w₀ = L/6, h = λ/4 on both routes³ | uniform-box far field | agreement within the box's own sensitivity (largest box change under L ×1.2)³ | l2_refl ≤ 0.229 %, ε_rr ≤ 0.058 %, \|ΔR/R\| ≤ 4.1·10⁻⁵ | met (WP-PML4c, `benchmarks/results/pml_si_crosscheck.md`): l2_refl 0.146 %, ε_rr 0.026 / 0.041 %, ΔR/R −1.6·10⁻⁵; L = 3.5 µm at λ/6: 0.186 %³ |
+
+³ Row 7e (WP-PML4c). Configuration: the validated box configuration of `box_validity_mlfmm.md` (ADR 0009 named
+L = 4 µm, w₀ = L/6), seed 1, σ = 50 nm, Lc = 500 nm, normal incidence, x polarisation, λ = 500 nm; one height map
+generated at λ/60 and subsampled, so that the patch heights are bitwise identical on both routes (the patch
+triangle vertex triples agree too). Tolerance (fixed
+before the PML solve): per quantity the largest change of the uniform box alone under its L ×1.2 check (WP-V2/V2b,
+seeds 1–2, w₀ = L/5…L/6, and this study's λ/4 partners L ×1.22 / ×1.17: 0.155 / 0.161 %); the ε_rr pass (yz
+0.0413 %) rests on that cross-seed maximum (WP-V2b seed 2), as this surface's own partners reach 0.0410 %. The
+uniform box at h = λ/4 = 125 nm exceeds its own λ₁/5 = 100 nm cell bound of ADR 0006 (the validated box uses
+50 nm), because 7e uses one patch mesh for both routes; the λ/6 and λ/10 box runs satisfy the bound.
+Caveat: h = λ/4 is not mesh-converged for the rough-Si far field (λ/6 vs λ/4: 2.0–2.3 %, the same on both routes;
+box λ/10 vs λ/6: 1.23 %, second-order convergence, ≈ 0.7 % left at λ/10), so 7e compares the terminations at
+equal discretisation. R moves by 0.75–1.5·10⁻³ from λ/4 to λ/6 (both routes alike); λ/4 and λ/6 are within
+4·10⁻⁴ of λ/10 at L = 4.5 µm. Mesh check of the cross-check at L = 3.5 µm, w₀ = L/6 (the λ/6 PML route does not
+fit 50 GB at 4.5 µm): PML vs box 0.210 % (λ/4) and 0.186 % (λ/6), against the box's own L partners at the same
+mesh and L of 0.21–0.26 % and 0.19–0.27 %.
 
 ## Test organisation
 

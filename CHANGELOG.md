@@ -5,6 +5,17 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / benchmarks (WP-PML4c, ADR 0009 decision 7e): validation 7e met — on the same rough Si surface (seed 1,
+  σ = 50 nm, Lc = 500 nm, normal incidence, L = 4.5 µm, w₀ = L/6, bitwise identical height map and patch mesh
+  h = λ/4) the PML route and the validated uniform box agree to 0.146 % in the ADR 0006 L2 metric (ε_rr
+  0.026 / 0.041 %, ΔR −1.6e-5) against the box's own L ×1.2 sensitivity 0.229 % (ε_rr 0.058 %, R 4.1e-5), fixed
+  before the PML solve; λ/6 cross-check at L = 3.5 µm 0.186 % vs 0.19–0.27 %. Finding: the rough-Si far field is
+  not mesh-converged at λ/4 or λ/6 (box λ/4 → λ/6 2.3 %, λ/6 → λ/10 1.2 %, second-order: ≈ 4 / 2 / 0.7 % mesh
+  error at λ/4 / λ/6 / λ/10, ≈ λ/20 for 0.2 %; R moves by 0.75–1.5e-3), common to both routes.
+  Benchmark `specklebem_pml_si_crosscheck` (one route per process, shared fine-generated map subsampled to h,
+  `--reference`/`--compare`, memory guard), shared code `tests/support/pml_si_crosscheck_support.hpp`, 6 unit
+  tests, validation-large 7e case (4129 s), record `benchmarks/results/pml_si_crosscheck.md` with committed run
+  logs, rows, docs/05 row 7e, ADR 0009 note.
 - solver (WP-LU1): reusable dense LU `solver::DenseLu` (factor once, solve one or many right-hand sides) with a
   LAPACK zgetrf/zgetrs backend when a configure-time link probe succeeds (`SPECKLEBEM_HAVE_LAPACK`, private to the
   library; `solver::lapack_available()`) and Eigen `PartialPivLU` otherwise or on request (`LuBackend`). Column

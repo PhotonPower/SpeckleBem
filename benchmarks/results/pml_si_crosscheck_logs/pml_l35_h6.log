@@ -1,0 +1,39 @@
+[2026-10-15 15:27:59.930] [info] [rough_surface.cpp:1269] rough box mesh: 43 x 43 grid, 3528 top + 22848 wall + 3528 bottom triangles (closing box / top = 7.476), depth 5.645512306863871e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 42 x 42 cells (target spacing 8.333333333333333e-08 m)
+[2026-10-15 15:27:59.934] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 43 x 43 grid, box depth 5.64551e-06 m: 0.007 s
+SETUP | pml_l35_h6 | Si, lambda 5e-07 m | seed 1, sigma 5e-08 m, Lc 5e-07 m | map 6.5e-06 m at gen 8.33333e-09 m, subsampled to h 8.33333e-08 m (79 x 79 nodes) | L 3.5e-06 m | w0 5.833e-07 m (L/6) | beam radius 7e-06 m | available 116.0 GB
+IDENTITY | grid nodes 1849 | open 1849, box 1849 | z mismatches open-map 0, box-map 0, open-box 0 | max xy offset 2.118e-22 m | patch triangles open 3528, box top 3528 | bitwise yes
+ESTIMATE | pml_l35_h6 | pml | half widths 1.75e-06 / 2.25e-06 / 2.75e-06 / 3.75e-06 m | triangles 16200 | 2N 48240 | dense 37.23 GB | peak (matrix + Krylov) 38.78 GB
+[2026-10-15 15:28:00.031] [info] [angular_spectrum_beam.cpp:218] AngularSpectrumBeam: w0 = 5.833e-07 m, lambda = 5e-07 m, n1 = 1, theta_in = 0 rad, 7200 plane waves (60 x 120), alpha_max = 1.571 rad, region R = 7e-06 m, grid change 8.44e-15
+[2026-10-15 15:28:00.031] [info] [angular_spectrum_beam.cpp:226] AngularSpectrumBeam: spectrum cut at k_t = k (evanescent part omitted) where it is still exp(-(k w0)^2/4) = 1.47e-06 of its peak; the focal profile deviates from exp(-rho^2/w0^2) at that level
+[2026-10-15 15:28:00.210] [info] [simulation.cpp:697] Simulation (PML): sigma_max 4, order 2, gap 5e-07 m, window [2.25e-06, 2.75e-06] m, dark band ratio 1.268e-07, 11184 of 24120 test functions masked
+DARK | pml_l35_h6 | ratio 1.268e-07 (tolerance 1.0e-04) | masked 11184 of 24120 functions
+[2026-10-15 15:28:00.297] [info] [angular_spectrum_beam.cpp:218] AngularSpectrumBeam: w0 = 5.833e-07 m, lambda = 5e-07 m, n1 = 1, theta_in = 0 rad, 7200 plane waves (60 x 120), alpha_max = 1.571 rad, region R = 7e-06 m, grid change 8.44e-15
+[2026-10-15 15:28:00.297] [info] [angular_spectrum_beam.cpp:226] AngularSpectrumBeam: spectrum cut at k_t = k (evanescent part omitted) where it is still exp(-(k w0)^2/4) = 1.47e-06 of its peak; the focal profile deviates from exp(-rho^2/w0^2) at that level
+[2026-10-15 15:28:00.469] [info] [simulation.cpp:697] Simulation (PML): sigma_max 4, order 2, gap 5e-07 m, window [2.25e-06, 2.75e-06] m, dark band ratio 1.268e-07, 11184 of 24120 test functions masked
+[2026-10-15 15:28:00.470] [info] [assembler.cpp:508] dense assembly: N = 24120, 2N = 48240, 16200 triangles, 2 colours, matrix 37.234 GB
+[2026-10-15 17:14:13.524] [info] [timer.cpp:13] [timer] dense assembly (2N = 48240): 6373.054 s
+[2026-10-15 17:14:13.524] [info] [timer.cpp:13] [timer] Simulation: dense assembly of Z: 6373.055 s
+[2026-10-15 17:14:16.246] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 2.722 s
+[2026-10-15 17:14:16.247] [info] [gmres.cpp:319] gmres: n = 48240, left preconditioner 'none', tol = 1.0e-08, max_iter = 2000, full (no restart)
+[2026-10-15 17:16:31.942] [info] [gmres.cpp:420] gmres: iteration 50: relative residual 1.926e-04
+[2026-10-15 17:19:26.142] [info] [gmres.cpp:420] gmres: iteration 100: relative residual 1.357e-05
+[2026-10-15 17:20:58.905] [info] [gmres.cpp:420] gmres: iteration 150: relative residual 9.448e-07
+[2026-10-15 17:23:07.059] [info] [gmres.cpp:420] gmres: iteration 200: relative residual 6.189e-08
+[2026-10-15 17:24:13.701] [info] [gmres.cpp:497] gmres: converged in 233 iterations, 597.45 s (CGS2 orthogonalisation 7.33 s, 233 re-orthogonalisations): relative residual 9.715e-09 (preconditioned), true residual 9.715e-09
+[2026-10-15 17:24:13.708] [info] [simulation.cpp:820] Simulation: ICTF GMRES, 2N = 48240: 233 it, converged true, true residual 9.715e-09, assembly 6375.777 s, solve 597.454 s
+ROW | pml_l35_h6 | route pml | seed 1 | sigma 5e-08 | Lc 5e-07 | L 3.5e-06 | w0 5.833e-07 | h 8.33333e-08 | gen 8.33333e-09 | map 6.5e-06 | taper 5e-07 | gap 5e-07 | pml 1e-06 | sigma_max 4 | m 2 | half 1.75e-06/2.25e-06/2.75e-06/3.75e-06 | 2N 48240 | triangles 16200 | masked 11184 of 24120 | dark 1.268e-07 | edge J 6.39e-08 M 5.47e-08 | gmres | iterations 233 | residual 9.72e-09 | R 0.3866898 | P_refl 2.850264e-16 | P_inc 7.370933e-16 | ff check 2.07e-08 | waves 7200 | setup 0.3 s | assembly 6375.8 s | solve 597.5 s | post 57.1 s | operator 37.23 GB | peak 37.44 GB
+SpeckleBem simulation
+  mesh:           16200 triangles, N = 24120 RWG functions, 2N = 48240 unknowns
+  wavelength:     5e-07 m, object eps_r = (18.478,-0.606), exterior eps_r = (1,0)
+  formulation:    ICTF (explicit)
+  preconditioner: none (automatic)
+  solver:         GMRES (tol 1e-08, max_iter 2000, restart 0)
+  compression:    dense
+  termination:    PML (ADR 0009; sigma_max 4, order 2), half widths patch 1.75e-06 / taper 2.25e-06 / PML start 2.75e-06 / outer 3.75e-06 m, far-field window [2.25e-06, 2.75e-06] m, dark band ratio 1.26835e-07
+  operator:       dense 48240x48240, 37233.6 MB
+  assembly:       Z 6373.06 s, rhs 2.7219 s
+  solve:          597.454 s, 233 iterations, converged
+  residuals:      monitored 9.71536e-09, true 9.71536e-09
+
+COMPARE | test pml_l35_h6 | reference box_l35_h6 | l2_refl 0.1859 % | l2_off30 0.4148 % | eps_rr xz 0.0358 % yz 0.0627 % | dP_refl -4.556e-05 | dR -4.568e-05 | tolerances l2 0.2290 %, eps 0.0580 %, R 4.1e-05 | l2 pass | eps FAIL | R FAIL
+COMPARE | test pml_l35_h6 | reference pml_l35_h4 | l2_refl 2.0199 % | l2_off30 4.1978 % | eps_rr xz 0.8904 % yz 0.5699 % | dP_refl +1.471e-03 | dR +1.477e-03 | tolerances l2 0.2290 %, eps 0.0580 %, R 4.1e-05 | l2 FAIL | eps FAIL | R FAIL

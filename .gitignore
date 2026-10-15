@@ -36,6 +36,7 @@ benchmarks/results/*.json
 !benchmarks/results/wp22b2_logs/*.log
 !benchmarks/results/wp_v2b_logs/*.log
 !benchmarks/results/wp_v3_logs/*.log
+!benchmarks/results/pml_si_crosscheck_logs/*.log
 # Run directories of scripts/server_run_kit/run_large_area.sh (sent back as tarballs)
 server_runs/
 

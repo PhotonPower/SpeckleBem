@@ -33,4 +33,5 @@
 - [PML SPP 7b findings](pml_spp_findings.md) — WP-PML4a: M_y clean (local J_x 18-50 vs 127 Ohm), floor 1-2e-4, defaults 8e-5, 9-sample noise x10, m = 1 1e-3
 - [Python HDF5 I/O (WP23)](python_hdf5_io.md) — h5py MSYS2 3.16 UTF-8 ok, .py mirror list, root ruff.toml, snapshot lock, attrs-then-groups order
 - [Ag near field (WP24)](ag_near_field_findings.md) — e vs Mie per zone/tol (4 um tol 1e-4 lit 0.012, 1e-3 0.088), d_min = h/2, degrees, test cost, z = 0 trap
+- [PML Si cross-check (WP-PML4c, 7e)](pml_si_crosscheck_findings.md) — PML vs box 0.146 % vs box L-shift 0.16 %, lambda/4 not converged (2 %), tolerance rule, shared map, costs
 - [Dense LU findings (WP-LU1)](dense_lu_findings.md) — zgetrf vs Eigen same kernel 1 thread, load not content, zgecon cost, 10-40x unreproduced, trace numbers

@@ -149,6 +149,21 @@ regression. The PML route becomes the default for plasmonic objects once it pass
    - **(d) L ×1.2 sensitivity**, unchanged, read for the "rough spot in a polished surface" model.
    - **(e) The Si cross-check:** the PML route against the validated uniform box at L = 4 µm, w₀ = L/6 (agreement
      within the box's own sensitivity).
+     *7e (WP-PML4c, measured, `benchmarks/results/pml_si_crosscheck.md`):* met at the validated box configuration
+     L = 4.5 µm, w₀ = L/6 (seed 1, σ = 50 nm, Lc = 500 nm, normal incidence), with the same height map and patch mesh
+     h = λ/4 on both routes: l2_refl 0.146 %, ε_rr 0.026 / 0.041 %, ΔR/R −1.6·10⁻⁵. The tolerance was fixed before
+     the PML solve as the largest change of the uniform box alone under L ×1.2 (WP-V2/V2b and this study's λ/4
+     partners): 0.229 %, 0.058 %, 4.1·10⁻⁵; the box's own L ×1.22 / ×1.17 change at the same mesh is 0.155 / 0.161 %,
+     so the routes differ by about as much as the box differs from itself when its rim moves. At L = 3.5 µm, w₀ = L/6
+     the same holds at λ/4 (0.210 %) and at λ/6 (0.186 %, box partners 0.19–0.27 %). Caveat: **h = λ/4 is not
+     mesh-converged for rough Si** (λ/6 moves the far field by 2.0–2.3 % on both routes alike, against R −0.022 % for
+     flat Si at 0° in 7a; the box at λ/10 moves another 1.23 %, consistent with second-order convergence and
+     ≈ 2 % / 0.7 % left at λ/6 / λ/10). R is less sensitive: it moves by 0.75–1.5·10⁻³ from λ/4 to λ/6 on both
+     routes; λ/4 and λ/6 are within 4·10⁻⁴ of λ/10 at L = 4.5 µm. 7e compares the terminations at equal
+     discretisation, where this error is common; the flat-Si λ/4 rule of 7a does not carry over to rough Si, whose
+     mesh must come from its own study: quantitative rough-Si far-field patterns need at least λ/10 (≈ 0.7 % mesh
+     error left there; ≈ 0.2 % would need about λ/20). With 7e met, open point 4 below ("box for Si once 7e
+     passes") is now decidable on measured data; this note does not decide it.
    - docs/05 gets a "PML route" block. Its tolerances are not loosened.
 
 ## Consequences

@@ -1,0 +1,57 @@
+[2026-10-15 14:30:26.716] [info] [rough_surface.cpp:1269] rough box mesh: 43 x 43 grid, 3528 top + 22848 wall + 3528 bottom triangles (closing box / top = 7.476), depth 5.645512306863871e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 42 x 42 cells (target spacing 8.333333333333333e-08 m)
+[2026-10-15 14:30:26.720] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 43 x 43 grid, box depth 5.64551e-06 m: 0.005 s
+SETUP | box_l35_h6 | Si, lambda 5e-07 m | seed 1, sigma 5e-08 m, Lc 5e-07 m | map 6.5e-06 m at gen 8.33333e-09 m, subsampled to h 8.33333e-08 m (79 x 79 nodes) | L 3.5e-06 m | w0 5.833e-07 m (L/6) | beam radius 7e-06 m | available 114.3 GB
+IDENTITY | grid nodes 1849 | open 1849, box 1849 | z mismatches open-map 0, box-map 0, open-box 0 | max xy offset 2.118e-22 m | patch triangles open 3528, box top 3528 | bitwise yes
+ESTIMATE | box_l35_h6 | pml | half widths 1.75e-06 / 2.25e-06 / 2.75e-06 / 3.75e-06 m | triangles 16200 | 2N 48240 | dense 37.23 GB | peak (matrix + LU copy) 74.47 GB
+ESTIMATE | box_l35_h6 | box | depth 5.646e-06 m | fine band 3.537e-06 m | triangles 29904 (top 3528) | triangles 29904 (top 3528, box 26376 = 747.619 %), box M = 0, fine rows 0, depth 5.64551 um, fine band 3.53731 um; 2N = 89712; r_max 108.257 nm; octree 5 levels, leaf edge 359.414 nm (lambda / 1.39115), 704 leaves; 0 elevated functions (home levels 4: 44856); near estimate 2.73806 GB, exact R2 estimate 0 GB (0 pairs), budget 5.47612 GB; leaf orders 19 / 59 (expansion levels 3 / 3), patterns 11.4831 GB (elevated 0 GB), far tables 1.67743 GB; setup peak estimate 19.5837 GB | Krylov at max-iter 400: 0.58 GB | peak estimate 20.16 GB
+[2026-10-15 14:30:27.136] [info] [rough_surface.cpp:1269] rough box mesh: 43 x 43 grid, 3528 top + 22848 wall + 3528 bottom triangles (closing box / top = 7.476), depth 5.645512306863871e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 42 x 42 cells (target spacing 8.333333333333333e-08 m)
+[2026-10-15 14:30:27.140] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 43 x 43 grid, box depth 5.64551e-06 m: 0.004 s
+[2026-10-15 14:30:27.240] [info] [angular_spectrum_beam.cpp:218] AngularSpectrumBeam: w0 = 5.833e-07 m, lambda = 5e-07 m, n1 = 1, theta_in = 0 rad, 7200 plane waves (60 x 120), alpha_max = 1.571 rad, region R = 7e-06 m, grid change 8.44e-15
+[2026-10-15 14:30:27.240] [info] [angular_spectrum_beam.cpp:226] AngularSpectrumBeam: spectrum cut at k_t = k (evanescent part omitted) where it is still exp(-(k w0)^2/4) = 1.47e-06 of its peak; the focal profile deviates from exp(-rho^2/w0^2) at that level
+[2026-10-15 14:30:27.243] [info] [mlfmm_operator.cpp:148] MlfmmOperator: leaf rule raises min_box_size_lambda from 0.25 to 0.365 (d0 = 3, r_max = 1.08e-07 m, radius quantile 1 = 1.08e-07 m)
+[2026-10-15 14:30:27.475] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 4 (a = 0.719 lambda_i): expansion, L = 19, search error 8.31e-06, block check 1.92e-03 (3 pairs)
+[2026-10-15 14:30:27.750] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 3 (a = 1.44 lambda_i): expansion, L = 29, search error 4.63e-09, block check 9.11e-05 (3 pairs)
+[2026-10-15 14:30:28.251] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 2 (a = 2.88 lambda_i): expansion, L = 47, search error 1.88e-12, block check 6.88e-06 (3 pairs)
+[2026-10-15 14:30:30.908] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 4 (a = 3.09 lambda_i): expansion, L = 59, search error 2.04e-08, block check 8.43e-06 (3 pairs)
+[2026-10-15 14:30:38.516] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 3 (a = 6.18 lambda_i): expansion, L = 96, search error 7.77e-10, block check 1.04e-07 (3 pairs)
+[2026-10-15 14:31:02.292] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 2 (a = 12.4 lambda_i): expansion, L = 166, search error 2.52e-11, block check 1.58e-07 (3 pairs)
+[2026-10-15 14:31:47.680] [info] [far_operator.cpp:1217] MlfmmFarOperator: 2N = 89712, 5 octree levels, d0 = 3, 12551.2 MB (incl. one apply workspace of 1305.6 MB)
+[2026-10-15 14:31:47.690] [info] [near_field.cpp:123] near field: 5 levels, 704 leaves, leaf edge 3.594e-07 m, 443686 column-list entries
+[2026-10-15 14:31:48.484] [info] [assembler.cpp:632] sparse assembly: N = 44856, 2N = 89712, nnz = 114055976 (1.27e+03 per row), matrix 2737.343 MB
+[2026-10-15 14:33:45.502] [info] [timer.cpp:13] [timer] sparse assembly (2N = 89712, nnz = 114055976): 117.018 s
+[2026-10-15 14:33:45.502] [info] [mlfmm_operator.cpp:169] MlfmmOperator: 2N = 89712, 5 levels, leaf edge 0.719 lambda1, near nnz 114055976 (2611.2 MB, 117.82 s), far 12551.2 MB (80.42 s)
+[2026-10-15 14:33:45.502] [info] [timer.cpp:13] [timer] Simulation: MLFMM operator: 198.261 s
+[2026-10-15 14:33:53.858] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 8.356 s
+[2026-10-15 14:33:53.859] [info] [gmres.cpp:319] gmres: n = 89712, left preconditioner 'none', tol = 1.0e-05, max_iter = 400, full (no restart)
+[2026-10-15 14:36:28.915] [info] [gmres.cpp:420] gmres: iteration 50: relative residual 2.122e-03
+[2026-10-15 14:39:29.795] [info] [gmres.cpp:420] gmres: iteration 100: relative residual 1.267e-04
+[2026-10-15 14:42:32.965] [info] [gmres.cpp:420] gmres: iteration 150: relative residual 1.193e-05
+[2026-10-15 14:43:04.120] [info] [gmres.cpp:497] gmres: converged in 154 iterations, 550.26 s (CGS2 orthogonalisation 10.13 s, 154 re-orthogonalisations): relative residual 9.918e-06 (preconditioned), true residual 9.918e-06
+[2026-10-15 14:43:04.129] [info] [simulation.cpp:820] Simulation: ICTF GMRES, 2N = 89712: 154 it, converged true, true residual 9.918e-06, assembly 206.617 s, solve 550.262 s
+ROW | box_l35_h6 | route box | seed 1 | sigma 5e-08 | Lc 5e-07 | L 3.5e-06 | w0 5.833e-07 | h 8.33333e-08 | gen 8.33333e-09 | map 6.5e-06 | depth 5.646e-06 | uniform box | 2N 89712 | triangles 29904 (top 3528) | d0 3 | mlfmm-gmres | iterations 154 | converged yes | true residual 9.92e-06 | R 0.3867074 | P_refl 2.850395e-16 | P_inc 7.370933e-16 | ff check 1.07e-13 | waves 7200 | setup 0.1 s | assembly 206.6 s | solve 550.3 s | post 280.6 s | operator 15.90 GB | peak 16.22 GB | peak estimate 20.16 GB
+SpeckleBem simulation
+  mesh:           29904 triangles, N = 44856 RWG functions, 2N = 89712 unknowns
+  wavelength:     5e-07 m, object eps_r = (18.478,-0.606), exterior eps_r = (1,0)
+  formulation:    ICTF (explicit)
+  preconditioner: none (automatic)
+  solver:         GMRES (tol 1e-05, max_iter 400, restart 0)
+  compression:    mlfmm (accuracy_digits 3, max_elements_per_leaf 100, min_box_size_lambda 0.25, max_levels 12, automatic_leaf_size true, leaf_radius_quantile 1, max_exact_far_bytes 0)
+  operator:       MlfmmOperator: 2N = 89712, d0 = 3, octree 5 levels, 704 leaves of edge 0.718829 lambda1 (lambda1 = 5e-07 m), built in 0.0178455 s; leaf floor 0.364502 lambda1 (given 0.25, raised by the leaf rule), leaf radius quantile 1
+  near: sparse 89712x89712, nnz = 114055976 (1.42 % of dense), 2738.061 MB, assembled in 117.822 s
+  far: 80.4206 s setup, 12551.2 MB
+  MlfmmFarOperator: 2N = 89712, d0 = 3, interpolation order p = 14, octree levels 5 (far levels 2 ... 4); policy: expansion if the search is achievable (lossy regions: and block check <= 0.001 or <= 2 x the lossless analogue), else per box pair truncation if delta <= 0.0001, exact otherwise (allowed if x*/alpha <= 4 box edges, x* = 11.7564; exact-part budget 5222.44 MB)
+  region R1: k = (1.25664e+07,0) 1/m, leaf patterns 1095.12 MB (quadrature degree <= 6, 1.48081 s)
+    level 2: 34 boxes, a = 2.87531 lambda_i, expansion; search achievable, error 1.88e-12 at L = 47, block check 6.87817e-06 (3 pairs), sampling L = 47 (4608 directions), 148 translators, fields 19.125 MB per apply, setup 0.57728 s
+    level 3: 146 boxes, a = 1.43766 lambda_i, expansion; search achievable, error 4.63e-09 at L = 29, block check 9.11331e-05 (3 pairs), sampling L = 29 (1800 directions), 316 translators, fields 32.0801 MB per apply, setup 0.315659 s
+    level 4: 704 boxes, a = 0.718829 lambda_i, expansion; search achievable, error 8.31e-06 at L = 19, block check 0.00191678 (3 pairs), sampling L = 19 (800 directions), 316 translators, fields 68.75 MB per apply, setup 0.226232 s
+  region R2: k = (5.40251e+07,-885659) 1/m, leaf patterns 9856.05 MB (quadrature degree <= 12, 39.3449 s)
+    level 2: 34 boxes, a = 12.3615 lambda_i, expansion; search achievable, error 2.52e-11 at L = 166, block check 1.58449e-07 (3 pairs), sampling L = 166 (55778 directions), 148 translators, fields 231.5 MB per apply, setup 26.6348 s
+    level 3: 146 boxes, a = 6.18075 lambda_i, expansion; search achievable, error 7.77e-10 at L = 96, block check 1.03914e-07 (3 pairs), sampling L = 96 (18818 directions), 316 translators, fields 335.379 MB per apply, setup 8.88678 s
+    level 4: 704 boxes, a = 3.09037 lambda_i, expansion; search achievable, error 2.04e-08 at L = 59, block check 8.43447e-06 (3 pairs), sampling L = 59 (7200 directions), 316 translators, fields 618.75 MB per apply, setup 2.95153 s
+  memory 12551.2 MB incl. 1 apply workspace(s) of 1305.58 MB (1 allocated so far; at least one is counted)
+  total 15163.7 MB (near 2611.22, far 12551.2, octree 1.36465), 15900.3 MB
+  assembly:       Z 198.261 s, rhs 8.35641 s
+  solve:          550.262 s, 154 iterations, converged
+  residuals:      monitored 9.91806e-06, true 9.91806e-06
+
+COMPARE | test box_l35_h6 | reference box_l35_h4 | l2_refl 2.0315 % | l2_off30 4.1980 % | eps_rr xz 0.8628 % yz 0.5731 % | dP_refl +1.468e-03 | dR +1.474e-03 | tolerances l2 0.2290 %, eps 0.0580 %, R 4.1e-05 | l2 FAIL | eps FAIL | R FAIL

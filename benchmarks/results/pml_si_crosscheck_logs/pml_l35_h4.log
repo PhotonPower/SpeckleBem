@@ -1,0 +1,30 @@
+[2026-10-15 13:44:22.160] [info] [rough_surface.cpp:1269] rough box mesh: 29 x 29 grid, 1568 top + 10304 wall + 1568 bottom triangles (closing box / top = 7.571), depth 5.645512306863871e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 28 x 28 cells (target spacing 1.25e-07 m)
+[2026-10-15 13:44:22.163] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 29 x 29 grid, box depth 5.64551e-06 m: 0.002 s
+SETUP | pml_l35_h4 | Si, lambda 5e-07 m | seed 1, sigma 5e-08 m, Lc 5e-07 m | map 6.5e-06 m at gen 8.33333e-09 m, subsampled to h 1.25e-07 m (53 x 53 nodes) | L 3.5e-06 m | w0 5.833e-07 m (L/6) | beam radius 7e-06 m | available 119.2 GB
+IDENTITY | grid nodes 841 | open 841, box 841 | z mismatches open-map 0, box-map 0, open-box 0 | max xy offset 2.118e-22 m | patch triangles open 1568, box top 1568 | bitwise yes
+ESTIMATE | pml_l35_h4 | pml | half widths 1.75e-06 / 2.25e-06 / 2.75e-06 / 3.75e-06 m | triangles 7200 | 2N 21360 | dense 7.30 GB | peak (matrix + LU copy) 14.60 GB
+[2026-10-15 13:44:22.277] [info] [angular_spectrum_beam.cpp:218] AngularSpectrumBeam: w0 = 5.833e-07 m, lambda = 5e-07 m, n1 = 1, theta_in = 0 rad, 7200 plane waves (60 x 120), alpha_max = 1.571 rad, region R = 7e-06 m, grid change 8.44e-15
+[2026-10-15 13:44:22.277] [info] [angular_spectrum_beam.cpp:226] AngularSpectrumBeam: spectrum cut at k_t = k (evanescent part omitted) where it is still exp(-(k w0)^2/4) = 1.47e-06 of its peak; the focal profile deviates from exp(-rho^2/w0^2) at that level
+[2026-10-15 13:44:22.393] [info] [simulation.cpp:697] Simulation (PML): sigma_max 4, order 2, gap 5e-07 m, window [2.25e-06, 2.75e-06] m, dark band ratio 1.269e-07, 4960 of 10680 test functions masked
+DARK | pml_l35_h4 | ratio 1.269e-07 (tolerance 1.0e-04) | masked 4960 of 10680 functions
+[2026-10-15 13:44:22.496] [info] [angular_spectrum_beam.cpp:218] AngularSpectrumBeam: w0 = 5.833e-07 m, lambda = 5e-07 m, n1 = 1, theta_in = 0 rad, 7200 plane waves (60 x 120), alpha_max = 1.571 rad, region R = 7e-06 m, grid change 8.44e-15
+[2026-10-15 13:44:22.496] [info] [angular_spectrum_beam.cpp:226] AngularSpectrumBeam: spectrum cut at k_t = k (evanescent part omitted) where it is still exp(-(k w0)^2/4) = 1.47e-06 of its peak; the focal profile deviates from exp(-rho^2/w0^2) at that level
+[2026-10-15 13:44:22.607] [info] [simulation.cpp:697] Simulation (PML): sigma_max 4, order 2, gap 5e-07 m, window [2.25e-06, 2.75e-06] m, dark band ratio 1.269e-07, 4960 of 10680 test functions masked
+[2026-10-15 13:44:22.608] [info] [assembler.cpp:508] dense assembly: N = 10680, 2N = 21360, 7200 triangles, 2 colours, matrix 7.300 GB
+[2026-10-15 14:26:30.761] [info] [timer.cpp:13] [timer] dense assembly (2N = 21360): 2528.153 s
+[2026-10-15 14:26:30.761] [info] [timer.cpp:13] [timer] Simulation: dense assembly of Z: 2528.154 s
+[2026-10-15 14:26:32.248] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 1.487 s
+ROW | pml_l35_h4 | route pml | seed 1 | sigma 5e-08 | Lc 5e-07 | L 3.5e-06 | w0 5.833e-07 | h 1.25e-07 | gen 8.33333e-09 | map 6.5e-06 | taper 5e-07 | gap 5e-07 | pml 1e-06 | sigma_max 4 | m 2 | half 1.75e-06/2.25e-06/2.75e-06/3.75e-06 | 2N 21360 | triangles 7200 | masked 4960 of 10680 | dark 1.269e-07 | edge J 1.93e-07 M 4.30e-07 | lapack-lu | iterations 0 | residual 1.51e-13 | R 0.3861193 | P_refl 2.846059e-16 | P_inc 7.370933e-16 | ff check 4.76e-08 | waves 7200 | setup 0.2 s | assembly 2529.6 s | solve 206.3 s | post 19.5 s | operator 7.30 GB | peak 14.69 GB
+SpeckleBem simulation
+  mesh:           7200 triangles, N = 10680 RWG functions, 2N = 21360 unknowns
+  wavelength:     5e-07 m, object eps_r = (18.478,-0.606), exterior eps_r = (1,0)
+  formulation:    ICTF (explicit)
+  preconditioner: none (automatic), unused by the direct solver
+  solver:         direct LU
+  compression:    dense
+  termination:    PML (ADR 0009; sigma_max 4, order 2), half widths patch 1.75e-06 / taper 2.25e-06 / PML start 2.75e-06 / outer 3.75e-06 m, far-field window [2.25e-06, 2.75e-06] m, dark band ratio 1.26894e-07
+  operator:       dense 21360x21360, 7299.99 MB
+  assembly:       Z 2528.15 s, rhs 1.48688 s
+  solve:          not run
+
+COMPARE | test pml_l35_h4 | reference box_l35_h4 | l2_refl 0.2102 % | l2_off30 0.5177 % | eps_rr xz 0.0514 % yz 0.0706 % | dP_refl -4.847e-05 | dR -4.886e-05 | tolerances l2 0.2290 %, eps 0.0580 %, R 4.1e-05 | l2 pass | eps FAIL | R FAIL

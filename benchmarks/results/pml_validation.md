@@ -3,6 +3,7 @@
 The sections from "Setup" to "Validation-large test" are validation 7a (flat Fresnel). Validation 7b
 (SPP reflection at the PML start, **met**: |r_spp| ≈ 8·10⁻⁵ at the defaults) is the section
 "7b SPP absorption" after them.
+Validation 7e (rough Si, PML route vs the uniform box, WP-PML4c) has its own record: `pml_si_crosscheck.md`.
 
 Acceptance criterion: ADR 0009 decision 7a / `docs/05_validation.md` "PML route" row 7a — a flat Ag
 and a flat Si open surface terminated by the complex-coordinate-stretching PML, under the rigorous

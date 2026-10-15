@@ -105,11 +105,20 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   35.7 s), equal on one thread — both run OpenBLAS kernels (`EIGEN_USE_BLAS`), the gap is Eigen's fork–join schedule
   under load (inferred). The 10–40× expected from WP-PML3b was an artefact of a concurrent build. zgecon replaced by
   the Hager/Higham estimator on the backend's solves (63 s → 1.5 s on the PML matrix). Non-finite Z → invalid_argument.
-- **In flight:** WP-PML4c (7e Si cross-check PML route vs uniform box), WP-PML4b (7c/7d rough Ag, dark-band default,
-  oblique-Si/waist warnings, W = λ option), both started 2026-10-15.
+- **Merged:** WP-PML4c (validation 7e met): PML route vs validated uniform box on the same rough Si surface and mesh
+  (L = 4.5 µm, w₀ = L/6, h = λ/4): 0.146 % vs the box's own L ×1.2 sensitivity 0.229 % (rule fixed before the PML
+  solve); the residual is the common edge effect. **Finding for the lead:** the rough-Si far field is not
+  mesh-converged at λ/4, λ/6 or λ/10 (box λ/4 → λ/6 2.3 %, λ/6 → λ/10 1.2 %, second-order ⇒ ≈ 4 / 2 / 0.7 % mesh
+  error, ≈ λ/20 for 0.2 %; R moves by 0.75–1.5e-3 per step) — 7a's "λ/4 suffices for Si at normal incidence"
+  holds for flat R only. The box-validity *sensitivity* checks are unaffected, but absolute-accuracy claims of
+  rough-Si far-field patterns at 50 nm = λ/10 carry ≈ 0.7 %; the PML route beyond λ/6 needs WP-PML5 (fast PML
+  ring). Needs an ADR 0006/0009 note on the rough-Si mesh rule (lead decision: target accuracy vs cost).
+- **In flight:** WP-PML4b (7c/7d rough Ag, dark-band default, oblique-Si/waist warnings, W = λ option; 7c met,
+  7d on Ag fails at 2.6 % through SPP re-scattering — flat control 2e-7 —, Si control and analysis pending;
+  coordinator's provisional decision: assert 7d on rough Si, report Ag with the documented reason).
 - **Next:** WP-PML5 (fast PML ring) after WP-PML4; Ag scaling on the uniform box (WP22b4, optional now that the
   graded-box series meets the DoD); Phase 6.
-- Test counts on `main`: 540 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
+- Test counts on `main`: 547 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

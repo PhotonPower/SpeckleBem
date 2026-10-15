@@ -1,0 +1,98 @@
+UpdateCTestConfiguration  from :<repo>/DartConfiguration.tcl
+Test project <repo>/build/win-release
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 566
+    Start 566: PML 7e: rough Si, PML route against the uniform box (L 4.5 um, w0 L/6, h lambda/4)
+
+566: Test command: <repo>\build\win-release\tests\specklebem_validation_large_tests.exe "PML 7e: rough Si\, PML route against the uniform box (L 4.5 um\, w0 L/6\, h lambda/4)" "--order decl"
+566: Working Directory: <repo>/build/win-release/tests
+566: Test timeout computed to be: 21600
+566: Filters: "PML 7e: rough Si\, PML route against the uniform box (L 4.5 um\, w0 L/6\, h lambda/4)"
+566: Randomness seeded to: 2648542335
+566: [2026-10-15 18:34:56.740] [info] [rough_surface.cpp:1269] rough box mesh: 37 x 37 grid, 2592 top + 13248 wall + 2592 bottom triangles (closing box / top = 6.111), depth 5.645512306863871e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 36 x 36 cells (target spacing 1.25e-07 m)
+566: [2026-10-15 18:34:56.744] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 37 x 37 grid, box depth 5.64551e-06 m: 0.004 s
+566: [2026-10-15 18:34:57.258] [info] [rough_surface.cpp:1269] rough box mesh: 37 x 37 grid, 2592 top + 13248 wall + 2592 bottom triangles (closing box / top = 6.111), depth 5.645512306863871e-06 m, 0 coarsening levels, 0 relaxation nodes (<= 0 per column), 0 fine-band rows, bottom 36 x 36 cells (target spacing 1.25e-07 m)
+566: [2026-10-15 18:34:57.260] [info] [timer.cpp:13] [timer] make_mesh_from_height_map: 37 x 37 grid, box depth 5.64551e-06 m: 0.003 s
+566: [2026-10-15 18:34:57.328] [info] [angular_spectrum_beam.cpp:218] AngularSpectrumBeam: w0 = 7.5e-07 m, lambda = 5e-07 m, n1 = 1, theta_in = 0 rad, 5760 plane waves (60 x 96), alpha_max = 1.571 rad, region R = 7e-06 m, grid change 8.99e-12
+566: [2026-10-15 18:34:57.328] [info] [angular_spectrum_beam.cpp:226] AngularSpectrumBeam: spectrum cut at k_t = k (evanescent part omitted) where it is still exp(-(k w0)^2/4) = 2.27e-10 of its peak; the focal profile deviates from exp(-rho^2/w0^2) at that level
+566: [2026-10-15 18:34:57.345] [info] [mlfmm_operator.cpp:148] MlfmmOperator: leaf rule raises min_box_size_lambda from 0.25 to 0.543 (d0 = 3, r_max = 1.61e-07 m, radius quantile 1 = 1.61e-07 m)
+566: [2026-10-15 18:34:57.814] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 4 (a = 0.721 lambda_i): expansion, L = 21, search error 3.46e-05, block check 4.88e-04 (3 pairs)
+566: [2026-10-15 18:34:58.121] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 3 (a = 1.44 lambda_i): expansion, L = 30, search error 1.76e-08, block check 2.19e-04 (3 pairs)
+566: [2026-10-15 18:34:58.817] [info] [far_operator.cpp:660] MlfmmFarOperator: region R1 level 2 (a = 2.88 lambda_i): expansion, L = 48, search error 4.39e-12, block check 7.46e-05 (3 pairs)
+566: [2026-10-15 18:35:03.374] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 4 (a = 3.1 lambda_i): expansion, L = 66, search error 1.93e-05, block check 2.75e-05 (3 pairs)
+566: [2026-10-15 18:35:16.236] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 3 (a = 6.2 lambda_i): expansion, L = 102, search error 1.64e-08, block check 1.49e-06 (3 pairs)
+566: [2026-10-15 18:35:52.326] [info] [far_operator.cpp:660] MlfmmFarOperator: region R2 level 2 (a = 12.4 lambda_i): expansion, L = 173, search error 4.06e-10, block check 2.60e-06 (3 pairs)
+566: [2026-10-15 18:37:05.660] [info] [far_operator.cpp:1217] MlfmmFarOperator: 2N = 55296, 5 octree levels, d0 = 3, 11245.1 MB (incl. one apply workspace of 2356.6 MB)
+566: [2026-10-15 18:37:05.667] [info] [near_field.cpp:123] near field: 5 levels, 1010 leaves, leaf edge 3.606e-07 m, 271070 column-list entries
+566: [2026-10-15 18:37:06.043] [info] [assembler.cpp:632] sparse assembly: N = 27648, 2N = 55296, nnz = 30026480 (543 per row), matrix 720.636 MB
+566: [2026-10-15 18:39:16.990] [info] [timer.cpp:13] [timer] sparse assembly (2N = 55296, nnz = 30026480): 130.947 s
+566: [2026-10-15 18:39:16.990] [info] [mlfmm_operator.cpp:169] MlfmmOperator: 2N = 55296, 5 levels, leaf edge 0.721 lambda1, near nnz 30026480 (687.7 MB, 131.33 s), far 11245.1 MB (128.31 s)
+566: [2026-10-15 18:39:16.990] [info] [timer.cpp:13] [timer] Simulation: MLFMM operator: 259.661 s
+566: [2026-10-15 18:39:25.921] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 8.930 s
+566: [2026-10-15 18:39:25.921] [info] [gmres.cpp:319] gmres: n = 55296, left preconditioner 'none', tol = 1.0e-05, max_iter = 400, full (no restart)
+566: [2026-10-15 18:44:06.305] [info] [gmres.cpp:420] gmres: iteration 50: relative residual 2.593e-04
+566: [2026-10-15 18:48:29.833] [info] [gmres.cpp:497] gmres: converged in 92 iterations, 543.89 s (CGS2 orthogonalisation 5.79 s, 92 re-orthogonalisations): relative residual 9.807e-06 (preconditioned), true residual 9.807e-06
+566: [2026-10-15 18:48:29.836] [info] [simulation.cpp:820] Simulation: ICTF GMRES, 2N = 55296: 92 it, converged true, true residual 9.807e-06, assembly 268.592 s, solve 543.887 s
+566: 
+566: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+566: specklebem_validation_large_tests.exe is a Catch2 v3.16.1 host application.
+566: Run with -? for options
+566: 
+566: -------------------------------------------------------------------------------
+566: PML 7e: rough Si, PML route against the uniform box (L 4.5 um, w0 L/6, h
+566:         lambda/4)
+566: -------------------------------------------------------------------------------
+566: <repo>/tests/validation_large/test_pml_si_crosscheck_large.cpp:22
+566: ...............................................................................
+566: 
+566: <repo>/tests/validation_large/test_pml_si_crosscheck_large.cpp:45: warning:
+566:   ROW | box_7e | route box | seed 1 | sigma 5e-08 | Lc 5e-07 | L 4.5e-06 | w0
+566:   7.5e-07 | h 1.25e-07 | gen 8.33333e-09 | map 6.5e-06 | depth 5.646e-06 |
+566:   uniform box | 2N 55296 | triangles 18432 (top 2592) | d0 3 | mlfmm-gmres |
+566:   iterations 92 | converged yes | true residual 9.81e-06 | R 0.3856955 | P_refl
+566:   4.627783e-16 | P_inc 1.199854e-15 | ff check 1.15e-12 | waves 5760 | setup 0.
+566:   1 s | assembly 268.6 s | solve 543.9 s | post 124.3 s | operator 12.51 GB |
+566:   peak 12.69 GB | peak estimate 15.41 GB
+566: 
+566: [2026-10-15 18:50:35.219] [info] [angular_spectrum_beam.cpp:218] AngularSpectrumBeam: w0 = 7.5e-07 m, lambda = 5e-07 m, n1 = 1, theta_in = 0 rad, 5760 plane waves (60 x 96), alpha_max = 1.571 rad, region R = 7e-06 m, grid change 8.99e-12
+566: [2026-10-15 18:50:35.219] [info] [angular_spectrum_beam.cpp:226] AngularSpectrumBeam: spectrum cut at k_t = k (evanescent part omitted) where it is still exp(-(k w0)^2/4) = 2.27e-10 of its peak; the focal profile deviates from exp(-rho^2/w0^2) at that level
+566: [2026-10-15 18:50:35.440] [info] [simulation.cpp:697] Simulation (PML): sigma_max 4, order 2, gap 5e-07 m, window [2.75e-06, 3.25e-06] m, dark band ratio 1.571e-08, 5728 of 13736 test functions masked
+566: [2026-10-15 18:50:35.441] [info] [assembler.cpp:508] dense assembly: N = 13736, 2N = 27472, 9248 triangles, 2 colours, matrix 12.075 GB
+566: [2026-10-15 20:03:16.347] [info] [timer.cpp:13] [timer] dense assembly (2N = 27472): 4360.731 s
+566: [2026-10-15 20:03:16.347] [info] [timer.cpp:13] [timer] Simulation: dense assembly of Z: 4360.732 s
+566: [2026-10-15 20:03:17.899] [info] [timer.cpp:13] [timer] Simulation: right-hand side: 1.552 s
+566: [2026-10-15 20:13:57.673] [info] [direct.cpp:91] dense LU backend: LAPACK (zgetrf/zgetrs)
+566: <repo>/tests/validation_large/test_pml_si_crosscheck_large.cpp:51: warning:
+566:   ROW | pml_7e | route pml | seed 1 | sigma 5e-08 | Lc 5e-07 | L 4.5e-06 | w0
+566:   7.5e-07 | h 1.25e-07 | gen 8.33333e-09 | map 6.5e-06 | taper 5e-07 | gap 5e-
+566:   07 | pml 1e-06 | sigma_max 4 | m 2 | half 2.25e-06/2.75e-06/3.25e-06/4.25e-06
+566:   | 2N 27472 | triangles 9248 | masked 5728 of 13736 | dark 1.571e-08 | edge J
+566:   2.23e-07 M 4.40e-07 | lapack-lu | iterations 0 | residual 4.46e-16 | R 0.
+566:   3856893 | P_refl 4.627708e-16 | P_inc 1.199854e-15 | ff check 4.94e-08 |
+566:   waves 5760 | setup 0.4 s | assembly 4362.3 s | solve 644.5 s | post 44.5 s |
+566:   operator 12.08 GB | peak 24.27 GB
+566: 
+566: <repo>/tests/validation_large/test_pml_si_crosscheck_large.cpp:61: warning:
+566:   COMPARE | test pml_7e | reference box_7e | l2_refl 0.1464 % | l2_off30 0.4023
+566:   % | eps_rr xz 0.0257 % yz 0.0413 % | dP_refl -1.646e-05 | dR -1.617e-05 |
+566:   tolerances l2 0.2290 %, eps 0.0580 %, R 4.1e-05 | l2 pass | eps pass | R pass
+566: 
+566: ===============================================================================
+566: All tests passed (12 assertions in 1 test case)
+566: 
+1/1 Test #566: PML 7e: rough Si, PML route against the uniform box (L 4.5 um, w0 L/6, h lambda/4) ...   Passed  5992.64 sec
+
+The following tests passed:
+	PML 7e: rough Si, PML route against the uniform box (L 4.5 um, w0 L/6, h lambda/4)
+
+100% tests passed out of 1
+
+Label Time Summary:
+validation-large    = 5992.64 sec*proc (1 test)
+
+Total Test time (real) = 5992.71 sec

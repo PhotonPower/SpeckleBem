@@ -48,6 +48,7 @@ add_executable(specklebem_unit_tests
     unit/test_box_validity.cpp
     unit/test_ag_box_mechanism.cpp
     unit/test_ag_near_field_support.cpp
+    unit/test_pml_si_crosscheck.cpp
     # unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -128,6 +129,7 @@ add_executable(specklebem_validation_large_tests
     validation_large/test_drc_fresnel_large.cpp
     validation_large/test_pml_fresnel_large.cpp
     validation_large/test_ag_near_field_large.cpp
+    validation_large/test_pml_si_crosscheck_large.cpp
     validation_large/test_pml_spp_large.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
