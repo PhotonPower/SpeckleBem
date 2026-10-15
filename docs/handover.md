@@ -87,12 +87,18 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   surface does not exercise the PML (sensitivities ≤ 2e-7): 7b (SPP) is the real PML test (WP-PML4). Proposed for
   WP-PML4: a warning (not an error) for oblique Si with h > λ/6 or a waist below the 45° rule; decide the default
   dark band (1e-4 costs ≈ 2.5× surface at 45°, R insensitive) with 7c/7d.
-- **In flight:** WP24 (Ag sphere near field vs Mie: met on both cases, in review), WP-LU1 (LAPACK dense LU in the
-  library), WP-PML4a (7b SPP absorption, profile defaults). WP-PML4 is split into 4a (7b), 4b (7c/7d rough Ag, dark
-  band default, warnings) and 4c (7e Si cross-check).
-- **Next:** WP-PML4 (7b–7e) after WP24; WP-LU1 (LAPACK dense LU, small); Ag scaling
-  on the uniform box (WP22b4, optional now that the graded-box series meets the DoD); Phase 6.
-- Test counts on `main`: 508 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
+- **Merged:** WP24 (Ag sphere near field vs Mie, docs/05 row met): per-point e = |ΔE|/|E_Mie| < 0.1 outside the
+  sphere beyond d_min = h/2 (incl. the x-axis and the forward region beside the sphere), < 1 in the geometric
+  shadow. 4 µm (paper mesh) at GMRES tol 1e-4: 0.0124 / 0.0062 (≈ 8× margin); at the paper's tol 1e-3 0.088 / 0.022
+  (1.14×: the error is GMRES-limited there, so acceptance runs at 1e-4); 1 µm: 0.0050 / 0.0049; CI n = 3: 0.050 /
+  0.086. Lessons: the error rises steeply below ≈ h/2 from the surface (discretisation, not quadrature); direct
+  field evaluation ≈ 4.5 ns per point × source sample (24 threads), 4 µm grid ≈ 7–13 min, comparable to the solve.
+- **In flight:** WP-LU1 (LAPACK dense LU in the library, record pending), WP-PML4a (7b SPP absorption: default
+  profile |r_spp| ≈ 8e-5, scan being completed, record pending). WP-PML4 is split into 4a (7b), 4b (7c/7d rough
+  Ag, dark band default, warnings) and 4c (7e Si cross-check).
+- **Next:** WP-PML4c (7e, starts when WP-LU1 frees its slot), WP-PML4b after 4a; Ag scaling on the uniform box
+  (WP22b4, optional now that the graded-box series meets the DoD); Phase 6.
+- Test counts on `main`: 517 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
@@ -136,4 +142,11 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   their reports arrived after background work finished; keep WPs ≤ 800 lines and tell workers to commit
   early.
 - Machine: Windows 11, 24 cores, 128 GB, MSYS2 in `C:/msys64` (UCRT64 + CLANG64), no virtualisation.
+- After a reboot (2026-10-15) every agent is gone but the worktrees survive: check each in-progress worktree
+  (`git status`, `git log main..HEAD`, logs in the session scratchpad), commit the leftovers as WIP, remove dead
+  worktrees (`git worktree remove -f -f`), and spawn continuation workers pointed at the *existing* worktree
+  (keeps the builds and benchmark binaries). A worker cannot run git against another agent's worktree (guard):
+  continuation workers therefore commit on a `<branch>-final`/`-2` branch in their own worktree, which the
+  coordinator fast-forwards onto the WP branch. Parallel Bash calls of the coordinator share one cwd: use
+  `git -C <path>` and absolute paths, never `cd` in parallel calls.
 - Literature PDFs live in `docs/papers/` (git-ignored, never commit).

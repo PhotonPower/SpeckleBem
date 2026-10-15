@@ -31,3 +31,4 @@
 - [DRC / power findings (WP25)](drc_power_findings.md) — GL-in-theta weight sums, Mie power errors, Si C_sca, DRC timing, debug cost, PML exception rule, ASB/GB power
 - [PML Fresnel 7a findings](pml_fresnel_findings.md) — WP-PML3b: oblique dark band, Si 45 deg needs h <= lambda/6, PML inert, LAPACK LU, TaskStop leaves bash loops
 - [Python HDF5 I/O (WP23)](python_hdf5_io.md) — h5py MSYS2 3.16 UTF-8 ok, .py mirror list, root ruff.toml, snapshot lock, attrs-then-groups order
+- [Ag near field (WP24)](ag_near_field_findings.md) — e vs Mie per zone/tol (4 um tol 1e-4 lit 0.012, 1e-3 0.088), d_min = h/2, degrees, test cost, z = 0 trap

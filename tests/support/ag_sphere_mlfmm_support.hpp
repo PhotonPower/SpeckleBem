@@ -34,6 +34,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -186,8 +187,11 @@ inline Real eps_rr(const post::SurfaceSolution& s, const reference::MieSolution&
 }
 
 /// Assembles and solves the case through Simulation (compression "mlfmm") and compares the
-/// bistatic RCS with Mie.
-inline Result run(const Case& c) {
+/// bistatic RCS with Mie. `after_solve` (if set) is called with the solved Simulation before it is
+/// destroyed, after the RCS evaluation and before peak_rss is read (post-processing of the same
+/// solve, e.g. the near field of WP24: ag_near_field_support.hpp), and only if GMRES converged
+/// (a failed run returns with converged = false without spending time on the post-processing).
+inline Result run(const Case& c, const std::function<void(const Simulation&)>& after_solve = {}) {
     using Clock = std::chrono::steady_clock;
     const geometry::TriangleMesh mesh = make_mesh(c.mesh, c.diameter, c.subdivisions);
     Result r;
@@ -235,6 +239,8 @@ inline Result run(const Case& c) {
         eps_rr(sim.solution(), mie, kRcsAnglesFine, -Vec3::UnitX(), 0.5 * constants::pi);
     r.post_s = std::chrono::duration<Real>(Clock::now() - t0).count();
     r.report = sim.report();
+    if (after_solve && r.converged)
+        after_solve(sim);
     r.peak_rss = system_memory::peak_rss_bytes();
     return r;
 }

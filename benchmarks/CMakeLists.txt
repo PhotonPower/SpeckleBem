@@ -74,3 +74,10 @@ target_link_libraries(specklebem_ag_absorption PRIVATE SpeckleBem::specklebem sp
 # validation-large test (tests/support/pml_fresnel_support.hpp).
 add_executable(specklebem_pml_fresnel pml_fresnel.cpp)
 target_link_libraries(specklebem_pml_fresnel PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+# Near field of the Ag sphere in the xz-plane vs Mie (WP24, docs/05 row "Near field Ag sphere"):
+# the WP22a case (solved, or currents read back with --load), total field on radial lines and an
+# xz grid, per-zone error statistics; one case per process, run by hand, see
+# benchmarks/results/ag_near_field.md. Shares the code with the validation-large test
+# (tests/support/ag_near_field_support.hpp).
+add_executable(specklebem_ag_near_field ag_near_field.cpp)
+target_link_libraries(specklebem_ag_near_field PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)

@@ -37,7 +37,7 @@ analytic (Mie, Fresnel, static integrals)
 | Ag sphere d = 4 µm, λ/27¹, MLFMM | Mie | ε_rr normal/parallel planes | ≤ 0.5 % | 4 |
 | Power balance, Ag and Si surfaces | — | rel | < 1 % (Ag at mesh ≤ λ/13: the surface P_abs of weakly absorbing Ag converges slowly, see benchmarks/results/mie_sphere_dense.md) | 4 |
 | Reciprocity, rough surface | — | rel | < 1 % | 4 |
-| Near field Ag sphere, xz-plane | Mie | rel per point | < 0.1 (lit), < 1 (shadow) | 5 |
+| Near field Ag sphere, xz-plane² (tests/validation_large/test_ag_near_field_large.cpp, CI companion tests/validation/test_ag_near_field.cpp) | Mie | rel per point \|E_sim − E_Mie\| / \|E_Mie\| | < 0.1 (lit), < 1 (shadow) (met, WP24: d = 4 µm paper mesh, GMRES tol 1e-4 (acceptance): max 0.012 lit / 0.006 shadow; at the paper's tol 1e-3 0.088 / 0.022 (lit margin 1.14×); d = 1 µm λ/26.5, tol 1e-5: 0.005 / 0.005; `benchmarks/results/ag_near_field.md`) | 5 |
 | Rigorous beam Maxwell check (`AngularSpectrumBeam`; unit test "angular-spectrum beam: finite-difference Maxwell residual at round-off level", tests/unit/test_angular_spectrum_beam.cpp, asserts < 1e-9, measured ≤ 9e-11) | finite differences (O(h⁴), h = λ/400) | ‖∇×E + jωμH‖ / ‖ωμH‖ | < 1e-8 | 5 |
 | Speckle PDF at z = −1 mm | Eq. 10 | KS test | p > 0.05 | 6 |
 | Contrast, γ₁₂ vs σ | monotone decrease | — | — | 6 |
@@ -49,6 +49,11 @@ analytic (Mie, Fresnel, static integrals)
 ¹ "λ/27" is the paper's label for its 393 216-unknown mesh: an octahedron-based sphere with 8·4⁷ =
 131 072 triangles, mean edge 30.25 nm = λ/16.5, √(mean triangle area) = λ/25.5 (WP22a,
 `benchmarks/results/ag_sphere_4um_mlfmm.md`). The row means that mesh, not a mean edge of λ/27.
+
+² Zones of the near-field row (a the sphere radius, h the mean edge length): shadow = the
+geometric shadow |x| < a, z > 0; lit = every other exterior point, including z ≤ 0, the x-axis and
+the forward region beside the sphere; both outside the near-surface band |r| − a < h/2. The
+denominator of the per-point error is the local |E_Mie| (`benchmarks/results/ag_near_field.md`).
 
 ## Rough-surface specific checks
 

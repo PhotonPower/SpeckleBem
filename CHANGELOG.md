@@ -5,6 +5,15 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / benchmarks (WP24, docs/05 row "Near field Ag sphere"): total field of the Ag sphere in the xz-plane vs
+  Mie, relative error per point e = |E_sim − E_Mie| / |E_Mie| < 0.1 outside the sphere beyond d_min = h/2 and < 1 in
+  the geometric shadow (|x| < a, z > 0). Shared code `tests/support/ag_near_field_support.hpp` (zones, exact
+  percentiles, d_min scan), unit tests of the zone logic, CI case (icosphere n = 3, dense: 0.050 / 0.086),
+  validation-large cases d = 1 µm (ico n = 5, tol 1e-5: 0.0050 / 0.0049) and d = 4 µm at the paper's 2N = 393 216
+  (GMRES tol 1e-4: 0.0124 / 0.0062, margin ≈ 8×; at the paper's tol 1e-3 0.088 / 0.022, margin 1.14×, kept as
+  evidence), benchmark `specklebem_ag_near_field`, record `benchmarks/results/ag_near_field.md` (near-surface
+  profile, quadrature degrees 6/12/19, d_min choice, evaluation cost ≈ 4.3–4.6 ns per point × source sample on 24
+  threads). `ag_sphere_mlfmm_support::run` gains an `after_solve` callback (skipped when GMRES did not converge).
 - tests / benchmarks (WP-PML3b, ADR 0009 decision 7a): validation 7a of the PML route met. Benchmark
   `specklebem_pml_fresnel` (flat open surface + PML, rigorous beam, s and p from one LAPACK LU, `--estimate-only`
   dark-band scan), shared code `tests/support/pml_fresnel_support.hpp`, five validation-large cases, record
