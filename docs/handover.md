@@ -113,9 +113,17 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   holds for flat R only. The box-validity *sensitivity* checks are unaffected, but absolute-accuracy claims of
   rough-Si far-field patterns at 50 nm = λ/10 carry ≈ 0.7 %; the PML route beyond λ/6 needs WP-PML5 (fast PML
   ring). Needs an ADR 0006/0009 note on the rough-Si mesh rule (lead decision: target accuracy vs cost).
-- **In flight:** WP-PML4b (7c/7d rough Ag, dark-band default, oblique-Si/waist warnings, W = λ option; 7c met,
-  7d on Ag fails at 2.6 % through SPP re-scattering — flat control 2e-7 —, Si control and analysis pending;
-  coordinator's provisional decision: assert 7d on rough Si, report Ag with the documented reason).
+- **In flight (session end 2026-10-15, machine put to sleep):** WP-PML4b on branch
+  `wp/pml4b-rough-ag-sensitivity-2` @ 3e204ea (clean worktree `agent-a4b054afbcdfa5808`; `main` 69b82e5 merged in).
+  Done: Part A warnings (027a0ac), rough-Ag study code and metric, flat control and loss diagnostic, gap-current
+  diagnostic, rough-Si 7d control with the Ag 7d reported only (62af436), record draft `pml_rough_ag.md` (e1af008),
+  window check (3e204ea). Results so far: 7c met on Ag (σ ×1.5 4.6e-5, W ×1.5 2.5e-5); 7d on Ag fails at 2.6 %
+  (flat control 2e-7; window move alone 1.6 %: SPP re-scattering over the finite rough patch). At session end two
+  validation-large ctest processes of this branch (7c/7d cases) were running; logs in the session scratchpad
+  `pml4b2/` (copied to `results/local_runs/wp_pml4b2/`). **On resume:** check the branch for newer commits (the
+  worker may have continued), rerun the 7c/7d validation-large cases if the ctest was interrupted by the sleep,
+  then reviewer → fixes → merge with the CHANGELOG/backlog/handover entries. Coordinator's provisional decision
+  (lead to confirm): 7d asserted on rough Si, Ag L-dependence documented, 0.5 % not loosened.
 - **Next:** WP-PML5 (fast PML ring) after WP-PML4; Ag scaling on the uniform box (WP22b4, optional now that the
   graded-box series meets the DoD); Phase 6.
 - Test counts on `main`: 547 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
