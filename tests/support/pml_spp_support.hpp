@@ -67,6 +67,19 @@
 
 #include "pml_fresnel_support.hpp"
 
+#ifdef SPECKLEBEM_HAVE_BLAS_LAPACK
+extern "C" {
+// LAPACK (Fortran interface, LP64 integers as in OpenBLAS / reference LAPACK / MKL LP64) for the
+// in-place LU below. The library's solver::DenseLu keeps its own copy of these declarations;
+// pml_fresnel_support.hpp no longer provides them since it uses DenseLu (WP-LU1).
+void zgetrf_(const int* m, const int* n, std::complex<double>* a, const int* lda, int* ipiv,
+             int* info);
+void zgetrs_(const char* trans, const int* n, const int* nrhs, const std::complex<double>* a,
+             const int* lda, const int* ipiv, std::complex<double>* b, const int* ldb, int* info,
+             std::size_t trans_len);
+}
+#endif
+
 namespace pml_spp {
 
 using namespace specklebem;
