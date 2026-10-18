@@ -121,6 +121,12 @@ regression. The PML route becomes the default for plasmonic objects once it pass
      W_pml ×1.5 or σ_max ×1.5 by ≤ 2·10⁻⁷ (preview of 7c; flat surface, no SPP channel).
    - A_ext (ADR 0006 amendment 2026-10-12) remains the absorption measure. A_local over the patch is reported only as
      a diagnostic.
+   - *Amended 2026-10-18 (ADR 0010).* On rough Ag the windowed current far field does not converge with the window
+     (7d: 2.6 % at L ×1.2, window-position and -width effects 1.6 % / ≈ 1/W, flat control 2·10⁻⁷, rough Si 0.24 %):
+     the roughness launches SPPs into the flat gap and the window truncates a bound wave. The windowed current
+     far field remains the validated route for flat surfaces and rough Si; for rough metals it is superseded by the
+     Huygens-plane far field of ADR 0010 (WP-PML6, after WP-PML5). Until then rough-metal results state L, gap and
+     window (lead decision 2026-10-18 on the coordinator's recommendation).
 6. **Fast method.**
    - The **prototype is dense** (validation only, 2N ≲ 6·10⁴).
    - At scale the PML ring is a large share of the surface: W_pml ≈ 1–2 µm against L = 30 µm gives about 4 W/L ≈
