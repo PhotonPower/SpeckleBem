@@ -244,3 +244,54 @@ matvec and solve time, and costs +32 % / +20 % setup. The default stays `leaf_ra
 of one surface family; (3) on box-dominated geometries the local rule costs more memory (WP21L
 tall box); (4) a default that depends on d₀ would add a silent mode switch. The local rule
 remains the memory option for graded boxes (`benchmarks/results/mlfmm_scaling.md`).
+
+## Amendment 2026-10-18 (WP-PML5: fast path for the PML route, ADR 0009 decision 6)
+
+**Context.** The PML route (ADR 0009) is validated dense (7a, 7b, 7c, 7e met; 7d on rough Ag documented, ADR 0010).
+Its sizes are limited by the dense O(N²) assembly and memory: 2N ≈ 2.3–6·10⁴ in WP-PML4b/4c (8–60 GB, 20–60 min
+assembly per solve), while a rough-Si far field needs h ≤ λ/10 (7e) and rough-metal studies need L ≫ 4 µm. The
+MLFMM plane-wave translations are not valid for complex coordinates, so the PML ring cannot go through the
+expansion; the ring is ≈ 40 % of the unknowns at L = 4 µm and ≈ 20 % at L = 30 µm (W_pml = 2λ).
+
+**Decision.**
+
+1. **Classification.** A basis function is *stretched* iff one of its support triangles has a vertex strictly inside
+   the stretched zone — the same rule as the right-hand-side mask (`op::pml_masked_functions`, ADR 0009 decision 4),
+   so the masked test functions are exactly the stretched ones. All others are *real*. Pairs of two real functions
+   never see the stretched kernels (their entries are bitwise the unstretched ones, WP-PML2).
+2. **Operator split.** With a non-identity `Problem::stretch`, `mlfmm::MlfmmOperator` becomes
+   Z = Z_rr + Z_ring: Z_rr is the existing MLFMM (octree, near part, far part, lossy policy — unchanged accuracy
+   contract) restricted to the real functions; Z_ring holds every pair with at least one stretched function
+   (rows of stretched test functions over all columns, plus real rows over stretched columns) and is applied by a new
+   `mlfmm::PmlRingOperator` (file `compression/mlfmm/pml_ring.hpp/.cpp`). Compression name stays "mlfmm";
+   `describe()` and `memory_bytes()` report both parts; the `require_unstretched` refusal is removed only from this
+   path (near-field-only and dense strategies unchanged).
+3. **Ring blocks.** Z_ring is organised by the leaf boxes of the same octree (real coordinates; the stretch is a map
+   on the real mesh, ADR 0009 decision 2). Pairs whose leaves coincide or touch are *near*: exact Galerkin entries
+   from `kernels::element_blocks` with the stretch, stored sparse like Z_near. Pairs of separated boxes are *far*:
+   (a) **WP-PML5a** stores them exactly per box pair under a byte budget (the `max_exact_far_bytes` mechanism,
+   reported before allocation; exceeding it throws, no silent degradation) — the correctness baseline;
+   (b) **WP-PML5b** replaces the exact far blocks by adaptive cross approximation (partially pivoted ACA with a
+   relative block tolerance 10^{−(d₀+1)}, admissibility η-criterion on the real box geometry, ranks logged; the
+   stretched kernel is smooth and decays like exp(−k Im s̃) into the PML, so the ranks are small; ACA entries are
+   generated pairwise from the stretched `element_blocks`, i.e. kernel-independent as planned for Phase 8). Blocks
+   whose magnitude bound (exp(−|Im k_i| d_min)/d_min against the self term, §6) is below 10^{−(d₀+1)} are dropped
+   with the bound logged, as in §6 (no silent dropping).
+4. **Assembly cost.** The stretched near blocks dominate the assembly time (WP-PML2c: touching pairs with up to
+   p = 16 graded points). **WP-PML5c** caches the canonical touching blocks (each unordered pair once per region,
+   WP-PML2 review W4) and parallelises the ring assembly over leaf pairs; target: ring assembly ≤ the dense assembly
+   of the same pairs / 2.
+5. **Solve.** GMRES with the diagonal preconditioner as today; masked test rows stay in the system (RHS 0).
+6. **Validation gates (docs/05 "PML route" block, new row 7h).** Matvec of the fast operator vs the dense PML matrix
+   < 10^{−3} relative (d₀ = 3) and < 10^{−5} (d₀ = 5) on the flat Ag 7a geometry and the rough Ag 7c geometry; GMRES
+   solve vs the dense LU: R within 10^{−4} relative and the windowed far field within 10^{−3} (L2 metric); memory
+   and wall time recorded at 2N ≈ 2.3·10⁴, 6·10⁴ and the largest size that fits 50 GB (expected ≥ 1.5·10⁵ with
+   5b); the rough-Si 7d control and the 7e PML run reproduced through the fast path. 5a must pass the matvec and
+   solve gates at the 7c size; 5b must keep them and reach the scaling gate.
+
+**Consequences.** Layers: compression (new ring operator, ACA), operator (pattern of stretched pairs), simulation
+(accepts "mlfmm" on the PML route). Memory of 5a is O(N_s · N) for the far ring blocks — only a baseline; 5b is the
+scalable form. The lossy-region policy of §6 applies to the ring's far blocks through the magnitude bound only
+(no expansion). Revisit: if ACA ranks of the stretched far blocks are not small (log them), fall back to a
+one-level FMM with complex-distance translators restricted to the ring, or to a Huygens-type separation; both need
+a new decision.
