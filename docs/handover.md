@@ -113,20 +113,21 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   holds for flat R only. The box-validity *sensitivity* checks are unaffected, but absolute-accuracy claims of
   rough-Si far-field patterns at 50 nm = λ/10 carry ≈ 0.7 %; the PML route beyond λ/6 needs WP-PML5 (fast PML
   ring). Needs an ADR 0006/0009 note on the rough-Si mesh rule (lead decision: target accuracy vs cost).
-- **In flight (session end 2026-10-15, machine put to sleep):** WP-PML4b on branch
-  `wp/pml4b-rough-ag-sensitivity-2` @ 3e204ea (clean worktree `agent-a4b054afbcdfa5808`; `main` 69b82e5 merged in).
-  Done: Part A warnings (027a0ac), rough-Ag study code and metric, flat control and loss diagnostic, gap-current
-  diagnostic, rough-Si 7d control with the Ag 7d reported only (62af436), record draft `pml_rough_ag.md` (e1af008),
-  window check (3e204ea). Results so far: 7c met on Ag (σ ×1.5 4.6e-5, W ×1.5 2.5e-5); 7d on Ag fails at 2.6 %
-  (flat control 2e-7; window move alone 1.6 %: SPP re-scattering over the finite rough patch). At session end two
-  validation-large ctest processes of this branch (7c/7d cases) were running; logs in the session scratchpad
-  `pml4b2/` (copied to `results/local_runs/wp_pml4b2/`). **On resume:** check the branch for newer commits (the
-  worker may have continued), rerun the 7c/7d validation-large cases if the ctest was interrupted by the sleep,
-  then reviewer → fixes → merge with the CHANGELOG/backlog/handover entries. Coordinator's provisional decision
-  (lead to confirm): 7d asserted on rough Si, Ag L-dependence documented, 0.5 % not loosened.
-- **Next:** WP-PML5 (fast PML ring) after WP-PML4; Ag scaling on the uniform box (WP22b4, optional now that the
-  graded-box series meets the DoD); Phase 6.
-- Test counts on `main`: 547 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
+- **Merged:** WP-PML4b (7c met on rough Ag: σ ×1.5 4.6e-5, W ×1.5 2.5e-5, quadrature 3e-8; 7d met on rough Si 0.24 %,
+  failed on rough Ag 2.6 % with the cause documented: the roughness launches SPPs into the flat gap and the
+  far-field window truncates a bound wave — flat control 2e-7, window shift 1.6 %, width convergence ≈ 1/W, lossy Ag
+  1.1 %; whether a physical L dependence remains is decided by WP-PML6). Lead decision 2026-10-18 (coordinator's
+  recommendation): document now, Huygens-plane far field as WP-PML6 after WP-PML5 (ADR 0010; ADR 0009 decision 5
+  amended). Dark band 1e-4 kept (relaxed 1e-2 costs 5e-4); W = λ σ 2 an option, not default (own 7c pair pending);
+  PML-route configuration warnings in `Simulation`. Rough-metal results state L, gap and window. Assembly time, not
+  memory, limits the dense PML sizes (≈ 1.5–2.3 h per 7c/7d set): the touching-block cache (WP-PML2 review W4) is
+  still open and becomes WP-PML5's concern.
+- **In flight:** none.
+- **Next:** WP-PML5 (fast PML ring: near-field/ACA blocks with complex distances, MLFMM for real–real pairs; ADR
+  0008 amendment to be written by the coordinator first), then WP-PML6 (Huygens-plane far field, ADR 0010); Ag
+  scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule (7e finding),
+  ADR 0009 open point 4 (box for Si).
+- Test counts on `main`: 551 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

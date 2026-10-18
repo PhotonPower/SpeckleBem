@@ -5,6 +5,20 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- simulation / tests / benchmarks (WP-PML4b, ADR 0009 decisions 7c/7d): PML-route configuration warnings
+  (`SBEM_WARN`, not errors: a weak absorber such as Si at oblique incidence with a patch mesh h > λ₁/6; a beam
+  waist below w₀ cos θ ≥ λ₁ or pml_start < 3.5 w₀ / cos θ), unit-tested with a log sink. Validation **7c met** on
+  rough Ag (seed 1, σ = 50 nm, Lc = 500 nm, L = 3.75 µm, h = λ/4, 2N = 22 816): σ_max ×1.5 4.6e-5, W_pml ×1.5
+  2.5e-5, quadrature 3e-8, gap ×1.75/×3.5 4.4e-5 (limit 1e-3). **7d met on rough Si** (0.24 % < 0.5 %) and
+  **failed on rough Ag (2.6 %)**, documented with cause: the roughness launches SPPs into the flat gap (gap rms
+  current 10 % of the patch, Si 0.8 %), and the far-field window truncates a bound wave (flat control 2e-7, window
+  shift alone 1.6 %, width convergence ≈ 1/W, lossy Ag Im ε ×10 1.1 %) — ADR 0009 decision 5 amended, Huygens-plane
+  far field planned as WP-PML6 (ADR 0010). Dark-band default 1e-4 kept (3e-6 at w₀ = λ; binding only for
+  w₀ ≳ 1 µm at gap 0.5 µm; relaxed 1e-2 costs 5e-4 in the metric); W_pml = λ, σ_max 2 is a documented option
+  (9.5e-5 vs the defaults, 0.76× unknowns, 0.57× memory, edge current 4e-3), not the default. First rough-Ag
+  numbers: R = 0.9783 vs flat 0.9816, DRC(0°) 1.89 vs 6.49 sr⁻¹. Benchmark `specklebem_pml_rough_ag`, shared code
+  `tests/support/pml_rough_ag_support.hpp`, unit tests, three validation-large cases (7c Ag; 7d Si asserted;
+  7d Ag reported), record `benchmarks/results/pml_rough_ag.md`, rows, docs/05 rows 7c/7d + footnote, ADR 0009 note.
 - tests / benchmarks (WP-PML4c, ADR 0009 decision 7e): validation 7e met — on the same rough Si surface (seed 1,
   σ = 50 nm, Lc = 500 nm, normal incidence, L = 4.5 µm, w₀ = L/6, bitwise identical height map and patch mesh
   h = λ/4) the PML route and the validated uniform box agree to 0.146 % in the ADR 0006 L2 metric (ε_rr
