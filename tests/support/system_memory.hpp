@@ -11,7 +11,8 @@ namespace system_memory {
 /// Total physical memory of the machine in bytes (0 if unknown).
 specklebem::Real physical_memory_bytes();
 
-/// Physical memory currently available to new allocations in bytes. On a shared machine this,
+/// Physical memory currently available to new allocations in bytes
+/// (specklebem::core::available_memory_bytes, the library's rule). On a shared machine this,
 /// not physical_memory_bytes(), decides whether a large case can start without swapping.
 ///  * Windows: ullAvailPhys of GlobalMemoryStatusEx;
 ///  * Linux: MemAvailable of /proc/meminfo (free plus reclaimable memory), falling back to the

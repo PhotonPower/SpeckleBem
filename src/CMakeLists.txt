@@ -4,6 +4,7 @@ set(SPECKLEBEM_SOURCES
     core/config.cpp
     core/logging.cpp
     core/path.cpp
+    core/system_memory.cpp
     core/timer.cpp
     material/material.cpp
     formulation/formulation.cpp
@@ -39,6 +40,7 @@ set(SPECKLEBEM_SOURCES
     compression/mlfmm/near_field.cpp
     compression/mlfmm/far_operator.cpp
     compression/mlfmm/mlfmm_operator.cpp
+    compression/mlfmm/pml_ring.cpp
     solver/gmres.cpp
     solver/preconditioner.cpp
     # postprocessing/speckle_statistics.cpp

@@ -112,3 +112,11 @@ target_link_libraries(specklebem_pml_spp PRIVATE SpeckleBem::specklebem speckleb
 # (tests/support/pml_rough_ag_support.hpp).
 add_executable(specklebem_pml_rough_ag pml_rough_ag.cpp)
 target_link_libraries(specklebem_pml_rough_ag PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
+# Fast path of the PML route vs dense (WP-PML5a, validation 7h, ADR 0008 amendment 2026-10-18):
+# MLFMM on the real functions + exact PML ring + GMRES against the dense PML matrix + LU on one
+# case per process (matvec, R, windowed far field, memory and time); --estimate-only prints the
+# ring's memory model. Run by hand, see benchmarks/results/pml_ring.md. Shares the case code with
+# the validation tests (tests/support/pml_ring_support.hpp).
+add_executable(specklebem_pml_ring pml_ring.cpp)
+target_link_libraries(specklebem_pml_ring PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)

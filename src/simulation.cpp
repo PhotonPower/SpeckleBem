@@ -688,12 +688,7 @@ Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
     check_open_mesh(open);
     check_pml_termination(pml);
     check_excitation(excitation, config);
-    check_compression(config.compression);
-    if (config.compression != "dense") {
-        throw std::invalid_argument(
-            "Simulation (PML): compression \"" + config.compression +
-            "\" does not support the PML stretch; use \"dense\" (the fast PML ring is WP-PML5)");
-    }
+    check_compression(config.compression);  // "dense" or "mlfmm" (fast PML ring, WP-PML5a)
     const Real gap = open.pml_start - open.taper_end;
     if (!(gap > 0.0)) {
         throw std::invalid_argument(
@@ -771,6 +766,13 @@ Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
         throw std::invalid_argument(os.str());
     }
     check_operator_config(s.config, 2 * s.mesh.num_edges());
+    if (s.config.compression == "mlfmm" && s.config.mlfmm.leaf_radius_quantile < 1.0) {
+        // The PML ring defines near / far by leaf adjacency (every function on the leaf level).
+        throw std::invalid_argument(
+            "Simulation (PML): compression \"mlfmm\" on the PML route needs "
+            "mlfmm.leaf_radius_quantile = 1 (the local leaf rule is not supported by the exact "
+            "PML ring, WP-PML5a)");
+    }
     warn_pml_configuration(s.config, *s.excitation, lambda1, patch_mesh_size(s.mesh, s.pml->zone),
                            s.pml->half[2], ratio, pml.dark_band_tolerance);
 
@@ -978,6 +980,17 @@ std::string Simulation::report() const {
     }
     o << "  operator:       " << s.op->describe() << ", "
       << static_cast<double>(s.op->memory_bytes()) / 1e6 << " MB\n";
+    if (const auto* fast = dynamic_cast<const mlfmm::MlfmmOperator*>(s.op.get());
+        fast != nullptr && fast->ring_operator() != nullptr) {
+        const mlfmm::PmlRingOperator& r = *fast->ring_operator();
+        const Index n = s.space.size();
+        o << "  PML ring:       " << r.stretched_count() << " stretched / "
+          << n - r.stretched_count() << " real functions (MLFMM on the real ones), ring near "
+          << static_cast<double>(r.near_bytes()) / 1e6 << " MB (" << r.near_pairs()
+          << " pairs), far " << static_cast<double>(r.far_bytes()) / 1e6 << " MB (" << r.far_pairs()
+          << " pairs, exact), dense matrix would be "
+          << static_cast<double>(r.estimate().dense_bytes) / 1e6 << " MB\n";
+    }
     o << "  assembly:       Z " << s.assembly_s << " s, rhs " << s.rhs_s << " s";
     if (s.diagonal.size() > 0)
         o << ", diagonal " << s.diagonal_s << " s";

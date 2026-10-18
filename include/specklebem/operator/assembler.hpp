@@ -10,6 +10,7 @@
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/linear_operator.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -19,6 +20,25 @@ namespace specklebem::op {
 
 class SparseOperator;
 class RegionSparseOperator;
+
+/// Region parameters of R1, R2 and the scalar factors of the region blocks in Z (DenseStrategy):
+/// e_i = a_i / eta_i (+L_i in JJ, -K_i in JM, E part of b for i = 0), h_i = b_i eta_i (+K_i in
+/// MJ, H part of b for i = 0), m_i = b_i / eta_i (+L_i in MM); active[i]: region i contributes
+/// (some weight non-zero), its element_blocks are skipped otherwise.
+struct BlockWeights {
+    std::array<kernels::RegionParams, 2> region;
+    std::array<Complex, 2> e;
+    std::array<Complex, 2> h;
+    std::array<Complex, 2> m;
+    std::array<bool, 2> active;
+};
+
+/// The combined contribution of one triangle pair (t_test, t_src) to the four N x N sub-blocks
+/// of Z: entry (a, b) at index 3 a + b, a the slot of support(t_test), b the slot of
+/// support(t_src) (kernels::element_blocks); unused slots are zero.
+struct TrianglePairBlocks {
+    std::array<Complex, 9> jj, jm, mj, mm;
+};
 
 struct Problem {
     const basis::RwgSpace* space = nullptr;
@@ -35,9 +55,10 @@ struct Problem {
     /// identity stretch: none (every result bitwise as without the field). A non-identity stretch
     /// is supported by DenseStrategy and assemble_diagonal (kernels::element_blocks with the
     /// stretch, both regions), by assemble_rhs (masked PML right-hand side, WP-PML3a) and by
-    /// post::far_field with a current window (WP-PML3a); assemble_sparse,
-    /// assemble_region_sparse, the MLFMM operators and post::scattered_field / total_field refuse
-    /// it (require_unstretched) until the fast path (WP-PML5) exists.
+    /// post::far_field with a current window (WP-PML3a), by assemble_sparse_stretched and
+    /// PairBlockEvaluator and by mlfmm::MlfmmOperator (fast PML ring, WP-PML5a); assemble_sparse,
+    /// assemble_region_sparse, mlfmm::MlfmmFarOperator and post::scattered_field / total_field
+    /// refuse it (require_unstretched).
     const geometry::CoordinateStretch* stretch = nullptr;
 };
 
@@ -125,6 +146,43 @@ struct BasisPattern {
 ///         (require_unstretched) or an inconsistent pattern (sizes, group indices, columns out of
 ///         range or not strictly ascending).
 std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPattern& pattern);
+
+/// assemble_sparse with the PML stretch of p (WP-PML5a, the near part of the fast PML ring,
+/// mlfmm::PmlRingOperator): every triangle pair with a stretched triangle uses the stretched
+/// kernels (kernels::element_blocks overload, jump terms unchanged), every other pair the
+/// unstretched ones, so the entries of basis pairs without a stretched support triangle are
+/// bitwise those of assemble_sparse and of the unstretched DenseStrategy, and the others equal
+/// the DenseStrategy entries with the stretch up to the summation order (the dense assembler sums
+/// a stretched entry as A + A^T + rest, assembler.cpp "Stretched pairs"; here every triangle pair
+/// of a pattern pair is evaluated in the ordering (test, source) of its row, i.e. an unordered
+/// stretched pair whose both orderings are in the pattern is evaluated twice). Without a stretch
+/// (or with the identity) bitwise assemble_sparse. Schedule, determinism and memory as
+/// assemble_sparse.
+/// @throws std::invalid_argument for an invalid Problem (validate) or an inconsistent pattern.
+std::shared_ptr<SparseOperator> assemble_sparse_stretched(const Problem& p,
+                                                          const BasisPattern& pattern);
+
+/// The per-triangle-pair blocks of the dense assembler (WP-PML5a, the far part of the fast PML
+/// ring): evaluate(t, s) gives the combined blocks of Z that DenseStrategy adds for the pair
+/// (t, s) (both regions with the weights of p.formulation, K with its jump term on identical
+/// triangles, the stretched kernels with p.stretch for pairs with a stretched triangle; bitwise
+/// the dense contribution of that ordering). Holds a pointer to p.space (must outlive the
+/// evaluator) and copies of the kernel options, the stretch pointer and the weights.
+/// evaluate() is allocation-free and safe to call concurrently.
+class PairBlockEvaluator {
+public:
+    /// @throws std::invalid_argument for an invalid Problem (validate).
+    explicit PairBlockEvaluator(const Problem& p);
+    /// @throws as kernels::element_blocks (triangle indices out of range, non-finite blocks).
+    void evaluate(Index t_test, Index t_src, TrianglePairBlocks& out) const;
+    [[nodiscard]] const BlockWeights& weights() const { return weights_; }
+
+private:
+    const basis::RwgSpace* space_ = nullptr;
+    kernels::OperatorOptions options_;
+    const geometry::CoordinateStretch* stretch_ = nullptr;
+    BlockWeights weights_;
+};
 
 /// Region i's Galerkin entries L_i and K_i (K_i with its jump term on coincident triangles, as in
 /// DenseStrategy) on an N x N basis-pair pattern in CSR form, stored per pair as (L_i, K_i) with

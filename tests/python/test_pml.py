@@ -94,8 +94,10 @@ def test_with_pml_refusals():
     relaxed = sb.PmlTermination(**RELAXED)
     with pytest.raises(ValueError, match="no dark band"):
         sb.Simulation.with_pml(open_mesh(), beam(), object=si)
-    with pytest.raises(ValueError, match="dense"):
-        sb.Simulation.with_pml(open_mesh(), beam(), pml=relaxed, object=si, compression="mlfmm")
+    with pytest.raises(ValueError, match="dense"):  # "mlfmm" (WP-PML5a) needs GMRES
+        sb.Simulation.with_pml(
+            open_mesh(), beam(), pml=relaxed, object=si, compression="mlfmm", solver="direct"
+        )
     with pytest.raises(ValueError, match="gap"):
         sb.Simulation.with_pml(open_mesh(gap=0.0), beam(), pml=relaxed, object=si)
     with pytest.raises(ValueError, match="unmasked part"):
@@ -146,3 +148,30 @@ def test_with_pml_tiny_solve():
     with pytest.raises(ValueError, match="k_z > 0"):
         sim.far_field([[0.0, 0.0, -1.0], [0.6, 0.0, 0.8]], window=sim.far_field_window)
     assert np.all(np.isfinite(sim.far_field([1.0, 0.0, 0.0])))  # grazing k_z = 0 is accepted
+
+
+def test_with_pml_mlfmm_solve():
+    """compression="mlfmm" on the PML route (WP-PML5a: MLFMM on the real functions + the exact
+    PML ring) solves and agrees with the dense GMRES solve of the same system."""
+    cheap = dict(
+        outer_grading_levels=0, target_accuracy=0.0, quad_degree_near=5, stretched_touching_points=4
+    )
+    common = dict(
+        pml=sb.PmlTermination(sigma_max=1.0, **RELAXED),
+        object=sb.Material(eps_r=2.25),
+        kernels=cheap,
+        gmres=dict(tol=1e-8, max_iter=2000),
+    )
+    fast = sb.Simulation.with_pml(open_mesh(), beam(), compression="mlfmm", **common)
+    res = fast.solve()
+    assert res.converged
+    report = fast.report()
+    assert "PML ring:" in report and "stretched" in report
+    dense = sb.Simulation.with_pml(open_mesh(), beam(), **common)
+    assert dense.solve().converged
+    x, xd = fast.currents, dense.currents
+    assert np.all(np.isfinite(x))
+    # d0 = 3 MLFMM on the real functions (3 octree levels on this mesh), exact ring.
+    assert np.linalg.norm(x - xd) < 5e-2 * np.linalg.norm(xd)
+    b = fast.rhs()
+    assert np.count_nonzero(b == 0) > 0  # masked test rows stay in the system with rhs 0

@@ -22,8 +22,27 @@
 /// equal to the dense entries) and the multilevel far part Z_far (MlfmmFarOperator: every other
 /// leaf pair, through exactly one interaction list). The octree lists make the two parts
 /// complementary, so apply() = Z_near x + Z_far x counts every pair once. apply() is safe for
-/// concurrent calls (both parts are).
+/// concurrent calls (both parts are) and thread-count independent: the near part, the far part
+/// and (PML route) the ring each give bitwise identical results for any number of OpenMP
+/// threads, and they are added in a fixed order.
+///
+/// PML route (non-identity Problem::stretch; WP-PML5a, ADR 0008 amendment 2026-10-18): the
+/// operator becomes Z = Z_rr + Z_ring. The octree is built over **all** basis functions as
+/// without a stretch (real coordinates, the same leaf rule); the functions are classified by
+/// classify_stretched (= the right-hand-side mask). Z_rr is today's MLFMM restricted to the real
+/// functions: the near part holds the real-real near pairs only (split_near_pattern, the
+/// unstretched entries, bitwise the dense ones), the far part is MlfmmFarOperator with the
+/// stretched functions excluded (zero sources and rows, no exact-part pairs with them), built on
+/// the Problem with the stretch removed (real-real pairs never touch a stretched triangle). This
+/// variant (rather than an octree over the real functions only) keeps the tree, the orders, the
+/// policy decisions and the translators identical to the unstretched MLFMM of the same mesh, so
+/// Z_rr x equals P_r Z_mlfmm(unstretched) P_r x (P_r: zero the stretched entries) up to rounding,
+/// and the ring is organised by the same leaves. Z_ring (PmlRingOperator) holds every pair with
+/// a stretched member exactly. The accuracy contract of the real part (lossy policy, leaf rule,
+/// exact far budget) is unchanged; the ring is exact. The local leaf rule (leaf_radius_quantile
+/// < 1) is not supported with a stretch.
 #include "specklebem/compression/mlfmm/octree.hpp"
+#include "specklebem/compression/mlfmm/pml_ring.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/operator/linear_operator.hpp"
 
@@ -78,6 +97,9 @@ struct MlfmmParams {
     /// (estimate_near_bytes), kExactFarMinBytes), dense bytes 16 (2N)^2). SIZE_MAX disables the
     /// guard.
     std::size_t max_exact_far_bytes = 0;
+    /// PML route only (non-identity Problem::stretch, WP-PML5a): parameters of the exact PML ring
+    /// (PmlRingParams: far-ring byte budget).
+    PmlRingParams pml_ring;
 };
 
 /// Automatic exact-part budget (MlfmmParams::max_exact_far_bytes = 0): this multiple of the
@@ -144,28 +166,40 @@ class MlfmmOperator final : public op::LinearOperator {
 public:
     /// Builds the octree (octree params after leaf_rule_params), then the far part (its order
     /// searches and policy decisions reject unusable configurations before the near-field
-    /// assembly), then the near field.
-    /// @throws std::invalid_argument for an invalid Problem (op::validate), a non-identity PML
-    ///         stretch (op::require_unstretched; the fast PML ring is WP-PML5), invalid octree or
-    ///         MLFMM params, or a mesh too coarse for the leaves (r_max >= leaf edge);
-    ///         TruncationOrderError (a std::runtime_error) if a region has neither a usable
-    ///         expansion nor enough decay for the ADR 0008 §6 fallback, see MlfmmFarOperator.
+    /// assembly), then the near field. With a non-identity PML stretch (file comment): the
+    /// classification and the ring estimate (budget check) come right after the octree, the far
+    /// part excludes the stretched functions, the near part holds the real-real pairs, and the
+    /// exact PML ring (PmlRingOperator) is assembled last.
+    /// @throws std::invalid_argument for an invalid Problem (op::validate), invalid octree or
+    ///         MLFMM params, a mesh too coarse for the leaves (r_max >= leaf edge), or, with a
+    ///         stretch, leaf_radius_quantile < 1; TruncationOrderError (a std::runtime_error) if a
+    ///         region has neither a usable expansion nor enough decay for the ADR 0008 §6
+    ///         fallback, see MlfmmFarOperator; std::runtime_error if the PML ring's far blocks
+    ///         exceed params.pml_ring.max_far_bytes (PmlRingOperator).
     MlfmmOperator(const op::Problem& problem, const MlfmmParams& params);
     ~MlfmmOperator() override;
 
     [[nodiscard]] Index rows() const override;
     [[nodiscard]] Index cols() const override;
-    /// y = Z_near x + Z_far x. @throws std::invalid_argument if x has the wrong size.
+    /// y = Z_near x + Z_far x (+ Z_ring x with a stretch). @throws std::invalid_argument if x
+    /// has the wrong size.
     void apply(const VectorXc& x, VectorXc& y) const override;
-    /// Octree, near nnz / memory / time, far per-region and per-level data, totals.
+    /// y = Z_rr x = Z_near x + Z_far x without the ring (= apply() without a stretch).
+    /// @throws std::invalid_argument if x has the wrong size.
+    void apply_real(const VectorXc& x, VectorXc& y) const;
+    /// Octree, near nnz / memory / time, far per-region and per-level data, the PML ring (with a
+    /// stretch: classification, ring near / far pairs and bytes), totals.
     [[nodiscard]] std::string describe() const override;
     /// Near field + far tables and pooled apply workspaces (MlfmmFarOperator::memory_bytes) +
-    /// octree.
+    /// octree (+ the PML ring, PmlRingOperator::memory_bytes).
     [[nodiscard]] std::size_t memory_bytes() const override;
 
     [[nodiscard]] const Octree& octree() const;
+    /// The near part of Z_rr (with a stretch: the real-real near pairs only).
     [[nodiscard]] const op::SparseOperator& near_operator() const;
     [[nodiscard]] const MlfmmFarOperator& far_operator() const;
+    /// The exact PML ring; nullptr without a (non-identity) stretch.
+    [[nodiscard]] const PmlRingOperator* ring_operator() const;
 
 private:
     [[nodiscard]] std::size_t octree_bytes() const;

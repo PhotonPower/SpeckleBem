@@ -122,12 +122,17 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   PML-route configuration warnings in `Simulation`. Rough-metal results state L, gap and window. Assembly time, not
   memory, limits the dense PML sizes (≈ 1.5–2.3 h per 7c/7d set): the touching-block cache (WP-PML2 review W4) is
   still open and becomes WP-PML5's concern.
+- **Merged:** WP-PML5a (fast PML route, baseline): compression "mlfmm" on the PML route = unchanged MLFMM on the real
+  functions + exact `PmlRingOperator` (near ring on the octree pattern, far ring per leaf block, budget-guarded,
+  apply thread-count independent). 7h at the 7c size: d₀ 3 matvec 1.5e-5, R 4e-8, far field 3.3e-6 vs dense,
+  d₀ 5 matvec 1.4e-7; 4.6 vs 8.3 GB; setup 1.4× the dense assembly (near ring both orderings → 5c; far ring
+  O(N_s·N) → ACA in 5b, needed ≈ 10× at L = 15 µm, 40× at 30 µm).
 - **In flight:** none.
-- **Next:** WP-PML5 (fast PML ring: near-field/ACA blocks with complex distances, MLFMM for real–real pairs; ADR
-  0008 amendment to be written by the coordinator first), then WP-PML6 (Huygens-plane far field, ADR 0010); Ag
-  scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule (7e finding),
-  ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 551 ctest (`-LE "validation-large|slow"`), 127 pytest; labels `slow`, `validation`
+- **Next:** WP-PML5b (ACA for the far ring blocks, scaling to 2N ≥ 1.5e5) and WP-PML5c (touching-block cache,
+  ring assembly time) — independent of each other, then WP-PML6 (Huygens-plane far field, ADR 0010); Ag scaling
+  on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule (7e finding), ADR 0009
+  open point 4 (box for Si).
+- Test counts on `main`: 564 ctest (`-LE "validation-large|slow"`), 128 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

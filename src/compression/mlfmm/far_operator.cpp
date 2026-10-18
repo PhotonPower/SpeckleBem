@@ -271,7 +271,21 @@ struct MlfmmFarOperator::Impl {
     std::vector<Extent> extent;        ///< box -> bounding box of its bases' supports
     std::vector<Extent> basis_extent;  ///< basis -> bounding box of its support (exact parts)
     std::size_t budget = 0;            ///< exact-part budget in effect [bytes]
-    Real rmax = 0;                     ///< max_support_radius
+    /// Per basis function: non-zero = excluded (four-argument constructor, PML ring); empty: none.
+    std::vector<std::uint8_t> excluded;
+    Index excluded_count = 0;
+    [[nodiscard]] bool is_excluded(Index basis) const {
+        return !excluded.empty() && excluded[sz(basis)] != 0;
+    }
+    /// Per box: the active elements (Octree::active_elements) that are not excluded; empty
+    /// without exclusions (then kept_active = active_elements).
+    std::vector<Index> kept_active_count;
+    /// Active, not excluded elements of a box: the n_A of the exact-part bookkeeping
+    /// (pair_bound, the forced count) and of truncated_basis_pairs.
+    [[nodiscard]] Index kept_active(Index box) const {
+        return kept_active_count.empty() ? tree.active_elements(box) : kept_active_count[sz(box)];
+    }
+    Real rmax = 0;  ///< max_support_radius
     /// Per level: largest support radius of the functions with home level >= the level (r_max on
     /// every level without elevated functions).
     std::vector<Real> level_rmax;
@@ -682,7 +696,7 @@ void MlfmmFarOperator::Impl::plan_region(Region& r, const op::Problem& problem, 
                     decay_factor(alpha, extent_distance(extent[sz(ia)], extent[sz(ib)]));
                 if (!force_exact && delta <= trunc_tol) {
                     ++f.truncated_pairs;
-                    f.truncated_basis_pairs += tree.active_elements(ia) * tree.active_elements(ib);
+                    f.truncated_basis_pairs += kept_active(ia) * kept_active(ib);
                     f.decay_bound = std::max(f.decay_bound, delta);
                 } else {
                     f.exact_bound = f.exact_pairs == 0 ? delta : std::min(f.exact_bound, delta);
@@ -775,15 +789,14 @@ Index MlfmmFarOperator::Impl::count_exact_pairs(const Region& r, Index limit) co
         const Box& B = boxes[sz(r.exact_pairs[sz(k)][1])];
         Index count = 0;
         if (r.force_exact) {
-            count = tree.active_elements(r.exact_pairs[sz(k)][0]) *
-                    tree.active_elements(r.exact_pairs[sz(k)][1]);
+            count = kept_active(r.exact_pairs[sz(k)][0]) * kept_active(r.exact_pairs[sz(k)][1]);
         } else {
             for (Index p = A.first_element; p < A.first_element + A.num_elements; ++p) {
-                if (tree.home_level(p) < A.level)
+                if (tree.home_level(p) < A.level || is_excluded(perm[sz(p)]))
                     continue;
                 const Extent& ep = basis_extent[sz(perm[sz(p)])];
                 for (Index q = B.first_element; q < B.first_element + B.num_elements; ++q) {
-                    if (tree.home_level(q) >= B.level &&
+                    if (tree.home_level(q) >= B.level && !is_excluded(perm[sz(q)]) &&
                         decay_factor(r.decay, extent_distance(ep, basis_extent[sz(perm[sz(q)])])) >
                             tol)
                         ++count;
@@ -818,7 +831,7 @@ void MlfmmFarOperator::Impl::check_exact_budget(const op::Problem& problem,
         r.xinfo.box_pairs = static_cast<Index>(r.exact_pairs.size());
         r.xinfo.pair_bound = 0;
         for (const auto& [ia, ib] : r.exact_pairs)
-            r.xinfo.pair_bound += tree.active_elements(ia) * tree.active_elements(ib);
+            r.xinfo.pair_bound += kept_active(ia) * kept_active(ib);
         bound_bytes += bytes_of(r.xinfo.pair_bound);
         SBEM_INFO(
             "MlfmmFarOperator: region R{} exact part estimate: {} box pairs (levels {} ... 2), <= "
@@ -919,6 +932,10 @@ void MlfmmFarOperator::Impl::assemble_exact(Region& r, const op::Problem& proble
         for (Index p = X.first_element; p < X.first_element + X.num_elements; ++p) {
             const Index row = perm[sz(p)];
             Index count = 0;
+            if (is_excluded(row)) {
+                row_ptr[sz(row) + 1] = 0;
+                continue;
+            }
             for (const Index b : src[sz(g)]) {
                 const Box& B = boxes[sz(b)];
                 if (tree.home_level(p) < B.level)
@@ -927,6 +944,8 @@ void MlfmmFarOperator::Impl::assemble_exact(Region& r, const op::Problem& proble
                     if (tree.home_level(q) < B.level)
                         continue;
                     const Index c = perm[sz(q)];
+                    if (is_excluded(c))
+                        continue;  // a PML ring pair, not a truncation
                     if (keep(row, c)) {
                         ++count;
                     } else {
@@ -951,6 +970,8 @@ void MlfmmFarOperator::Impl::assemble_exact(Region& r, const op::Problem& proble
         for (Index p = X.first_element; p < X.first_element + X.num_elements; ++p) {
             const Index row = perm[sz(p)];
             Index pos = row_ptr[sz(row)];
+            if (is_excluded(row))
+                continue;
             for (const Index b : src[sz(g)]) {
                 const Box& B = boxes[sz(b)];
                 if (tree.home_level(p) < B.level)
@@ -959,7 +980,7 @@ void MlfmmFarOperator::Impl::assemble_exact(Region& r, const op::Problem& proble
                     if (tree.home_level(q) < B.level)
                         continue;
                     const Index c = perm[sz(q)];
-                    if (keep(row, c))
+                    if (!is_excluded(c) && keep(row, c))
                         cols[sz(pos++)] = c;
                 }
             }
@@ -1091,9 +1112,22 @@ void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& spac
 
 MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tree,
                                    const MlfmmParams& params)
+    : MlfmmFarOperator(problem, tree, params, std::vector<std::uint8_t>{}) {}
+
+MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tree,
+                                   const MlfmmParams& params, std::vector<std::uint8_t> excluded)
     : impl_(std::make_unique<Impl>(tree)) {
     op::validate(problem);
     op::require_unstretched(problem, "MlfmmFarOperator");
+    if (!excluded.empty() && static_cast<Index>(excluded.size()) != problem.space->size()) {
+        throw std::invalid_argument("MlfmmFarOperator: the exclusion mask has " +
+                                    std::to_string(excluded.size()) +
+                                    " entries, N = " + std::to_string(problem.space->size()));
+    }
+    impl_->excluded_count = static_cast<Index>(
+        std::count_if(excluded.begin(), excluded.end(), [](std::uint8_t v) { return v != 0; }));
+    if (impl_->excluded_count > 0)
+        impl_->excluded = std::move(excluded);
     if (params.truncation_L != 0 || !params.precompute_translators ||
         params.use_fft_interpolation) {
         throw std::invalid_argument(
@@ -1107,6 +1141,21 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
     m.n = space.size();
     if (m.n != static_cast<Index>(tree.permutation().size())) {
         throw std::invalid_argument("MlfmmFarOperator: the octree was not built on problem.space");
+    }
+    if (!m.excluded.empty()) {
+        // Kept active elements per box (the exact-part bookkeeping counts no excluded function).
+        const std::vector<Box>& boxes = tree.boxes();
+        const std::vector<Index>& perm = tree.permutation();
+        m.kept_active_count.assign(boxes.size(), 0);
+        for (std::size_t b = 0; b < boxes.size(); ++b) {
+            const Box& B = boxes[b];
+            Index kept = 0;
+            for (Index p = B.first_element; p < B.first_element + B.num_elements; ++p) {
+                if (tree.home_level(p) >= B.level && !m.is_excluded(perm[sz(p)]))
+                    ++kept;
+            }
+            m.kept_active_count[b] = kept;
+        }
     }
     if (tree.levels() >= 3) {
         // Z_far leaves out the jump terms of K, which only coincident triangles carry. Far pairs
@@ -1265,9 +1314,32 @@ std::size_t MlfmmFarOperator::exact_budget() const {
     return impl_->budget;
 }
 
+Index MlfmmFarOperator::excluded_count() const {
+    return impl_->excluded_count;
+}
+
 void MlfmmFarOperator::apply(const VectorXc& x, VectorXc& y) const {
     if (x.size() != cols())
         throw std::invalid_argument("MlfmmFarOperator::apply: x has the wrong size");
+    const Impl& m = *impl_;
+    if (m.excluded.empty()) {
+        apply_unmasked(x, y);
+        return;
+    }
+    // Excluded functions (PML ring): zero sources, zero rows.
+    VectorXc xm = x;
+    for (Index n = 0; n < m.n; ++n) {
+        if (m.excluded[sz(n)] != 0)
+            xm(n) = xm(m.n + n) = Complex(0.0, 0.0);
+    }
+    apply_unmasked(xm, y);
+    for (Index n = 0; n < m.n; ++n) {
+        if (m.excluded[sz(n)] != 0)
+            y(n) = y(m.n + n) = Complex(0.0, 0.0);
+    }
+}
+
+void MlfmmFarOperator::apply_unmasked(const VectorXc& x, VectorXc& y) const {
     VectorXc out = VectorXc::Zero(rows());
     const Impl& m = *impl_;
     if (m.field_entries > 0) {
@@ -1568,6 +1640,9 @@ std::string MlfmmFarOperator::describe() const {
        << ", exact otherwise (allowed if x*/alpha <= " << kExactFallbackBoxEdges
        << " box edges, x* = " << truncation_decay_exponent(m.digits) << "; exact-part budget "
        << megabytes(m.budget) << " MB)";
+    if (m.excluded_count > 0)
+        os << "; " << m.excluded_count << " of N = " << m.n
+           << " functions excluded (PML ring, zero sources and rows)";
     for (std::size_t i = 0; i < 2; ++i) {
         const Region& r = m.region[i];
         os << "\n  region R" << i + 1 << ": ";

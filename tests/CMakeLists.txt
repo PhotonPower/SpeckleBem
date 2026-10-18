@@ -50,6 +50,7 @@ add_executable(specklebem_unit_tests
     unit/test_ag_box_mechanism.cpp
     unit/test_ag_near_field_support.cpp
     unit/test_pml_si_crosscheck.cpp
+    unit/test_pml_ring.cpp
     # unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -111,6 +112,7 @@ add_executable(specklebem_validation_tests
     validation/test_ag_absorption.cpp
     validation/test_drc_power.cpp
     validation/test_ag_near_field.cpp
+    validation/test_pml_ring.cpp
 )
 target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
@@ -133,6 +135,7 @@ add_executable(specklebem_validation_large_tests
     validation_large/test_pml_si_crosscheck_large.cpp
     validation_large/test_pml_spp_large.cpp
     validation_large/test_pml_rough_ag_large.cpp
+    validation_large/test_pml_ring_large.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_large_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)

@@ -317,7 +317,11 @@ public:
     Simulation(geometry::TriangleMesh mesh, std::shared_ptr<excitation::Excitation> excitation,
                SimulationConfig config);
     /// Open rough surface terminated by a complex-coordinate-stretching PML (ADR 0009, WP-PML3a):
-    /// the dense prototype of the PML route. Cheap (no assembly), like the box constructor.
+    /// the PML route, dense (prototype, validated by 7a-7e) or with compression "mlfmm" (fast
+    /// path, WP-PML5a: MLFMM on the real functions plus the exact PML ring,
+    /// mlfmm::MlfmmOperator; GMRES with the diagonal preconditioner as on the dense route, the
+    /// masked test rows stay in the system with right-hand side 0). Cheap (no assembly), like
+    /// the box constructor.
     ///
     /// Builds the stretch geometry::make_pml_stretch(open, pml.sigma_max, pml.order) and sets
     /// op::Problem::stretch, so that the dense operator uses the stretched kernels, the
@@ -341,8 +345,9 @@ public:
     ///    open boundary is the outer square, which carries no RWG function);
     ///  * PmlTermination: sigma_max not finite and > 0, order not finite and >= 0,
     ///    correlation_length not finite and >= 0, dark_band_tolerance not finite and > 0;
-    ///  * compression other than "dense" (the MLFMM refuses a stretch until WP-PML5); GMRES and
-    ///    the direct solver are both allowed;
+    ///  * compression other than "dense" or "mlfmm" (as the box constructor; "mlfmm" needs the
+    ///    GMRES solver, the direct solver needs "dense"), or "mlfmm" with
+    ///    mlfmm.leaf_radius_quantile < 1 (the local leaf rule is not supported by the PML ring);
     ///  * gap width W_g = pml_start - taper_end <= 0 (the far-field window needs it), or, for
     ///    order < 1, W_g < the longest mesh edge;
     ///  * a rough patch (some patch vertex with z != 0) with correlation_length = 0, or a taper
@@ -399,7 +404,8 @@ public:
     [[nodiscard]] bool solved() const;
     /// Multi-line report: mesh size, formulation / preconditioner used (and whether automatic),
     /// solver (with the GMRES parameters of the last solve, config().gmres before the first),
-    /// compression, operator memory, timings, iterations and residuals.
+    /// compression, operator memory (PML route with "mlfmm": the stretched / real split and the
+    /// ring's near / far bytes), timings, iterations and residuals.
     [[nodiscard]] std::string report() const;
 
     [[nodiscard]] const geometry::TriangleMesh& mesh() const;

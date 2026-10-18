@@ -23,6 +23,7 @@
 /// Heavy convergence sweeps run in optimised builds only (SKIP otherwise); the debug build runs
 /// reduced cases.
 #include "specklebem/basis/rwg.hpp"
+#include "specklebem/compression/mlfmm/far_operator.hpp"
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
 #include "specklebem/excitation/excitation.hpp"
 #include "specklebem/formulation/formulation.hpp"
@@ -2033,8 +2034,11 @@ TEST_CASE("stretched kernels: paths without stretch support refuse a PML stretch
     CHECK_THROWS_AS(op::assemble_sparse(c.problem, pat), std::invalid_argument);
     std::vector<Index> row_ptr(static_cast<std::size_t>(N) + 1, 0);
     CHECK_THROWS_AS(op::assemble_region_sparse(c.problem, 0, row_ptr, {}), std::invalid_argument);
-    CHECK_THROWS_AS(mlfmm::MlfmmStrategy().build(c.problem), std::invalid_argument);
-    CHECK_THROWS_AS(mlfmm::MlfmmOperator(c.problem, mlfmm::MlfmmParams{}), std::invalid_argument);
+    // The MLFMM expansion (far operator) runs in real coordinates and refuses the stretch;
+    // MlfmmOperator accepts it since WP-PML5a (Z_rr + exact PML ring, test_pml_ring.cpp).
+    const mlfmm::Octree tree(c.space, kLambda, mlfmm::OctreeParams{});
+    CHECK_THROWS_AS(mlfmm::MlfmmFarOperator(c.problem, tree, mlfmm::MlfmmParams{}),
+                    std::invalid_argument);
     const post::SurfaceSolution sol{&c.problem, VectorXc::Zero(2 * N)};
     Eigen::Matrix<Complex, Eigen::Dynamic, 3> F;
     Vertices dirs(1, 3);

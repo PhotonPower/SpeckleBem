@@ -131,15 +131,8 @@ kernels::RegionParams region_params(const material::Material& m, Real omega) {
             constants::mu0 * m.mu_r};
 }
 
-/// Region parameters and the scalar factors of the region blocks in Z.
-struct Setup {
-    std::array<kernels::RegionParams, 2> region;
-    std::array<Complex, 2> e;  ///< a_i / eta_i : +L_i in JJ, -K_i in JM, E part of b (i = 0)
-    std::array<Complex, 2> h;  ///< b_i eta_i   : +K_i in MJ, H part of b (i = 0)
-    std::array<Complex, 2> m;  ///< b_i / eta_i : +L_i in MM
-    /// Region i contributes (some weight non-zero); element_blocks is skipped otherwise.
-    std::array<bool, 2> active;
-};
+/// Region parameters and the scalar factors of the region blocks in Z (BlockWeights).
+using Setup = BlockWeights;
 
 Setup make_setup(const Problem& p) {
     Setup s;
@@ -158,12 +151,10 @@ Setup make_setup(const Problem& p) {
     return s;
 }
 
-/// Combined local blocks of one triangle pair (slots as in kernels::element_blocks), row-major
-/// 3 x 3 arrays: entry (a, b) at index 3 a + b. Plain arrays and scalar loops keep the
-/// per-pair overhead small also in the unoptimised sanitizer build.
-struct PairBlocks {
-    std::array<Complex, 9> jj, jm, mj, mm;
-};
+/// Combined local blocks of one triangle pair (TrianglePairBlocks: slots as in
+/// kernels::element_blocks, row-major 3 x 3 arrays, entry (a, b) at index 3 a + b). Plain arrays
+/// and scalar loops keep the per-pair overhead small also in the unoptimised sanitizer build.
+using PairBlocks = TrianglePairBlocks;
 
 /// Jump coefficient of K_i in the Galerkin tangential equations: K_1 = K_1^PV - 1/2 I,
 /// K_2 = K_2^PV + 1/2 I (file comment).
@@ -426,8 +417,8 @@ void require_unstretched(const Problem& p, const std::string& who) {
         throw std::invalid_argument(
             who +
             ": a non-identity PML coordinate stretch (Problem::stretch, ADR 0009) is supported "
-            "only by DenseStrategy, assemble_diagonal, assemble_rhs and post::far_field with a "
-            "current window");
+            "only by DenseStrategy, assemble_diagonal, assemble_rhs, assemble_sparse_stretched, "
+            "mlfmm::MlfmmOperator (PML ring) and post::far_field with a current window");
     }
 }
 
@@ -585,9 +576,13 @@ std::shared_ptr<LinearOperator> DenseStrategy::build(const Problem& p) const {
     return std::make_shared<DenseOperator>(std::move(Z));
 }
 
-std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPattern& pattern) {
-    validate(p);
-    require_unstretched(p, "assemble_sparse (MLFMM near field)");
+namespace {
+
+/// assemble_sparse with the pair blocks of `stretch` (nullptr: the unstretched kernels; the
+/// stretched path of element_blocks for pairs with a stretched triangle otherwise). The caller
+/// has validated p.
+std::shared_ptr<SparseOperator> assemble_sparse_impl(const Problem& p, const BasisPattern& pattern,
+                                                     const geometry::CoordinateStretch* stretch) {
     const basis::RwgSpace& space = *p.space;
     const Index N = space.size();
     check_pattern(pattern, N);
@@ -654,7 +649,7 @@ std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPat
         PairBlocks blk;
         for (const Index s : sources) {
             const basis::RwgSpace::Support ss = space.support(s);
-            pair_blocks(space, t, s, setup, p.kernel_options, nullptr, blk);
+            pair_blocks(space, t, s, setup, p.kernel_options, stretch, blk);
             for (int a = 0; a < st.count; ++a) {
                 const Index m = st.n[a];
                 const auto [cb, ce] = row_cols(m);
@@ -676,6 +671,32 @@ std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPat
         }
     });
     return std::make_shared<SparseOperator>(std::move(Z));
+}
+
+}  // namespace
+
+std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPattern& pattern) {
+    validate(p);
+    require_unstretched(p, "assemble_sparse (MLFMM near field)");
+    return assemble_sparse_impl(p, pattern, nullptr);
+}
+
+std::shared_ptr<SparseOperator> assemble_sparse_stretched(const Problem& p,
+                                                          const BasisPattern& pattern) {
+    validate(p);
+    return assemble_sparse_impl(p, pattern, has_stretch(p) ? p.stretch : nullptr);
+}
+
+PairBlockEvaluator::PairBlockEvaluator(const Problem& p) {
+    validate(p);
+    space_ = p.space;
+    options_ = p.kernel_options;
+    stretch_ = has_stretch(p) ? p.stretch : nullptr;
+    weights_ = make_setup(p);
+}
+
+void PairBlockEvaluator::evaluate(Index t_test, Index t_src, TrianglePairBlocks& out) const {
+    pair_blocks(*space_, t_test, t_src, weights_, options_, stretch_, out);
 }
 
 std::shared_ptr<RegionSparseOperator> assemble_region_sparse(const Problem& p, int region,

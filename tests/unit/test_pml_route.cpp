@@ -530,10 +530,18 @@ TEST_CASE("pml simulation: dark band, controlled region and excitation checks",
 TEST_CASE("pml simulation: compression, gap, taper, orientation and termination checks",
           "[pml_simulation]") {
     const auto exc = beam(0.4e-6, 1.0e-6);
+    // "mlfmm" is accepted since WP-PML5a (fast PML ring), with GMRES only.
     SimulationConfig mlfmm = dense_config();
     mlfmm.compression = "mlfmm";
+    CHECK_NOTHROW(Simulation(sim_surface(), relaxed(), exc, mlfmm));
+    // The local leaf rule (valid on the box route) is refused here, at construction.
+    SimulationConfig local = mlfmm;
+    local.mlfmm.leaf_radius_quantile = 0.9;
+    CHECK_THROWS_WITH(Simulation(sim_surface(), relaxed(), exc, local),
+                      ContainsSubstring("leaf_radius_quantile = 1"));
+    mlfmm.solver = SolverKind::Direct;
     CHECK_THROWS_WITH(Simulation(sim_surface(), relaxed(), exc, mlfmm),
-                      ContainsSubstring("use \"dense\""));
+                      ContainsSubstring("direct solver needs the dense operator"));
     SimulationConfig unknown = dense_config();
     unknown.compression = "foo";
     CHECK_THROWS_WITH(Simulation(sim_surface(), relaxed(), exc, unknown),

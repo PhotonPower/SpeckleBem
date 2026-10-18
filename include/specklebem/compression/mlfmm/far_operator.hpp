@@ -119,6 +119,7 @@
 #include "specklebem/operator/linear_operator.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -147,9 +148,11 @@ inline constexpr Real kExactFallbackBoxEdges = 4.0;
 
 /// Pre-assembly estimate and result of a region's exact far part (file comment).
 struct ExactPartInfo {
-    int first_level = -1;       ///< first (finest) level without expansion; -1: none
-    Index box_pairs = 0;        ///< ordered exact box pairs
-    Index pair_bound = 0;       ///< sum n_A n_B over them (upper bound of the basis pairs)
+    int first_level = -1;  ///< first (finest) level without expansion; -1: none
+    Index box_pairs = 0;   ///< ordered exact box pairs
+    /// sum n_A n_B over them (upper bound of the basis pairs); n_A = the active functions of A
+    /// that are not excluded (four-argument constructor)
+    Index pair_bound = 0;
     Index counted_pairs = -1;   ///< per-basis-pair count before assembly; -1: not needed
     Index pairs = 0;            ///< assembled basis pairs (0 before assembly / none)
     Index truncated_pairs = 0;  ///< basis pairs of exact box pairs dropped by the bound
@@ -202,7 +205,7 @@ struct FarLevelInfo {
     /// (sampled with this level's sampling about their home box centres) [bytes].
     std::size_t elevated_pattern_bytes = 0;
     /// Non-expansion levels: basis pairs of the truncated box pairs (functions with home level
-    /// >= this level on both sides).
+    /// >= this level on both sides, excluded functions not counted).
     Index truncated_basis_pairs = 0;
     Real setup_seconds = 0;  ///< search, block check, decisions, translators, shifts
 };
@@ -253,6 +256,26 @@ public:
     ///         level < 2, local leaf rule); std::overflow_error from the plane-wave functions.
     MlfmmFarOperator(const op::Problem& problem, const Octree& tree, const MlfmmParams& params);
     MlfmmFarOperator(const op::Problem&, const Octree&&, const MlfmmParams&) = delete;
+    /// The far part restricted to the functions not in `excluded` (WP-PML5a: Z_rr of the fast PML
+    /// ring, MlfmmOperator with a stretch, ADR 0008 amendment 2026-10-18): apply() treats the
+    /// J and M entries of x of every excluded function as zero and returns exactly zero in their
+    /// rows, and the exact parts (region policy) store no pair with an excluded member (neither
+    /// counted nor reported as truncated: ExactPartInfo::pair_bound, the per-basis count of the
+    /// budget check and FarLevelInfo::truncated_basis_pairs use the active functions per box that
+    /// are not excluded, so the exact-part budget never counts them). Everything else (octree,
+    /// orders, decisions, patterns, translators) is the same as for the three-argument
+    /// constructor, so for the functions that are not excluded y equals the unrestricted far
+    /// operator applied to the masked x (the same passes on the same input; the exact parts hold
+    /// the same entries for the kept pairs). The patterns of the excluded functions are still
+    /// stored (their memory is reported). problem must be unstretched (the caller removes the PML
+    /// stretch: the expansion runs in real coordinates).
+    /// @param excluded size N (non-zero = excluded) or empty (= the three-argument constructor)
+    /// @throws as the three-argument constructor, and std::invalid_argument for a mask of the
+    ///         wrong size.
+    MlfmmFarOperator(const op::Problem& problem, const Octree& tree, const MlfmmParams& params,
+                     std::vector<std::uint8_t> excluded);
+    MlfmmFarOperator(const op::Problem&, const Octree&&, const MlfmmParams&,
+                     std::vector<std::uint8_t>) = delete;
     ~MlfmmFarOperator() override;
 
     [[nodiscard]] Index rows() const override;
@@ -288,8 +311,13 @@ public:
     /// The exact-part budget in effect (MlfmmParams::max_exact_far_bytes, automatic value
     /// resolved) [bytes].
     [[nodiscard]] std::size_t exact_budget() const;
+    /// Number of excluded functions (four-argument constructor; 0 otherwise).
+    [[nodiscard]] Index excluded_count() const;
 
 private:
+    /// apply() without the exclusion mask.
+    void apply_unmasked(const VectorXc& x, VectorXc& y) const;
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

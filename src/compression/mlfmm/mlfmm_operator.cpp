@@ -7,6 +7,7 @@
 #include "specklebem/compression/mlfmm/near_field.hpp"
 #include "specklebem/compression/mlfmm/patterns.hpp"
 #include "specklebem/core/logging.hpp"
+#include "specklebem/core/system_memory.hpp"
 #include "specklebem/operator/sparse_operator.hpp"
 
 #include <algorithm>
@@ -125,6 +126,8 @@ struct MlfmmOperator::Impl {
     std::unique_ptr<Octree> tree;
     std::unique_ptr<MlfmmFarOperator> far;
     std::shared_ptr<op::SparseOperator> near;
+    std::unique_ptr<PmlRingOperator> ring;  ///< PML route only
+    Real ring_s = 0;
     Real lambda1 = 0;  ///< wavelength of R1, the octree's leaf-size reference
     Real digits = 0;
     Real user_floor = 0, floor = 0;  ///< min_box_size_lambda given / after the leaf rule
@@ -135,8 +138,16 @@ struct MlfmmOperator::Impl {
 
 MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& params)
     : impl_(std::make_unique<Impl>()) {
-    // The plane-wave translations need real coordinates; the fast PML ring is WP-PML5.
-    op::require_unstretched(problem, "MlfmmOperator");
+    // The plane-wave translations need real coordinates: with a PML stretch the expansion covers
+    // the real functions only and the exact ring every pair with a stretched one (WP-PML5a).
+    const bool pml = op::has_stretch(problem);
+    if (pml && params.leaf_radius_quantile < 1.0) {
+        throw std::invalid_argument(
+            "MlfmmOperator: the PML ring (WP-PML5a) needs every basis function on the leaf level; "
+            "use leaf_radius_quantile = 1 with a PML stretch");
+    }
+    op::Problem real_problem = problem;  // the stretch removed: Z_rr never sees it
+    real_problem.stretch = nullptr;
     Impl& m = *impl_;
     m.lambda1 = octree_wavelength(problem);
     m.digits = params.accuracy_digits;
@@ -158,20 +169,49 @@ MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& para
     m.tree_s = seconds_since(t0);
     if (m.tree->has_elevated())
         SBEM_INFO("MlfmmOperator: {}", home_level_text(*m.tree));
+    std::vector<std::uint8_t> stretched;
+    if (pml) {
+        // Classification and the ring's budget check before anything expensive.
+        stretched = classify_stretched(*problem.space, *problem.stretch);
+        const PmlRingEstimate est =
+            estimate_pml_ring(*m.tree, *problem.space, stretched, params.pml_ring);
+        check_pml_ring_budget(est, params.pml_ring);
+        (void)warn_pml_ring_memory(est, core::available_memory_bytes());
+    }
     // Far part first: its order searches are cheap and reject unusable configurations (lossy
     // regions, coarse meshes) before the expensive near-field assembly.
     t0 = std::chrono::steady_clock::now();
-    m.far = std::make_unique<MlfmmFarOperator>(problem, *m.tree, params);
+    m.far = pml ? std::make_unique<MlfmmFarOperator>(real_problem, *m.tree, params, stretched)
+                : std::make_unique<MlfmmFarOperator>(problem, *m.tree, params);
     m.far_s = seconds_since(t0);
     t0 = std::chrono::steady_clock::now();
-    m.near = assemble_near(problem, *m.tree);
+    if (pml) {
+        const SplitNearPattern split = split_near_pattern(*m.tree, *problem.space, stretched);
+        SBEM_INFO("MlfmmOperator (PML): real-real near pairs {}, ring near pairs {}",
+                  split.real_pairs, split.ring_pairs);
+        m.near = op::assemble_sparse(real_problem, split.real);
+    } else {
+        m.near = assemble_near(problem, *m.tree);
+    }
     m.near_s = seconds_since(t0);
+    if (pml) {
+        t0 = std::chrono::steady_clock::now();
+        m.ring = std::make_unique<PmlRingOperator>(problem, *m.tree, params.pml_ring);
+        m.ring_s = seconds_since(t0);
+    }
     SBEM_INFO(
         "MlfmmOperator: 2N = {}, {} levels, leaf edge {:.3g} lambda1, near nnz {} ({:.1f} MB, "
         "{:.2f} s), far {:.1f} MB ({:.2f} s)",
         rows(), m.tree->levels(), m.tree->box_size(m.tree->leaf_level()) / m.lambda1,
         m.near->nonzeros(), mb(m.near->memory_bytes()), m.near_s, mb(m.far->memory_bytes()),
         m.far_s);
+    if (m.ring) {
+        SBEM_INFO(
+            "MlfmmOperator (PML): {} of N = {} functions stretched, ring near {:.1f} MB, far "
+            "{:.1f} MB ({:.2f} s)",
+            m.ring->stretched_count(), problem.space->size(), mb(m.ring->near_bytes()),
+            mb(m.ring->far_bytes()), m.ring_s);
+    }
 }
 
 MlfmmOperator::~MlfmmOperator() = default;
@@ -196,6 +236,25 @@ void MlfmmOperator::apply(const VectorXc& x, VectorXc& y) const {
     impl_->far->apply(x, far);
     impl_->near->apply(x, y);
     y += far;
+    if (impl_->ring) {
+        VectorXc ring;
+        impl_->ring->apply(x, ring);
+        y += ring;
+    }
+}
+
+void MlfmmOperator::apply_real(const VectorXc& x, VectorXc& y) const {
+    if (x.size() != cols())
+        throw std::invalid_argument("MlfmmOperator::apply_real: x has the wrong size");
+    if (&x == &y) {
+        const VectorXc copy = x;
+        apply_real(copy, y);
+        return;
+    }
+    VectorXc far;
+    impl_->far->apply(x, far);
+    impl_->near->apply(x, y);
+    y += far;
 }
 
 std::string MlfmmOperator::describe() const {
@@ -211,11 +270,22 @@ std::string MlfmmOperator::describe() const {
         os << ", leaf radius quantile " << m.quantile;
     if (t.has_elevated())
         os << "\n  " << home_level_text(t);
-    os << "\n  near: " << m.near->describe() << ", assembled in " << m.near_s << " s";
+    if (m.ring)
+        os << "\n  PML route: Z = Z_rr + Z_ring; Z_rr = the MLFMM below on the "
+           << rows() / 2 - m.ring->stretched_count() << " real functions, Z_ring exact on the "
+           << m.ring->stretched_count() << " stretched ones";
+    os << "\n  near" << (m.ring ? " (real-real)" : "") << ": " << m.near->describe()
+       << ", assembled in " << m.near_s << " s";
     os << "\n  far: " << m.far_s << " s setup, " << mb(m.far->memory_bytes()) << " MB\n  "
        << m.far->describe();
+    if (m.ring)
+        os << "\n  ring: " << m.ring->describe();
     os << "\n  total " << mb(memory_bytes()) << " MB (near " << mb(m.near->memory_bytes())
-       << ", far " << mb(m.far->memory_bytes()) << ", octree " << mb(octree_bytes()) << ")";
+       << ", far " << mb(m.far->memory_bytes());
+    if (m.ring)
+        os << ", ring " << mb(m.ring->memory_bytes()) << " (near " << mb(m.ring->near_bytes())
+           << ", far " << mb(m.ring->far_bytes()) << ")";
+    os << ", octree " << mb(octree_bytes()) << ")";
     return os.str();
 }
 
@@ -231,7 +301,12 @@ std::size_t MlfmmOperator::octree_bytes() const {
 }
 
 std::size_t MlfmmOperator::memory_bytes() const {
-    return sizeof(Impl) + impl_->near->memory_bytes() + impl_->far->memory_bytes() + octree_bytes();
+    return sizeof(Impl) + impl_->near->memory_bytes() + impl_->far->memory_bytes() +
+           octree_bytes() + (impl_->ring ? impl_->ring->memory_bytes() : 0);
+}
+
+const PmlRingOperator* MlfmmOperator::ring_operator() const {
+    return impl_->ring.get();
 }
 
 const Octree& MlfmmOperator::octree() const {

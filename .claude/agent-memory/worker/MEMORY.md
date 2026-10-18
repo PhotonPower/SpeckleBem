@@ -36,3 +36,4 @@
 - [PML Si cross-check (WP-PML4c, 7e)](pml_si_crosscheck_findings.md) — PML vs box 0.146 % vs box L-shift 0.16 %, lambda/4 not converged (2 %), tolerance rule, shared map, costs
 - [Dense LU findings (WP-LU1)](dense_lu_findings.md) — zgetrf vs Eigen same kernel 1 thread, load not content, zgecon cost, 10-40x unreproduced, trace numbers
 - [PML rough Ag 7c/7d (WP-PML4b)](pml_rough_ag_findings.md) — 7c met 1e-5..1e-4, 7d Si 0.24 % / Ag 2.6 % via SPPs, l2 ~ 0.3 x gap J, loss diag, W = lambda, foreign batch
+- [PML ring findings (WP-PML5a)](pml_ring_findings.md) — octree over all + masked far op, transposed far blocks, chunked apply, 7c costs, d0=5 1.4e-7, 5a limit 2N 1.2e5

@@ -5,6 +5,23 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm / operator / core / simulation (WP-PML5a, ADR 0008 amendment 2026-10-18): the PML route runs with
+  compression "mlfmm". `MlfmmOperator` with a stretch = Z_rr + Z_ring: the unchanged MLFMM on the real functions
+  (one octree over all functions, `MlfmmFarOperator` with an exclusion mask, Z_rr equals the masked unstretched
+  MLFMM to 1e-13) plus `mlfmm::PmlRingOperator` for every pair with a stretched member (stretched = the RHS mask):
+  near pairs exact via `op::assemble_sparse_stretched` on the octree's near pattern, far pairs exact per leaf block
+  stored once (complex symmetry of separated pairs) under a byte budget checked before allocation;
+  `describe`/`memory_bytes`/`report()` show the split. The ring apply is bitwise independent of the thread count
+  (one pass over ≤ 64 fixed row-leaf chunks, per-chunk buffers summed in chunk order; unit test 1/2/3/max
+  threads). `core::available_memory_bytes()` and an SBEM_WARN when the far-ring estimate exceeds the available
+  memory; the local leaf rule is refused with "mlfmm" on the PML route. `op::PairBlockEvaluator`, public
+  `op::BlockWeights`/`TrianglePairBlocks`. Validation 7h at the 7c size (rough Ag, 2N = 22 816): d₀ 3 matvec vs
+  dense 1.5e-5, R +4e-8, windowed far field L2 3.3e-6; d₀ 5 matvec 1.4e-7 (gate 1e-5, 6.25 GB); flat Ag CI
+  3.2e-4 (d₀ 3) / 4.9e-8 (d₀ 5); operator 4.6 GB vs 8.3 GB dense; ring setup 905 s vs 640 s dense assembly (near
+  ring 380 s → WP-PML5c, far ring 522 s and 79 % of the memory → ACA in WP-PML5b; 5a ends near 2N ≈ 1.2e5 in
+  50 GB). Unit tests `[pml_ring]` (incl. transposed K entries on a rough patch), validation and validation-large
+  cases (d₀ 3 solve, d₀ 5 matvec), Python PML solve with "mlfmm", driver `specklebem_pml_ring`, record
+  `benchmarks/results/pml_ring.md` + rows, docs/05 row 7h, ADR 0008 "5a result".
 - simulation / tests / benchmarks (WP-PML4b, ADR 0009 decisions 7c/7d): PML-route configuration warnings
   (`SBEM_WARN`, not errors: a weak absorber such as Si at oblique incidence with a patch mesh h > λ₁/6; a beam
   waist below w₀ cos θ ≥ λ₁ or pml_start < 3.5 w₀ / cos θ), unit-tested with a log sink. Validation **7c met** on

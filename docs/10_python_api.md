@@ -348,7 +348,7 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   `sim.save` / HDF5: see "HDF5 (WP23)" below.
 - Paths are `str` or `os.PathLike` (not bytes), passed to C++ as UTF-8 (ADR 0007).
 
-## Bound in WP-PML3a: open surface with a PML (ADR 0009, dense prototype)
+## Bound in WP-PML3a: open surface with a PML (ADR 0009; dense, or "mlfmm" since WP-PML5a)
 
 ```python
 om = sb.make_open_surface_mesh(height_map, sb.OpenSurfaceParams(
@@ -364,8 +364,14 @@ F = sim.far_field(directions, window=sb.CurrentWindow(inner_half, outer_half))
 ```
 
 `Simulation.with_pml` raises `ValueError` for what the C++ PML constructor rejects (no gap,
-taper < Lc of a rough patch, no dark band, controlled ball, compression other than "dense",
-orientation). On the PML route R1 is the half space below the surface, so `far_field` (like
+taper < Lc of a rough patch, no dark band, controlled ball, an unknown compression or "mlfmm"
+with the direct solver, orientation). Since WP-PML5a `compression="mlfmm"` works on the PML route
+(GMRES; MLFMM on the real functions plus the exact PML ring, default MLFMM parameters; no new
+arguments). The exact far ring of 5a needs about 64 · N_s · N_far bytes (N_s stretched functions,
+N_far the functions outside a leaf's 27-leaf neighbourhood; 3.65 GB at 2N = 22 816, ≈ 60 GB at
+2N = 1.4·10⁵, `benchmarks/results/pml_ring.md`). Its budget defaults to the dense matrix size,
+which this estimate never exceeds, so the default never refuses a run; the C++ operator logs a
+warning when the estimate exceeds the physical memory available at construction. On the PML route R1 is the half space below the surface, so `far_field` (like
 `drc` / `radiated_power`, WP25) raises `ValueError` for directions with k_z > 0. The kernel key
 `stretched_touching_points` (4..16) sets the touching-pair rule of PML triangles.
 

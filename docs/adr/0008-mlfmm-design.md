@@ -295,3 +295,28 @@ scalable form. The lossy-region policy of §6 applies to the ring's far blocks t
 (no expansion). Revisit: if ACA ranks of the stretched far blocks are not small (log them), fall back to a
 one-level FMM with complex-distance translators restricted to the ring, or to a Huygens-type separation; both need
 a new decision.
+
+**5a result (WP-PML5a, 2026-10-18, `benchmarks/results/pml_ring.md`).** Implemented as decided, with these
+choices: the octree is built over **all** functions (as without a stretch); Z_rr is the unchanged MLFMM with the
+stretched functions excluded from the far part (zero sources and rows, no exact-part pairs; built on the Problem
+without the stretch) and the real-real near pairs, so Z_rr x equals the unstretched MLFMM of the same mesh applied
+to the masked x on the real rows (unit test to 1e-13) and the ring uses the same leaves; the far ring stores per
+leaf A with stretched functions one exact block A_s x (all functions of the leaves not near A), 64 bytes per stored
+pair, and applies the real rows x stretched columns transposed (far sub-blocks are complex symmetric, no jump
+terms). Budget `PmlRingParams::max_far_bytes`, checked before allocation against the estimate (memory model
+64 · N_s · N_far bytes, N_far = the functions outside a row leaf's 27-leaf neighbourhood); the automatic value (the
+dense matrix, 16 (2N)² bytes) never fires, because the exact ring stores at most N_s · N pairs = 16 (2N)(2N_s)
+bytes — it only guards against inconsistent use; an explicit value bounds a run, and `MlfmmOperator` logs a
+warning when the estimate exceeds the physical memory available at construction (review W3). The ring apply is
+thread-count independent (one pass over fixed chunks of row leaves with per-chunk transposed buffers summed in
+chunk order, review W4). Local leaf rule refused with a stretch (also by the PML
+`Simulation` constructor). Measured: 7h met at the 7c size (rough Ag U, 2N = 22 816, d0 = 3: matvec 1.5e-5, R
+4e-8, far-field L2 3.3e-6; GMRES 602 iterations) at 4.6 GB against 8.3 GB dense and 905 s against 640 s dense
+assembly; U at d0 = 5 (review round): matvec 1.4e-7, R 5.5e-8, L2 1.2e-7 (6.25 GB; 1345 s `assemble()` incl. diagonal); flat Ag at d0 = 3 / 5:
+matvec 3.2e-4 / 4.9e-8. The ring dominates both: far blocks 79 % of the memory
+(O(N_s N): 60 GB at 2N = 1.4e5), near ring 42 % and far ring 58 % of the setup (the near ring evaluates stretched
+touching pairs in both orderings). 5b (ACA far blocks) and 5c (canonical-pair cache) remain as decided. Notes for
+5c from the 5a review: the Jacobi diagonal (`op::assemble_diagonal`, 50 s at the 7c size) could be taken from the
+near parts (Z_rr near and the near ring hold every diagonal entry); `split_near_pattern` and `estimate_pml_ring`
+are computed two to three times per operator (MlfmmOperator's early budget check, the near split, the ring
+constructor) and could be shared.

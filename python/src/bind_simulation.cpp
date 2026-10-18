@@ -1012,7 +1012,7 @@ works). A main thread waiting for the lock stays interruptible with Ctrl-C
                     py::arg("formulation") = "auto", py::arg("preconditioner") = "auto",
                     py::arg("solver") = "gmres", py::arg("compression") = "dense",
                     py::arg("gmres") = py::none(), py::arg("kernels") = py::none(), R"doc(
-Simulation of an open surface terminated by a PML (ADR 0009, dense prototype).
+Simulation of an open surface terminated by a PML (ADR 0009; dense, or "mlfmm" since WP-PML5a).
 
 Parameters
 ----------
@@ -1024,7 +1024,8 @@ excitation : Excitation
 pml : PmlTermination, optional
     None = PmlTermination() (sigma_max 4, order 2, flat patch, dark band 1e-4).
 object, exterior, wavelength, formulation, preconditioner, solver, gmres, kernels :
-    As for Simulation(); compression must be "dense" (the MLFMM does not support the PML).
+    As for Simulation(); compression "dense" or "mlfmm" (GMRES only: MLFMM on the functions
+    outside the PML plus the exact PML ring, default MLFMM parameters).
 
 The right-hand side is zero on test functions touching the PML; far_field uses the window
 across the gap (far_field_window) by default. Near fields (field()) are not available.
