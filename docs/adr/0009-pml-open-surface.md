@@ -91,7 +91,7 @@ regression. The PML route becomes the default for plasmonic objects once it pass
      1e-4), chosen with margin, i.e. 2N = 4.6·10⁴ at λ/4. **7a does not need the 1e-4 level.** At a dark-band ratio of
      5.9e-3 (tolerance relaxed) R changed by ≤ 0.06 % against the 5e-5 geometry (2.6e-2: ≤ 0.15 %, Si 45°, λ/4; at λ/6 the 5.9e-3 and 2.6e-2 geometries agree within 0.05 % (p) / 0.08 % (s)). The 1e-4 default is therefore
      conservative for the far field. Relaxing it for rough-surface runs (which would cut the 45° surface by ≈ 2.5×)
-     is left to WP-PML4 (7c/7d at both levels). Mesh found by 7a: h = λ/4 suffices for Ag and for Si at normal
+     is left to WP-PML4 (7c/7d at both levels; WP-PML4b keeps 1e-4, see the 7c / 7d note). Mesh found by 7a: h = λ/4 suffices for Ag and for Si at normal
      incidence. **Si at oblique incidence needs h ≤ λ/6** (≈ 0.7 λ/n_Si). At λ/4 it passed only by chance:
      λ/5 was +5.9 % off. Indicator: the power balance 1 − R − A_real.
    - Not evaluating the continued angular spectrum inside the PML avoids its exp(+k Im x̃) growth.
@@ -153,6 +153,27 @@ regression. The PML route becomes the default for plasmonic objects once it pass
    - **(c) PML-parameter sensitivity:** far field change < 0.1 % for W_pml ×1.5 and for σ_max ×1.5. This replaces
      depth ×2.
    - **(d) L ×1.2 sensitivity**, unchanged, read for the "rough spot in a polished surface" model.
+     *7c / 7d (WP-PML4b, measured, `benchmarks/results/pml_rough_ag.md`):* on rough Ag (σ = 50 nm, Lc = 500 nm,
+     h = λ/4, L = 3.75 µm, w₀ = λ, PML defaults, dense) **7c is met**: W_pml ×1.5 2.5·10⁻⁵, σ_max ×1.5 4.6·10⁻⁵
+     (also 3.7·10⁻⁵ at a relaxed dark band of 8.3·10⁻³), quadrature 3·10⁻⁸, gap width at the same window
+     ≤ 4.4·10⁻⁵. **7d is met on the rough-Si control** (same map, zones and beam: 0.24 %) and **not on rough Ag
+     (2.57 %)**, the 0.5 % not loosened. The termination is not the cause (7c, flat control, Si control: flat Ag with
+     the same zones and window move 2·10⁻⁷, PML inert at 10⁻⁵). The change comes from SPP currents in the gap (the
+     roughness launches SPPs with a 41.5 µm amplitude range ≫ L, 10 % of the patch current level in the gap): the
+     window truncates them (1.61 % on the same currents) and the added annulus changes them (2.42 % at the same
+     absolute window, which still includes the window acting on the changed currents; the two are not
+     separated). ADR 0010 / WP-PML6 (row 7g) decides whether a physical L dependence remains. A lossier metal
+     (Im ε_r −6) halves the change (1.09 %), and across Ag, lossy Ag and Si it follows the gap current level. The
+     closed box changed more under L ×1.2 on rough Ag (4.5–8.2 %, other L, waist, mesh and solver); WP-V3 left its
+     annulus mechanism a hypothesis. Hence **every rough-Ag PML result must state L, gap and window** (inner /
+     outer half width), and rough-Ag results are comparable only at equal L, gap and window (lead decision
+     2026-10-18, ADR 0010). The dark-band default 1e-4 is kept (it binds only for w₀ ≳ 1 µm at a
+     0.5 µm gap; relaxing it to the 8.3·10⁻³ level costs 5.2·10⁻⁴ in the far field, half the 7c tolerance, and
+     1.8·10⁻³ off-specular), and W_pml = 2λ stays the default (W_pml = λ, σ_max 2: 9.5·10⁻⁵ at 0.57× the dense
+     memory, but 4·10⁻³ of the patch current left at the outer PML edge and its own 7c pair not run). `Simulation` now warns (SBEM_WARN, not an error) when the PML-route mesh or waist leaves the 7a
+     rules: h > λ₁/6 for a weakly absorbing object at oblique incidence, w₀ cos θ ≲ λ₁ or pml_start ≲ 3.5 w₀/cos θ
+     (none fired at w₀ = λ; the w₀ = 1.3 µm dark-band pair triggers the waist warning, pml_start 2.875 / 4.125 µm
+     < 3.5 w₀ = 4.55 µm).
    - **(e) The Si cross-check:** the PML route against the validated uniform box at L = 4 µm, w₀ = L/6 (agreement
      within the box's own sensitivity).
      *7e (WP-PML4c, measured, `benchmarks/results/pml_si_crosscheck.md`):* met at the validated box configuration

@@ -1225,3 +1225,116 @@ TEST_CASE("simulation: beam waist check with the material fraction (ADR 0006 202
                         std::invalid_argument);
     }
 }
+
+// ---- PML route configuration warnings (WP-PML4b; ADR 0009 decision 4, rules after 7a) ------
+
+namespace {
+
+/// Flat open surface with grid spacing h and the band widths in cells (patch edge 2 * patch).
+geometry::OpenSurfaceMesh flat_open(Real h, int patch, int taper, int gap, int pml) {
+    geometry::HeightMap m;
+    m.dx = h;
+    m.dy = h;
+    m.z = MatrixXr::Zero(2 * (patch + taper) + 1, 2 * (patch + taper) + 1);
+    geometry::OpenSurfaceParams op;
+    op.patch_size = 2.0 * patch * h;
+    op.taper_width = taper * h;
+    op.gap_width = gap * h;
+    op.pml_width = pml * h;
+    return geometry::make_open_surface_mesh(m, op);
+}
+
+/// Numbers of the mesh-size and waist warnings logged by the PML constructor for the given
+/// surface, object, waist and angle (the dark band is not enforced: tolerance 10). The rigorous
+/// beam by default; the paraxial GaussianBeam (same rule, cheap under the sanitizers) for the
+/// large surfaces.
+std::pair<std::size_t, std::size_t> pml_warnings(geometry::OpenSurfaceMesh om,
+                                                 const material::Material& object, Real waist,
+                                                 Real theta_deg, bool paraxial = false) {
+    std::shared_ptr<excitation::Excitation> exc;
+    if (paraxial) {
+        excitation::GaussianBeam::Params gp;
+        gp.wavelength = 500e-9;
+        gp.waist_radius = waist;
+        gp.incidence_angle = theta_deg * constants::pi / 180.0;
+        exc = std::make_shared<excitation::GaussianBeam>(gp);
+    } else {
+        excitation::AngularSpectrumBeam::Params bp;
+        bp.wavelength = 500e-9;
+        bp.waist_radius = waist;
+        bp.incidence_angle = theta_deg * constants::pi / 180.0;
+        bp.region_radius = 1.05 * std::sqrt(2.0) * om.pml_start;
+        exc = std::make_shared<excitation::AngularSpectrumBeam>(bp);
+    }
+    SimulationConfig cfg;
+    cfg.wavelength = 500e-9;
+    cfg.object = object;
+    PmlTermination term;
+    term.dark_band_tolerance = 10.0;
+    BoxWarningCounter warnings;
+    const Simulation sim(std::move(om), term, exc, cfg);
+    return {warnings.count("lambda_1 / 6"), warnings.count("violates the waist rule")};
+}
+
+}  // namespace
+
+TEST_CASE("simulation: PML configuration warnings for the mesh size and the beam waist",
+          "[simulation]") {
+    using P = std::pair<std::size_t, std::size_t>;
+    const material::Material si = material::silicon_500nm();
+    const material::Material ag = material::silver_500nm();
+    // h = 100 nm = lambda / 5 > lambda / 6, pml_start 0.6 um; w0 = 0.75 um at 45 deg meets
+    // w0 cos(theta) >= lambda but not pml_start >= 3.5 w0 / cos(theta).
+    const auto coarse = [] { return flat_open(100e-9, 2, 2, 2, 2); };
+    CHECK(pml_warnings(coarse(), si, 0.75e-6, 45.0) == P{1, 1});   // weak absorber, oblique
+    CHECK(pml_warnings(coarse(), si, 0.75e-6, -45.0) == P{1, 1});  // the sign of theta is inert
+    CHECK(pml_warnings(coarse(), si, 0.75e-6, 0.0).first == 0);    // normal incidence
+    CHECK(pml_warnings(coarse(), ag, 0.75e-6, 45.0).first == 0);   // Ag: lambda / 4 suffices
+    // h = 80 nm < lambda / 6 = 83.3 nm: no mesh warning for Si at 45 deg.
+    CHECK(pml_warnings(flat_open(80e-9, 2, 2, 2, 2), si, 0.75e-6, 45.0).first == 0);
+
+    // Waist rule at 0 deg: w0 >= lambda and pml_start >= 3.5 w0. h = 250 nm, pml_start 1.75 um
+    // (paraxial beam from here on: the rule is the same, the rigorous one costs seconds per
+    // construction under the sanitizers on these surfaces).
+    const auto wide = [] { return flat_open(250e-9, 5, 1, 1, 1); };
+    CHECK(pml_warnings(wide(), ag, 0.5e-6, 0.0, true) == P{0, 0});  // w0 = lambda, 3.5 w0 = 1.75
+    {
+        BoxWarningCounter warnings;
+        CHECK(pml_warnings(wide(), ag, 0.4e-6, 0.0, true).second == 1);  // w0 < lambda
+        CHECK(warnings.count("w0 cos(theta_in) = 4e-07 m < lambda_1 = 5e-07 m") == 1);
+        CHECK(warnings.count("pml_start = ") == 0);
+        // The reason names the beam type: the paraxial error here, the spectrum cut below.
+        CHECK(warnings.count("paraxial GaussianBeam violates") == 1);
+        CHECK(warnings.count("spectrum cut at k_t = k") == 0);
+    }
+    {
+        // Rigorous beam, w0 = 0.4 um < lambda on the small surface (pml_start 0.6 um < 3.5 w0).
+        BoxWarningCounter warnings;
+        CHECK(pml_warnings(coarse(), ag, 0.4e-6, 0.0).second == 1);
+        CHECK(warnings.count("spectrum cut at k_t = k") == 1);
+        CHECK(warnings.count("paraxial GaussianBeam violates") == 0);
+    }
+    {
+        BoxWarningCounter warnings;
+        CHECK(pml_warnings(wide(), ag, 0.6e-6, 0.0, true).second == 1);  // 3.5 w0 = 2.1 um
+        CHECK(warnings.count("pml_start = 1.75e-06 m < 3.5 w0 / cos(theta_in) = 2.1e-06 m") == 1);
+        CHECK(warnings.count("w0 cos(theta_in) = ") == 0);
+    }
+    // 45 deg: w0 cos(theta) >= lambda needs w0 >= 0.71 um; h = 500 nm, pml_start 4 um >=
+    // 3.5 * 0.75 um / cos(45 deg) = 3.71 um.
+    const auto far = [] { return flat_open(500e-9, 6, 1, 1, 1); };
+    CHECK(pml_warnings(far(), ag, 0.75e-6, 45.0, true) == P{0, 0});
+    {
+        BoxWarningCounter warnings;
+        CHECK(pml_warnings(far(), ag, 0.6e-6, 45.0, true).second == 1);
+        CHECK(warnings.count("w0 cos(theta_in) = ") == 1);
+        CHECK(warnings.count("measured dark-band ratio") == 1);
+    }
+    // Negative incidence angle: the rule uses |theta_in| (cos is even), the same verdicts.
+    CHECK(pml_warnings(far(), ag, 0.75e-6, -45.0, true) == P{0, 0});
+    {
+        BoxWarningCounter warnings;
+        CHECK(pml_warnings(far(), ag, 0.6e-6, -45.0, true).second == 1);
+        CHECK(warnings.count("at theta_in = 45 deg") == 1);
+    }
+}

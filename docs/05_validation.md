@@ -76,8 +76,8 @@ decision 1). Tolerances are not loosened relative to the box route.
 |-------|-----------|--------|-----------|--------|
 | 7a Flat Ag and flat Si with PML, rigorous beam, 0° and 45°, s and p | beam reflectance R_beam of the same beam on the infinite interface (Fresnel per plane wave) | rel on \|r\|² (R) | < 1 % | met (WP-PML3b, `benchmarks/results/pml_validation.md`): Ag 0°/45° and Si 0° at h = λ/4 with the 1e-4 dark band (≤ 0.28 %; 45°: w₀ = 0.75 µm, pml_start 4.5 µm); Si 45° accepted at the mesh-converged h = λ/6 (+0.18 % / +0.03 %, smaller geometry w₀ = λ, L = 3 µm with the dark band relaxed to 1e-2, as the 7a geometry at λ/6 is infeasible densely; the dark band is a decision-4 configuration check, and at λ/6 the 5.9e-3 and 2.6e-2 geometries agree within 0.05 % / 0.08 %); Si 45° at λ/4 (−0.76 % / −0.41 %) is not mesh-converged (λ/5: +5.9 %) and only reported |
 | 7b SPP launched on flat Ag, reflected at the PML start | — | \|r_spp\| | < 1e-2 | met (WP-PML4a, `benchmarks/results/pml_validation.md`): \|r_spp\| = 8.0e-5 (J_x) / 3.4e-5 (M_y) at the PML defaults (σ_max 4, m 2, W_pml = 2λ), λ = 500 nm, Ag, groove launch (d 50 nm, r_g 100 nm, grooved minus flat solution) under the rigorous beam at 0°, h = λ/5, PML start 1.5 µm, fit of outgoing + reflected cylindrical SPP waves plus outgoing background terms along the x-axis (measurement floor ≈ 1–2e-4; λ/6 and λ/7 at the floor too); defaults confirmed (W_pml = 2λ: σ_max 2–8 at the floor; m = 1 ≈ 1e-3; W_pml = λ with σ_max 1–8 ≤ 3.2e-3, σ- and h-dependent, σ_max 0.25 / 0.5 not: 0.15 / 0.052) |
-| 7c PML parameters W_pml ×1.5 and σ_max ×1.5 | the unperturbed run | far-field change (box-check metric) | < 0.1 % | pending (WP-PML4; 7a preview in the record) |
-| 7d L ×1.2 at fixed waist | the unperturbed run | far-field change (box-check metric) | < 0.5 % | pending (WP-PML4) |
+| 7c PML parameters W_pml ×1.5 and σ_max ×1.5 (rough Ag)⁴ | the unperturbed run | far-field change (box-check metric) | < 0.1 % | met (WP-PML4b, `benchmarks/results/pml_rough_ag.md`): W_pml ×1.5 2.5·10⁻⁵, σ_max ×1.5 4.6·10⁻⁵ on rough Ag; quadrature (target accuracy 1e-6, 12 stretched touching points) 3·10⁻⁸; gap 0.5 → 0.875 / 1.75 µm at the same window ≤ 4.4·10⁻⁵ (configuration: footnote ⁴) |
+| 7d L ×1.2 at fixed waist⁴ | the unperturbed run | far-field change (box-check metric) | < 0.5 % | met on rough Si (WP-PML4b, `benchmarks/results/pml_rough_ag.md`): 0.24 %; not met on rough Ag: 2.6 % at L ×1.2, the termination is not the cause (flat control 2·10⁻⁷, lossy diagnostic 1.1 %), the change comes from SPP currents in the gap; whether a physical L dependence remains is decided by WP-PML6 (row 7g, ADR 0010); 0.5 % not loosened⁴ |
 | 7e Si cross-check: PML route vs the validated uniform box, L = 4.5 µm, w₀ = L/6, h = λ/4 on both routes³ | uniform-box far field | agreement within the box's own sensitivity (largest box change under L ×1.2)³ | l2_refl ≤ 0.229 %, ε_rr ≤ 0.058 %, \|ΔR/R\| ≤ 4.1·10⁻⁵ | met (WP-PML4c, `benchmarks/results/pml_si_crosscheck.md`): l2_refl 0.146 %, ε_rr 0.026 / 0.041 %, ΔR/R −1.6·10⁻⁵; L = 3.5 µm at λ/6: 0.186 %³ |
 
 ³ Row 7e (WP-PML4c). Configuration: the validated box configuration of `box_validity_mlfmm.md` (ADR 0009 named
@@ -95,6 +95,25 @@ equal discretisation. R moves by 0.75–1.5·10⁻³ from λ/4 to λ/6 (both rou
 4·10⁻⁴ of λ/10 at L = 4.5 µm. Mesh check of the cross-check at L = 3.5 µm, w₀ = L/6 (the λ/6 PML route does not
 fit 50 GB at 4.5 µm): PML vs box 0.210 % (λ/4) and 0.186 % (λ/6), against the box's own L partners at the same
 mesh and L of 0.21–0.26 % and 0.19–0.27 %.
+
+⁴ Rows 7c / 7d (WP-PML4b). Configuration: vacuum over Ag (ε_r = −9.794 − 0.313j) or Si (18.478 − 0.606j),
+λ = 500 nm, seed 1, σ = 50 nm, Lc = 500 nm, h = λ/4, patch L = 3.75 µm (L ×1.2: 4.5 µm, the same height map
+on the common area), taper 0.5 µm, gap 0.5 µm, PML defaults (W_pml = 2λ, σ_max 4, m 2), rigorous beam at 0°,
+w₀ = λ = L/7.5 (dark band 3.3·10⁻⁶), default far-field window (taper end to pml_start), dense ICTF + LU,
+2N = 22 816 / 27 472. 7c holds at the relaxed dark band 8.3·10⁻³ too (w₀ = 1.3 µm: σ_max ×1.5 3.7·10⁻⁵).
+7d on rough Si: l2 0.241 %, l2 θ ≥ 30° 0.50 %, ε_rr 0.095 / 0.067 %, ΔR/R −1.1·10⁻⁵. 7d on rough Ag: l2
+2.57 % (θ ≥ 30°: 6.8 %, ΔR/R +1.8·10⁻⁴). The termination is not the cause (7c, flat control, Si control).
+The change comes from SPP currents in the gap (amplitude range 41.5 µm ≫ L; 10 % of the patch current level
+in the gap): the window truncates them (1.61 % on the same currents) and the added annulus changes them
+(2.42 % at the same absolute window, which still includes the window acting on the changed currents; the two
+are not separated). ADR 0010 / WP-PML6 (row 7g) decides whether a physical L dependence remains. Controls:
+flat Ag with the same zones, beam and window move 2·10⁻⁷; Im ε_r −6 (shorter SPP range, not Ag) 1.09 %.
+Across Ag, lossy Ag and Si the change follows the gap current level (l2 / level 0.26–0.32). The
+validation-large test asserts 7d on Si and reports the Ag value (WARN, plus a regression guard on the
+documented value; lead decision 2026-10-18, ADR 0010); the 0.5 % is not loosened. Every rough-Ag PML result
+must state L, gap and window. Caveat:
+the comparisons are at equal discretisation; h = λ/4 is not mesh-converged for the rough-Si far field (³), the
+rough-Ag mesh convergence was not measured.
 
 ## Test organisation
 

@@ -596,6 +596,90 @@ Real measure_dark_band(const geometry::TriangleMesh& mesh, Real patch_half, Real
     return edge_max / patch_max;
 }
 
+/// Patch mesh size h: the largest in-plane extent max(|dx|, |dy|) over the vertices of a Patch
+/// triangle (the grid spacing of make_open_surface_mesh, whose cells are split along a diagonal).
+Real patch_mesh_size(const geometry::TriangleMesh& mesh,
+                     const std::vector<geometry::SurfaceZone>& zone) {
+    const Vertices& V = mesh.vertices();
+    const Triangles& T = mesh.triangles();
+    Real h = 0;
+    for (Index t = 0; t < mesh.num_triangles(); ++t) {
+        if (zone[static_cast<std::size_t>(t)] != geometry::SurfaceZone::Patch)
+            continue;
+        for (Index a = 0; a < 3; ++a) {
+            for (Index b = a + 1; b < 3; ++b) {
+                h = std::max({h, std::abs(V(T(t, a), 0) - V(T(t, b), 0)),
+                              std::abs(V(T(t, a), 1) - V(T(t, b), 1))});
+            }
+        }
+    }
+    return h;
+}
+
+/// Configuration warnings of the PML route (ADR 0009 decision 4, rules after validation 7a,
+/// benchmarks/results/pml_validation.md); warnings only, the dark band is the enforced check.
+void warn_pml_configuration(const SimulationConfig& cfg, const excitation::Excitation& exc,
+                            Real lambda1, Real h, Real pml_start, Real ratio, Real tolerance) {
+    Real theta = 0;
+    std::optional<Real> waist;
+    // AngularSpectrumBeam (spectrum cut at k_t = k) or the paraxial GaussianBeam.
+    bool rigorous = false;
+    if (const auto* b = dynamic_cast<const excitation::AngularSpectrumBeam*>(&exc)) {
+        theta = b->params().incidence_angle;
+        waist = b->params().waist_radius;
+        rigorous = true;
+    } else if (const auto* g = dynamic_cast<const excitation::GaussianBeam*>(&exc)) {
+        theta = g->params().incidence_angle;
+        waist = g->params().waist_radius;
+    } else if (const auto* p = dynamic_cast<const excitation::PlaneWave*>(&exc)) {
+        theta = std::acos(std::clamp(p->direction().z(), -1.0, 1.0));
+    }
+    const Real deg = std::abs(theta) * 180.0 / constants::pi;
+    const bool oblique = std::abs(theta) > 1e-12;
+    if (oblique && h > lambda1 / 6.0 * (1.0 + 1e-9) &&
+        is_weakly_absorbing(cfg.object, cfg.wavelength, h)) {
+        SBEM_WARN(
+            "Simulation (PML): weakly absorbing object at oblique incidence theta_in = {:.4g} deg "
+            "with the patch mesh size h = {:.4g} m > lambda_1 / 6 = {:.4g} m: validation 7a "
+            "(ADR 0009 decision 4, benchmarks/results/pml_validation.md) found flat Si at 45 deg "
+            "mesh-converged only at h <= lambda_1 / 6 (lambda / 5: +5.9 % in R; Ag needs h <= "
+            "lambda / 4)",
+            deg, h, lambda1 / 6.0);
+    }
+    if (!waist)
+        return;
+    const Real w0 = *waist;
+    const Real c = std::cos(theta);
+    std::string why;
+    if (w0 * c < lambda1 * (1.0 - 1e-9)) {
+        std::ostringstream os;
+        os << "w0 cos(theta_in) = " << w0 * c << " m < lambda_1 = " << lambda1 << " m";
+        if (rigorous)
+            os << " (the spectrum cut at k_t = k puts grazing waves of relative amplitude "
+                  "exp(-(k w0 cos theta_in)^2 / 4) into the surface)";
+        else
+            os << " (the paraxial GaussianBeam violates Maxwell's equations at "
+                  "O((lambda_1 / (pi w0))^2); AngularSpectrumBeam is the rigorous beam)";
+        why = os.str();
+    }
+    if (pml_start < 3.5 * w0 / c * (1.0 - 1e-9)) {
+        std::ostringstream os;
+        os << (why.empty() ? "" : "; ") << "pml_start = " << pml_start
+           << " m < 3.5 w0 / cos(theta_in) = " << 3.5 * w0 / c
+           << " m (0 deg: pml_start >~ 3.5 w0; oblique: the footprint grows faster than "
+              "1 / cos(theta_in), so this bound is necessary, not sufficient)";
+        why += os.str();
+    }
+    if (!why.empty()) {
+        SBEM_WARN(
+            "Simulation (PML): beam waist w0 = {:.4g} m at theta_in = {:.4g} deg violates the "
+            "waist rule of ADR 0009 decision 4 (rule after 7a, "
+            "benchmarks/results/pml_validation.md: w0 cos(theta_in) >~ lambda_1, pml_start >~ "
+            "3.5 w0 at 0 deg): {}; measured dark-band ratio {:.3e} (tolerance {:.3g})",
+            w0, deg, why, ratio, tolerance);
+    }
+}
+
 }  // namespace
 
 Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
@@ -687,6 +771,8 @@ Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
         throw std::invalid_argument(os.str());
     }
     check_operator_config(s.config, 2 * s.mesh.num_edges());
+    warn_pml_configuration(s.config, *s.excitation, lambda1, patch_mesh_size(s.mesh, s.pml->zone),
+                           s.pml->half[2], ratio, pml.dark_band_tolerance);
 
     const formulation::Recommendation rec = formulation::recommend(s.config.object.eps_r);
     const formulation::Kind kind = s.config.formulation.value_or(rec.kind);

@@ -105,3 +105,10 @@ target_link_libraries(specklebem_ag_near_field PRIVATE SpeckleBem::specklebem sp
 # (tests/support/pml_spp_support.hpp).
 add_executable(specklebem_pml_spp pml_spp.cpp)
 target_link_libraries(specklebem_pml_spp PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+# Validations 7c / 7d of the PML route on rough Ag (WP-PML4b, ADR 0009): PML-parameter and L x 1.2
+# sensitivities of the far field, dense operator + LU in place; one run per process (far fields
+# written to files, --compare evaluates the docs/05 metric), run by hand, see
+# benchmarks/results/pml_rough_ag.md. Shares the case code with the validation-large test
+# (tests/support/pml_rough_ag_support.hpp).
+add_executable(specklebem_pml_rough_ag pml_rough_ag.cpp)
+target_link_libraries(specklebem_pml_rough_ag PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)

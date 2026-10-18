@@ -327,6 +327,12 @@ public:
     /// problem). The physical model is a rough spot in a polished surface with absorbing
     /// surroundings (ADR 0009, lead decision 1).
     ///
+    /// Logs one SBEM_WARN each (warnings, not errors; rules after validation 7a, ADR 0009
+    /// decision 4) for a weakly absorbing object (is_weakly_absorbing(), e.g. Si) at oblique
+    /// incidence with a patch mesh size h (largest in-plane extent of a Patch triangle) above
+    /// lambda_1 / 6, and for a beam (AngularSpectrumBeam, GaussianBeam) with
+    /// w0 cos(theta_in) < lambda_1 or pml_start < 3.5 w0 / cos(theta_in).
+    ///
     /// @throws std::invalid_argument (each message names the violated rule) for
     ///  * an inconsistent open mesh: zone.size() != triangles, half widths not finite with
     ///    0 < patch_half < taper_end <= pml_start < outer_half, a vertex beyond outer_half;
