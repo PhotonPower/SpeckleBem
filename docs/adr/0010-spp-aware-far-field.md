@@ -20,8 +20,8 @@ window then truncates a bound wave: evaluated on the *same* currents, moving the
 changes the far field by 1.6 %, widening it from 0.5 to 1 µm by 0.93 % and from 1 to 1.75 µm by 0.47 % — a
 convergence like 1/W. The radiation integral of a truncated bound wave does not converge with the window; it
 converges only when the truncation happens where the wave has decayed (the PML), which the window cannot include
-(the PML currents' radiation integral diverges, ADR 0009 decision 5). A more lossy Ag (Im ε_r ×10, SPP range
-shortened) halves the L dependence (1.1 %) but does not remove it.
+(the PML currents' radiation integral diverges, ADR 0009 decision 5). A more lossy Ag (Im ε_r = −6 instead of the tabulated −0.313, i.e.
+19×, SPP range shortened) halves the L dependence (1.1 %) but does not remove it.
 
 Alternatives considered:
 
