@@ -127,7 +127,9 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   apply thread-count independent). 7h at the 7c size: d₀ 3 matvec 1.5e-5, R 4e-8, far field 3.3e-6 vs dense,
   d₀ 5 matvec 1.4e-7; 4.6 vs 8.3 GB; setup 1.4× the dense assembly (near ring both orderings → 5c; far ring
   O(N_s·N) → ACA in 5b, needed ≈ 10× at L = 15 µm, 40× at 30 µm).
-- **In flight:** none.
+- **In flight:** WP-PML5b (`wp/pml5b-pml-ring-aca`, ACA far ring, scaling to 2N ≥ 1.5e5, 7d-Si/7e through the fast
+  path) and WP-PML5c (`wp/pml5c-pml-ring-assembly`, canonical touching-block cache, parallel near ring, Jacobi
+  diagonal from the near parts, shared pattern computations), both started 2026-10-19 from b960d4b.
 - **Next:** WP-PML5b (ACA for the far ring blocks, scaling to 2N ≥ 1.5e5) and WP-PML5c (touching-block cache,
   ring assembly time) — independent of each other, then WP-PML6 (Huygens-plane far field, ADR 0010); Ag scaling
   on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule (7e finding), ADR 0009
