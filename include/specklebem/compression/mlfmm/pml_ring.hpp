@@ -21,7 +21,12 @@
 ///  * Near ring: the exact Galerkin entries of all four blocks (op::assemble_sparse_stretched on
 ///    the near pattern restricted to the pairs with a stretched member, split_near_pattern), with
 ///    the jump terms of the dense assembler (identical triangles); stored in an
-///    op::SparseOperator (4 x 24 bytes per ordered pair).
+///    op::SparseOperator (4 x 24 bytes per ordered pair). WP-PML5c: each unordered stretched
+///    triangle pair of the pattern is evaluated once (canonical-pair cache of
+///    assemble_sparse_stretched, parallel over the pairs) and the touching pairs of the PML
+///    strips once per translation class (op::StretchedPairEvaluation::translation_classes):
+///    bitwise the per-ordering result of WP-PML5a; near_stats() reports the counts and phase
+///    times.
 ///  * Far ring (WP-PML5a: exact, the correctness baseline; WP-PML5b replaces it by ACA): per leaf
 ///    A with stretched functions A_s, a dense block of the four sub-blocks JJ, JM, MJ, MM over the
 ///    rows A_s and the columns of every leaf B that is not near A (all of B's functions, in
@@ -46,7 +51,8 @@
 ///    greedy colouring (no two triangles of one colour share a stretched function),
 ///    schedule(dynamic, 1); the result does not depend on the thread count. Each triangle pair of a
 ///    stretched test triangle is evaluated in the ordering of its row: stretched-stretched pairs
-///    whose both orderings are needed are evaluated twice (WP-PML5c caches the canonical blocks).
+///    whose both orderings are needed are evaluated twice in the far ring (the near ring evaluates
+///    each unordered pair once since WP-PML5c).
 ///  * Budget: the far bytes are estimated before any allocation (estimate_pml_ring) and checked
 ///    against PmlRingParams::max_far_bytes; exceeding it throws std::runtime_error.
 ///
@@ -110,8 +116,9 @@ struct PmlRingParams {
     /// ring of WP-PML5a stores at most N_s x N pairs at 64 bytes = 16 (2N) (2 N_s) bytes, never
     /// more than the dense matrix, so the automatic budget never fires: it only guards against
     /// inconsistent use, and an explicit value bounds the run. Independently of the budget,
-    /// MlfmmOperator warns (warn_pml_ring_memory) when the estimate exceeds the available
-    /// physical memory. SIZE_MAX disables the guard.
+    /// MlfmmOperator warns (warn_pml_ring_memory) when the estimated peak of the ring (near ring,
+    /// its assembly cache, far blocks) exceeds the available physical memory. SIZE_MAX disables the
+    /// guard.
     std::size_t max_far_bytes = 0;
 };
 
@@ -124,8 +131,15 @@ struct PmlRingEstimate {
     Index far_stored = 0;     ///< stored far pairs: stretched rows x far columns
     Index far_pairs = 0;      ///< ordered far pairs with a stretched member (stored + transposed)
     Index rr_near_pairs = 0;  ///< ordered near pairs of two real functions (Z_rr's near part)
-    std::size_t near_bytes = 0;   ///< near ring SparseOperator (4 x 24 bytes per pair + rows)
-    std::size_t far_bytes = 0;    ///< far ring blocks (64 bytes per stored pair + per-leaf data)
+    std::size_t near_bytes = 0;  ///< near ring SparseOperator (4 x 24 bytes per pair + rows)
+    std::size_t far_bytes = 0;   ///< far ring blocks (64 bytes per stored pair + per-leaf data)
+    /// Transient bytes of the near-ring assembly (WP-PML5c review S1): the canonical-pair cache of
+    /// op::assemble_sparse_stretched (576 bytes per unordered stretched triangle pair of the ring
+    /// pattern + index, order and translation-class data; op::estimate_sparse_stretched_cache, an
+    /// upper bound of SparseStretchedStats::cache_bytes; 311 MB at the 7c size). Needs the
+    /// stretch: set by plan_pml_ring (and hence by every PmlRingOperator), 0 from
+    /// estimate_pml_ring alone. Freed before the far ring is allocated.
+    std::size_t near_assembly_bytes = 0;
     std::size_t budget = 0;       ///< far budget in effect (PmlRingParams::max_far_bytes resolved)
     std::size_t dense_bytes = 0;  ///< 16 (2N)^2, the dense matrix for comparison
 };
@@ -141,14 +155,62 @@ struct PmlRingEstimate {
 ///         remedies); nothing otherwise.
 void check_pml_ring_budget(const PmlRingEstimate& e, const PmlRingParams& params);
 
+/// Peak bytes of the ring during its construction: the near ring plus the larger of its
+/// transient assembly cache and the far ring blocks (the cache is freed before the far blocks
+/// are allocated): e.near_bytes + max(e.near_assembly_bytes, e.far_bytes).
+[[nodiscard]] std::size_t pml_ring_peak_bytes(const PmlRingEstimate& e);
+
 /// Logs one SBEM_WARN (a warning, not an error: the automatic budget is the dense matrix, so it
-/// does not bound the run by the machine) if the estimated far ring bytes e.far_bytes exceed
-/// `available` (MlfmmOperator passes core::available_memory_bytes(), before any assembly; 0 =
-/// unknown: no warning). Returns true iff it warned.
+/// does not bound the run by the machine) if the estimated peak of the ring, pml_ring_peak_bytes(e)
+/// (near ring, near-ring assembly cache, far ring blocks), exceeds `available` (MlfmmOperator
+/// passes core::available_memory_bytes(), before any assembly; 0 = unknown: no warning). Returns
+/// true iff it warned.
 bool warn_pml_ring_memory(const PmlRingEstimate& e, std::size_t available);
+
+/// Identity of the octree a PmlRingPlan was made on (WP-PML5c review W3): the near-ring pattern
+/// of the plan must match the far ring's near ranges, which PmlRingOperator takes from its tree.
+struct PmlRingTreeFingerprint {
+    int levels = 0;          ///< Octree::levels()
+    Index leaves = 0;        ///< boxes on the leaf level
+    Real leaf_size = 0.0;    ///< Octree::box_size(leaf_level())
+    std::uint64_t hash = 0;  ///< FNV-1a of the permutation, root centre and per leaf (ijk, range,
+                             ///< near_list)
+    bool operator==(const PmlRingTreeFingerprint&) const = default;
+};
+
+/// The fingerprint of `tree`; O(N + leaves x 27).
+[[nodiscard]] PmlRingTreeFingerprint pml_ring_tree_fingerprint(const Octree& tree);
+
+/// The pattern computations of the PML ring, done once per operator and shared by MlfmmOperator
+/// (budget check, real-real near part) and PmlRingOperator (near ring, far blocks) (WP-PML5c).
+struct PmlRingPlan {
+    std::vector<std::uint8_t> stretched;  ///< classify_stretched(space, stretch)
+    SplitNearPattern split;               ///< split_near_pattern(tree, space, stretched)
+    PmlRingEstimate estimate;             ///< estimate_pml_ring(tree, space, stretched, params)
+    PmlRingTreeFingerprint tree;          ///< pml_ring_tree_fingerprint(tree)
+};
+
+/// classify_stretched, split_near_pattern and estimate_pml_ring in one call (each once), and
+/// estimate.near_assembly_bytes from op::estimate_sparse_stretched_cache on the ring pattern (an
+/// index pass over its triangle pairs, no kernel evaluation).
+/// @throws as these.
+[[nodiscard]] PmlRingPlan plan_pml_ring(const Octree& tree, const basis::RwgSpace& space,
+                                        const geometry::CoordinateStretch& stretch,
+                                        const PmlRingParams& params = {});
 
 class PmlRingOperator final : public op::LinearOperator {
 public:
+    /// The ring from a precomputed plan (WP-PML5c; MlfmmOperator passes the plan it made for its
+    /// budget check and real-real near part): the classification, the near-ring pattern
+    /// plan.split.ring and the estimate are taken over (plan.split.real is not used and may be
+    /// empty); the budget is resolved from `params` and checked as below. Otherwise as the
+    /// constructor below, with identical results.
+    /// @throws std::invalid_argument as below, and if plan.stretched differs from
+    ///         classify_stretched(*problem.space, *problem.stretch), the plan's estimate was
+    ///         made for another space (estimate.n != N) or the plan was made on another octree
+    ///         (plan.tree != pml_ring_tree_fingerprint(tree)); std::runtime_error as below.
+    PmlRingOperator(const op::Problem& problem, const Octree& tree, PmlRingPlan plan,
+                    const PmlRingParams& params = {});
     /// Classifies (classify_stretched), estimates and checks the far budget, assembles the near
     /// ring (assemble_sparse_stretched) and the far ring blocks. The tree is used during
     /// construction only (its permutation and leaf structure are copied).
@@ -180,6 +242,8 @@ public:
     [[nodiscard]] Index far_stored_pairs() const;  ///< stored far pairs
     [[nodiscard]] Real near_seconds() const;       ///< near ring assembly time [s]
     [[nodiscard]] Real far_seconds() const;        ///< far ring assembly time [s]
+    /// Counters and phase times of the near-ring assembly (op::assemble_sparse_stretched).
+    [[nodiscard]] const op::SparseStretchedStats& near_stats() const;
     [[nodiscard]] const PmlRingEstimate& estimate() const;
     /// The classification (size N, 1 = stretched).
     [[nodiscard]] const std::vector<std::uint8_t>& stretched() const;

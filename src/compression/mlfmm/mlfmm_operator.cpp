@@ -17,6 +17,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace specklebem::mlfmm {
@@ -169,34 +170,34 @@ MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& para
     m.tree_s = seconds_since(t0);
     if (m.tree->has_elevated())
         SBEM_INFO("MlfmmOperator: {}", home_level_text(*m.tree));
-    std::vector<std::uint8_t> stretched;
+    PmlRingPlan plan;
     if (pml) {
-        // Classification and the ring's budget check before anything expensive.
-        stretched = classify_stretched(*problem.space, *problem.stretch);
-        const PmlRingEstimate est =
-            estimate_pml_ring(*m.tree, *problem.space, stretched, params.pml_ring);
-        check_pml_ring_budget(est, params.pml_ring);
-        (void)warn_pml_ring_memory(est, core::available_memory_bytes());
+        // Classification, split near pattern and the ring's budget check before anything
+        // expensive, computed once and shared with the ring (WP-PML5c).
+        plan = plan_pml_ring(*m.tree, *problem.space, *problem.stretch, params.pml_ring);
+        check_pml_ring_budget(plan.estimate, params.pml_ring);
+        (void)warn_pml_ring_memory(plan.estimate, core::available_memory_bytes());
     }
     // Far part first: its order searches are cheap and reject unusable configurations (lossy
     // regions, coarse meshes) before the expensive near-field assembly.
     t0 = std::chrono::steady_clock::now();
-    m.far = pml ? std::make_unique<MlfmmFarOperator>(real_problem, *m.tree, params, stretched)
+    m.far = pml ? std::make_unique<MlfmmFarOperator>(real_problem, *m.tree, params, plan.stretched)
                 : std::make_unique<MlfmmFarOperator>(problem, *m.tree, params);
     m.far_s = seconds_since(t0);
     t0 = std::chrono::steady_clock::now();
     if (pml) {
-        const SplitNearPattern split = split_near_pattern(*m.tree, *problem.space, stretched);
         SBEM_INFO("MlfmmOperator (PML): real-real near pairs {}, ring near pairs {}",
-                  split.real_pairs, split.ring_pairs);
-        m.near = op::assemble_sparse(real_problem, split.real);
+                  plan.split.real_pairs, plan.split.ring_pairs);
+        m.near = op::assemble_sparse(real_problem, plan.split.real);
+        plan.split.real = op::BasisPattern{};  // the ring needs only plan.split.ring
     } else {
         m.near = assemble_near(problem, *m.tree);
     }
     m.near_s = seconds_since(t0);
     if (pml) {
         t0 = std::chrono::steady_clock::now();
-        m.ring = std::make_unique<PmlRingOperator>(problem, *m.tree, params.pml_ring);
+        m.ring =
+            std::make_unique<PmlRingOperator>(problem, *m.tree, std::move(plan), params.pml_ring);
         m.ring_s = seconds_since(t0);
     }
     SBEM_INFO(
@@ -303,6 +304,36 @@ std::size_t MlfmmOperator::octree_bytes() const {
 std::size_t MlfmmOperator::memory_bytes() const {
     return sizeof(Impl) + impl_->near->memory_bytes() + impl_->far->memory_bytes() +
            octree_bytes() + (impl_->ring ? impl_->ring->memory_bytes() : 0);
+}
+
+VectorXc MlfmmOperator::diagonal() const {
+    const Impl& m = *impl_;
+    const Index n2 = rows();
+    // Every basis function is near itself (its leaf is in its own neighbourhood), so Z(r, r) is
+    // stored in exactly one near part: Z_rr's near field for the real rows (and every row
+    // without a stretch), the near ring for the stretched rows.
+    const auto stored_diagonal = [](const op::SparseOperator::Matrix& Z, Index r, Complex& out) {
+        const Index* inner = Z.innerIndexPtr();
+        const Index* b = inner + Z.outerIndexPtr()[r];
+        const Index* e = inner + Z.outerIndexPtr()[r + 1];
+        const Index* it = std::lower_bound(b, e, r);
+        if (it == e || *it != r)
+            return false;
+        out = Z.valuePtr()[it - inner];
+        return true;
+    };
+    VectorXc d(n2);
+    const op::SparseOperator::Matrix& near = m.near->matrix();
+    const op::SparseOperator::Matrix* ring = m.ring ? &m.ring->near_operator().matrix() : nullptr;
+    const std::vector<std::uint8_t>* s = m.ring ? &m.ring->stretched() : nullptr;
+    const Index N = n2 / 2;
+    for (Index r = 0; r < n2; ++r) {
+        const bool stretched = s != nullptr && (*s)[static_cast<std::size_t>(r % N)] != 0;
+        if (!stored_diagonal(stretched ? *ring : near, r, d(r)))
+            throw std::logic_error(
+                "MlfmmOperator::diagonal: diagonal entry missing in the near part");
+    }
+    return d;
 }
 
 const PmlRingOperator* MlfmmOperator::ring_operator() const {

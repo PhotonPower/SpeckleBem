@@ -799,7 +799,13 @@ void Simulation::Impl::ensure_diagonal() {
     if (!uses_diagonal() || diagonal.size() > 0)
         return;
     const ScopedTimer t("Simulation: Jacobi diagonal");
-    diagonal = op::assemble_diagonal(problem);
+    // MLFMM (with or without the PML ring): the diagonal is stored in the near parts (WP-PML5c;
+    // bitwise op::assemble_diagonal without a stretch and on the real rows, to rounding on the
+    // stretched rows), so it costs nothing; otherwise assembled from the support pairs.
+    if (const auto* fast = dynamic_cast<const mlfmm::MlfmmOperator*>(op.get()))
+        diagonal = fast->diagonal();
+    else
+        diagonal = op::assemble_diagonal(problem);
     diagonal_s = t.elapsed_seconds();
 }
 

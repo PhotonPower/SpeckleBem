@@ -5,6 +5,20 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- operator / kernels / mlfmm (WP-PML5c, ADR 0008 amendment decision 4): near-ring assembly cost of the fast PML
+  route. `op::assemble_sparse_stretched` evaluates each unordered stretched pair once (canonical-pair cache, the
+  kernel's (min, max) ordering + transposes, parallel over pairs, scatter unchanged → bitwise the WP-PML5a matrix)
+  and evaluates bit-exactly repeating touching pairs along the PML strips once per translation class
+  (`kernels::stretched_touching_key`, built next to the touching rule from every coordinate-derived input incl.
+  the fastmath decision and the shared-vertex pattern; pairs near the strip boundary are evaluated individually;
+  copies are exact). `MlfmmOperator::diagonal()` takes the Jacobi diagonal from the near parts (50 s → 7 ms at the
+  7c size; real rows bitwise, stretched rows ≤ 3.4e-16); `mlfmm::PmlRingPlan`/`plan_pml_ring` compute the
+  classification, near split and estimate once per operator (tree fingerprint checked); the transient assembly
+  cache is part of the estimate and the memory warning. Gate met at the 7c size (rough Ag, 2N = 22 816): near ring
+  115–169 s vs 408–438 s for the dense assembler on the same pairs (0.26–0.41 under varying load; ≤ 0.5), 5a
+  802 s; 7h rerun reproduces every printed 5a digit. Benchmark `specklebem_pml_ring --assembly-study`, record
+  section "5c: ring assembly", ADR 0008 "5c result", 7 new `[pml_ring]` unit tests (bitwise, thread count,
+  diagonal, plan, boundary vertices, key inputs, foreign plan refused).
 - mlfmm / operator / core / simulation (WP-PML5a, ADR 0008 amendment 2026-10-18): the PML route runs with
   compression "mlfmm". `MlfmmOperator` with a stretch = Z_rr + Z_ring: the unchanged MLFMM on the real functions
   (one octree over all functions, `MlfmmFarOperator` with an exclusion mask, Z_rr equals the masked unstretched

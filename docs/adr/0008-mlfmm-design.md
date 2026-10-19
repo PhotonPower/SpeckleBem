@@ -320,3 +320,29 @@ touching pairs in both orderings). 5b (ACA far blocks) and 5c (canonical-pair ca
 near parts (Z_rr near and the near ring hold every diagonal entry); `split_near_pattern` and `estimate_pml_ring`
 are computed two to three times per operator (MlfmmOperator's early budget check, the near split, the ring
 constructor) and could be shared.
+
+**5c result (WP-PML5c, 2026-10-19, `benchmarks/results/pml_ring.md` "5c: ring assembly").** The near ring costs
+~95 % in stretched touching pairs (shared vertex 85 %, shared edge 11 % at the 7c size), so evaluating each
+unordered pair once (canonical-pair cache in `op::assemble_sparse_stretched`: B(s, t) = B(t, s)ᵀ bitwise for
+stretched pairs, a parallel pass over the pairs into per-pair slots, the unchanged scatter) only reaches the dense
+assembler, which already did that (WP-PML2c): 0.96× the dense assembly of the same pairs. The gate is met by an
+addition within decision 4's "canonical touching blocks": in a PML strip the stretch depends on one coordinate
+only, so touching pairs repeat under translations along the strip; they are grouped by a bit-exact key of every
+coordinate-derived input of the touching rule and evaluated once per class (copies with slots mapped; corner pairs
+and pairs whose coordinates do not translate exactly are evaluated themselves). Measured at the 7c size: near ring
+**0.41× the dense assembly of the same pairs** (0.15–0.21× the 5a near ring), matrix **bitwise** the 5a one (a
+rounding-tolerant key would copy twice as many pairs at 1.8·10⁻¹⁵ of the largest entry; rejected); thread-count
+independent. The Jacobi diagonal is read from the near parts (`MlfmmOperator::diagonal()`; real rows bitwise,
+stretched rows 3.4·10⁻¹⁶ against `op::assemble_diagonal`; 50 s → 0.007 s), and the classification, split near
+pattern and estimate are computed once (`plan_pml_ring`, `PmlRingPlan`). 7h rerun: every printed 5a digit
+reproduced; `Simulation::assemble()` 0.83× the dense assembly of the same (loaded) run, the far ring now ≈ 87 % of
+it (5b). Remaining near-ring levers: mirror classes for the corners, exact grid coordinates. Review round
+(2026-10-19): the key is built in the kernels layer next to the touching rule (`kernels::stretched_touching_key`,
+from the rule's own pair setup, with back-references in the rule's code paths), so the operator layer no longer
+mirrors kernel internals; it now also holds the fastmath decision (decided from absolute coordinates), the
+shared-index pattern and the rule's point counts, and pairs with a vertex within 10⁻¹² max(start, h) of their strip
+boundary are evaluated individually (σ one ulp past the start is visible for m < 1). Copies at the 7c size
+13 312 → 12 544 (the strip-end pairs), matrix bitwise the 5a one, near ring 0.26× the dense assembly of the same
+pairs in the rerun. A `PmlRingPlan` records an octree fingerprint and is refused on another tree; the plan bounds
+the transient assembly cache (`PmlRingEstimate::near_assembly_bytes`, 339 MB at U), which the memory warning
+counts.

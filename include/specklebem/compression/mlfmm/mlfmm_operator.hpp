@@ -198,6 +198,14 @@ public:
     /// The near part of Z_rr (with a stretch: the real-real near pairs only).
     [[nodiscard]] const op::SparseOperator& near_operator() const;
     [[nodiscard]] const MlfmmFarOperator& far_operator() const;
+    /// Diagonal of Z (2N entries) read from the stored near parts (WP-PML5c; the Jacobi
+    /// preconditioner of Simulation): Z_rr's near field for the real rows and for every row
+    /// without a stretch, the near ring for the stretched rows (every pair (m, m) is near). Equal
+    /// to op::assemble_diagonal(problem): bitwise without a stretch and on the real rows (same
+    /// contributions in the same order); on the stretched rows to rounding (assemble_diagonal
+    /// follows the dense PML summation order A + A^T + rest; 1.7e-16 relative on the tiny unit
+    /// cases, tested to 1e-14). O(N log(nnz per row)).
+    [[nodiscard]] VectorXc diagonal() const;
     /// The exact PML ring; nullptr without a (non-identity) stretch.
     [[nodiscard]] const PmlRingOperator* ring_operator() const;
 

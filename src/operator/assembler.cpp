@@ -93,7 +93,14 @@
 /// for_each_test_triangle) and pair_blocks; per test triangle it visits only the source
 /// triangles of its pattern pairs, in ascending order, and scatters only the pattern entries.
 /// A stored entry thus receives exactly the dense contributions in the dense order: bitwise
-/// equal to the DenseStrategy entry.
+/// equal to the DenseStrategy entry. With a stretch (assemble_sparse_stretched, WP-PML5c) the
+/// blocks of the stretched pairs come from a cache of canonical blocks (each needed unordered
+/// pair {t, s} evaluated once as (min, max) in a parallel pass before the scatter; the ordering
+/// (t, s) with t > s takes the transpose, bitwise the block pair_blocks gives for it, see
+/// "Stretched pairs"); the scatter order is unchanged, so the result is bitwise that of the
+/// per-ordering evaluation of WP-PML5a. The default also evaluates the touching pairs of the PML
+/// strips once per translation class (translation_representatives, keyed by the kernels layer:
+/// kernels::stretched_touching_key; bitwise, see assembler.hpp).
 #include "specklebem/operator/assembler.hpp"
 
 #include "specklebem/core/logging.hpp"
@@ -105,10 +112,12 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -314,15 +323,18 @@ void for_each_test_triangle(const std::vector<std::vector<Index>>& groups, const
     }
 }
 
-/// Per triangle: 1 if it takes the stretched path of p.stretch (kernels::is_stretched_triangle).
-std::vector<char> stretched_triangles(const Problem& p) {
-    const geometry::TriangleMesh& mesh = p.space->mesh();
+/// Per triangle: 1 if it takes the stretched path of `stretch` (kernels::is_stretched_triangle).
+std::vector<char> stretched_triangles(const geometry::TriangleMesh& mesh,
+                                      const geometry::CoordinateStretch& stretch) {
     std::vector<char> out(static_cast<std::size_t>(mesh.num_triangles()), 0);
     for (Index t = 0; t < mesh.num_triangles(); ++t) {
-        out[static_cast<std::size_t>(t)] =
-            kernels::is_stretched_triangle(*p.stretch, mesh, t) ? 1 : 0;
+        out[static_cast<std::size_t>(t)] = kernels::is_stretched_triangle(stretch, mesh, t) ? 1 : 0;
     }
     return out;
+}
+
+std::vector<char> stretched_triangles(const Problem& p) {
+    return stretched_triangles(p.space->mesh(), *p.stretch);
 }
 
 /// The ordering (t, s) of an unordered pair {t, s} of distinct triangles that pass 1 of the PML
@@ -578,11 +590,230 @@ std::shared_ptr<LinearOperator> DenseStrategy::build(const Problem& p) const {
 
 namespace {
 
+/// Columns of row m of a (checked) pattern.
+std::pair<const Index*, const Index*> pattern_row(const BasisPattern& pattern, Index m) {
+    const auto g = static_cast<std::size_t>(pattern.group_of_row[static_cast<std::size_t>(m)]);
+    return {pattern.cols.data() + pattern.col_ptr[g], pattern.cols.data() + pattern.col_ptr[g + 1]};
+}
+
+/// Source triangles of the pattern pairs of t's basis functions, ascending and unique (the
+/// dense order: every stored entry gets its contributions in the dense summation order).
+void pattern_sources(const basis::RwgSpace& space, const BasisPattern& pattern,
+                     const basis::RwgSpace::Support& st, std::vector<Index>& sources) {
+    sources.clear();
+    for (int a = 0; a < st.count; ++a) {
+        const auto [cb, ce] = pattern_row(pattern, st.n[a]);
+        for (const Index* c = cb; c != ce; ++c) {
+            sources.push_back(space.plus_triangle(*c));
+            sources.push_back(space.minus_triangle(*c));
+        }
+    }
+    std::sort(sources.begin(), sources.end());
+    sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
+}
+
+/// True if triangles t and s share a vertex index (identical, shared edge or shared vertex).
+bool shares_vertex(const Triangles& T, Index t, Index s) {
+    for (Eigen::Index i = 0; i < 3; ++i) {
+        for (Eigen::Index j = 0; j < 3; ++j) {
+            if (T(t, i) == T(s, j))
+                return true;
+        }
+    }
+    return false;
+}
+
+/// The blocks of (t, s) from the canonical block c of (min(t, s), max(t, s)): c itself for
+/// t <= s, its transpose (entry (a, b) = c(b, a)) for t > s. Bitwise the blocks pair_blocks gives
+/// for (t, s) when the pair is stretched (assemble_sparse_stretched, "Stretched pairs").
+void oriented_blocks(const PairBlocks& c, bool transpose, PairBlocks& out) {
+    if (!transpose) {
+        out = c;
+        return;
+    }
+    for (std::size_t a = 0; a < 3; ++a) {
+        for (std::size_t b = 0; b < 3; ++b) {
+            out.jj[3 * a + b] = c.jj[3 * b + a];
+            out.jm[3 * a + b] = c.jm[3 * b + a];
+            out.mj[3 * a + b] = c.mj[3 * b + a];
+            out.mm[3 * a + b] = c.mm[3 * b + a];
+        }
+    }
+}
+
+/// Canonical blocks of the stretched triangle pairs of a pattern (WP-PML5c): per triangle a the
+/// partners b >= a of the unordered stretched pairs {a, b} the pattern needs (in some ordering),
+/// ascending, and per pair the blocks of the ordering (a, b).
+struct CanonicalPairCache {
+    std::vector<Index> ptr;      ///< size F + 1: partners of a in partner[ptr[a], ptr[a + 1])
+    std::vector<Index> partner;  ///< ascending per a
+    std::vector<PairBlocks> blocks;
+
+    /// Slot of the unordered pair {t, s}; -1 if it is not cached.
+    [[nodiscard]] Index find(Index t, Index s) const {
+        const Index a = std::min(t, s);
+        const Index b = std::max(t, s);
+        const Index* pb = partner.data() + ptr[static_cast<std::size_t>(a)];
+        const Index* pe = partner.data() + ptr[static_cast<std::size_t>(a) + 1];
+        const Index* it = std::lower_bound(pb, pe, b);
+        return it != pe && *it == b ? static_cast<Index>(it - partner.data()) : -1;
+    }
+};
+
+/// Index of the canonical-pair cache (WP-PML5c): per triangle a the partners b >= a of the
+/// unordered stretched pairs {a, b} that `pattern` needs (in some ordering), ascending; `first`
+/// holds the a of every slot. `str`: per triangle, 1 if stretched.
+void canonical_index(const basis::RwgSpace& space, const BasisPattern& pattern,
+                     const std::vector<char>& str, std::vector<Index>& ptr,
+                     std::vector<Index>& partner, std::vector<Index>& first) {
+    const Index F = space.mesh().num_triangles();
+    const auto stretched_pair = [&](Index t, Index s) {
+        return str[static_cast<std::size_t>(t)] != 0 || str[static_cast<std::size_t>(s)] != 0;
+    };
+    // Partners b >= a of every needed stretched pair {a, b} (from the sources of each test
+    // triangle; a pattern needs (t, s) iff s is a source of t).
+    std::vector<std::vector<Index>> partners(static_cast<std::size_t>(F));
+    {
+        std::vector<Index> sources;
+        for (Index t = 0; t < F; ++t) {
+            const basis::RwgSpace::Support st = space.support(t);
+            if (st.count == 0)
+                continue;
+            pattern_sources(space, pattern, st, sources);
+            for (const Index s : sources) {
+                if (stretched_pair(t, s))
+                    partners[static_cast<std::size_t>(std::min(t, s))].push_back(std::max(t, s));
+            }
+        }
+    }
+    ptr.assign(static_cast<std::size_t>(F) + 1, 0);
+    for (Index a = 0; a < F; ++a) {
+        std::vector<Index>& v = partners[static_cast<std::size_t>(a)];
+        std::sort(v.begin(), v.end());
+        v.erase(std::unique(v.begin(), v.end()), v.end());
+        ptr[static_cast<std::size_t>(a) + 1] =
+            ptr[static_cast<std::size_t>(a)] + static_cast<Index>(v.size());
+    }
+    const Index npairs = ptr.back();
+    partner.resize(static_cast<std::size_t>(npairs));
+    first.resize(static_cast<std::size_t>(npairs));
+    for (Index a = 0; a < F; ++a) {
+        std::vector<Index>& v = partners[static_cast<std::size_t>(a)];
+        const Index o = ptr[static_cast<std::size_t>(a)];
+        for (std::size_t i = 0; i < v.size(); ++i) {
+            partner[static_cast<std::size_t>(o) + i] = v[i];
+            first[static_cast<std::size_t>(o) + i] = a;
+        }
+        std::vector<Index>().swap(v);
+    }
+}
+
+/// Free-vertex slot map of a translation class member (kernels::StretchedTouchingKey::slot_vertex
+/// of the canonical ordering, as int8).
+using SlotMap = std::array<std::array<std::int8_t, 3>, 2>;
+
+/// Bytes of a std::map<std::vector<std::uint64_t>, Index> node with a key of `words` words
+/// (allocation of the node and of the key vector; a model, libstdc++ / libc++ within ~16 bytes).
+constexpr std::size_t kKeyNodeBytes = 48 + sizeof(std::vector<std::uint64_t>) + sizeof(Index);
+
+/// Transient bytes of the canonical-pair cache of assemble_sparse_stretched (SparseStretchedStats::
+/// cache_bytes, estimate_sparse_stretched_cache): blocks, index (ptr, partner, first), processing
+/// order and, for translation classes, the representatives, slot maps, the touching list and the
+/// key map (`classes` keys of at most `key_words` words).
+std::size_t cache_bytes_model(Index F, Index npairs, Index touching, Index classes,
+                              std::size_t key_words, bool with_classes) {
+    const auto n = static_cast<std::size_t>(npairs);
+    std::size_t b = n * sizeof(PairBlocks) + (static_cast<std::size_t>(F) + 1) * sizeof(Index) +
+                    3 * n * sizeof(Index);  // blocks, ptr, partner, first, order
+    if (with_classes) {
+        b +=
+            n * (sizeof(Index) + sizeof(SlotMap)) +
+            static_cast<std::size_t>(touching) * sizeof(Index) +
+            static_cast<std::size_t>(classes) * (kKeyNodeBytes + key_words * sizeof(std::uint64_t));
+    }
+    return b;
+}
+
+/// Translation classes of the touching stretched pairs (WP-PML5c; assemble_sparse_stretched,
+/// "Translation classes"). For every slot k of `touching` (canonical pairs {first[k],
+/// partner[k]}, first < partner, sharing a vertex) the slot of its class representative, or -1
+/// if k is evaluated itself. The key is kernels::stretched_touching_key (built in the kernels
+/// layer from the code paths of the stretched touching rule, bit for bit, including the
+/// fastmath decision, the shared-index pattern and the strip margin); pairs without a key
+/// (identical, corner, strip boundary) are evaluated themselves. A copy is therefore bitwise the
+/// blocks its own evaluation gives (the kernels guarantee). The representative is the first slot
+/// of its key (ascending slot order: deterministic). slot_map[k] receives the free-vertex slot
+/// map of every keyed slot (translated_blocks).
+std::vector<Index> translation_representatives(
+    const basis::RwgSpace& space, const Setup& setup, const kernels::OperatorOptions& opt,
+    const geometry::CoordinateStretch& stretch, const std::vector<Index>& first,
+    const std::vector<Index>& partner, const std::vector<Index>& touching, Index& classes,
+    std::vector<SlotMap>& slot_map, std::size_t& key_words) {
+    std::vector<Index> rep(first.size(), -1);
+    slot_map.assign(first.size(), SlotMap{});
+    classes = 0;
+    key_words = 0;
+    std::map<std::vector<std::uint64_t>, Index> first_of_key;
+    kernels::StretchedTouchingKey key;
+    for (const Index k : touching) {
+        const auto kk = static_cast<std::size_t>(k);
+        if (!kernels::stretched_touching_key(space, first[kk], partner[kk], setup.region,
+                                             setup.active, opt, stretch, key))
+            continue;  // identical, corner or strip-boundary pair: evaluated itself
+        for (std::size_t i = 0; i < 2; ++i) {
+            for (std::size_t a = 0; a < 3; ++a)
+                slot_map[kk][i][a] = static_cast<std::int8_t>(key.slot_vertex[i][a]);
+        }
+        const auto [it, inserted] = first_of_key.emplace(key.words, k);
+        if (inserted) {
+            ++classes;
+            key_words = std::max(key_words, key.words.size());
+        } else {
+            rep[kk] = it->second;
+        }
+    }
+    return rep;
+}
+
+/// Blocks of the member pair (a, b) from those of its translation representative (ar, br)
+/// (translation_representatives): slots mapped by the local index of their free vertex (the
+/// kernels' slot_vertex maps of both pairs; the key holds the per-vertex slot presence, so the
+/// map is a bijection), an exact copy.
+void translated_blocks(const basis::RwgSpace& space, Index a, Index b, const SlotMap& m,
+                       const SlotMap& mr, const PairBlocks& rep, PairBlocks& out) {
+    const basis::RwgSpace::Support sa = space.support(a), sb = space.support(b);
+    const auto map_slot = [&](std::size_t tri, int slot) {
+        const std::int8_t j = m[tri][static_cast<std::size_t>(slot)];
+        for (std::size_t x = 0; x < 3; ++x) {
+            if (mr[tri][x] == j)
+                return static_cast<int>(x);
+        }
+        throw std::logic_error("assemble_sparse: translation class with different supports");
+    };
+    out.jj.fill(Complex(0.0, 0.0));
+    out.jm.fill(Complex(0.0, 0.0));
+    out.mj.fill(Complex(0.0, 0.0));
+    out.mm.fill(Complex(0.0, 0.0));
+    for (int x = 0; x < sa.count; ++x) {
+        const int xr = map_slot(0, x);
+        for (int y = 0; y < sb.count; ++y) {
+            const int yr = map_slot(1, y);
+            const auto k = static_cast<std::size_t>(3 * x + y);
+            const auto kr = static_cast<std::size_t>(3 * xr + yr);
+            out.jj[k] = rep.jj[kr];
+            out.jm[k] = rep.jm[kr];
+            out.mj[k] = rep.mj[kr];
+            out.mm[k] = rep.mm[kr];
+        }
+    }
+}
+
 /// assemble_sparse with the pair blocks of `stretch` (nullptr: the unstretched kernels; the
 /// stretched path of element_blocks for pairs with a stretched triangle otherwise). The caller
-/// has validated p.
+/// has validated p. `options` (stretch only): the evaluation of the stretched pairs and stats.
 std::shared_ptr<SparseOperator> assemble_sparse_impl(const Problem& p, const BasisPattern& pattern,
-                                                     const geometry::CoordinateStretch* stretch) {
+                                                     const geometry::CoordinateStretch* stretch,
+                                                     const SparseStretchedOptions& options = {}) {
     const basis::RwgSpace& space = *p.space;
     const Index N = space.size();
     check_pattern(pattern, N);
@@ -591,11 +822,7 @@ std::shared_ptr<SparseOperator> assemble_sparse_impl(const Problem& p, const Bas
 
     // CSR layout: row m (< N) = [cols(m), N + cols(m)], row N + m the same; the J rows first.
     // begin[m] = offset of row m among the J rows (twice the pattern prefix sum).
-    const auto row_cols = [&](Index m) {
-        const auto g = static_cast<std::size_t>(pattern.group_of_row[static_cast<std::size_t>(m)]);
-        return std::pair<const Index*, const Index*>(pattern.cols.data() + pattern.col_ptr[g],
-                                                     pattern.cols.data() + pattern.col_ptr[g + 1]);
-    };
+    const auto row_cols = [&](Index m) { return pattern_row(pattern, m); };
     // Sizes in std::size_t from a clamped value (GCC 13 -O3 -Wnull-dereference false positive).
     const auto rows = static_cast<std::size_t>(std::max<Index>(N, 0));
     std::vector<Index> begin(rows + 1, 0);
@@ -630,26 +857,123 @@ std::shared_ptr<SparseOperator> assemble_sparse_impl(const Problem& p, const Bas
     const ScopedTimer timer("sparse assembly (2N = " + std::to_string(2 * N) +
                             ", nnz = " + std::to_string(2 * half) + ")");
 
+    // Stretched pairs (WP-PML5c, assemble_sparse_stretched): the canonical blocks of every needed
+    // unordered stretched pair, evaluated once in a parallel pass before the scatter.
+    const bool use_cache =
+        stretch != nullptr && options.evaluation != StretchedPairEvaluation::per_ordering;
+    const bool use_classes =
+        stretch != nullptr && options.evaluation == StretchedPairEvaluation::translation_classes;
+    const Index F = space.mesh().num_triangles();
+    // Per triangle: takes the stretched path.
+    const std::vector<char> str =
+        stretch != nullptr ? stretched_triangles(space.mesh(), *stretch) : std::vector<char>{};
+    const auto stretched_pair = [&](Index t, Index s) {
+        return !str.empty() &&
+               (str[static_cast<std::size_t>(t)] != 0 || str[static_cast<std::size_t>(s)] != 0);
+    };
+    SparseStretchedStats stats;
+    CanonicalPairCache cache;
+    if (use_cache) {
+        const auto t0 = std::chrono::steady_clock::now();
+        std::vector<Index> first;  // the a of every slot
+        canonical_index(space, pattern, str, cache.ptr, cache.partner, first);
+        const Index npairs = cache.ptr.back();
+        // Processing order: touching pairs (the expensive relative-coordinate rules) first, then
+        // the rest, each in slot order; it does not change any block. One shares_vertex test per
+        // pair (review S5).
+        const Triangles& T = space.mesh().triangles();
+        std::vector<Index> order;
+        order.reserve(static_cast<std::size_t>(npairs));
+        std::vector<Index> rest;
+        for (Index k = 0; k < npairs; ++k) {
+            const auto kk = static_cast<std::size_t>(k);
+            (shares_vertex(T, first[kk], cache.partner[kk]) ? order : rest).push_back(k);
+        }
+        stats.touching_pairs = static_cast<Index>(order.size());
+        order.insert(order.end(), rest.begin(), rest.end());
+        std::vector<Index>().swap(rest);
+        // Translation classes of the touching pairs (one evaluation per class, the members copied).
+        std::vector<Index> rep;
+        std::vector<SlotMap> slot_map;
+        std::size_t key_words = 0;
+        if (use_classes) {
+            const std::vector<Index> touching(
+                order.begin(), order.begin() + static_cast<std::ptrdiff_t>(stats.touching_pairs));
+            rep = translation_representatives(space, setup, p.kernel_options, *stretch, first,
+                                              cache.partner, touching, stats.translation_classes,
+                                              slot_map, key_words);
+            for (const Index r : rep) stats.translated_pairs += r >= 0 ? 1 : 0;
+        }
+        cache.blocks.resize(static_cast<std::size_t>(npairs));
+        stats.canonical_pairs = npairs;
+        stats.cache_bytes = cache_bytes_model(F, npairs, stats.touching_pairs,
+                                              stats.translation_classes, key_words, use_classes);
+        SBEM_INFO(
+            "sparse assembly (PML): {} unordered stretched triangle pairs ({} touching, {} of "
+            "them copied from {} translation classes), cache {:.1f} MB",
+            npairs, stats.touching_pairs, stats.translated_pairs, stats.translation_classes,
+            static_cast<Real>(stats.cache_bytes) * 1e-6);
+        ExceptionSlot error;
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic, 4)
+#endif
+        for (Index i = 0; i < npairs; ++i) {
+            try {
+                const auto k = static_cast<std::size_t>(order[static_cast<std::size_t>(i)]);
+                if (!rep.empty() && rep[k] >= 0)
+                    continue;  // copied from its class representative below
+                pair_blocks(space, first[k], cache.partner[k], setup, p.kernel_options, stretch,
+                            cache.blocks[k]);
+            } catch (...) {
+                error.capture();
+            }
+        }
+        error.rethrow();
+        if (!rep.empty()) {
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+            for (Index k = 0; k < npairs; ++k) {
+                try {
+                    const auto kk = static_cast<std::size_t>(k);
+                    const Index r = rep[kk];
+                    if (r < 0)
+                        continue;
+                    const auto rr = static_cast<std::size_t>(r);
+                    translated_blocks(space, first[kk], cache.partner[kk], slot_map[kk],
+                                      slot_map[rr], cache.blocks[rr], cache.blocks[kk]);
+                } catch (...) {
+                    error.capture();
+                }
+            }
+            error.rethrow();
+        }
+        stats.cache_seconds =
+            std::chrono::duration<Real>(std::chrono::steady_clock::now() - t0).count();
+    }
+
+    const auto t_scatter = std::chrono::steady_clock::now();
+    std::vector<Index> pairs_of(static_cast<std::size_t>(F), 0), stretched_of(pairs_of);
     for_each_test_triangle(groups, [&](Index t) {
         const basis::RwgSpace::Support st = space.support(t);
         if (st.count == 0)
             return;
-        // Source triangles of the pattern pairs of t's basis functions, ascending (the dense
-        // order: every stored entry gets its contributions in the dense summation order).
         std::vector<Index> sources;
-        for (int a = 0; a < st.count; ++a) {
-            const auto [cb, ce] = row_cols(st.n[a]);
-            for (const Index* c = cb; c != ce; ++c) {
-                sources.push_back(space.plus_triangle(*c));
-                sources.push_back(space.minus_triangle(*c));
-            }
-        }
-        std::sort(sources.begin(), sources.end());
-        sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
+        pattern_sources(space, pattern, st, sources);
         PairBlocks blk;
         for (const Index s : sources) {
             const basis::RwgSpace::Support ss = space.support(s);
-            pair_blocks(space, t, s, setup, p.kernel_options, stretch, blk);
+            const bool sp = stretched_pair(t, s);
+            if (use_cache && sp) {
+                const Index k = cache.find(t, s);
+                if (k < 0)
+                    throw std::logic_error("assemble_sparse: stretched pair missing in the cache");
+                oriented_blocks(cache.blocks[static_cast<std::size_t>(k)], t > s, blk);
+            } else {
+                pair_blocks(space, t, s, setup, p.kernel_options, stretch, blk);
+            }
+            pairs_of[static_cast<std::size_t>(t)] += 1;
+            stretched_of[static_cast<std::size_t>(t)] += sp ? 1 : 0;
             for (int a = 0; a < st.count; ++a) {
                 const Index m = st.n[a];
                 const auto [cb, ce] = row_cols(m);
@@ -670,6 +994,15 @@ std::shared_ptr<SparseOperator> assemble_sparse_impl(const Problem& p, const Bas
             }
         }
     });
+    if (options.stats != nullptr) {
+        for (Index t = 0; t < F; ++t) {
+            stats.ordered_pairs += pairs_of[static_cast<std::size_t>(t)];
+            stats.stretched_pairs += stretched_of[static_cast<std::size_t>(t)];
+        }
+        stats.scatter_seconds =
+            std::chrono::duration<Real>(std::chrono::steady_clock::now() - t_scatter).count();
+        *options.stats = stats;
+    }
     return std::make_shared<SparseOperator>(std::move(Z));
 }
 
@@ -682,9 +1015,34 @@ std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPat
 }
 
 std::shared_ptr<SparseOperator> assemble_sparse_stretched(const Problem& p,
-                                                          const BasisPattern& pattern) {
+                                                          const BasisPattern& pattern,
+                                                          const SparseStretchedOptions& options) {
     validate(p);
-    return assemble_sparse_impl(p, pattern, has_stretch(p) ? p.stretch : nullptr);
+    return assemble_sparse_impl(p, pattern, has_stretch(p) ? p.stretch : nullptr, options);
+}
+
+SparseStretchedCacheEstimate estimate_sparse_stretched_cache(
+    const basis::RwgSpace& space, const geometry::CoordinateStretch& stretch,
+    const BasisPattern& pattern, StretchedPairEvaluation evaluation) {
+    const Index N = space.size();
+    check_pattern(pattern, N);
+    SparseStretchedCacheEstimate e;
+    if (stretch.is_identity() || evaluation == StretchedPairEvaluation::per_ordering)
+        return e;
+    const geometry::TriangleMesh& mesh = space.mesh();
+    const std::vector<char> str = stretched_triangles(mesh, stretch);
+    std::vector<Index> ptr, partner, first;
+    canonical_index(space, pattern, str, ptr, partner, first);
+    e.canonical_pairs = ptr.back();
+    const Triangles& T = mesh.triangles();
+    for (std::size_t k = 0; k < partner.size(); ++k)
+        e.touching_pairs += shares_vertex(T, first[k], partner[k]) ? 1 : 0;
+    const bool classes = evaluation == StretchedPairEvaluation::translation_classes;
+    // At most one class per touching pair, keys of at most kMaxStretchedTouchingKeyWords words.
+    e.bytes = cache_bytes_model(mesh.num_triangles(), e.canonical_pairs, e.touching_pairs,
+                                classes ? e.touching_pairs : 0,
+                                kernels::kMaxStretchedTouchingKeyWords, classes);
+    return e;
 }
 
 PairBlockEvaluator::PairBlockEvaluator(const Problem& p) {

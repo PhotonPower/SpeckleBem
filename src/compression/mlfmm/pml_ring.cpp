@@ -9,12 +9,14 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cstdlib>
 #include <exception>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace specklebem::mlfmm {
@@ -251,15 +253,67 @@ void check_pml_ring_budget(const PmlRingEstimate& e, const PmlRingParams& params
     throw std::runtime_error(os.str());
 }
 
+PmlRingTreeFingerprint pml_ring_tree_fingerprint(const Octree& tree) {
+    PmlRingTreeFingerprint f;
+    f.levels = tree.levels();
+    std::uint64_t h = 1469598103934665603ULL;  // FNV-1a 64
+    const auto mix = [&h](std::uint64_t v) {
+        for (int b = 0; b < 8; ++b) {
+            h ^= (v >> (8 * b)) & 0xffU;
+            h *= 1099511628211ULL;
+        }
+    };
+    const auto mix_index = [&mix](Index v) { mix(static_cast<std::uint64_t>(v)); };
+    for (const Index p : tree.permutation()) mix_index(p);
+    if (f.levels > 0) {
+        f.leaf_size = tree.box_size(tree.leaf_level());
+        const std::vector<Index>& lv = tree.boxes_at_level(tree.leaf_level());
+        f.leaves = static_cast<Index>(lv.size());
+        for (Eigen::Index d = 0; d < 3; ++d)
+            mix(std::bit_cast<std::uint64_t>(tree.root_center()(d)));
+        for (const Index b : lv) {
+            const Box& box = tree.boxes()[sz(b)];
+            for (const Index c : box.ijk) mix_index(c);
+            mix_index(box.first_element);
+            mix_index(box.num_elements);
+            mix_index(static_cast<Index>(box.near_list.size()));
+            for (const Index nb : box.near_list) mix_index(nb);
+        }
+    }
+    f.hash = h;
+    return f;
+}
+
+PmlRingPlan plan_pml_ring(const Octree& tree, const basis::RwgSpace& space,
+                          const geometry::CoordinateStretch& stretch, const PmlRingParams& params) {
+    PmlRingPlan plan;
+    plan.tree = pml_ring_tree_fingerprint(tree);
+    plan.stretched = classify_stretched(space, stretch);
+    plan.estimate = estimate_pml_ring(tree, space, plan.stretched, params);
+    plan.split = split_near_pattern(tree, space, plan.stretched);
+    plan.estimate.near_assembly_bytes =
+        op::estimate_sparse_stretched_cache(space, stretch, plan.split.ring).bytes;
+    return plan;
+}
+
+std::size_t pml_ring_peak_bytes(const PmlRingEstimate& e) {
+    return e.near_bytes + std::max(e.near_assembly_bytes, e.far_bytes);
+}
+
 bool warn_pml_ring_memory(const PmlRingEstimate& e, std::size_t available) {
-    if (available == 0 || e.far_bytes <= available)
+    const std::size_t peak = pml_ring_peak_bytes(e);
+    if (available == 0 || peak <= available)
         return false;
     SBEM_WARN(
-        "PmlRingOperator: the exact far ring blocks (WP-PML5a) need {:.1f} MB ({} stored pairs of "
-        "{} stretched rows x far columns, 64 bytes each), more than the {:.1f} MB of physical "
-        "memory available now; the run will swap or fail. Shrink the PML ring (W_pml, mesh), set "
-        "MlfmmParams::pml_ring.max_far_bytes to refuse such runs, or use the dense operator",
-        mb(e.far_bytes), e.far_stored, e.stretched, mb(available));
+        "PmlRingOperator: the ring needs {:.1f} MB at its peak (near ring {:.1f} MB plus the "
+        "larger "
+        "of its assembly cache {:.1f} MB and the exact far ring blocks (WP-PML5a) {:.1f} MB: {} "
+        "stored pairs of {} stretched rows x far columns, 64 bytes each), more than the {:.1f} MB "
+        "of physical memory available now; the run will swap or fail. Shrink the PML ring (W_pml, "
+        "mesh), set MlfmmParams::pml_ring.max_far_bytes to refuse such runs, or use the dense "
+        "operator",
+        mb(peak), mb(e.near_bytes), mb(e.near_assembly_bytes), mb(e.far_bytes), e.far_stored,
+        e.stretched, mb(available));
     return true;
 }
 
@@ -302,6 +356,7 @@ struct PmlRingOperator::Impl {
     PmlRingEstimate est;
     std::size_t far_alloc = 0;
     Real near_s = 0, far_s = 0;
+    op::SparseStretchedStats near_stats;
 
     void assemble_far(const op::Problem& p);
     /// Transposed-product chunks: row leaves [chunk_first[k], chunk_first[k + 1]) (apply_far).
@@ -548,39 +603,79 @@ void PmlRingOperator::Impl::apply_far(const VectorXc& x, VectorXc& y) const {
     }
 }
 
-PmlRingOperator::PmlRingOperator(const op::Problem& problem, const Octree& tree,
-                                 const PmlRingParams& params)
-    : impl_(std::make_unique<Impl>()) {
+namespace {
+
+/// @throws std::invalid_argument for an invalid Problem or one without a non-identity stretch.
+void check_ring_problem(const op::Problem& problem) {
     op::validate(problem);
     if (!op::has_stretch(problem)) {
         throw std::invalid_argument(
             "PmlRingOperator: the Problem has no (non-identity) PML stretch; without a stretch "
             "every function is real and the MLFMM needs no ring");
     }
+}
+
+PmlRingPlan checked_plan(const op::Problem& problem, const Octree& tree,
+                         const PmlRingParams& params) {
+    check_ring_problem(problem);
+    (void)leaves_of(tree, *problem.space, "PmlRingOperator");  // tree checks first
+    return plan_pml_ring(tree, *problem.space, *problem.stretch, params);
+}
+
+}  // namespace
+
+PmlRingOperator::PmlRingOperator(const op::Problem& problem, const Octree& tree,
+                                 const PmlRingParams& params)
+    : PmlRingOperator(problem, tree, checked_plan(problem, tree, params), params) {}
+
+PmlRingOperator::PmlRingOperator(const op::Problem& problem, const Octree& tree, PmlRingPlan plan,
+                                 const PmlRingParams& params)
+    : impl_(std::make_unique<Impl>()) {
+    check_ring_problem(problem);
     Impl& m = *impl_;
     const basis::RwgSpace& space = *problem.space;
     m.n = space.size();
-    m.stretched = classify_stretched(space, *problem.stretch);
     m.leaves = leaves_of(tree, space, "PmlRingOperator");
+    // The plan must belong to this problem (the classification is O(N), checked in full).
+    if (plan.stretched != classify_stretched(space, *problem.stretch) || plan.estimate.n != m.n) {
+        throw std::invalid_argument(
+            "PmlRingOperator: the PmlRingPlan was not made for this problem (classification or "
+            "size differs; use plan_pml_ring on the same tree, space and stretch)");
+    }
+    // ... and to this octree: the near-ring pattern must match the far ring's near ranges.
+    if (plan.tree != pml_ring_tree_fingerprint(tree)) {
+        const PmlRingTreeFingerprint f = pml_ring_tree_fingerprint(tree);
+        throw std::invalid_argument(
+            "PmlRingOperator: the PmlRingPlan was made on another octree (plan: " +
+            std::to_string(plan.tree.levels) + " levels, " + std::to_string(plan.tree.leaves) +
+            " leaves; this tree: " + std::to_string(f.levels) + " levels, " +
+            std::to_string(f.leaves) +
+            " leaves, or a different leaf size / permutation); use plan_pml_ring on the same tree, "
+            "space and stretch");
+    }
+    m.stretched = std::move(plan.stretched);
     m.perm = tree.permutation();
     m.inv_perm = tree.inverse_permutation();
     m.stretched_pos.assign(sz(m.n), 0);
     for (Index p = 0; p < m.n; ++p) m.stretched_pos[sz(p)] = m.stretched[sz(m.perm[sz(p)])];
-    m.est = estimate_pml_ring(tree, space, m.stretched, params);
+    m.est = plan.estimate;
+    m.est.budget = params.max_far_bytes > 0 ? params.max_far_bytes : m.est.dense_bytes;
     SBEM_INFO(
         "PmlRingOperator: N = {}, {} stretched ({:.1f} %), {} row leaves; near ring {} pairs "
-        "({:.1f} MB), far ring {} stored pairs ({:.1f} MB, budget {:.1f} MB), dense matrix {:.1f} "
-        "MB",
+        "({:.1f} MB; assembly cache <= {:.1f} MB), far ring {} stored pairs ({:.1f} MB, budget "
+        "{:.1f} MB), dense matrix {:.1f} MB",
         m.n, m.est.stretched,
         m.n > 0 ? 100.0 * static_cast<Real>(m.est.stretched) / static_cast<Real>(m.n) : 0.0,
-        m.est.row_leaves, m.est.near_pairs, mb(m.est.near_bytes), m.est.far_stored,
-        mb(m.est.far_bytes), mb(m.est.budget), mb(m.est.dense_bytes));
+        m.est.row_leaves, m.est.near_pairs, mb(m.est.near_bytes), mb(m.est.near_assembly_bytes),
+        m.est.far_stored, mb(m.est.far_bytes), mb(m.est.budget), mb(m.est.dense_bytes));
     check_pml_ring_budget(m.est, params);
     // Near ring.
     auto t0 = std::chrono::steady_clock::now();
     {
-        const SplitNearPattern split = split_near_pattern(tree, space, m.stretched);
-        m.near = op::assemble_sparse_stretched(problem, split.ring);
+        op::SparseStretchedOptions opt;
+        opt.stats = &m.near_stats;
+        m.near = op::assemble_sparse_stretched(problem, plan.split.ring, opt);
+        plan.split = SplitNearPattern{};  // the patterns are no longer needed
     }
     m.near_s = seconds_since(t0);
     // Far ring blocks: rows, near ranges, allocation, assembly.
@@ -691,6 +786,10 @@ Real PmlRingOperator::near_seconds() const {
 
 Real PmlRingOperator::far_seconds() const {
     return impl_->far_s;
+}
+
+const op::SparseStretchedStats& PmlRingOperator::near_stats() const {
+    return impl_->near_stats;
 }
 
 const PmlRingEstimate& PmlRingOperator::estimate() const {

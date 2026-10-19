@@ -33,6 +33,9 @@
 #include "specklebem/kernels/singularity.hpp"
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
 
 namespace specklebem::kernels {
 
@@ -321,6 +324,56 @@ void element_blocks_both_regions(const basis::RwgSpace& space, Index t_test, Ind
 /// @throws std::out_of_range for t outside the mesh.
 [[nodiscard]] bool is_stretched_triangle(const geometry::CoordinateStretch& stretch,
                                          const geometry::TriangleMesh& mesh, Index t);
+
+/// Relative margin of the translation strips of stretched_touching_key: a pair is keyed for
+/// translations along u only if every vertex has |u| <= start_u - kTranslationStripMargin
+/// max(start_u, h) (h the longer longest edge of the pair), so that no quadrature point of its rule
+/// (exactly inside the pair's triangles, computed with a rounding error of a few ulp of
+/// max(start_u, h)) can land beyond start_u, where a profile of order m < 1 gives a visible sigma
+/// one ulp past the start.
+inline constexpr Real kTranslationStripMargin = 1e-12;
+
+/// Upper bound of StretchedTouchingKey::words.size() (memory estimates).
+inline constexpr std::size_t kMaxStretchedTouchingKeyWords = 50;
+
+/// Translation key of a stretched touching pair (stretched_touching_key).
+struct StretchedTouchingKey {
+    /// Axis of the translation invariance (0 = x, 1 = y); -1: the pair has no key.
+    int axis = -1;
+    /// The key: bit patterns of every input of the stretched touching rule that depends on the
+    /// pair (see stretched_touching_key); compared for equality only.
+    std::vector<std::uint64_t> words;
+    /// slot_vertex[i][a]: local vertex index (0..2) of the free vertex of slot a of support(t)
+    /// for t = min(t_test, t_src) (i = 0) and max(t_test, t_src) (i = 1); -1 for unused slots.
+    std::array<std::array<int, 3>, 2> slot_vertex{{{-1, -1, -1}, {-1, -1, -1}}};
+};
+
+/// Translation key of the stretched touching pair {t_test, t_src} (WP-PML5c review; used by
+/// op::assemble_sparse_stretched, "Translation classes"). Where the stretch does not depend on a
+/// coordinate u over a pair (no profile on u or sigma_max = 0 there, or every vertex inside the
+/// strip |u| <= start_u minus the margin kTranslationStripMargin), the stretched touching rule
+/// is invariant under translations along u. The key holds the bit patterns of every quantity the
+/// rule of element_blocks_both_regions(space, min, max, regions, active, opt, &stretch, ...)
+/// reads from the pair, in the form in which it reads them (src/kernels/stretched_operators.cpp,
+/// stretched_touching_key; the rule's code paths carry back-references to it): u; the proximity
+/// class and the 3 x 3 pattern of shared vertex indices; coplanarity; per region (active[i]) the
+/// point counts of the touching rule and the fastmath decision (decided from absolute
+/// coordinates, not translation-exact); per triangle the vertex coordinates (the u component
+/// relative to the rule origin, the others absolute), the normal, area and longest edge, and the
+/// RWG divergence of the slot whose free vertex each local vertex is. Hence: for two pairs with
+/// the same space, regions, active, opt and stretch and equal axis and words, the blocks of
+/// element_blocks_both_regions for the orderings (min, max) are **bitwise** equal after mapping
+/// the slots by slot_vertex (slot a of the one and slot b of the other with the same local free
+/// vertex). Returns false (axis = -1, words empty) for pairs without a key: identical triangles,
+/// non-touching or unstretched pairs, a triangle without basis functions, both regions inactive,
+/// an identity stretch, pairs depending on both coordinates (corners) or with a vertex within
+/// the margin of a strip boundary. Allocation only in key.words (reuses its capacity).
+/// @throws std::invalid_argument for invalid options or a stretched triangle that is not
+///         horizontal (as element_blocks); std::out_of_range for indices outside the mesh.
+bool stretched_touching_key(const basis::RwgSpace& space, Index t_test, Index t_src,
+                            const std::array<RegionParams, 2>& regions,
+                            const std::array<bool, 2>& active, const OperatorOptions& opt,
+                            const geometry::CoordinateStretch& stretch, StretchedTouchingKey& key);
 
 /// Rule of a stretched pair (diagnostics and cost studies, WP-PML2).
 struct StretchedPairInfo {

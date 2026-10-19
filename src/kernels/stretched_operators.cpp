@@ -156,6 +156,18 @@
 /// rule. No decay-aware relaxation (the stretched pairs keep the relative target); arithmetic as
 /// in "Evaluation". If no degree of the ladder meets the target (anisotropic near pairs along the
 /// ridge), quad_degree_near is used; stretched_pair_info reports target_reached = false.
+///
+/// Translation key (WP-PML5c review, kernels::stretched_touching_key).
+/// op::assemble_sparse_stretched evaluates the touching pairs of a PML strip once per class of
+/// bitwise equal keys and copies the blocks to the other members, so the key must hold every
+/// pair-dependent input of the touching path of stretched_blocks, in the form that path reads it.
+/// It is built here from the same structures (PairSetup, Slots, touching_points, fast_region,
+/// touching_origin); tri_of, slots_of, touching_rule and stretched_blocks carry back-references.
+/// Inside a strip with the margin kTranslationStripMargin (|u| <= start - 1e-12 max(start, h))
+/// every point of the rule has sigma_u = 0 and Im u~ = 0 exactly (eval_axis returns zeros for d <=
+/// 0), so the u coordinate enters only through differences from the rule origin; centroids and
+/// radii (absolute along u) enter only through the fastmath decision, which the key holds as a
+/// flag.
 #include "specklebem/kernels/fast_math.hpp"
 #include "specklebem/kernels/quadrature.hpp"
 #include "specklebem/kernels/singularity.hpp"
@@ -164,12 +176,15 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "stretched_detail.hpp"
 
@@ -351,6 +366,11 @@ struct StretchEval {
 // Triangles and RWG slots.
 // ---------------------------------------------------------------------------------------------
 
+/// Pair geometry of the rules. Translation key (stretched_touching_key): every field the touching
+/// rule reads must enter the key in the form the rule reads it (v, id via the shared-index
+/// pattern, n, area, longest; centroid and radius only through the fastmath decision and the
+/// ridge mid-point, whose across-strip components follow from the absolute coordinates). A new
+/// coordinate-derived field read by the touching path must be added to the key.
 struct Tri {
     std::array<P3, 3> v;
     std::array<Index, 3> id;
@@ -361,6 +381,7 @@ struct Tri {
     Real radius;  ///< largest centroid-vertex distance
 };
 
+/// Translation key: see Tri (any new coordinate-derived input must enter stretched_touching_key).
 Tri tri_of(const geometry::TriangleMesh& mesh, Index t) {
     Tri g{};
     for (Index i = 0; i < 3; ++i) {
@@ -381,9 +402,12 @@ struct Slots {
     std::size_t count = 0;
     std::array<Real, 3> div{};
     std::array<P3, 3> p{};
+    std::array<Index, 3> vid{};  ///< vertex index of the free vertex (p is its position)
 };
 
 /// RWG slots of t (operators.cpp: f_a(r) = (div[a] / 2)(r - p[a])). support() range-checks t.
+/// Translation key: div and p (the position of a vertex of t) enter stretched_touching_key per
+/// local free vertex; a new slot quantity read by the touching path must be added there.
 Slots slots_of(const basis::RwgSpace& space, Index t) {
     const basis::RwgSpace::Support s = space.support(t);
     Slots out;
@@ -392,6 +416,7 @@ Slots slots_of(const basis::RwgSpace& space, Index t) {
         const Index n = s.n[a];
         out.div[a] = space.divergence(n, t);
         const Index v = s.sign[a] > 0 ? space.plus_free_vertex(n) : space.minus_free_vertex(n);
+        out.vid[a] = v;
         out.p[a] = to_p3(space.mesh().vertices().row(v).transpose());
     }
     return out;
@@ -1507,7 +1532,10 @@ bool flat_pair(const Tri& a, const Tri& b) {
 }
 
 /// The touching rule of the pair (t test, s source); calls visit for every point pair and
-/// returns the rule origin. Sets ridge information.
+/// returns the rule origin. Sets ridge information. Translation key (stretched_touching_key):
+/// the rule reads the edge vectors from the origin (u components as v.u - A.u), the shared-index
+/// pattern (shared_first), the stretch at the mid-point of the centroids (zero along u inside a
+/// strip) and n; any new coordinate-derived input must enter the key.
 template <class Visit>
 P3 touching_rule(Proximity prox, const Tri& tt, const Tri& ts, const StretchEval& se,
                  const RuleParams& n, bool coplanar, Ridge& rg, Visit&& visit) {
@@ -1731,6 +1759,34 @@ bool same_rule(const RuleParams& a, const RuleParams& b) {
     return a.n == b.n && a.nr == b.nr && a.ng == b.ng && a.fine == b.fine;
 }
 
+/// Bound of |R~| over the point pairs of the pair for the fastmath decision (file comment
+/// "Evaluation"): |R~| <= R sqrt(1 + sigma_max^2) (|R~^2| <= sum_i dx_i^2 |1 - j tau_i|^2) and
+/// R <= D + rho_t + rho_s. From absolute centroids, so not translation-exact: the translation key
+/// holds the decision (fast_region), not this value.
+Real fast_r_max(const PairSetup& ps, const StretchEval& se) {
+    const Real smax =
+        std::max(se.x.active ? se.x.sigma_max : 0.0, se.y.active ? se.y.sigma_max : 0.0);
+    return (norm(ps.tt.centroid - ps.ts.centroid) + ps.tt.radius + ps.ts.radius) *
+           std::sqrt(1.0 + smax * smax);
+}
+
+/// The fastmath choice of one region (Accum::fast): opt.fast_plain_kernel, K = 0 and |k R~| <=
+/// kFastSincosMax for every point pair.
+bool fast_region(const OperatorOptions& opt, Complex k, bool need_k, Real r_max) {
+    return !need_k && opt.fast_plain_kernel && std::isfinite(std::abs(k)) &&
+           std::abs(k) * r_max <= fastmath::kFastSincosMax;
+}
+
+/// Origin of the touching rule (touching_rule's return value): v0 of the test triangle for
+/// identical pairs, else its first vertex (local order) shared with the source triangle.
+P3 touching_origin(const PairSetup& ps) {
+    if (ps.prox == Proximity::identical) {
+        return ps.tt.v[0];
+    }
+    std::size_t sh = 0;
+    return ps.tt.v[shared_first(ps.tt, ps.ts, sh)[0]];
+}
+
 /// One region of a stretched_blocks call: its parameters and output blocks.
 struct RegionJob {
     const RegionParams* region = nullptr;
@@ -1765,20 +1821,16 @@ void stretched_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
     const auto kparams = [&](std::size_t j) {
         return KernelParams{jobs[j].region->k.real(), jobs[j].region->k.imag()};
     };
-    // Fastmath kernel loop (file comment "Evaluation"): opt.fast_plain_kernel and |k R~| <=
-    // kFastSincosMax for every point pair, with |R~| <= R sqrt(1 + sigma_max^2) (|R~^2| <= sum_i
-    // dx_i^2 |1 - j tau_i|^2) and R <= D + rho_t + rho_s.
-    const Real smax =
-        std::max(se.x.active ? se.x.sigma_max : 0.0, se.y.active ? se.y.sigma_max : 0.0);
-    const Real r_max = (norm(ps.tt.centroid - ps.ts.centroid) + ps.tt.radius + ps.ts.radius) *
-                       std::sqrt(1.0 + smax * smax);
-    // Decided per region (Accum::fast), so a shared pass keeps each region's single-region choice.
+    // Fastmath kernel loop (file comment "Evaluation", fast_r_max / fast_region). Decided per
+    // region (Accum::fast), so a shared pass keeps each region's single-region choice.
+    // Translation key (stretched_touching_key): the touching path below reads the pair only through
+    // ps (Tri, proximity), s1 / s2 (Slots), the fastmath decision, touching_points and the rule
+    // origin; any new pair-dependent input of that path must enter the key.
+    const Real r_max = fast_r_max(ps, se);
     const auto set_fast = [&]<std::size_t NR>(const std::array<std::size_t, NR>& idx, bool need_k,
                                               Accum<NR>& acc) {
         for (std::size_t r = 0; r < NR; ++r) {
-            const Complex k = jobs[idx[r]].region->k;
-            acc.fast[r] = !need_k && opt.fast_plain_kernel && std::isfinite(std::abs(k)) &&
-                          std::abs(k) * r_max <= fastmath::kFastSincosMax;
+            acc.fast[r] = fast_region(opt, jobs[idx[r]].region->k, need_k, r_max);
         }
     };
     // Blocks of job j from its moments (canonical ordering, then the requested one).
@@ -1847,9 +1899,7 @@ void stretched_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
     }
     // The visitor receives X, Y relative to the rule origin; the origin is known only after the
     // rule is set up, so it is computed first (identical: v0, else the shared vertex A).
-    std::size_t sh = 0;
-    const P3 o =
-        ps.prox == Proximity::identical ? ps.tt.v[0] : ps.tt.v[shared_first(ps.tt, ps.ts, sh)[0]];
+    const P3 o = touching_origin(ps);
     const auto run = [&]<std::size_t NR>(const std::array<std::size_t, NR>& idx) {
         Accum<NR> acc;
         acc.need_k = need_k;
@@ -1877,7 +1927,140 @@ void stretched_blocks(const basis::RwgSpace& space, Index t_test, Index t_src,
     }
 }
 
+/// Axis u (1 = y first, then 0 = x) along which the stretch is constant over the pair with the
+/// margin of kTranslationStripMargin (stretched_touching_key): the axis is inactive, or every
+/// vertex has |u| <= start - margin max(start, h). -1 if there is none (corners, strip ends).
+int translation_axis(const StretchEval& se, const PairSetup& ps) {
+    const Real h = std::max(ps.tt.longest, ps.ts.longest);
+    const auto invariant = [&](const Axis& a, int d) {
+        if (!a.active) {
+            return true;
+        }
+        const Real limit = a.start - kTranslationStripMargin * std::max(a.start, h);
+        for (const Tri* t : {&ps.tt, &ps.ts}) {
+            for (const P3& v : t->v) {
+                if (!(std::abs(d == 0 ? v.x : v.y) <= limit)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    if (invariant(se.y, 1)) {
+        return 1;
+    }
+    if (invariant(se.x, 0)) {
+        return 0;
+    }
+    return -1;
+}
+
 }  // namespace
+
+bool stretched_touching_key(const basis::RwgSpace& space, Index t_test, Index t_src,
+                            const std::array<RegionParams, 2>& regions,
+                            const std::array<bool, 2>& active, const OperatorOptions& opt,
+                            const geometry::CoordinateStretch& stretch, StretchedTouchingKey& key) {
+    validate(opt);
+    key.axis = -1;
+    key.words.clear();
+    key.slot_vertex = {{{-1, -1, -1}, {-1, -1, -1}}};
+    // The canonical ordering of stretched_blocks.
+    const Index t1 = std::min(t_test, t_src);
+    const Index t2 = std::max(t_test, t_src);
+    const Slots s1 = slots_of(space, t1);
+    const Slots s2 = slots_of(space, t2);
+    if (t1 == t2 || s1.count == 0 || s2.count == 0 || !(active[0] || active[1]) ||
+        stretch.is_identity()) {
+        return false;
+    }
+    const StretchEval se(stretch);
+    const PairSetup ps = setup_pair(space.mesh(), t1, t2, opt, se);
+    if (!(stretched_tri(se, ps.tt) || stretched_tri(se, ps.ts)) || !ps.touching ||
+        ps.prox == Proximity::identical) {
+        return false;
+    }
+    const int u = translation_axis(se, ps);
+    if (u < 0) {
+        return false;
+    }
+    // The inputs of the touching path of stretched_blocks, as it reads them.
+    const bool coplanar = coplanar_pair(ps.tt, ps.ts);
+    const bool need_k = !coplanar;
+    const Real r_max = fast_r_max(ps, se);
+    std::vector<std::uint64_t>& w = key.words;
+    const auto bits = [](Real v) { return std::bit_cast<std::uint64_t>(v); };
+    const auto word = [](auto v) { return static_cast<std::uint64_t>(v); };
+    w.push_back(word(u));
+    w.push_back(word(static_cast<int>(ps.prox)));
+    std::uint64_t pattern = 0;  // shared vertex indices (shared_first; duplicates of coordinates)
+    for (std::size_t i = 0; i < 3; ++i) {
+        for (std::size_t j = 0; j < 3; ++j) {
+            if (ps.tt.id[i] == ps.ts.id[j]) {
+                pattern |= std::uint64_t{1} << (3 * i + j);
+            }
+        }
+    }
+    w.push_back(pattern);
+    w.push_back(word(coplanar));
+    for (std::size_t r = 0; r < 2; ++r) {
+        if (!active[r]) {
+            w.push_back(0);
+            continue;
+        }
+        const RuleParams rp = touching_points(ps.tt, ps.ts, regions[r].k, opt, se);
+        w.push_back(fast_region(opt, regions[r].k, need_k, r_max) ? std::uint64_t{3}
+                                                                  : std::uint64_t{1});
+        w.push_back(word(rp.n));
+        w.push_back(word(rp.nr));
+        w.push_back(word(rp.ng));
+        w.push_back(bits(rp.fine));
+    }
+    const P3 o = touching_origin(ps);
+    const std::array<const Tri*, 2> tris = {&ps.tt, &ps.ts};
+    const std::array<const Slots*, 2> slots = {&s1, &s2};
+    for (std::size_t i = 0; i < 2; ++i) {
+        const Tri& g = *tris[i];
+        for (const P3& v : g.v) {
+            // Along u relative to the rule origin (the rule's edge vectors and finish's p - o; the
+            // stretch does not depend on u here), across it absolute (the stretch does).
+            w.push_back(bits(u == 0 ? v.x - o.x : v.x));
+            w.push_back(bits(u == 1 ? v.y - o.y : v.y));
+            w.push_back(bits(v.z));
+        }
+        w.push_back(bits(g.n.x));
+        w.push_back(bits(g.n.y));
+        w.push_back(bits(g.n.z));
+        w.push_back(bits(g.area));
+        w.push_back(bits(g.longest));
+        // Per local vertex: the divergence of the slot whose free vertex it is (presence mask).
+        std::uint64_t present = 0;
+        std::array<std::uint64_t, 3> div{};
+        const Slots& sl = *slots[i];
+        for (std::size_t a = 0; a < sl.count; ++a) {
+            for (std::size_t j = 0; j < 3; ++j) {
+                if (g.id[j] == sl.vid[a]) {
+                    present |= std::uint64_t{1} << j;
+                    div[j] = bits(sl.div[a]);
+                    key.slot_vertex[i][a] = static_cast<int>(j);
+                    break;
+                }
+            }
+            if (key.slot_vertex[i][a] < 0) {
+                throw std::logic_error("stretched_touching_key: free vertex not on its triangle");
+            }
+        }
+        w.push_back(present);
+        w.insert(w.end(), div.begin(), div.end());
+    }
+    if (w.size() > kMaxStretchedTouchingKeyWords) {
+        // Keeps op::estimate_sparse_stretched_cache an upper bound when inputs are added.
+        throw std::logic_error(
+            "stretched_touching_key: more words than kMaxStretchedTouchingKeyWords");
+    }
+    key.axis = u;
+    return true;
+}
 
 bool triangle_stretched(const geometry::CoordinateStretch& stretch,
                         const geometry::TriangleMesh& mesh, Index t) {

@@ -254,14 +254,16 @@ struct SimulationConfig {
     material::Material object = material::silicon_500nm();  ///< region R2
     /// Empty: automatic, formulation::recommend(object.eps_r).kind.
     std::optional<formulation::Kind> formulation;
-    /// Left/right Jacobi preconditioner (op::assemble_diagonal) of the GMRES solve; empty: the
+    /// Left/right Jacobi preconditioner (the diagonal of Z: op::assemble_diagonal, or the near
+    /// parts of the MLFMM operator for "mlfmm") of the GMRES solve; empty: the
     /// recommendation's choice, formulation::recommend(object.eps_r).diagonal_preconditioner
     /// (also when the formulation is set explicitly). Ignored by the direct solver.
     std::optional<bool> diagonal_preconditioner;
     /// "dense" (default) or "mlfmm" (mlfmm::MlfmmOperator with the `mlfmm` parameters; GMRES
-    /// only, the Jacobi diagonal still comes from op::assemble_diagonal, which equals the near
-    /// field's diagonal). "aca" and "hmatrix" (Phase 8) are rejected with
-    /// std::invalid_argument until they are implemented, as is any other name.
+    /// only, the Jacobi diagonal is read from the operator's near parts,
+    /// mlfmm::MlfmmOperator::diagonal(), equal to op::assemble_diagonal; WP-PML5c). "aca" and
+    /// "hmatrix" (Phase 8) are rejected with std::invalid_argument until they are implemented, as
+    /// is any other name.
     std::string compression = "dense";
     /// MLFMM parameters (compression "mlfmm" only): octree (leaf floor min_box_size_lambda in
     /// wavelengths of the exterior), accuracy_digits d0.

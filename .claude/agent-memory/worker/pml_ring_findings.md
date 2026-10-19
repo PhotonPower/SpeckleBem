@@ -1,6 +1,6 @@
 ---
 name: pml-ring-findings
-description: WP-PML5a fast PML ring (MLFMM Z_rr + exact ring) - design, costs (1.4x dense assembly, 0.55x memory at 7c), d0 = 5 at 7c, chunked thread-independent apply, 5a limit, tests
+description: WP-PML5a fast PML ring (MLFMM Z_rr + exact ring) - design, costs (1.4x dense assembly, 0.55x memory at 7c), d0 = 5 at 7c, chunked thread-independent apply, 5a limit, tests; WP-PML5c near-ring cost (touching pairs 95 %, bitwise translation classes, kernels-layer key, plan fingerprint)
 metadata:
   type: project
 ---
@@ -34,6 +34,33 @@ WP-PML5a (2026-10-18), record benchmarks/results/pml_ring.md (+ pml_ring_rows.tx
 - available_memory_bytes lives in core/system_memory.hpp now (tests/support forwards to it).
 - `ctest -R pml_ring` also matches the 30-min validation-large 7h case: use `-R "^pml_ring: "`.
   A running test exe locks the static-linked exe: build single targets (`--target`) meanwhile.
+
+WP-PML5c (2026-10-19, `benchmarks/pml_ring.cpp --assembly-study [--quick] [--dense-compare]`):
+- Near-ring time is ~95 % stretched TOUCHING pairs (U: shared vertex 85 %, 0.55 s/pair, 2.8e6
+  point pairs; shared edge 11 %); near/far pairs ~3.6 %. So "each unordered pair once" alone only
+  reaches the dense assembler (which already does that, WP-PML2c): ratio ~0.9-0.95, gate 1/2 missed.
+- Lever that met the gate: translation classes of touching pairs in the PML strips (stretch
+  depends on x only where |y| <= y.start). Key must be EXACT bits of every coordinate-derived
+  input (u-diffs from the rule origin A = first vertex of the min triangle shared with the other,
+  per-triangle edge u-diffs, area, normal, edge lengths, signs by free vertex): then copies are
+  bitwise (tested U, flat CI, tiny). A rounding-tolerant key (16 ulp) finds ~2x more copies but
+  gives 1.8e-15 of max entry / 2.3e-13 per entry (cancelling entries) -> rejected.
+  Hits: U 65 % of touching pairs, flat CI 47 % (mesh grid y-coords don't translate exactly).
+- Review round (2026-10-19): key now kernels::stretched_touching_key (built from PairSetup/Slots/
+  touching_points/fast_region/touching_origin in stretched_operators.cpp; back-refs there). Extra
+  key inputs: fastmath flag per region (r_max uses ABSOLUTE centroids), 3x3 shared-index pattern,
+  rule point counts; pairs with a vertex within 1e-12 max(start, h) of the strip boundary keyless.
+  Effect: U copies 13312 -> 12544 (classes 4096 same), flat CI 2112 -> 2048 (1600 -> 1280 classes);
+  still bitwise. On this structured grid the boundary case never actually diverged (rule points
+  are strictly interior; vertices at d = 0 give sigma 0), so the old code also passed the new test.
+  Plan now carries an octree fingerprint (refused on another tree) and near_assembly_bytes
+  (estimate_sparse_stretched_cache, 0.26 s index pass at U, 339 MB bound vs 329 MB measured).
+  U full study rerun: 5c 114.7 s vs dense same pairs 438.1 s (0.26); quick runs vary 2x with load.
+- B(s,t) = B(t,s)^T bitwise for stretched pairs (kernel canonical ordering) -> canonical cache is
+  bitwise 5a. Diagonal from near parts: real rows bitwise, stretched rows 3e-16 vs
+  assemble_diagonal (dense order 2A + rest).
+- Machine shared with another worker: absolute times x1.7-2 the 5a record (5a near ring U 640-700 s
+  vs 380 s recorded); compare modes within one process only.
 
 **Why:** WP-PML5b (ACA) and 5c (assembly cache) build on this.
 **How to apply:** see [[stretched-kernel-findings]], [[mlfmm-lossy-policy-findings]].

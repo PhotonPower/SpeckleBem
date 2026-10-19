@@ -1780,6 +1780,17 @@ bool is_stretched_triangle(const geometry::CoordinateStretch& stretch,
     return detail::triangle_stretched(stretch, mesh, t);
 }
 
+bool stretched_touching_key(const basis::RwgSpace& space, Index t_test, Index t_src,
+                            const std::array<RegionParams, 2>& regions,
+                            const std::array<bool, 2>& active, const OperatorOptions& opt,
+                            const geometry::CoordinateStretch& stretch, StretchedTouchingKey& key) {
+    const Index nt = space.mesh().num_triangles();
+    if (t_test < 0 || t_test >= nt || t_src < 0 || t_src >= nt) {
+        throw std::out_of_range("stretched_touching_key: triangle index out of range");
+    }
+    return detail::stretched_touching_key(space, t_test, t_src, regions, active, opt, stretch, key);
+}
+
 StretchedPairInfo stretched_pair_info(const geometry::TriangleMesh& mesh, Index t_test, Index t_src,
                                       Complex k, const OperatorOptions& opt,
                                       const geometry::CoordinateStretch& stretch) {

@@ -44,3 +44,98 @@ COMPARE | u (window 2.375e-06/2.875e-06) vs u (window 2.375e-06/2.875e-06) | l2 
 ROW | pml_ring | u | ag | rms 5e-08 | L 3.75e-06 | taper 5e-07 | gap 5e-07 | pml 1e-06 | h 1.25e-07 | sigma 4 | d0 3.0 | tol 1.0e-07 | 2N 22816 | stretched 5152 (45.2 %) | levels 5 | leaf 0.969 lambda | matvec 1.508e-05 | R fast 0.97833919 | R dense 0.97833915 | dR +4.069e-08 | l2 3.332e-06 | l2_off30 3.855e-06 | its 602 | true res 8.41e-08 | dense res 6.7e-11 | fast op 4605.0 MB (rr near 212.3, rr far 545.1, ring near 195.4, ring far 3651.6) | dense 8329.1 MB | ring pairs near 2033032 far 88971896 | fast assemble (op + rhs + diag) 996.0 s (ring near 396.0, far 526.6) | matvec fast 0.203 s dense 0.264 s | GMRES 128.5 s | dense assembly 677.9 s | LU 57.0 s | peak fast 4.89 GB dense 8.46 GB
 COMPARE | u (window 2.375e-06/2.875e-06) vs u (window 2.375e-06/2.875e-06) | l2 3.3323e-06 | l2_off30 3.8546e-06 | eps_xz 1.4384e-06 | eps_yz 1.5950e-06 | dR +4.0687e-08 | R 0.9783392 vs 0.9783391
 MATVEC | pml_ring | u | ag | rms 5e-08 | L 3.75e-06 | h 1.25e-07 | d0 5.0 | 2N 22816 | stretched 5152 | levels 4 | leaf 1.938 lambda | matvec 1.401e-07 (1.401e-07, 1.323e-07, 1.318e-07) | fast op 6252.0 MB (ring near 706.8, ring far 3426.3) | fast op build 956.2 s (ring near 440.0, far 512.1) | dense assembly 666.4 s | matvec fast 0.258 s dense 0.270 s | peak fast 6.31 GB dense 8.35 GB
+# WP-PML5c (2026-10-19), machine shared with another work package's runs (times 1.3-2x idle). specklebem_pml_ring --case u --assembly-study --dense-compare, first design (rounding-tolerant translation key, 16 ulp; rejected for bitwise results):
+ASSEMBLY | u | d0 3.0 | 2N 22816 | stretched 5152 | ring near pairs 2033032 | plan 0.00 s | threads 24
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a | 703.0 s (cache 0.0, scatter 703.0) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 1062440 (touching 0, 0 copied from 0 translation classes) | cache 0.0 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c | 93.4 s (cache 92.9, scatter 0.3) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 515924 (touching 23936, 17024 copied from 384 translation classes) | cache 311.3 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c vs 5a | bitwise no | max per-entry rel diff 2.33e-13 | max |diff| / max |entry| 1.76e-15 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c canonical only | 384.4 s (cache 384.1, scatter 0.3) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 532948 (touching 23936, 0 copied from 0 translation classes) | cache 311.3 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c canonical only vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | dense same pairs 420.1 s | evaluated 592282 triangle pairs
+ASSEMBLY | u | d0 3.0 | near ring 5a vs dense | max per-entry rel diff 8.32e-14 | max |diff| / max |entry| 1.82e-16
+ASSEMBLY | u | d0 3.0 | near ring 5c vs dense | max per-entry rel diff 2.32e-13 | max |diff| / max |entry| 1.76e-15
+PROFILE | u | d0 3.0 | identical | pairs 3456 | 32.1 thread-s (0.3 %) | 37880 point pairs per call (R2 rule) | 9.30 ms per pair
+PROFILE | u | d0 3.0 | shared edge | pairs 5152 | 1101.5 thread-s (11.2 %) | 993993 point pairs per call (R2 rule) | 213.81 ms per pair
+PROFILE | u | d0 3.0 | shared vertex | pairs 15328 | 8388.8 thread-s (84.9 %) | 2768256 point pairs per call (R2 rule) | 547.28 ms per pair
+PROFILE | u | d0 3.0 | near/far reached | pairs 150100 | 64.7 thread-s (0.7 %) | 3479 point pairs per call (R2 rule) | 0.43 ms per pair
+PROFILE | u | d0 3.0 | near/far capped | pairs 358912 | 291.2 thread-s (2.9 %) | 5329 point pairs per call (R2 rule) | 0.81 ms per pair
+PROFILE | u | d0 3.0 | total | pairs 532948 | 9878.3 thread-s | wall 414.9 s
+CLASSES | u | d0 3.0 | stretched touching pairs 20480 (corner 3072) | translation classes 384 | thread time 8491.2 s, per-class evaluation keeps 1659.6 s (19.5 %) | member vs representative: 768 compared, max |dB| / max |B| 0.00e+00 (JJ/MM 0.00e+00)
+ASSEMBLY | u | d0 3.0 | diagonal assemble_diagonal 179.3 s | from near parts 0.005 s | stretched rows max rel diff 2.13e-14 | real rows bitwise yes
+# final code (bit-exact translation key): specklebem_pml_ring --case u --assembly-study --quick:
+ASSEMBLY | u | d0 3.0 | 2N 22816 | stretched 5152 | ring near pairs 2033032 | plan 0.00 s | threads 24
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a | 641.9 s (cache 0.0, scatter 641.8) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 1062440 (touching 0, 0 copied from 0 translation classes) | cache 0.0 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c | 93.7 s (cache 93.4, scatter 0.1) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 519636 (touching 23936, 13312 copied from 4096 translation classes) | cache 311.3 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | diagonal assemble_diagonal 71.7 s | from near parts 0.003 s | stretched rows max rel diff 3.38e-16 | real rows bitwise yes
+# final code: specklebem_pml_ring --case u --assembly-study, then --case flat_ci --assembly-study:
+ESTIMATE | u | L 3.75e-06 | pml 1e-06 | h 1.25e-07 | d0 3.0 | 2N 22816 | stretched 5152 (45.2 %) | levels 5 | leaf 0.969 lambda | row leaves 156 | ring near 2033032 pairs 195.4 MB | ring far 88971896 pairs (57054384 stored) 3651.6 MB | rr near 2209160 pairs 212.1 MB | dense 8329.1 MB | ring / dense 0.462
+ASSEMBLY | u | d0 3.0 | 2N 22816 | stretched 5152 | ring near pairs 2033032 | plan 0.00 s | threads 24
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a | 801.9 s (cache 0.0, scatter 801.9) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 1062440 (touching 0, 0 copied from 0 translation classes) | cache 0.0 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c | 168.6 s (cache 168.3, scatter 0.3) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 519636 (touching 23936, 13312 copied from 4096 translation classes) | cache 311.3 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c canonical only | 390.1 s (cache 389.8, scatter 0.2) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 532948 (touching 23936, 0 copied from 0 translation classes) | cache 311.3 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c canonical only vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | dense same pairs 407.7 s | evaluated 592282 triangle pairs
+PROFILE | u | d0 3.0 | identical | pairs 3456 | 30.1 thread-s (0.3 %) | 37880 point pairs per call (R2 rule) | 8.70 ms per pair
+PROFILE | u | d0 3.0 | shared edge | pairs 5152 | 1046.2 thread-s (10.9 %) | 993993 point pairs per call (R2 rule) | 203.07 ms per pair
+PROFILE | u | d0 3.0 | shared vertex | pairs 15328 | 8185.4 thread-s (85.2 %) | 2768256 point pairs per call (R2 rule) | 534.01 ms per pair
+PROFILE | u | d0 3.0 | near/far reached | pairs 150100 | 60.3 thread-s (0.6 %) | 3479 point pairs per call (R2 rule) | 0.40 ms per pair
+PROFILE | u | d0 3.0 | near/far capped | pairs 358912 | 283.9 thread-s (3.0 %) | 5329 point pairs per call (R2 rule) | 0.79 ms per pair
+PROFILE | u | d0 3.0 | total | pairs 532948 | 9605.8 thread-s | wall 405.1 s
+CLASSES (tolerant key, not the library's exact one) | u | d0 3.0 | stretched touching pairs 20480 (corner 3072) | translation classes 384 | thread time 9073.0 s, per-class evaluation keeps 1835.6 s (20.2 %) | member vs representative: 768 compared, max |dB| / max |B| 0.00e+00 (JJ/MM 0.00e+00)
+ASSEMBLY | u | d0 3.0 | diagonal assemble_diagonal 144.6 s | from near parts 0.005 s | stretched rows max rel diff 3.38e-16 | real rows bitwise yes
+ESTIMATE | flat_ci | L 1e-06 | pml 5e-07 | h 1.25e-07 | d0 3.0 | 2N 4592 | stretched 1136 (49.5 %) | levels 4 | leaf 0.875 lambda | row leaves 48 | ring near 357656 pairs 34.4 MB | ring far 3568360 pairs (2349252 stored) 150.4 MB | rr near 297730 pairs 28.6 MB | dense 337.4 MB | ring / dense 0.548
+ASSEMBLY | flat_ci | d0 3.0 | 2N 4592 | stretched 1136 | ring near pairs 357656 | plan 0.00 s | threads 24
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5a | 94.2 s (cache 0.0, scatter 94.2) | ordered pairs 204622 (stretched 185984) | evaluated stretched 185984 (touching 0, 0 copied from 0 translation classes) | cache 0.0 MB
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5a vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5c | 29.9 s (cache 29.8, scatter 0.1) | ordered pairs 204622 (stretched 185984) | evaluated stretched 91264 (touching 5248, 2112 copied from 1600 translation classes) | cache 54.5 MB
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5c vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5c canonical only | 48.0 s (cache 47.9, scatter 0.1) | ordered pairs 204622 (stretched 185984) | evaluated stretched 93376 (touching 5248, 0 copied from 0 translation classes) | cache 54.5 MB
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5c canonical only vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | dense same pairs 51.3 s | evaluated 112014 triangle pairs
+PROFILE | flat_ci | d0 3.0 | identical | pairs 768 | 5.4 thread-s (0.5 %) | 27047 point pairs per call (R2 rule) | 7.02 ms per pair
+PROFILE | flat_ci | d0 3.0 | shared edge | pairs 1136 | 179.9 thread-s (15.2 %) | 728635 point pairs per call (R2 rule) | 158.38 ms per pair
+PROFILE | flat_ci | d0 3.0 | shared vertex | pairs 3344 | 946.9 thread-s (80.0 %) | 1488369 point pairs per call (R2 rule) | 283.17 ms per pair
+PROFILE | flat_ci | d0 3.0 | near/far reached | pairs 35756 | 13.3 thread-s (1.1 %) | 2983 point pairs per call (R2 rule) | 0.37 ms per pair
+PROFILE | flat_ci | d0 3.0 | near/far capped | pairs 52372 | 38.9 thread-s (3.3 %) | 5329 point pairs per call (R2 rule) | 0.74 ms per pair
+PROFILE | flat_ci | d0 3.0 | total | pairs 93376 | 1184.4 thread-s | wall 53.4 s
+CLASSES (tolerant key, not the library's exact one) | flat_ci | d0 3.0 | stretched touching pairs 4480 (corner 768) | translation classes 192 | thread time 1325.3 s, per-class evaluation keeps 361.8 s (27.3 %) | member vs representative: 384 compared, max |dB| / max |B| 3.07e-15 (JJ/MM 3.07e-15)
+ASSEMBLY | flat_ci | d0 3.0 | diagonal assemble_diagonal 25.0 s | from near parts 0.001 s | stretched rows max rel diff 3.03e-16 | real rows bitwise yes
+# final code: ctest --preset win-release -L validation-large -R "7h: pml_ring fast path vs dense" (passed, 2732 s; WARN lines re-joined):
+ROW | pml_ring | u | ag | rms 5e-08 | L 3.75e-06 | taper 5e-07 | gap 5e-07 | pml 1e-06 | h 1.25e-07 | sigma 4 | d0 3.0 | tol 1.0e-07 | 2N 22816 | stretched 5152 (45.2 %) | levels 5 | leaf 0.969 lambda | matvec 1.508e-05 | R fast 0.97833919 | R dense 0.97833915 | dR +4.069e-08 | l2 3.332e-06 | l2_off30 3.855e-06 | its 602 | true res 8.41e-08 | dense res 6.7e-11 | fast op 4605.0 MB (rr near 212.3, rr far 545.1, ring near 195.4, ring far 3651.6) | dense 8329.1 MB | ring pairs near 2033032 far 88971896 | fast assemble (op + rhs + diag) 1035.1 s (ring near 125.0, far 904.1) | matvec fast 0.450 s dense 0.281 s | GMRES 331.8 s | dense assembly 1242.0 s | LU 113.2 s | peak fast 4.89 GB dense 8.46 GB
+COMPARE | u (window 2.375e-06/2.875e-06) vs u (window 2.375e-06/2.875e-06) | l2 3.3323e-06 | l2_off30 3.8546e-06 | eps_xz 1.4384e-06 | eps_yz 1.5950e-06 | dR +4.0687e-08 | R 0.9783392 vs 0.9783391
+# WP-PML5c review round (2026-10-19, complete kernels-layer key; machine shared with another work package's pml_ring runs). specklebem_pml_ring --case flat_ci --assembly-study --quick:
+ASSEMBLY | flat_ci | d0 3.0 | 2N 4592 | stretched 1136 | ring near pairs 357656 | plan 0.03 s | assembly cache estimate 59.9 MB | threads 24
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5a | 57.9 s (cache 0.0, scatter 57.9) | ordered pairs 204622 (stretched 185984) | evaluated stretched 185984 (touching 0, 0 copied from 0 translation classes) | cache 0.0 MB
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5a vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5c | 16.0 s (cache 15.9, scatter 0.0) | ordered pairs 204622 (stretched 185984) | evaluated stretched 91328 (touching 5248, 2048 copied from 1280 translation classes) | cache 58.0 MB
+ASSEMBLY | flat_ci | d0 3.0 | rep 0 | near ring 5c vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | flat_ci | d0 3.0 | diagonal assemble_diagonal 11.1 s | from near parts 0.001 s | stretched rows max rel diff 3.03e-16 | real rows bitwise yes
+# specklebem_pml_ring --case u --assembly-study --quick:
+ASSEMBLY | u | d0 3.0 | 2N 22816 | stretched 5152 | ring near pairs 2033032 | plan 0.26 s | assembly cache estimate 339.0 MB | threads 24
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a | 850.8 s (cache 0.0, scatter 850.7) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 1062440 (touching 0, 0 copied from 0 translation classes) | cache 0.0 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c | 200.6 s (cache 200.2, scatter 0.3) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 520404 (touching 23936, 12544 copied from 4096 translation classes) | cache 329.4 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | diagonal assemble_diagonal 146.3 s | from near parts 0.003 s | stretched rows max rel diff 3.38e-16 | real rows bitwise yes
+# specklebem_pml_ring --case u --assembly-study (full study):
+ASSEMBLY | u | d0 3.0 | 2N 22816 | stretched 5152 | ring near pairs 2033032 | plan 0.28 s | assembly cache estimate 339.0 MB | threads 24
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a | 801.6 s (cache 0.0, scatter 801.6) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 1062440 (touching 0, 0 copied from 0 translation classes) | cache 0.0 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5a vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c | 114.7 s (cache 114.5, scatter 0.2) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 520404 (touching 23936, 12544 copied from 4096 translation classes) | cache 329.4 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c canonical only | 307.7 s (cache 307.3, scatter 0.3) | ordered pairs 1121774 (stretched 1062440) | evaluated stretched 532948 (touching 23936, 0 copied from 0 translation classes) | cache 319.8 MB
+ASSEMBLY | u | d0 3.0 | rep 0 | near ring 5c canonical only vs 5a | bitwise yes | max per-entry rel diff 0.00e+00 | max |diff| / max |entry| 0.00e+00 | zero entries changed 0
+ASSEMBLY | u | d0 3.0 | rep 0 | dense same pairs 438.1 s | evaluated 592282 triangle pairs
+PROFILE | u | d0 3.0 | identical | pairs 3456 | 33.4 thread-s (0.3 %) | 37880 point pairs per call (R2 rule) | 9.65 ms per pair
+PROFILE | u | d0 3.0 | shared edge | pairs 5152 | 1094.5 thread-s (11.3 %) | 993993 point pairs per call (R2 rule) | 212.44 ms per pair
+PROFILE | u | d0 3.0 | shared vertex | pairs 15328 | 8238.4 thread-s (84.7 %) | 2768256 point pairs per call (R2 rule) | 537.47 ms per pair
+PROFILE | u | d0 3.0 | near/far reached | pairs 150100 | 67.9 thread-s (0.7 %) | 3479 point pairs per call (R2 rule) | 0.45 ms per pair
+PROFILE | u | d0 3.0 | near/far capped | pairs 358912 | 292.1 thread-s (3.0 %) | 5329 point pairs per call (R2 rule) | 0.81 ms per pair
+PROFILE | u | d0 3.0 | total | pairs 532948 | 9726.3 thread-s | wall 412.0 s
+CLASSES (tolerant key, not the library's exact one) | u | d0 3.0 | stretched touching pairs 20480 (corner 3072) | translation classes 384 | thread time 11050.6 s, per-class evaluation keeps 2198.7 s (19.9 %) | member vs representative: 768 compared, max |dB| / max |B| 0.00e+00 (JJ/MM 0.00e+00)
+ASSEMBLY | u | d0 3.0 | diagonal assemble_diagonal 90.8 s | from near parts 0.005 s | stretched rows max rel diff 3.38e-16 | real rows bitwise yes

@@ -11,6 +11,7 @@
 #include "specklebem/operator/linear_operator.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -147,20 +148,111 @@ struct BasisPattern {
 ///         range or not strictly ascending).
 std::shared_ptr<SparseOperator> assemble_sparse(const Problem& p, const BasisPattern& pattern);
 
+/// How assemble_sparse_stretched evaluates the triangle pairs with a stretched triangle
+/// (WP-PML5c; see assemble_sparse_stretched). All three give bitwise identical matrices.
+enum class StretchedPairEvaluation {
+    /// Default: canonical_cache, and the touching pairs in the stretch's translation-invariant
+    /// strips are grouped into translation classes, one evaluation per class (the members'
+    /// blocks are exact copies with the slots mapped).
+    translation_classes,
+    /// Every stretched triangle pair {t, s} the pattern needs is evaluated once, in the
+    /// canonical ordering (min, max), in a parallel pass over the pairs before the scatter; the
+    /// scatter takes the block of (t, s) from that cache, transposed for t > s.
+    canonical_cache,
+    /// The WP-PML5a path: each needed ordering (t, s) evaluated where it is scattered, so an
+    /// unordered pair whose both orderings are needed is evaluated twice. Reference for tests
+    /// and timings.
+    per_ordering,
+};
+
+/// Counters of one assemble_sparse_stretched call (SparseStretchedOptions::stats).
+struct SparseStretchedStats {
+    Index ordered_pairs = 0;        ///< triangle pairs (t, s) scattered (all, stretched or not)
+    Index stretched_pairs = 0;      ///< of these with a stretched triangle (ordered)
+    Index canonical_pairs = 0;      ///< unordered stretched pairs evaluated by the cache (0: off)
+    Index touching_pairs = 0;       ///< of the canonical pairs: sharing a vertex (incl. identical)
+    Index translation_classes = 0;  ///< classes of touching pairs (translation_classes only)
+    Index translated_pairs = 0;     ///< touching pairs copied from their class representative
+    /// Transient bytes of the cache during the call: blocks (576 per unordered pair), index,
+    /// processing order and, for translation classes, representatives, slot maps and key map
+    /// (a model; estimate_sparse_stretched_cache bounds it before the call).
+    std::size_t cache_bytes = 0;
+    Real cache_seconds = 0;    ///< wall time of the cache pass (index + blocks)
+    Real scatter_seconds = 0;  ///< wall time of the scatter pass (incl. unstretched pairs)
+};
+
+/// Options of assemble_sparse_stretched.
+struct SparseStretchedOptions {
+    StretchedPairEvaluation evaluation = StretchedPairEvaluation::translation_classes;
+    /// If non-null, filled with the counters and phase times of the call (not owned).
+    SparseStretchedStats* stats = nullptr;
+};
+
+/// Pre-assembly size of the canonical-pair cache of assemble_sparse_stretched (review S1 of
+/// WP-PML5c; mlfmm::PmlRingEstimate::near_assembly_bytes).
+struct SparseStretchedCacheEstimate {
+    Index canonical_pairs = 0;  ///< unordered stretched triangle pairs the pattern needs
+    Index touching_pairs = 0;   ///< of these sharing a vertex (incl. identical)
+    /// Upper bound of SparseStretchedStats::cache_bytes (one class per touching pair, the largest
+    /// key); 0 for per_ordering or an identity stretch (no cache).
+    std::size_t bytes = 0;
+};
+
+/// The cache size of assemble_sparse_stretched(p, pattern, {evaluation}) for p.space = &space and
+/// p.stretch = &stretch, without evaluating any block: the index pass of the assembly (O(triangle
+/// pairs of the pattern), one thread). canonical_pairs and touching_pairs equal the stats of the
+/// call; bytes >= its cache_bytes.
+/// @throws std::invalid_argument for an inconsistent pattern (as assemble_sparse).
+[[nodiscard]] SparseStretchedCacheEstimate estimate_sparse_stretched_cache(
+    const basis::RwgSpace& space, const geometry::CoordinateStretch& stretch,
+    const BasisPattern& pattern,
+    StretchedPairEvaluation evaluation = StretchedPairEvaluation::translation_classes);
+
 /// assemble_sparse with the PML stretch of p (WP-PML5a, the near part of the fast PML ring,
 /// mlfmm::PmlRingOperator): every triangle pair with a stretched triangle uses the stretched
 /// kernels (kernels::element_blocks overload, jump terms unchanged), every other pair the
 /// unstretched ones, so the entries of basis pairs without a stretched support triangle are
 /// bitwise those of assemble_sparse and of the unstretched DenseStrategy, and the others equal
 /// the DenseStrategy entries with the stretch up to the summation order (the dense assembler sums
-/// a stretched entry as A + A^T + rest, assembler.cpp "Stretched pairs"; here every triangle pair
-/// of a pattern pair is evaluated in the ordering (test, source) of its row, i.e. an unordered
-/// stretched pair whose both orderings are in the pattern is evaluated twice). Without a stretch
-/// (or with the identity) bitwise assemble_sparse. Schedule, determinism and memory as
+/// a stretched entry as A + A^T + rest, assembler.cpp "Stretched pairs"; here every entry
+/// receives the contributions of its triangle pairs in the order (test triangle by colour, source
+/// triangle ascending) of assemble_sparse). Without a stretch (or with the identity) bitwise
 /// assemble_sparse.
+///
+/// Stretched pairs (WP-PML5c, options.evaluation): the stretched element blocks are computed for
+/// the canonical ordering (min(t, s), max(t, s)) and transposed for the other one, so the
+/// combined blocks satisfy B(s, t) = B(t, s)^T bitwise (TrianglePairBlocks; the jump term enters
+/// identical pairs only). canonical_cache therefore evaluates each needed unordered stretched
+/// pair once (OpenMP over the pairs, touching pairs first, dynamic schedule; each pair writes its
+/// own cache slot) and scatters exactly the contributions of per_ordering in the same order: the
+/// two evaluations give **bitwise identical** matrices. The cache holds 576 bytes per unordered
+/// stretched pair plus 24 (translation classes: 38) bytes of index, order and class data and the
+/// class keys during the call (logged;
+/// SparseStretchedStats::cache_bytes, bounded beforehand by estimate_sparse_stretched_cache).
+///
+/// Translation classes (the default, translation_classes): the touching pairs (95 % of the
+/// stretched near-ring time, shared-vertex pairs alone 80-85 %) of a PML strip repeat along the
+/// strip: where all six vertices of a pair satisfy |y| <= y.start - margin (or the y profile is
+/// absent or has sigma_max = 0) the stretch, and with it every quantity of the stretched touching
+/// rule, depends on x only, so the blocks are invariant under a translation along y (likewise x;
+/// corner pairs are not invariant). Such pairs are grouped by kernels::stretched_touching_key,
+/// built in the kernels layer from the code paths of the touching rule: bit for bit every input
+/// the rule reads from the pair (coordinates relative to the rule origin along the translated
+/// axis, absolute across it, normal, area, longest edge, RWG divergences per free vertex, the
+/// shared-index pattern, the rule's point counts and fastmath decision per region); pairs with a
+/// vertex within the margin kernels::kTranslationStripMargin (1e-12 max(start, h)) of a strip
+/// boundary have no key and are evaluated individually (review W1b: a profile of order m < 1
+/// gives a visible sigma one ulp past the start). One evaluation per class (its first slot), the
+/// members' blocks are exact copies with the slots mapped by free vertex (the key's slot_vertex).
+/// Pairs whose inputs differ in the last bit (the rounding of the mesh coordinates) form classes
+/// of their own, so the copies are bitwise the blocks of their own evaluation: the matrix is
+/// **bitwise** that of per_ordering (tested on the unit meshes; measured on the flat CI and 7c
+/// meshes, benchmarks/results/pml_ring.md "5c"). Identical and non-touching pairs (cheap) are
+/// evaluated individually. All three evaluations are independent of the thread count.
+/// Schedule of the scatter, determinism and memory of the result as assemble_sparse.
 /// @throws std::invalid_argument for an invalid Problem (validate) or an inconsistent pattern.
-std::shared_ptr<SparseOperator> assemble_sparse_stretched(const Problem& p,
-                                                          const BasisPattern& pattern);
+std::shared_ptr<SparseOperator> assemble_sparse_stretched(
+    const Problem& p, const BasisPattern& pattern, const SparseStretchedOptions& options = {});
 
 /// The per-triangle-pair blocks of the dense assembler (WP-PML5a, the far part of the fast PML
 /// ring): evaluate(t, s) gives the combined blocks of Z that DenseStrategy adds for the pair

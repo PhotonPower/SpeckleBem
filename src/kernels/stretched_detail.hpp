@@ -44,6 +44,13 @@ void stretched_element_blocks_both(const basis::RwgSpace& space, Index t_test, I
                                    std::array<Eigen::Matrix<Complex, 3, 3>, 2>& L,
                                    std::array<Eigen::Matrix<Complex, 3, 3>, 2>& K);
 
+/// Translation key of a stretched touching pair (kernels::stretched_touching_key; indices
+/// range-checked by the caller).
+bool stretched_touching_key(const basis::RwgSpace& space, Index t_test, Index t_src,
+                            const std::array<RegionParams, 2>& regions,
+                            const std::array<bool, 2>& active, const OperatorOptions& opt,
+                            const geometry::CoordinateStretch& stretch, StretchedTouchingKey& key);
+
 /// Rule information of a stretched pair (stretched_pair_info).
 [[nodiscard]] StretchedPairInfo stretched_info(const geometry::TriangleMesh& mesh, Index t_test,
                                                Index t_src, Complex k, const OperatorOptions& opt,
