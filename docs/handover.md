@@ -127,9 +127,20 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   apply thread-count independent). 7h at the 7c size: d₀ 3 matvec 1.5e-5, R 4e-8, far field 3.3e-6 vs dense,
   d₀ 5 matvec 1.4e-7; 4.6 vs 8.3 GB; setup 1.4× the dense assembly (near ring both orderings → 5c; far ring
   O(N_s·N) → ACA in 5b, needed ≈ 10× at L = 15 µm, 40× at 30 µm).
-- **In flight:** WP-PML5b (`wp/pml5b-pml-ring-aca`, ACA far ring, scaling to 2N ≥ 1.5e5, 7d-Si/7e through the fast
-  path) and WP-PML5c (`wp/pml5c-pml-ring-assembly`, canonical touching-block cache, parallel near ring, Jacobi
-  diagonal from the near parts, shared pattern computations), both started 2026-10-19 from b960d4b.
+- **In flight (sleep 2026-10-19 09:30):**
+  - WP-PML5c `wp/pml5c-pml-ring-assembly` = `wp/pml5c-review-fixes` + de73469 (coordinator's 7-line review
+    follow-up: key word-count guard, comment markers), **ready to merge**: review MERGE after the fix round, gate
+    on 6035bea green (571 ctest both presets, 128 pytest, format), re-gate of de73469: release 571 green, debug
+    ctest was running at the sleep (rerun it; detached gate worktree `.claude/worktrees/gate-pml5c2`). Merge recipe:
+    squash onto main, run the prepared docs script (scratchpad `docs_pml5c.py`, counts 571/128), build main both
+    presets, push. Gate numbers (near ring 0.26–0.41× dense same pairs) were measured under load — idle rerun open.
+  - WP-PML5b `wp/pml5b-pml-ring-aca` (worker worktree agent-aa41dc55540dce6b3, head 9240277 + a WIP memory-note
+    commit): ACA far ring implemented (partially pivoted ACA in `compression/aca/`, H-matrix row clusters, η = 2
+    default measured at the 7c size, decayed region parts dropped per pair), validation at CI size, 2N ≈ 6e4 and the
+    7e driver added; at the sleep the 7e PML run through the fast path (`specklebem_pml_si_crosscheck --route pml`)
+    was running and the worker was paused at its turn limit (it resumes when the run ends). Not yet reported, not
+    reviewed. After 5c lands it must be rebased onto main (shared `PmlRingOperator` constructor / plan, ADR 0008
+    result paragraphs, record sections).
 - **Next:** WP-PML5b (ACA for the far ring blocks, scaling to 2N ≥ 1.5e5) and WP-PML5c (touching-block cache,
   ring assembly time) — independent of each other, then WP-PML6 (Huygens-plane far field, ADR 0010); Ag scaling
   on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule (7e finding), ADR 0009
