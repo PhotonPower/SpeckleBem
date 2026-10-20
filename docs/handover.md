@@ -136,8 +136,23 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   10^−(d₀+1)), stretched drop bound, integrated with 5c. 7h met through the fast path; `assemble()` 0.31× dense at
   the 7c size, operator 1.5 GB vs 8.3 GB; 2N = 152 960 in 18 GB, 300 160 in 33.6 GB; 7d-Si/7e reproduced. Phase 5
   PML fast path complete (7a–7e, 7h); 7f/7g await WP-PML6.
-- **In flight:** WP-PML6 (`wp/pml6-huygens-far-field`, Huygens-plane far field for the PML route, ADR 0010, rows
-  7f/7g; default switch to the Huygens source if 7g passes), started 2026-10-20 from 9b8123a.
+- **In flight (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
+  continuation `wp/pml6-huygens-far-field-2` at f5bd897 in worker worktree agent-a40c1f6891657e9af: 7g reported as
+  unmet with regression guards, docs/10 finished, wide-gap diagnostics; still to do there: record
+  `benchmarks/results/pml_huygens.md` + rows, docs/05 rows 7f/7g, ADR 0010 result paragraph, full ctest both presets,
+  report). **Findings:** 7f met (flat Ag/Si Huygens vs currents 2.7e-4 / 2.8e-4, dR ≤ 4e-7, z_H ×1.5 2.6e-4); 7g
+  **not met and not in the ADR's "physical" sense**: 7d with Huygens 2.78 % (currents 2.57 %), but z_H ×1.5 1.05 %,
+  window ×0.7/×1.3 1.75 %/0.66 %, Huygens vs currents at U 1.41 %, 7e with Huygens dR −5e-4 — the plane window
+  (raised cosine, transition Δ = gap = λ) truncates the propagating field crossing the plane at z_H (point-source
+  edge error ≈ π²/(2(kΔ)²) ≈ 12 % per end at Δ = λ; wide gap 1.375 µm: z_H sensitivity 0.085 % at θ ≤ 30°). Default
+  stays `FarFieldSource::Currents`. **Lead decision pending (asked 2026-10-20):** (A) extend the plane beyond the real
+  part over the PML zone and beyond with stretched-source field evaluation (already implemented and tested: dipole
+  continued through the PML to 6e-3) and fix the window transition Δ ≈ 3–4 λ from the point-source error model
+  before rerunning 7g (needs an ADR 0010 amendment; coordinator's recommendation), or (B) document the failure.
+- **Lesson (2026-10-20):** never remove an agent worktree on a "stopped at turn limit" notification alone — the
+  WP-PML6 worker was still running measurements from scratchpad copies of its executables (process filter on the
+  worktree path missed them); check processes by worktree *and* scratchpad path, and prefer leaving the worktree
+  until the agent's hand-back report has arrived. Only its memory note was lost.
 - **Next:** WP-PML6 (Huygens-plane far field for rough metals, ADR 0010; rows 7f/7g), then an idle-machine timing
   rerun of the 5b/5c records and the GMRES preconditioning item (iterations ≈ N^0.5 on rough Ag PML systems:
   602 → 1 715 → 2 679 at 2N = 2.3e4 / 1.5e5 / 3e5; Krylov basis 12.9 GB at 3e5 — restarted GMRES or a near-field
