@@ -24,7 +24,7 @@
 //            [--gen-h 8.3333333333333e-9] [--map 6.5e-6] [--seed 1] [--sigma 50e-9]
 //            [--lc 500e-9] [--beam-radius 7e-6] [--taper 0.5e-6] [--gap 0.5e-6] [--pml 1e-6]
 //            [--sigma-max 4] [--order 2] [--dark-band-tol 1e-4] [--acc 1e-5] [--stp 10]
-//            [--pml-solver lu|gmres] [--eigen-lu] [--pml-tol 1e-8] [--pml-max-iter 2000]
+//            [--pml-solver lu|gmres|fast] [--eigen-lu] [--pml-tol 1e-8] [--pml-max-iter 2000]
 //            [--depth-factor 1] [--d0 3] [--tol 1e-5] [--max-iter 400] [--ff-degree 10]
 //            [--max-gb 50] [--force] [--estimate-only] [--tag NAME] [--out DIR]
 //            [--reference DIR]... [--summary FILE]
@@ -107,8 +107,10 @@ Options parse(int argc, char** argv) {
                 o.c.pml_solver = PmlSolver::Lu;
             else if (v == "gmres")
                 o.c.pml_solver = PmlSolver::Gmres;
+            else if (v == "fast")  // WP-PML5b: MLFMM + PML ring (ACA), d0 = --d0
+                o.c.pml_solver = PmlSolver::Fast;
             else
-                throw std::invalid_argument("--pml-solver must be lu or gmres");
+                throw std::invalid_argument("--pml-solver must be lu, gmres or fast");
         } else if (a == "--eigen-lu") {
             o.c.use_lapack = false;
         } else if (a == "--pml-tol") {

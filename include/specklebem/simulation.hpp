@@ -320,7 +320,7 @@ public:
                SimulationConfig config);
     /// Open rough surface terminated by a complex-coordinate-stretching PML (ADR 0009, WP-PML3a):
     /// the PML route, dense (prototype, validated by 7a-7e) or with compression "mlfmm" (fast
-    /// path, WP-PML5a: MLFMM on the real functions plus the exact PML ring,
+    /// path, WP-PML5a / 5b: MLFMM on the real functions plus the PML ring, near exact, far ACA,
     /// mlfmm::MlfmmOperator; GMRES with the diagonal preconditioner as on the dense route, the
     /// masked test rows stay in the system with right-hand side 0). Cheap (no assembly), like
     /// the box constructor.

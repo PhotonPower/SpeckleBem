@@ -229,7 +229,9 @@ void apply_kernels(kernels::OperatorOptions& o, const py::dict& d) {
 
 /// mlfmm=dict(...) onto mlfmm::MlfmmParams (docs/10): accuracy_digits, max_elements_per_leaf,
 /// min_box_size_lambda (the octree keys of mlfmm::OctreeParams), automatic_leaf_size,
-/// leaf_radius_quantile, max_exact_far_bytes.
+/// leaf_radius_quantile, max_exact_far_bytes and the PML ring keys pml_ring_use_aca,
+/// pml_ring_aca_epsilon, pml_ring_eta, pml_ring_max_rank, pml_ring_row_clusters,
+/// pml_ring_max_far_bytes (mlfmm::PmlRingParams, WP-PML5b).
 void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
     for (const auto& [k, v] : d) {
         const auto key = dict_key(k, "mlfmm");
@@ -246,6 +248,18 @@ void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
         } else if (key == "max_exact_far_bytes") {
             // Python int >= 0 (a negative value fails the unsigned cast -> ValueError).
             p.max_exact_far_bytes = dict_value<std::size_t>(v, key, "mlfmm");
+        } else if (key == "pml_ring_use_aca") {
+            p.pml_ring.use_aca = dict_value<bool>(v, key, "mlfmm");
+        } else if (key == "pml_ring_aca_epsilon") {
+            p.pml_ring.aca_epsilon = dict_value<Real>(v, key, "mlfmm");
+        } else if (key == "pml_ring_eta") {
+            p.pml_ring.eta = dict_value<Real>(v, key, "mlfmm");
+        } else if (key == "pml_ring_max_rank") {
+            p.pml_ring.max_rank = dict_value<Index>(v, key, "mlfmm");
+        } else if (key == "pml_ring_row_clusters") {
+            p.pml_ring.row_clusters = dict_value<bool>(v, key, "mlfmm");
+        } else if (key == "pml_ring_max_far_bytes") {
+            p.pml_ring.max_far_bytes = dict_value<std::size_t>(v, key, "mlfmm");
         } else {
             throw py::value_error("mlfmm: unknown key '" + key + "'");
         }
@@ -322,6 +336,17 @@ std::unique_ptr<PySimulation> make_simulation(
     const std::string& solver_name, const std::string& compression,
     const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
     const std::optional<py::dict>& mlfmm_opts) {
+    if (mlfmm_opts) {  // the PML ring exists on the PML route only
+        for (const auto& [k, v] : *mlfmm_opts) {
+            (void)v;
+            const std::string key = dict_key(k, "mlfmm");
+            if (key.rfind("pml_ring_", 0) == 0) {
+                throw py::value_error("mlfmm: key '" + key +
+                                      "' sets the PML ring of Simulation.with_pml; a closed "
+                                      "surface has no PML ring");
+            }
+        }
+    }
     SimulationConfig c = make_config(exc, object, exterior, wavelength, form, preconditioner,
                                      solver_name, compression, gmres, kernel_opts, mlfmm_opts);
     geometry::TriangleMesh copy = mesh;
@@ -339,9 +364,9 @@ std::unique_ptr<PySimulation> make_pml_simulation(
     const std::optional<material::Material>& exterior, std::optional<Real> wavelength,
     const py::object& form, const std::string& preconditioner, const std::string& solver_name,
     const std::string& compression, const std::optional<py::dict>& gmres,
-    const std::optional<py::dict>& kernel_opts) {
+    const std::optional<py::dict>& kernel_opts, const std::optional<py::dict>& mlfmm_opts) {
     SimulationConfig c = make_config(exc, object, exterior, wavelength, form, preconditioner,
-                                     solver_name, compression, gmres, kernel_opts, std::nullopt);
+                                     solver_name, compression, gmres, kernel_opts, mlfmm_opts);
     geometry::OpenSurfaceMesh copy = open;
     const PmlTermination term = pml.value_or(PmlTermination{});
     std::shared_ptr<excitation::Excitation> keep = exc;
@@ -575,6 +600,12 @@ py::dict config_dict(const PySimulation& s) {
     f["automatic_leaf_size"] = p.automatic_leaf_size;
     f["leaf_radius_quantile"] = p.leaf_radius_quantile;
     f["max_exact_far_bytes"] = p.max_exact_far_bytes;
+    f["pml_ring_use_aca"] = p.pml_ring.use_aca;
+    f["pml_ring_aca_epsilon"] = p.pml_ring.aca_epsilon;
+    f["pml_ring_eta"] = p.pml_ring.eta;
+    f["pml_ring_max_rank"] = p.pml_ring.max_rank;
+    f["pml_ring_row_clusters"] = p.pml_ring.row_clusters;
+    f["pml_ring_max_far_bytes"] = p.pml_ring.max_far_bytes;
     d["mlfmm"] = f;
     return d;
 }
@@ -980,7 +1011,9 @@ mlfmm : dict, optional
     opt-in, accuracy_digits <= 3 only, otherwise ValueError)
     and ``max_exact_far_bytes`` (0 = automatic: max(2 x the near-field bytes, 1 GiB), at most
     the dense matrix bytes 16 (2N)^2; budget of the exactly evaluated far interactions of
-    lossy regions, checked before allocation).
+    lossy regions, checked before allocation); PML route only (Simulation.with_pml): the
+    pml_ring_* keys of the PML ring (use_aca, aca_epsilon, eta, max_rank, row_clusters,
+    max_far_bytes; docs/10; ValueError for Simulation()).
 
 Raises
 ------
@@ -1011,7 +1044,8 @@ works). A main thread waiting for the lock stays interruptible with Ctrl-C
                     py::arg("exterior") = py::none(), py::arg("wavelength") = py::none(),
                     py::arg("formulation") = "auto", py::arg("preconditioner") = "auto",
                     py::arg("solver") = "gmres", py::arg("compression") = "dense",
-                    py::arg("gmres") = py::none(), py::arg("kernels") = py::none(), R"doc(
+                    py::arg("gmres") = py::none(), py::arg("kernels") = py::none(),
+                    py::arg("mlfmm") = py::none(), R"doc(
 Simulation of an open surface terminated by a PML (ADR 0009; dense, or "mlfmm" since WP-PML5a).
 
 Parameters
@@ -1023,9 +1057,13 @@ excitation : Excitation
     waist <~ pml_start / 3.5 whose region_radius covers the gap corners).
 pml : PmlTermination, optional
     None = PmlTermination() (sigma_max 4, order 2, flat patch, dark band 1e-4).
-object, exterior, wavelength, formulation, preconditioner, solver, gmres, kernels :
+object, exterior, wavelength, formulation, preconditioner, solver, gmres, kernels, mlfmm :
     As for Simulation(); compression "dense" or "mlfmm" (GMRES only: MLFMM on the functions
-    outside the PML plus the exact PML ring, default MLFMM parameters).
+    outside the PML plus the PML ring: near pairs exact, far pairs by ACA since WP-PML5b). The
+    mlfmm keys pml_ring_use_aca (True; False: the exact far ring of WP-PML5a),
+    pml_ring_aca_epsilon (0 = 10^-(accuracy_digits + 1)), pml_ring_eta (admissibility, 2.0),
+    pml_ring_max_rank (0 = break-even), pml_ring_row_clusters (True) and
+    pml_ring_max_far_bytes (0 = automatic) set the ring (docs/10).
 
 The right-hand side is zero on test functions touching the PML; far_field uses the window
 across the gap (far_field_window) by default. Near fields (field()) are not available.

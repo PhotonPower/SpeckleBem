@@ -142,6 +142,12 @@ MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& para
     // The plane-wave translations need real coordinates: with a PML stretch the expansion covers
     // the real functions only and the exact ring every pair with a stretched one (WP-PML5a).
     const bool pml = op::has_stretch(problem);
+    if (!params.pml_ring.assemble_near) {
+        throw std::invalid_argument(
+            "MlfmmOperator: PmlRingParams::assemble_near = false is a diagnostic of a standalone "
+            "PmlRingOperator (the far ring alone); the operator of a solve needs the near ring "
+            "(MlfmmParams::pml_ring.assemble_near = true)");
+    }
     if (pml && params.leaf_radius_quantile < 1.0) {
         throw std::invalid_argument(
             "MlfmmOperator: the PML ring (WP-PML5a) needs every basis function on the leaf level; "
@@ -196,8 +202,8 @@ MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& para
     m.near_s = seconds_since(t0);
     if (pml) {
         t0 = std::chrono::steady_clock::now();
-        m.ring =
-            std::make_unique<PmlRingOperator>(problem, *m.tree, std::move(plan), params.pml_ring);
+        m.ring = std::make_unique<PmlRingOperator>(problem, *m.tree, std::move(plan),
+                                                   params.pml_ring, params.accuracy_digits);
         m.ring_s = seconds_since(t0);
     }
     SBEM_INFO(
@@ -273,7 +279,8 @@ std::string MlfmmOperator::describe() const {
         os << "\n  " << home_level_text(t);
     if (m.ring)
         os << "\n  PML route: Z = Z_rr + Z_ring; Z_rr = the MLFMM below on the "
-           << rows() / 2 - m.ring->stretched_count() << " real functions, Z_ring exact on the "
+           << rows() / 2 - m.ring->stretched_count() << " real functions, Z_ring ("
+           << (m.ring->far_stats().aca ? "near exact, far ACA" : "exact") << ") on the "
            << m.ring->stretched_count() << " stretched ones";
     os << "\n  near" << (m.ring ? " (real-real)" : "") << ": " << m.near->describe()
        << ", assembled in " << m.near_s << " s";

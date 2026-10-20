@@ -38,8 +38,9 @@
 /// policy decisions and the translators identical to the unstretched MLFMM of the same mesh, so
 /// Z_rr x equals P_r Z_mlfmm(unstretched) P_r x (P_r: zero the stretched entries) up to rounding,
 /// and the ring is organised by the same leaves. Z_ring (PmlRingOperator) holds every pair with
-/// a stretched member exactly. The accuracy contract of the real part (lossy policy, leaf rule,
-/// exact far budget) is unchanged; the ring is exact. The local leaf rule (leaf_radius_quantile
+/// a stretched member (near pairs exact; far pairs by ACA to 10^-(d0+1), WP-PML5b, or exactly
+/// with pml_ring.use_aca = false). The accuracy contract of the real part (lossy policy, leaf rule,
+/// exact far budget) is unchanged. The local leaf rule (leaf_radius_quantile
 /// < 1) is not supported with a stretch.
 #include "specklebem/compression/mlfmm/octree.hpp"
 #include "specklebem/compression/mlfmm/pml_ring.hpp"
@@ -97,8 +98,8 @@ struct MlfmmParams {
     /// (estimate_near_bytes), kExactFarMinBytes), dense bytes 16 (2N)^2). SIZE_MAX disables the
     /// guard.
     std::size_t max_exact_far_bytes = 0;
-    /// PML route only (non-identity Problem::stretch, WP-PML5a): parameters of the exact PML ring
-    /// (PmlRingParams: far-ring byte budget).
+    /// PML route only (non-identity Problem::stretch, WP-PML5a/5b): parameters of the PML ring
+    /// (PmlRingParams: far-ring byte budget, ACA tolerance, eta, rank cap, row clusters).
     PmlRingParams pml_ring;
 };
 
@@ -169,10 +170,12 @@ public:
     /// assembly), then the near field. With a non-identity PML stretch (file comment): the
     /// classification and the ring estimate (budget check) come right after the octree, the far
     /// part excludes the stretched functions, the near part holds the real-real pairs, and the
-    /// exact PML ring (PmlRingOperator) is assembled last.
+    /// PML ring (PmlRingOperator, accuracy_digits passed on) is assembled last.
     /// @throws std::invalid_argument for an invalid Problem (op::validate), invalid octree or
-    ///         MLFMM params, a mesh too coarse for the leaves (r_max >= leaf edge), or, with a
-    ///         stretch, leaf_radius_quantile < 1; TruncationOrderError (a std::runtime_error) if a
+    ///         MLFMM params, a mesh too coarse for the leaves (r_max >= leaf edge),
+    ///         params.pml_ring.assemble_near = false (a diagnostic of a standalone
+    ///         PmlRingOperator only), or, with a stretch, leaf_radius_quantile < 1;
+    ///         TruncationOrderError (a std::runtime_error) if a
     ///         region has neither a usable expansion nor enough decay for the ADR 0008 §6
     ///         fallback, see MlfmmFarOperator; std::runtime_error if the PML ring's far blocks
     ///         exceed params.pml_ring.max_far_bytes (PmlRingOperator).
@@ -206,7 +209,7 @@ public:
     /// follows the dense PML summation order A + A^T + rest; 1.7e-16 relative on the tiny unit
     /// cases, tested to 1e-14). O(N log(nnz per row)).
     [[nodiscard]] VectorXc diagonal() const;
-    /// The exact PML ring; nullptr without a (non-identity) stretch.
+    /// The PML ring; nullptr without a (non-identity) stretch.
     [[nodiscard]] const PmlRingOperator* ring_operator() const;
 
 private:

@@ -175,3 +175,38 @@ def test_with_pml_mlfmm_solve():
     assert np.linalg.norm(x - xd) < 5e-2 * np.linalg.norm(xd)
     b = fast.rhs()
     assert np.count_nonzero(b == 0) > 0  # masked test rows stay in the system with rhs 0
+
+
+def test_with_pml_mlfmm_ring_keys():
+    """WP-PML5b: the PML ring keys of mlfmm= reach the C++ operator (ACA far ring by default, the
+    exact far ring of WP-PML5a with pml_ring_use_aca=False); both solve to the same currents."""
+    cheap = dict(
+        outer_grading_levels=0, target_accuracy=0.0, quad_degree_near=5, stretched_touching_points=4
+    )
+    common = dict(
+        pml=sb.PmlTermination(sigma_max=1.0, **RELAXED),
+        object=sb.Material(eps_r=2.25),
+        kernels=cheap,
+        gmres=dict(tol=1e-8, max_iter=2000),
+        compression="mlfmm",
+    )
+    keys = dict(pml_ring_eta=20.0, pml_ring_max_rank=1000, pml_ring_aca_epsilon=1e-6)
+    aca = sb.Simulation.with_pml(open_mesh(), beam(), mlfmm=keys, **common)
+    exact = sb.Simulation.with_pml(
+        open_mesh(), beam(), mlfmm=dict(pml_ring_use_aca=False), **common
+    )
+    assert aca.solve().converged and exact.solve().converged
+    rep = aca.report()
+    assert "ring far ACA:" in rep and "pml_ring: use_aca true" in rep
+    assert "eta 20" in rep
+    assert "ring far ACA:" not in exact.report() and "pairs, exact)" in exact.report()
+    cfg = aca.config["mlfmm"]
+    assert cfg["pml_ring_eta"] == 20.0 and cfg["pml_ring_max_rank"] == 1000
+    assert cfg["pml_ring_use_aca"] is True and cfg["pml_ring_row_clusters"] is True
+    assert cfg["pml_ring_aca_epsilon"] == 1e-6 and cfg["pml_ring_max_far_bytes"] == 0
+    x, xe = aca.currents, exact.currents
+    assert np.linalg.norm(x - xe) < 1e-4 * np.linalg.norm(xe)
+    with pytest.raises(ValueError, match="pml_ring"):
+        sb.Simulation.with_pml(open_mesh(), beam(), mlfmm=dict(pml_ring_eta=0.0), **common)
+    with pytest.raises(ValueError, match="unknown key"):
+        sb.Simulation.with_pml(open_mesh(), beam(), mlfmm=dict(pml_ring_bogus=1), **common)

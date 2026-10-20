@@ -1,9 +1,10 @@
 #pragma once
 /// @file pml_ring_support.hpp
-/// Validation 7h of the PML route (WP-PML5a; ADR 0008 amendment 2026-10-18 decision 6, docs/05
-/// "PML route" row 7h): the fast path (Simulation with compression "mlfmm" on the PML route:
-/// MLFMM on the real functions plus the exact PML ring, GMRES with the recommended diagonal
-/// preconditioner) against the dense PML matrix and its LU solve on the same case:
+/// Validation 7h of the PML route (WP-PML5a/5b/5c; ADR 0008 amendment 2026-10-18 decision 6,
+/// docs/05 "PML route" row 7h): the fast path (Simulation with compression "mlfmm" on the PML
+/// route: MLFMM on the real functions plus the PML ring, near part exact, far part ACA by
+/// default, GMRES with the recommended diagonal preconditioner) against the dense PML matrix and
+/// its LU solve on the same case:
 ///  * matvec: max over random vectors (fixed seeds) of |Z_fast x - Z_dense x| / |Z_dense x|
 ///    (< 1e-3 at d0 = 3, < 1e-5 at d0 = 5);
 ///  * solve: R = P_refl / P_inc of the windowed far field (pml_rough_ag::FarField::reflectance)
@@ -49,7 +50,39 @@ struct FastSettings {
     Real digits = 3.0;            ///< MlfmmParams::accuracy_digits
     Real gmres_tolerance = 1e-7;  ///< relative residual of the GMRES solve
     int max_iter = 5000;
+    mlfmm::PmlRingParams ring;  ///< MlfmmParams::pml_ring (WP-PML5b: ACA by default)
 };
+
+/// One ROW-line segment with the far ring statistics (WP-PML5b; exact path: "exact far ring").
+[[nodiscard]] inline std::string far_segment(const mlfmm::PmlRingFarStats& s) {
+    char buf[900];
+    if (!s.aca) {
+        std::snprintf(buf, sizeof(buf), "ring far exact (5a) %lld blocks %.1f MB",
+                      static_cast<long long>(s.exact_blocks),
+                      static_cast<Real>(s.exact_bytes) / 1e6);
+        return buf;
+    }
+    std::string hist;
+    for (const Index h : s.rank_histogram) hist += (hist.empty() ? "" : " ") + std::to_string(h);
+    std::snprintf(
+        buf, sizeof(buf),
+        "ring far ACA eps %.0e eta %.2f: aca %lld blocks %.1f MB, exact %lld + cap %lld blocks "
+        "%.1f "
+        "MB, dropped %lld (R1 %lld, R2 %lld, max bound %.1e) | ranks min %lld med %lld max %lld "
+        "mean JJ %.2f JM %.2f MJ %.2f MM %.2f | hist [%s] | gen rows %lld cols %lld | pair evals "
+        "%lld, reduced %lld (R2 beyond %.3g m)",
+        s.epsilon, s.eta, static_cast<long long>(s.aca_blocks),
+        static_cast<Real>(s.aca_bytes) / 1e6, static_cast<long long>(s.exact_blocks),
+        static_cast<long long>(s.fallback_blocks), static_cast<Real>(s.exact_bytes) / 1e6,
+        static_cast<long long>(s.dropped_blocks), static_cast<long long>(s.region_dropped[0]),
+        static_cast<long long>(s.region_dropped[1]), s.max_dropped_bound,
+        static_cast<long long>(s.rank_min), static_cast<long long>(s.rank_median),
+        static_cast<long long>(s.rank_max), s.rank_mean[0], s.rank_mean[1], s.rank_mean[2],
+        s.rank_mean[3], hist.c_str(), static_cast<long long>(s.generated_rows),
+        static_cast<long long>(s.generated_columns), static_cast<long long>(s.pair_evaluations),
+        static_cast<long long>(s.pair_reductions), s.drop_distance[1]);
+    return buf;
+}
 
 /// Result of the fast run (Simulation with compression "mlfmm").
 struct FastRun {
@@ -62,9 +95,10 @@ struct FastRun {
     std::size_t operator_bytes = 0, ring_near_bytes = 0, ring_far_bytes = 0, rr_near_bytes = 0,
                 rr_far_bytes = 0;
     Index ring_near_pairs = 0, ring_far_pairs = 0;
+    mlfmm::PmlRingFarStats far_stats;  ///< ring far part (ACA / exact)
     /// Simulation::assemble(): the operator (MLFMM + ring), the right-hand side and the Jacobi
     /// diagonal (ROW "fast assemble"; the operator alone is about ring_near_s + ring_far_s + the
-    /// MLFMM setup, the diagonal is op::assemble_diagonal)
+    /// MLFMM setup, the diagonal is read from the near parts, MlfmmOperator::diagonal)
     Real assemble_s = 0;
     Real ring_near_s = 0, ring_far_s = 0;
     Real matvec_s = 0;  ///< one apply (mean over the matvec vectors)
@@ -101,6 +135,7 @@ inline FastRun run_fast(const RoughCase& c, const FastSettings& f) {
     cfg.compression = "mlfmm";
     cfg.solver = SolverKind::Gmres;
     cfg.mlfmm.accuracy_digits = f.digits;
+    cfg.mlfmm.pml_ring = f.ring;
     cfg.gmres.tolerance = f.gmres_tolerance;
     cfg.gmres.max_iter = f.max_iter;
     Simulation sim(pml_rough_ag::make_open_mesh(c), pml_rough_ag::make_termination(c), beam, cfg);
@@ -122,6 +157,7 @@ inline FastRun run_fast(const RoughCase& c, const FastSettings& f) {
     r.rr_far_bytes = Z->far_operator().memory_bytes();
     r.ring_near_pairs = ring.near_pairs();
     r.ring_far_pairs = ring.far_pairs();
+    r.far_stats = ring.far_stats();
     r.ring_near_s = ring.near_seconds();
     r.ring_far_s = ring.far_seconds();
     t0 = std::chrono::steady_clock::now();
@@ -203,6 +239,7 @@ struct MatvecRun {
     Real dense_s = 0;                                  ///< dense assembly [s]
     Real fast_matvec_s = 0, dense_matvec_s = 0;        ///< one apply (mean)
     Real peak_fast = 0, peak_dense = 0;                ///< process peak after each part [bytes]
+    mlfmm::PmlRingFarStats far_stats;
 };
 
 inline MatvecRun run_matvec(const RoughCase& c, const FastSettings& f) {
@@ -213,6 +250,7 @@ inline MatvecRun run_matvec(const RoughCase& c, const FastSettings& f) {
     cfg.compression = "mlfmm";
     cfg.solver = SolverKind::Gmres;
     cfg.mlfmm.accuracy_digits = f.digits;
+    cfg.mlfmm.pml_ring = f.ring;
     const Simulation sim(pml_rough_ag::make_open_mesh(c), pml_rough_ag::make_termination(c), beam,
                          cfg);
     std::vector<VectorXc> products;
@@ -232,6 +270,7 @@ inline MatvecRun run_matvec(const RoughCase& c, const FastSettings& f) {
         r.ring_far_bytes = ring.far_bytes();
         r.ring_near_s = ring.near_seconds();
         r.ring_far_s = ring.far_seconds();
+        r.far_stats = ring.far_stats();
         t0 = std::chrono::steady_clock::now();
         for (const std::uint64_t seed : kSeeds)
             products.push_back(Z * random_vector(Z.cols(), seed));
@@ -288,7 +327,7 @@ inline MatvecRun run_matvec(const RoughCase& c, const FastSettings& f) {
         dr.assembly_s, dr.lu_s, fr.peak_rss / 1e9, dr.peak_rss / 1e9);
     if (len < 0 || static_cast<std::size_t>(len) >= sizeof(buf))
         throw std::logic_error("pml_ring::row_line: formatting failed or line truncated");
-    return buf;
+    return std::string(buf) + " | " + far_segment(fr.far_stats);
 }
 
 /// One machine-readable line of a matvec-only comparison (run_matvec).
@@ -310,7 +349,121 @@ inline MatvecRun run_matvec(const RoughCase& c, const FastSettings& f) {
         r.fast_matvec_s, r.dense_matvec_s, r.peak_fast / 1e9, r.peak_dense / 1e9);
     if (len < 0 || static_cast<std::size_t>(len) >= sizeof(buf))
         throw std::logic_error("pml_ring::matvec_line: formatting failed or line truncated");
-    return buf;
+    return std::string(buf) + " | " + far_segment(r.far_stats);
+}
+
+/// ACA ring against the exact (WP-PML5a) ring of the same Problem and octree, without the dense
+/// matrix (sizes beyond the dense budget; WP-PML5b scaling): the fast operator (MLFMM + ACA ring)
+/// is built and applied first, then the exact ring alone (released before return).
+struct RingCompare {
+    Index unknowns = 0, stretched = 0;
+    int levels = 0;
+    Real leaf_lambda = 0;
+    std::vector<Real> ring_errors;  ///< |ring_aca x - ring_exact x| / |ring_exact x|
+    std::vector<Real> full_errors;  ///< |ring_aca x - ring_exact x| / |Z_exact x|
+    std::size_t fast_bytes = 0, ring_near_bytes = 0, ring_far_bytes = 0, exact_far_bytes = 0;
+    std::size_t exact_estimate = 0;  ///< PmlRingEstimate::far_bytes
+    Real fast_s = 0, ring_near_s = 0, ring_far_s = 0, exact_far_s = 0;
+    Real fast_matvec_s = 0, ring_matvec_s = 0, exact_ring_matvec_s = 0;
+    Real peak_fast = 0, peak_exact = 0;
+    bool exact_run = false;
+    mlfmm::PmlRingFarStats far_stats;
+};
+
+inline RingCompare run_ring_compare(const RoughCase& c, const FastSettings& f, bool with_exact) {
+    RingCompare r;
+    const pml_rough_ag::Estimate est = pml_rough_ag::estimate(c);
+    const auto beam = pml_rough_ag::make_beam(c, est.size.half[2]);
+    SimulationConfig cfg = pml_rough_ag::make_config(c);
+    cfg.compression = "mlfmm";
+    cfg.solver = SolverKind::Gmres;
+    cfg.mlfmm.accuracy_digits = f.digits;
+    cfg.mlfmm.pml_ring = f.ring;
+    const Simulation sim(pml_rough_ag::make_open_mesh(c), pml_rough_ag::make_termination(c), beam,
+                         cfg);
+    std::vector<VectorXc> xs, zf, ra;
+    auto t0 = std::chrono::steady_clock::now();
+    const mlfmm::MlfmmOperator Z(sim.problem(), cfg.mlfmm);
+    r.fast_s = seconds(t0);
+    if (Z.ring_operator() == nullptr)
+        throw std::logic_error("pml_ring::run_ring_compare: no PML ring");
+    const mlfmm::PmlRingOperator& ring = *Z.ring_operator();
+    r.unknowns = Z.rows();
+    r.stretched = ring.stretched_count();
+    r.levels = Z.octree().levels();
+    r.leaf_lambda = Z.octree().box_size(Z.octree().leaf_level()) / pml_rough_ag::kLambda;
+    r.fast_bytes = Z.memory_bytes();
+    r.ring_near_bytes = ring.near_bytes();
+    r.ring_far_bytes = ring.far_bytes();
+    r.exact_estimate = ring.estimate().far_bytes;
+    r.ring_near_s = ring.near_seconds();
+    r.ring_far_s = ring.far_seconds();
+    r.far_stats = ring.far_stats();
+    for (const std::uint64_t seed : kSeeds) xs.push_back(random_vector(Z.cols(), seed));
+    t0 = std::chrono::steady_clock::now();
+    for (const VectorXc& x : xs) zf.push_back(Z * x);
+    r.fast_matvec_s = seconds(t0) / static_cast<Real>(xs.size());
+    t0 = std::chrono::steady_clock::now();
+    for (const VectorXc& x : xs) ra.push_back(ring * x);
+    r.ring_matvec_s = seconds(t0) / static_cast<Real>(xs.size());
+    r.peak_fast = system_memory::peak_rss_bytes();
+    if (!with_exact)
+        return r;
+    // The exact far ring alone (its near ring would be the same entries as the ACA ring's):
+    // ring_exact x = near x + far_exact x.
+    mlfmm::PmlRingParams ep = f.ring;
+    ep.use_aca = false;
+    ep.assemble_near = false;
+    const mlfmm::PmlRingOperator exact(sim.problem(), Z.octree(), ep, f.digits);
+    r.exact_far_s = exact.far_seconds();
+    r.exact_far_bytes = exact.far_bytes();
+    t0 = std::chrono::steady_clock::now();
+    for (std::size_t i = 0; i < xs.size(); ++i) {
+        const VectorXc re = ring.near_operator() * xs[i] + exact * xs[i];
+        const VectorXc ze = zf[i] - ra[i] + re;  // Z_rr x + exact ring x
+        r.ring_errors.push_back((ra[i] - re).norm() / re.norm());
+        r.full_errors.push_back((ra[i] - re).norm() / ze.norm());
+    }
+    r.exact_ring_matvec_s = seconds(t0) / static_cast<Real>(xs.size());
+    r.peak_exact = system_memory::peak_rss_bytes();
+    r.exact_run = true;
+    return r;
+}
+
+[[nodiscard]] inline std::string ring_compare_line(const RoughCase& c, const FastSettings& f,
+                                                   const RingCompare& r) {
+    char buf[1400];
+    const int len = std::snprintf(
+        buf, sizeof(buf),
+        "RING | pml_ring | %s | %s | rms %.3g | L %.4g | h %.4g | pml %.4g | d0 %.1f | 2N %lld | "
+        "stretched %lld | levels %d | leaf %.3f lambda | ring err %.3e | full err %.3e | fast op "
+        "%.1f MB (ring near %.1f, ring far %.1f; exact far %.1f, estimate %.1f) | fast op build "
+        "%.1f s (ring near %.1f, far %.1f; exact far %.1f) | matvec fast %.3f s ring %.3f s exact "
+        "ring %.3f s | peak fast %.2f GB exact %.2f GB",
+        c.tag.c_str(), c.material.c_str(), c.rms, c.patch, c.mesh_size, c.pml_width, f.digits,
+        static_cast<long long>(r.unknowns), static_cast<long long>(r.stretched), r.levels,
+        r.leaf_lambda, r.exact_run ? max_of(r.ring_errors) : -1.0,
+        r.exact_run ? max_of(r.full_errors) : -1.0, static_cast<Real>(r.fast_bytes) / 1e6,
+        static_cast<Real>(r.ring_near_bytes) / 1e6, static_cast<Real>(r.ring_far_bytes) / 1e6,
+        static_cast<Real>(r.exact_far_bytes) / 1e6, static_cast<Real>(r.exact_estimate) / 1e6,
+        r.fast_s, r.ring_near_s, r.ring_far_s, r.exact_far_s, r.fast_matvec_s, r.ring_matvec_s,
+        r.exact_ring_matvec_s, r.peak_fast / 1e9, r.peak_exact / 1e9);
+    if (len < 0 || static_cast<std::size_t>(len) >= sizeof(buf))
+        throw std::logic_error("pml_ring::ring_compare_line: formatting failed or line truncated");
+    return std::string(buf) + " | " + far_segment(r.far_stats);
+}
+
+/// WP-PML5b scaling cases: the rough Ag U case with the patch edge L (the map generated on L, the
+/// same statistics sigma 50 nm, Lc 500 nm, seed 1; zones, PML, mesh and beam as U): L = 8.5 um
+/// gives 2N = 59 600, L = 16 um 2N = 152 960 (benchmarks/results/pml_ring.md, 5b).
+[[nodiscard]] inline RoughCase scaling_case(Real L) {
+    RoughCase c = pml_rough_ag::u_case();
+    c.patch = L;
+    c.map_patch = L;
+    char tag[32];
+    std::snprintf(tag, sizeof(tag), "u_L%.4g", L * 1e6);
+    c.tag = tag;
+    return c;
 }
 
 /// The CI-size flat Ag case of the validation test (7a-type: flat Ag, normal incidence, w0 =

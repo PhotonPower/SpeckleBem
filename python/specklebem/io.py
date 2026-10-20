@@ -326,7 +326,8 @@ def _config_attrs(sim: Any) -> dict[str, Any]:
     a["exterior"] = _material_attrs(sim.exterior)
     a.update(nested)
     a["mlfmm"] = dict(a["mlfmm"])
-    a["mlfmm"]["max_exact_far_bytes"] = np.uint64(a["mlfmm"]["max_exact_far_bytes"])  # size_t
+    for key in ("max_exact_far_bytes", "pml_ring_max_far_bytes"):  # size_t
+        a["mlfmm"][key] = np.uint64(a["mlfmm"][key])
     if sim.has_pml:
         t = sim.pml_termination
         half = sim.zone_half_widths

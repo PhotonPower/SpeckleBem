@@ -70,6 +70,18 @@ void check_mlfmm_params(const mlfmm::MlfmmParams& m) {
             "need "
             "accuracy_digits <= 3 and automatic_leaf_size (ADR 0008 amendment 2026-10-11)");
     }
+    const mlfmm::PmlRingParams& r = m.pml_ring;
+    if (!(r.eta > 0.0 && std::isfinite(r.eta)) || !(r.aca_epsilon >= 0.0 && r.aca_epsilon < 1.0) ||
+        r.max_rank < 0) {
+        throw std::invalid_argument(
+            "Simulation: MLFMM pml_ring parameters need eta > 0 (finite), aca_epsilon in [0, 1) "
+            "(0: automatic 10^-(d0 + 1)) and max_rank >= 0 (0: break-even)");
+    }
+    if (!r.assemble_near) {
+        throw std::invalid_argument(
+            "Simulation: MLFMM pml_ring.assemble_near = false is a diagnostic of a standalone "
+            "PmlRingOperator; a solve needs the near ring (assemble_near = true)");
+    }
 }
 
 /// The incident field is evaluated at surface quadrature points, which lie in the convex hull
@@ -970,7 +982,15 @@ std::string Simulation::report() const {
           << m.octree.min_box_size_lambda << ", max_levels " << m.octree.max_levels
           << ", automatic_leaf_size " << (m.automatic_leaf_size ? "true" : "false")
           << ", leaf_radius_quantile " << m.leaf_radius_quantile << ", max_exact_far_bytes "
-          << m.max_exact_far_bytes << ")";
+          << m.max_exact_far_bytes;
+        if (s.pml) {
+            const mlfmm::PmlRingParams& r = m.pml_ring;
+            o << "; pml_ring: use_aca " << (r.use_aca ? "true" : "false") << ", aca_epsilon "
+              << r.aca_epsilon << ", eta " << r.eta << ", max_rank " << r.max_rank
+              << ", row_clusters " << (r.row_clusters ? "true" : "false") << ", max_far_bytes "
+              << r.max_far_bytes;
+        }
+        o << ")";
     }
     o << "\n";
     if (s.pml) {
@@ -990,12 +1010,39 @@ std::string Simulation::report() const {
         fast != nullptr && fast->ring_operator() != nullptr) {
         const mlfmm::PmlRingOperator& r = *fast->ring_operator();
         const Index n = s.space.size();
+        const mlfmm::PmlRingFarStats& f = r.far_stats();
         o << "  PML ring:       " << r.stretched_count() << " stretched / "
           << n - r.stretched_count() << " real functions (MLFMM on the real ones), ring near "
           << static_cast<double>(r.near_bytes()) / 1e6 << " MB (" << r.near_pairs()
           << " pairs), far " << static_cast<double>(r.far_bytes()) / 1e6 << " MB (" << r.far_pairs()
-          << " pairs, exact), dense matrix would be "
+          << " pairs, " << (f.aca ? "ACA" : "exact") << "), dense matrix would be "
           << static_cast<double>(r.estimate().dense_bytes) / 1e6 << " MB\n";
+        if (f.aca) {
+            o << "  ring far ACA:   eps " << f.epsilon << ", eta " << f.eta << ": " << f.aca_blocks
+              << " low-rank blocks " << static_cast<double>(f.aca_bytes) / 1e6
+              << " MB (ranks min / median / max " << f.rank_min << " / " << f.rank_median << " / "
+              << f.rank_max << ", mean JJ " << f.rank_mean[0] << " JM " << f.rank_mean[1] << " MJ "
+              << f.rank_mean[2] << " MM " << f.rank_mean[3] << "), "
+              << f.exact_blocks + f.fallback_blocks << " exact blocks (" << f.fallback_blocks
+              << " at the rank cap, " << f.skipped_attempts << " of them without an ACA attempt) "
+              << static_cast<double>(f.exact_bytes) / 1e6 << " MB, " << f.dropped_blocks
+              << " dropped, region parts dropped R1 " << f.region_dropped[0] << " / R2 "
+              << f.region_dropped[1] << " (bound <= " << f.drop_tolerance
+              << "); exact far ring would be " << static_cast<double>(r.estimate().far_bytes) / 1e6
+              << " MB\n";
+            const auto beyond = [](Real d) {
+                std::ostringstream t;
+                if (d >= 1e299)
+                    t << "never";
+                else
+                    t << "beyond " << d << " m";
+                return t.str();
+            };
+            o << "  ring far drop:  triangle pairs reduced " << f.pair_reductions << " of "
+              << f.pair_evaluations + f.pair_skips << " (" << f.pair_skips
+              << " skipped), region parts dropped R1 " << beyond(f.drop_distance[0]) << ", R2 "
+              << beyond(f.drop_distance[1]) << " (bound <= " << f.drop_tolerance << ")\n";
+        }
     }
     o << "  assembly:       Z " << s.assembly_s << " s, rhs " << s.rhs_s << " s";
     if (s.diagonal.size() > 0)

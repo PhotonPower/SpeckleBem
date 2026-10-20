@@ -190,6 +190,9 @@ def test_sphere_round_trip_lossless(direct, h5py, tmp_path):
         assert "a -> b" in f["mesh/edges"].attrs["description"]
         assert f["config/mlfmm"].attrs["max_exact_far_bytes"].dtype == np.uint64
         assert f["config/mlfmm"].attrs["max_exact_far_bytes"] == cfg["mlfmm"]["max_exact_far_bytes"]
+        ring_budget = f["config/mlfmm"].attrs["pml_ring_max_far_bytes"]
+        assert ring_budget.dtype == np.uint64
+        assert ring_budget == cfg["mlfmm"]["pml_ring_max_far_bytes"]
         assert isinstance(f["fields/e_only/sub/deep"], h5py.Group)
 
 

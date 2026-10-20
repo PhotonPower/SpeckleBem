@@ -65,8 +65,11 @@ inline constexpr Real kLambda = 500e-9;
 
 /// Linear solver of the PML route.
 enum class PmlSolver {
-    Lu,    ///< dense LU of a copy of Z (solver::DenseLu: LAPACK zgetrf or Eigen)
-    Gmres  ///< full GMRES on the dense operator (no copy; Simulation::solve)
+    Lu,     ///< dense LU of a copy of Z (solver::DenseLu: LAPACK zgetrf or Eigen)
+    Gmres,  ///< full GMRES on the dense operator (no copy; Simulation::solve)
+    /// WP-PML5b: the fast path, compression "mlfmm" on the PML route (MLFMM on the real
+    /// functions + the PML ring with ACA far blocks, d0 = Case::digits), full GMRES
+    Fast
 };
 
 /// One configuration of the cross-check (both routes; one route per run).
@@ -467,8 +470,9 @@ inline SimulationConfig pml_config(const Case& c) {
     cfg.exterior = material::vacuum();
     cfg.object = material::silicon_500nm();
     cfg.formulation = formulation::Kind::ICTF;
-    cfg.compression = "dense";
-    cfg.solver = c.pml_solver == PmlSolver::Gmres ? SolverKind::Gmres : SolverKind::Direct;
+    cfg.compression = c.pml_solver == PmlSolver::Fast ? "mlfmm" : "dense";
+    cfg.mlfmm.accuracy_digits = c.digits;
+    cfg.solver = c.pml_solver == PmlSolver::Lu ? SolverKind::Direct : SolverKind::Gmres;
     cfg.gmres.tolerance = c.pml_tol;
     cfg.gmres.max_iter = c.pml_max_iter;
     cfg.gmres.restart = 0;
@@ -515,6 +519,7 @@ inline PmlEstimate estimate_pml(const Case& c, const geometry::OpenSurfaceMesh& 
     e.unknowns = 2 * om.mesh.num_edges();
     e.half = {om.patch_half, om.taper_end, om.pml_start, om.outer_half};
     e.dense_gb = 16.0 * static_cast<Real>(e.unknowns) * static_cast<Real>(e.unknowns) / 1e9;
+    // The fast path (no dense matrix): at most the dense matrix (the 5a ring bound) + Krylov.
     e.peak_gb = c.pml_solver == PmlSolver::Lu
                     ? 2.0 * e.dense_gb
                     : e.dense_gb + box_validity::krylov_basis_gb(c.pml_max_iter, e.unknowns);
@@ -774,7 +779,7 @@ inline RouteResult run_pml(const Case& c, const geometry::HeightMap& map) {
         r.converged = true;
     } else {
         const solver::GmresResult g = sim.solve();
-        r.solver = "gmres";
+        r.solver = c.pml_solver == PmlSolver::Fast ? "fast-gmres" : "gmres";
         r.iterations = g.iterations;
         r.converged = g.converged;
         r.residual = g.true_relative_residual;

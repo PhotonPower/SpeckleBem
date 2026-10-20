@@ -41,6 +41,8 @@ set(SPECKLEBEM_SOURCES
     compression/mlfmm/far_operator.cpp
     compression/mlfmm/mlfmm_operator.cpp
     compression/mlfmm/pml_ring.cpp
+    compression/mlfmm/pml_ring_far.cpp
+    compression/aca/aca.cpp
     solver/gmres.cpp
     solver/preconditioner.cpp
     # postprocessing/speckle_statistics.cpp

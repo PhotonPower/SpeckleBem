@@ -5,6 +5,26 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- aca / mlfmm / simulation / python (WP-PML5b, ADR 0008 amendment decision 3b): the far ring of the fast PML route
+  is compressed by partially pivoted ACA (`aca::compress`, core + Eigen, kernel-independent entry generator;
+  stopping rule ‖u‖‖v‖ ≤ ε‖S_k‖_F confirmed twice, zero-pivot handling, rank cap) at a relative block tolerance
+  10^−(d₀+1) on H-matrix row clusters (dual descent over same-level box pairs; η-admissibility on the real
+  support boxes, default η = 2 measured at the 7c size), entries from the stretched `PairBlockEvaluator`; real rows
+  served transposed from the same factors V(Uᵀx); blocks above the break-even rank are stored exactly; decayed
+  parts are dropped per block and per triangle pair with a stretched magnitude bound (κ = 2/√(4 + σ²)), logged.
+  New `PmlRingParams` fields (`use_aca`, `aca_epsilon`, `eta`, `max_rank`, `row_clusters`, `coarse_columns`),
+  `PmlRingPlan` carries the far partition and its parameters, `PmlRingOperator::peak_bytes()`, ACA statistics in
+  `describe`/`report()`/ROW lines; Python keys `pml_ring_*`, `Simulation.with_pml(mlfmm=)`, HDF5 round trip.
+  Validation 7h through the ACA path (rough Ag U, 2N = 22 816, integrated with WP-PML5c): d₀ 3 matvec 2.1e-5,
+  dR +4.8e-8, far field L2 3.3e-6, d₀ 5 matvec 2.1e-7; `Simulation::assemble()` 211 s = 0.31× the dense assembly
+  (5a: 1.5×), operator 1.5 GB vs 8.3 GB dense (far ring 571 MB vs 3 652 MB exact), matvec 0.10 s vs 0.27 s.
+  Scaling: 2N = 59 600 ACA vs exact 5a ring 5.1e-5 (1.6 GB vs 16.7 GB); 2N = 152 960 in an 18 GB peak (d₀ 3 vs 5:
+  R 1.5e-8, L2 1.5e-6); 2N = 300 160 in 33.6 GB (≈ 4e5 projected for 50 GB); ranks median 12–18, max ≤ 56 at d₀ 3.
+  7d Si control (0.2412 % fast vs 0.2411 % dense) and 7e (0.1464 %, as the stored WP-PML4c dense value) reproduced
+  through the fast path. Finding: GMRES iterations grow ≈ N^0.5 (602 → 1 715 → 2 679; ICTF + Jacobi) — open
+  preconditioning item. Unit tests `[aca]`, `[pml_ring]` ACA cases, validation-large 7h (ACA) and 6e4 cases,
+  driver options `--ring-compare --eta --exact-far …`, record sections "5b" and "5b + 5c integrated", ADR 0008
+  "5b result", docs/05 row 7h met, docs/10.
 - operator / kernels / mlfmm (WP-PML5c, ADR 0008 amendment decision 4): near-ring assembly cost of the fast PML
   route. `op::assemble_sparse_stretched` evaluates each unordered stretched pair once (canonical-pair cache, the
   kernel's (min, max) ordering + transposes, parallel over pairs, scatter unchanged → bitwise the WP-PML5a matrix)

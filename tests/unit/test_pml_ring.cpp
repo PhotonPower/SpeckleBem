@@ -28,6 +28,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <spdlog/sinks/ringbuffer_sink.h>
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -312,8 +315,19 @@ TEST_CASE("pml_ring: every pair lies in exactly one of Z_rr near / far and the r
     CHECK(counts[2] == ring.near_pairs());
     CHECK(counts[3] == ring.far_pairs());
     CHECK(counts[3] > 0);
-    CHECK(ring.estimate().far_bytes == ring.far_bytes());
     CHECK(ring.estimate().near_bytes == ring.near_bytes());
+    // ACA path (default): the stored blocks never exceed the exact estimate; the exact path's
+    // allocation equals it.
+    const mlfmm::PmlRingFarStats& st = ring.far_stats();
+    CHECK(st.aca);
+    CHECK(st.exact_bytes + st.aca_bytes <= ring.estimate().far_bytes);
+    CHECK(st.exact_pairs + st.aca_pairs + st.dropped_pairs == ring.far_stored_pairs());
+    mlfmm::MlfmmParams exact = tree_params(3, 3.0);
+    exact.pml_ring.use_aca = false;
+    const MlfmmOperator Ze(c->problem, exact);
+    CHECK_FALSE(Ze.ring_operator()->far_stats().aca);
+    CHECK(Ze.ring_operator()->estimate().far_bytes == Ze.ring_operator()->far_bytes());
+    CHECK(Ze.ring_operator()->far_blocks().empty());
 }
 
 TEST_CASE("pml_ring: ring columns equal the exact stretched entries", "[pml_ring]") {
@@ -569,14 +583,23 @@ TEST_CASE("pml_ring: budget refusal, errors, describe and memory", "[pml_ring]")
     CHECK(est.near_pairs + est.far_pairs + est.rr_near_pairs <= c->space.size() * c->space.size());
     CHECK_NOTHROW(mlfmm::check_pml_ring_budget(est, {}));
     // Memory warning (review W3): above the available memory only; 0 = unknown. The peak counts
-    // the near ring and the larger of its assembly cache and the far blocks (WP-PML5c review S1;
-    // estimate_pml_ring alone has no stretch, hence no cache estimate).
+    // the near ring and the larger of its assembly cache and the far blocks known to be exact
+    // before assembly (WP-PML5c review S1, WP-PML5b; estimate_pml_ring alone has no stretch,
+    // hence no cache estimate).
     CHECK(est.near_assembly_bytes == 0);
-    CHECK(mlfmm::pml_ring_peak_bytes(est) == est.near_bytes + est.far_bytes);
+    CHECK(mlfmm::pml_ring_peak_bytes(est) == est.near_bytes + est.far_exact_bytes);
     CHECK(mlfmm::warn_pml_ring_memory(est, 1));
-    CHECK(mlfmm::warn_pml_ring_memory(est, est.far_bytes));
+    CHECK(mlfmm::warn_pml_ring_memory(est, est.far_exact_bytes));
     CHECK_FALSE(mlfmm::warn_pml_ring_memory(est, mlfmm::pml_ring_peak_bytes(est)));
     CHECK_FALSE(mlfmm::warn_pml_ring_memory(est, 0));
+    // Without ACA every far block is exact: the peak of WP-PML5c, near + far_bytes.
+    mlfmm::PmlRingParams no_aca;
+    no_aca.use_aca = false;
+    const mlfmm::PmlRingEstimate est_exact = mlfmm::estimate_pml_ring(tree, c->space, s, no_aca);
+    CHECK(est_exact.far_exact_bytes == est_exact.far_bytes);
+    CHECK(mlfmm::pml_ring_peak_bytes(est_exact) == est_exact.near_bytes + est_exact.far_bytes);
+    CHECK(mlfmm::warn_pml_ring_memory(est_exact, est_exact.far_bytes));
+    CHECK_FALSE(mlfmm::warn_pml_ring_memory(est_exact, mlfmm::pml_ring_peak_bytes(est_exact)));
     // The plan estimates the near-ring assembly cache: an upper bound of the measured one.
     const mlfmm::PmlRingPlan plan = mlfmm::plan_pml_ring(tree, c->space, c->pml);
     const op::SparseStretchedCacheEstimate ce =
@@ -592,7 +615,11 @@ TEST_CASE("pml_ring: budget refusal, errors, describe and memory", "[pml_ring]")
     CHECK(planned.estimate().near_assembly_bytes == ce.bytes);
     const mlfmm::PmlRingEstimate pe = planned.estimate();
     CHECK(mlfmm::pml_ring_peak_bytes(pe) ==
-          pe.near_bytes + std::max(pe.near_assembly_bytes, pe.far_bytes));
+          pe.near_bytes + std::max(pe.near_assembly_bytes, pe.far_exact_bytes));
+    // The measured peak: near ring + max(measured cache, allocated far blocks incl. ACA factors).
+    CHECK(planned.peak_bytes() ==
+          planned.near_bytes() + std::max(ns.cache_bytes, planned.far_bytes()));
+    CHECK(planned.far_stats().exact_bytes + planned.far_stats().aca_bytes <= pe.far_bytes);
     CHECK(op::estimate_sparse_stretched_cache(c->space, c->pml, plan.split.ring,
                                               op::StretchedPairEvaluation::per_ordering)
               .bytes == 0);
@@ -624,6 +651,8 @@ TEST_CASE("pml_ring: budget refusal, errors, describe and memory", "[pml_ring]")
     CHECK_THAT(d, ContainsSubstring("ring: PmlRingOperator"));
     CHECK_THAT(d, ContainsSubstring("near (real-real)"));
     CHECK_THAT(d, ContainsSubstring("excluded (PML ring"));
+    CHECK_THAT(d, ContainsSubstring("near exact, far ACA"));
+    CHECK_THAT(d, ContainsSubstring("ACA far ring, WP-PML5b"));
     CHECK_THAT(ring.describe(),
                ContainsSubstring(std::to_string(ring.stretched_count()) + " stretched"));
     CHECK_THROWS_AS(ring.far_contains(-1, 0), std::out_of_range);
@@ -705,6 +734,9 @@ TEST_CASE("pml_ring: the PML Simulation solves with compression mlfmm", "[pml_ri
     const std::string rep = sf.report();
     CHECK_THAT(rep, ContainsSubstring("PML ring:"));
     CHECK_THAT(rep, ContainsSubstring("stretched"));
+    // Review W2: the per-triangle-pair drop is part of the report (lossless: nothing dropped).
+    CHECK_THAT(rep, ContainsSubstring("ring far drop:  triangle pairs reduced 0 of "));
+    CHECK_THAT(rep, ContainsSubstring("R1 never, R2 never"));
     Simulation sd(make(), term, beam, cfg);
     const solver::GmresResult rd = sd.solve();
     CHECK(rd.converged);
@@ -715,6 +747,679 @@ TEST_CASE("pml_ring: the PML Simulation solves with compression mlfmm", "[pml_ri
     // The automatic leaf rule puts the tiny mesh on 3 levels (leaf 0.2 um): the fast operator
     // differs from dense by its d0 = 3 far part (plus the cheap kernels' far entries).
     CHECK(rel(xf, xd) < 5e-2);
+}
+
+// ---------------------------------------------------------------------------------------------
+// WP-PML5b: the ACA far ring.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// A 2 um flat surface for the partition checks (no assembly): patch 0.75, taper 0.125, gap
+/// 0.125, PML 0.375 um at h = 125 nm (16 x 16 cells); on 4 levels (leaves 0.25 um) it has row
+/// clusters and column clusters of several levels.
+OpenSurfaceMesh aca_surface() {
+    return flat_open(125e-9, 0.75e-6, 0.125e-6, 0.125e-6, 0.375e-6);
+}
+
+/// Exactly `levels` octree levels on the case's space (no MLFMM leaf rule: the ring alone).
+mlfmm::Octree ring_tree(const basis::RwgSpace& space, int levels) {
+    return mlfmm::Octree(space, kLambda, mlfmm::OctreeParams{1, levels, 0.0});
+}
+
+/// ACA forced on the tiny surfaces: every separated block with a positive distance admissible
+/// (eta 20) and no break-even cap (max_rank 1000; the ranks of these poorly separated small blocks
+/// exceed the break-even, so the default would store them exactly). The admissibility only sets
+/// the ranks; the error is controlled by the ACA tolerance, which the tests check against the
+/// exact ring.
+mlfmm::PmlRingParams forced_aca() {
+    mlfmm::PmlRingParams p;
+    p.eta = 20.0;
+    p.max_rank = 1000;
+    return p;
+}
+
+/// The same without the near ring (PmlRingParams::assemble_near = false: the stretched touching
+/// pairs dominate the cost under the sanitizers; the near ring is identical on both paths).
+mlfmm::PmlRingParams far_only(mlfmm::PmlRingParams p) {
+    p.assemble_near = false;
+    return p;
+}
+
+/// ||(near + far_a - ring_b) x|| / ||ring_b x||: a far-only ring a against the full ring b
+/// (near taken from b), maximum over three fixed vectors.
+Real ring_difference_far(const mlfmm::PmlRingOperator& far_a, const mlfmm::PmlRingOperator& b,
+                         Index n2) {
+    Real e = 0;
+    for (const std::uint64_t seed : {41u, 42u, 43u}) {
+        const VectorXc x = random_vector(n2, seed);
+        const VectorXc yb = b * x;
+        e = std::max(e, rel(b.near_operator() * x + far_a * x, yb));
+    }
+    return e;
+}
+
+/// ||(ring_a - ring_b) x|| / ||ring_b x||, maximum over three fixed vectors.
+Real ring_difference(const mlfmm::PmlRingOperator& a, const mlfmm::PmlRingOperator& b, Index n2) {
+    Real e = 0;
+    for (const std::uint64_t seed : {41u, 42u, 43u}) {
+        const VectorXc x = random_vector(n2, seed);
+        e = std::max(e, rel(a * x, b * x));
+    }
+    return e;
+}
+
+}  // namespace
+
+TEST_CASE("pml_ring: ACA far ring vs the exact ring on the tiny flat and rough cases",
+          "[pml_ring]") {
+    for (const bool rough : {false, true}) {
+        Case c(rough ? tiny_rough_surface() : tiny_surface(),
+               material::Material{Complex(2.25, 0.0), 1.0}, 1.0, formulation::Kind::PMCHWT);
+        const Index n2 = 2 * c.space.size();
+        const mlfmm::Octree tree = ring_tree(c.space, 3);
+        mlfmm::PmlRingParams exact;
+        exact.use_aca = false;
+        const mlfmm::PmlRingOperator re(c.problem, tree, exact);
+        for (const Real d0 : {3.0, 5.0}) {
+            const Real tol = std::pow(10.0, -(d0 + 1.0));
+            const mlfmm::PmlRingOperator ra(c.problem, tree, far_only(forced_aca()), d0);
+            const mlfmm::PmlRingFarStats& st = ra.far_stats();
+            const Real err = ring_difference_far(ra, re, n2);
+            INFO((rough ? "rough" : "flat")
+                 << ", d0 " << d0 << ": ring difference " << err << "; " << ra.describe());
+            REQUIRE(st.aca);
+            CHECK(st.aca_blocks > 0);
+            CHECK(st.epsilon == tol);
+            CHECK(st.drop_tolerance == tol);
+            // The criterion: the ACA ring reproduces the exact ring to 10^-(d0+1).
+            CHECK(err <= tol);
+            // Rank statistics.
+            CHECK(st.rank_min <= st.rank_median);
+            CHECK(st.rank_median <= st.rank_max);
+            CHECK(st.rank_max > 0);
+            Index hist = 0;
+            for (const Index h : st.rank_histogram) hist += h;
+            CHECK(hist == 4 * st.aca_blocks);
+            CHECK(st.rank_mean[0] > 0.0);
+            CHECK(st.rank_mean[3] > 0.0);
+            CHECK(st.generated_rows > 0);
+            CHECK(st.generated_columns > 0);
+            CHECK(st.aca_pairs + st.exact_pairs + st.dropped_pairs == re.far_stored_pairs());
+            if (!rough) {  // K vanishes between flat far pairs: JM, MJ rank 0
+                CHECK(st.rank_mean[1] == 0.0);
+                CHECK(st.rank_mean[2] == 0.0);
+            } else {
+                CHECK(st.rank_mean[1] > 0.0);
+                CHECK(st.rank_mean[2] > 0.0);
+            }
+            CHECK_THAT(ra.describe(), ContainsSubstring("ACA far ring, WP-PML5b"));
+            CHECK_THAT(ra.describe(), ContainsSubstring("ranks min / median / max"));
+            // The default parameters (eta 2, break-even cap): the same accuracy, and the stored
+            // blocks never exceed the exact far ring.
+            const mlfmm::PmlRingOperator rd(c.problem, tree, far_only({}), d0);
+            CHECK(ring_difference_far(rd, re, n2) <= tol);
+            CHECK(rd.far_stats().aca_bytes + rd.far_stats().exact_bytes <= re.far_bytes());
+        }
+        CHECK(re.far_bytes() == re.estimate().far_bytes);
+    }
+}
+
+TEST_CASE("pml_ring: ACA admissibility partition covers every far ring pair once", "[pml_ring]") {
+    Case c(aca_surface(), material::Material{Complex(2.25, 0.0), 1.0}, 1.0,
+           formulation::Kind::PMCHWT);
+    const mlfmm::Octree tree = ring_tree(c.space, 4);
+    const int L = tree.leaf_level();
+    const Index N = c.space.size();
+    const std::vector<Index> leaf = leaf_of(tree);
+    const std::vector<Index>& perm = tree.permutation();
+    const std::vector<std::uint8_t> s = mlfmm::classify_stretched(c.space, c.pml);
+    for (const bool rows : {true, false}) {
+        for (const bool coarse : {true, false}) {
+            if (rows && !coarse)
+                continue;  // coarse_columns only matters for row leaves
+            for (const Real eta : {0.5, 1.0, 2.0}) {
+                mlfmm::PmlRingParams p;
+                p.eta = eta;
+                p.coarse_columns = coarse;
+                p.row_clusters = rows;
+                const std::vector<mlfmm::PmlRingFarBlock> blocks =
+                    mlfmm::plan_pml_ring_far(tree, c.space, s, p);
+                const mlfmm::PmlRingEstimate e = mlfmm::estimate_pml_ring(tree, c.space, s, p);
+                REQUIRE(!blocks.empty());
+                INFO("row clusters " << rows << ", coarse columns " << coarse << ", eta " << eta);
+                // cover(m, q): how often the pair (stretched row m, column position q) is stored.
+                std::vector<Index> cover(sz(N) * sz(N), 0);
+                Index admissible = 0, coarse_rows = 0, coarse_cols = 0, pairs = 0;
+                for (const mlfmm::PmlRingFarBlock& b : blocks) {
+                    const mlfmm::Box& rb = tree.boxes()[sz(b.row_box)];
+                    const mlfmm::Box& cb = tree.boxes()[sz(b.box)];
+                    CHECK(b.first == cb.first_element);
+                    CHECK(b.count == cb.num_elements);
+                    CHECK(b.level == cb.level);
+                    CHECK(b.row_level == rb.level);
+                    if (rows)
+                        CHECK(b.row_level == b.level);  // same-level pairs
+                    else
+                        CHECK(b.row_level == L);
+                    Index nrows = 0;
+                    for (Index q = rb.first_element; q < rb.first_element + rb.num_elements; ++q) {
+                        const Index m = perm[sz(q)];
+                        if (s[sz(m)] == 0)
+                            continue;
+                        ++nrows;
+                        for (Index t = b.first; t < b.first + b.count; ++t)
+                            ++cover[sz(m) * sz(N) + sz(t)];
+                    }
+                    CHECK(nrows == b.rows);
+                    pairs += b.rows * b.count;
+                    if (b.admissible) {
+                        ++admissible;
+                        CHECK(b.distance > 0.0);
+                        CHECK(std::max(b.row_diameter, b.col_diameter) <= eta * b.distance);
+                    } else {
+                        CHECK(b.level == L);  // non-admissible blocks are leaf pairs (exact)
+                        CHECK(b.row_level == L);
+                    }
+                    coarse_rows += b.row_level < L ? 1 : 0;
+                    coarse_cols += b.level < L ? 1 : 0;
+                }
+                Index violations = 0;
+                for (Index m = 0; m < N; ++m) {
+                    for (Index t = 0; t < N; ++t) {
+                        const Index want =
+                            s[sz(m)] != 0 && !near_leaves(tree, leaf[sz(m)], leaf[sz(perm[sz(t)])])
+                                ? 1
+                                : 0;
+                        violations += cover[sz(m) * sz(N) + sz(t)] != want ? 1 : 0;
+                    }
+                }
+                CHECK(violations == 0);
+                CHECK(admissible > 0);
+                CHECK(pairs == e.far_stored);
+                CHECK(e.far_aca_blocks == admissible);
+                CHECK(e.far_exact_blocks == static_cast<Index>(blocks.size()) - admissible);
+                CHECK((rows ? coarse_rows > 0 : coarse_rows == 0));
+                CHECK((coarse ? coarse_cols > 0 : coarse_cols == 0));
+            }
+        }
+    }
+    mlfmm::PmlRingParams off;
+    off.use_aca = false;
+    CHECK(mlfmm::plan_pml_ring_far(tree, c.space, s, off).empty());
+}
+
+TEST_CASE("pml_ring: ACA magnitude-bound dropping is logged and stays below the tolerance",
+          "[pml_ring]") {
+    // A strongly lossy object (eps_r = -30 - 20j, alpha ~ 72 / um): its region R2 parts of the
+    // distant blocks fall below the bound and are dropped; with the same lossy exterior (a
+    // diagnostic, not a physical PML case) whole blocks are dropped. The ACA ring still matches
+    // the exact one to 10^-(d0+1).
+    const material::Material lossy{Complex(-30.0, -20.0), 1.0};
+    for (const bool lossy_exterior : {false, true}) {
+        Case c(tiny_surface(), lossy, 1.0, formulation::Kind::PMCHWT);
+        if (lossy_exterior)
+            c.problem.exterior = lossy;
+        mlfmm::PmlRingParams exact;
+        exact.use_aca = false;
+        const mlfmm::Octree tree = ring_tree(c.space, 3);
+        // Far rings only (the lossy near ring is the expensive part, and identical on both).
+        const mlfmm::PmlRingOperator ra(c.problem, tree, far_only(forced_aca()), 3.0);
+        const mlfmm::PmlRingOperator re(c.problem, tree, far_only(exact), 3.0);
+        const mlfmm::PmlRingFarStats& st = ra.far_stats();
+        INFO("lossy exterior " << lossy_exterior << ": " << ra.describe());
+        CHECK(st.region_dropped[1] > 0);
+        CHECK(st.max_dropped_bound > 0.0);
+        CHECK(st.max_dropped_bound <= st.drop_tolerance);
+        if (lossy_exterior) {
+            CHECK(st.region_dropped[0] > 0);
+            CHECK(st.dropped_blocks > 0);
+            CHECK(st.dropped_pairs > 0);
+        } else {
+            CHECK(st.region_dropped[0] == 0);  // vacuum: never dropped
+            CHECK(st.dropped_blocks == 0);
+        }
+        Index dropped = 0, kept_r2 = 0;
+        for (const mlfmm::PmlRingFarBlock& b : ra.far_blocks()) {
+            if (!b.region[1])
+                CHECK(b.bound[1] <= st.drop_tolerance);
+            else
+                ++kept_r2;
+            if (b.region[1])
+                CHECK(b.bound[1] > st.drop_tolerance);
+            dropped += b.kind == mlfmm::PmlRingFarBlock::Kind::dropped ? 1 : 0;
+        }
+        CHECK(dropped == st.dropped_blocks);
+        CHECK(kept_r2 > 0);  // the closest far blocks keep R2
+        CHECK_THAT(ra.describe(), ContainsSubstring("dropped (magnitude bound"));
+        // The bound is relative to the undamped entries: measure the difference against the far
+        // ring of the same geometry with lossless (vacuum) regions.
+        op::Problem undamped = c.problem;
+        undamped.exterior = material::vacuum();
+        undamped.object = material::vacuum();
+        const mlfmm::PmlRingOperator ru(undamped, tree, far_only(exact), 3.0);
+        Real err = 0;
+        for (const std::uint64_t seed : {41u, 42u, 43u}) {
+            const VectorXc x = random_vector(2 * c.space.size(), seed);
+            err = std::max(err, (ra * x - re * x).norm() / (ru * x).norm());
+        }
+        INFO("far ring difference / undamped far ring " << err);
+        CHECK(err <= 1e-4);
+        CHECK(st.pair_reductions > 0);
+        CHECK(st.drop_distance[1] < 1e300);
+        CHECK((lossy_exterior ? st.drop_distance[0] < 1e300 : st.drop_distance[0] == 1e300));
+    }
+    // The bound: no decay without loss, decreasing in the distance and in the stretch.
+    CHECK(mlfmm::pml_ring_decay_bound(0.0, 1e-6, 4.0) >= 1.0);
+    CHECK(mlfmm::pml_ring_decay_bound(4e7, 0.0, 4.0) >= 1.0);
+    const Real a = 4e7;
+    CHECK(mlfmm::pml_ring_decay_bound(a, 2e-6, 4.0) < mlfmm::pml_ring_decay_bound(a, 1e-6, 4.0));
+    CHECK(mlfmm::pml_ring_decay_bound(a, 1e-6, 1.0) < mlfmm::pml_ring_decay_bound(a, 1e-6, 4.0));
+    // The premise of the bound: the complex distance of the stretch has Re R~ >= kappa R with
+    // kappa = 2 / sqrt(4 + sigma_max^2), sampled over random pairs in and across the PML.
+    Case s(aca_surface(), material::vacuum(), 4.0, formulation::Kind::PMCHWT);
+    std::mt19937_64 rng(77);
+    std::uniform_real_distribution<Real> u(-1.0e-6, 1.0e-6), w(-0.05e-6, 0.05e-6);
+    const Real kappa = 2.0 / std::sqrt(4.0 + 16.0);
+    Real worst = 1e300;
+    for (int i = 0; i < 20000; ++i) {
+        const Vec3 p(u(rng), u(rng), w(rng)), q(u(rng), u(rng), w(rng));
+        const Vec3c d = s.pml.map(p) - s.pml.map(q);
+        const Complex rt = std::sqrt(d(0) * d(0) + d(1) * d(1) + d(2) * d(2));
+        worst = std::min(worst, rt.real() / (p - q).norm());
+    }
+    INFO("min Re R~ / R " << worst << ", kappa " << kappa);
+    CHECK(worst >= kappa * (1.0 - 1e-12));
+    CHECK(worst < 0.95);  // the stretch does shorten Re R~: the bound needs kappa
+}
+
+TEST_CASE("pml_ring: ACA path is thread-count independent in assembly and apply", "[pml_ring]") {
+    Case c(tiny_rough_surface(), material::Material{Complex(2.25, 0.0), 1.0}, 1.0,
+           formulation::Kind::PMCHWT);
+    const Index n2 = 2 * c.space.size();
+    const VectorXc x = random_vector(n2, 5);
+    const mlfmm::Octree tree = ring_tree(c.space, 3);
+#ifdef SPECKLEBEM_HAVE_OPENMP
+    const int saved = omp_get_max_threads();
+    const int most = std::max(saved, omp_get_num_procs());
+    std::vector<VectorXc> ys;
+    std::unique_ptr<mlfmm::PmlRingOperator> built_one;
+    for (const int t : {1, most}) {  // assembly with 1 and all threads: identical factors
+        omp_set_num_threads(t);
+        auto r = std::make_unique<mlfmm::PmlRingOperator>(c.problem, tree, far_only(forced_aca()));
+        ys.push_back(*r * x);
+        if (t == 1)
+            built_one = std::move(r);
+    }
+    for (const int t : {2, 3, most}) {  // apply with 2 / 3 / max threads
+        omp_set_num_threads(t);
+        ys.push_back(*built_one * x);
+    }
+    omp_set_num_threads(saved);
+    REQUIRE(built_one->far_stats().aca_blocks > 0);
+    for (std::size_t i = 1; i < ys.size(); ++i) {
+        INFO("variant " << i);
+        CHECK((ys[i].array() == ys[0].array()).all());
+    }
+#else
+    const mlfmm::PmlRingOperator r1(c.problem, tree, far_only(forced_aca()));
+    CHECK(r1.far_stats().aca_blocks > 0);
+#endif
+    // Aliasing and concurrent calls on the ACA path.
+    const mlfmm::PmlRingOperator r(c.problem, tree, far_only(forced_aca()));
+    const VectorXc y1 = r * x;
+    VectorXc a = x;
+    r.apply(a, a);
+    CHECK((a.array() == y1.array()).all());
+    std::vector<VectorXc> out(3);
+    std::vector<std::thread> th;
+    for (std::size_t i = 0; i < out.size(); ++i) th.emplace_back([&, i] { r.apply(x, out[i]); });
+    for (auto& t : th) t.join();
+    for (const VectorXc& o : out) CHECK((o.array() == y1.array()).all());
+}
+
+TEST_CASE("pml_ring: ACA budget bookkeeping and parameter errors", "[pml_ring]") {
+    Case c(tiny_surface(), material::Material{Complex(2.25, 0.0), 1.0}, 1.0,
+           formulation::Kind::PMCHWT);
+    const mlfmm::Octree tree = ring_tree(c.space, 3);
+    const std::vector<std::uint8_t> s = mlfmm::classify_stretched(c.space, c.pml);
+    mlfmm::PmlRingParams aca = far_only(forced_aca());
+    aca.eta = 4.5;  // corner leaf pairs admissible, the leaf pairs at distance 0 exact
+    mlfmm::PmlRingParams exact;
+    exact.use_aca = false;
+    const mlfmm::PmlRingEstimate ea = mlfmm::estimate_pml_ring(tree, c.space, s, aca);
+    const mlfmm::PmlRingEstimate ee = mlfmm::estimate_pml_ring(tree, c.space, s, exact);
+    // The exact far bytes are the same upper bound on both paths; only the exact blocks are
+    // known (and checked) before the ACA assembly.
+    CHECK(ea.far_bytes == ee.far_bytes);
+    CHECK(ee.far_exact_bytes == ee.far_bytes);
+    CHECK(ea.far_exact_bytes < ea.far_bytes);
+    CHECK(ea.far_aca_blocks > 0);
+    CHECK(ea.far_exact_blocks > 0);
+    CHECK(ee.far_aca_blocks == 0);
+    // A budget between the two: the ACA path passes, the exact path is refused.
+    mlfmm::PmlRingParams b_aca = aca, b_exact = exact;
+    b_aca.max_far_bytes = b_exact.max_far_bytes = (ea.far_exact_bytes + ea.far_bytes) / 2;
+    const mlfmm::PmlRingEstimate ba = mlfmm::estimate_pml_ring(tree, c.space, s, b_aca);
+    const mlfmm::PmlRingEstimate be = mlfmm::estimate_pml_ring(tree, c.space, s, b_exact);
+    CHECK_NOTHROW(mlfmm::check_pml_ring_budget(ba, b_aca));
+    CHECK_THROWS_WITH(mlfmm::check_pml_ring_budget(be, b_exact), ContainsSubstring("would need"));
+    b_aca.max_far_bytes = 1;
+    CHECK_THROWS_WITH(
+        mlfmm::check_pml_ring_budget(mlfmm::estimate_pml_ring(tree, c.space, s, b_aca), b_aca),
+        ContainsSubstring("non-admissible"));
+    CHECK_THROWS_WITH(mlfmm::PmlRingOperator(c.problem, tree, b_aca),
+                      ContainsSubstring("max_far_bytes"));
+    CHECK(mlfmm::warn_pml_ring_memory(ea, 1));
+    CHECK(mlfmm::warn_pml_ring_memory(ea, ea.far_exact_bytes));  // + the near ring
+    CHECK_FALSE(mlfmm::warn_pml_ring_memory(ea, mlfmm::pml_ring_peak_bytes(ea)));
+    // After assembly: the blocks are the plan; the non-fallback exact blocks are the
+    // pre-assembly exact part.
+    const mlfmm::PmlRingOperator r(c.problem, tree, aca);
+    const std::vector<mlfmm::PmlRingFarBlock> plan =
+        mlfmm::plan_pml_ring_far(tree, c.space, s, aca);
+    REQUIRE(plan.size() == r.far_blocks().size());
+    for (std::size_t i = 0; i < plan.size(); ++i) {
+        CHECK(plan[i].row_box == r.far_blocks()[i].row_box);
+        CHECK(plan[i].box == r.far_blocks()[i].box);
+        CHECK(plan[i].admissible == r.far_blocks()[i].admissible);
+    }
+    std::size_t exact_bytes = 0;
+    for (const mlfmm::PmlRingFarBlock& b : r.far_blocks())
+        if (b.kind == mlfmm::PmlRingFarBlock::Kind::exact)
+            exact_bytes += 64 * sz(b.rows) * sz(b.count);
+    const mlfmm::PmlRingFarStats& st = r.far_stats();
+    REQUIRE(st.aca_blocks > 0);
+    CHECK(exact_bytes <= ea.far_exact_bytes);
+    CHECK(st.exact_bytes >= exact_bytes);
+    CHECK(r.far_bytes() >= st.exact_bytes + st.aca_bytes);
+    CHECK(r.memory_bytes() >= r.near_bytes() + r.far_bytes());
+    CHECK(r.near_pairs() > 0);  // the estimate keeps the near pairs; assemble_near only skips them
+    CHECK(r.near_operator().nonzeros() == 0);
+    // A rank cap of 1 turns (almost) every admissible block into an exact fallback.
+    mlfmm::PmlRingParams capped = aca;
+    capped.max_rank = 1;
+    const mlfmm::PmlRingOperator rc(c.problem, tree, capped);
+    CHECK(rc.far_stats().fallback_blocks > 0);
+    CHECK(rc.far_stats().fallback_blocks + rc.far_stats().aca_blocks ==
+          st.aca_blocks + st.fallback_blocks);
+    CHECK(ring_difference(rc, r, 2 * c.space.size()) <= 1e-4);
+    // Parameter errors.
+    mlfmm::PmlRingParams bad = aca;
+    bad.eta = 0.0;
+    CHECK_THROWS_AS(mlfmm::estimate_pml_ring(tree, c.space, s, bad), std::invalid_argument);
+    bad = aca;
+    bad.aca_epsilon = 1.0;
+    CHECK_THROWS_AS(mlfmm::estimate_pml_ring(tree, c.space, s, bad), std::invalid_argument);
+    bad = aca;
+    bad.max_rank = -1;
+    CHECK_THROWS_AS(mlfmm::PmlRingOperator(c.problem, tree, bad), std::invalid_argument);
+    CHECK_THROWS_AS(mlfmm::PmlRingOperator(c.problem, tree, aca, 0.0), std::invalid_argument);
+    // An explicit ACA tolerance overrides 10^-(d0+1); the drop threshold stays.
+    mlfmm::PmlRingParams loose = aca;
+    loose.aca_epsilon = 1e-2;
+    const mlfmm::PmlRingOperator rl(c.problem, tree, loose, 3.0);
+    CHECK(rl.far_stats().epsilon == 1e-2);
+    CHECK(rl.far_stats().drop_tolerance == 1e-4);
+    CHECK(rl.far_stats().rank_mean[0] <= st.rank_mean[0]);
+}
+
+// ---- WP-PML5b review round: near-ring flag, drop logging, exact blocks, leaf rows ----
+
+namespace {
+
+/// Captures log lines of at least the given level while alive (as test_open_surface.cpp).
+class LogCapture {
+public:
+    explicit LogCapture(spdlog::level::level_enum level)
+        : sink_(std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(256)),
+          saved_level_(spdlog::default_logger()->level()) {
+        sink_->set_level(level);
+        spdlog::default_logger()->set_level(std::min(saved_level_, level));
+        spdlog::default_logger()->sinks().push_back(sink_);
+    }
+    ~LogCapture() {
+        auto& sinks = spdlog::default_logger()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), sink_), sinks.end());
+        spdlog::default_logger()->set_level(saved_level_);
+    }
+    LogCapture(const LogCapture&) = delete;
+    LogCapture& operator=(const LogCapture&) = delete;
+    LogCapture(LogCapture&&) = delete;
+    LogCapture& operator=(LogCapture&&) = delete;
+    /// The captured lines containing `text`.
+    [[nodiscard]] std::vector<std::string> lines(const std::string& text) const {
+        std::vector<std::string> out;
+        for (const std::string& l : sink_->last_formatted())
+            if (l.find(text) != std::string::npos)
+                out.push_back(l);
+        return out;
+    }
+
+private:
+    std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> sink_;
+    spdlog::level::level_enum saved_level_;
+};
+
+}  // namespace
+
+TEST_CASE("pml_ring: assemble_near = false is refused outside a standalone ring", "[pml_ring]") {
+    // Review W1: an MlfmmOperator (and a Simulation) without the near ring would solve another
+    // system; the flag stays a diagnostic of a standalone PmlRingOperator.
+    const auto c = tiny_case();
+    mlfmm::MlfmmParams p = tree_params(3, 3.0);
+    p.pml_ring.assemble_near = false;
+    CHECK_THROWS_AS(MlfmmOperator(c->problem, p), std::invalid_argument);
+    CHECK_THROWS_WITH(MlfmmOperator(c->problem, p), ContainsSubstring("assemble_near"));
+    op::Problem plain = c->problem;  // refused without a stretch too (the flag is never valid)
+    plain.stretch = nullptr;
+    CHECK_THROWS_WITH(MlfmmOperator(plain, p), ContainsSubstring("assemble_near"));
+    // The standalone ring accepts it (far ring only).
+    const mlfmm::Octree tree = ring_tree(c->space, 3);
+    const mlfmm::PmlRingOperator far(c->problem, tree, p.pml_ring, 3.0);
+    CHECK(far.near_operator().nonzeros() == 0);
+    CHECK(far.far_stored_pairs() > 0);
+    // Simulation: refused at construction (check of the MLFMM parameters).
+    SimulationConfig cfg;
+    cfg.wavelength = kLambda;
+    cfg.object = material::Material{Complex(2.25, 0.0), Complex(1.0, 0.0)};
+    cfg.kernels = cheap_options();
+    cfg.compression = "mlfmm";
+    cfg.mlfmm.pml_ring.assemble_near = false;
+    PmlTermination term;
+    term.sigma_max = 1.0;
+    term.dark_band_tolerance = 0.9;
+    excitation::AngularSpectrumBeam::Params bp;
+    bp.wavelength = kLambda;
+    bp.waist_radius = 0.4e-6;
+    bp.region_radius = 0.6e-6;
+    const auto beam = std::make_shared<excitation::AngularSpectrumBeam>(bp);
+    CHECK_THROWS_AS(Simulation(tiny_surface(), term, beam, cfg), std::invalid_argument);
+    CHECK_THROWS_WITH(Simulation(tiny_surface(), term, beam, cfg),
+                      ContainsSubstring("assemble_near"));
+}
+
+TEST_CASE("pml_ring: the per-triangle-pair drop is logged with its bound", "[pml_ring]") {
+    // Review W2: the INFO summary also reports the per-pair reductions (pair_reductions) and the
+    // drop distances; a lossy object (vacuum exterior: no block dropped whole) has reductions
+    // only in R2. A lossless case logs no drop summary.
+    const material::Material lossy{Complex(-30.0, -20.0), 1.0};
+    Case c(tiny_surface(), lossy, 1.0, formulation::Kind::PMCHWT);
+    const mlfmm::Octree tree = ring_tree(c.space, 3);
+    std::vector<std::string> got;
+    mlfmm::PmlRingFarStats st;
+    {
+        LogCapture log(spdlog::level::info);
+        const mlfmm::PmlRingOperator ra(c.problem, tree, far_only(forced_aca()), 3.0);
+        st = ra.far_stats();
+        got = log.lines("triangle pairs reduced");
+    }
+    REQUIRE(st.pair_reductions > 0);
+    CHECK(st.dropped_blocks == 0);
+    CHECK(st.pair_skips <= st.pair_reductions);
+    REQUIRE(got.size() == 1);
+    const std::string& line = got.front();
+    INFO(line);
+    CHECK_THAT(line, ContainsSubstring("magnitude bound"));
+    CHECK_THAT(line,
+               ContainsSubstring("triangle pairs reduced " + std::to_string(st.pair_reductions) +
+                                 " of " + std::to_string(st.pair_evaluations + st.pair_skips)));
+    CHECK_THAT(line, ContainsSubstring("R1 never"));
+    CHECK_THAT(line, ContainsSubstring("bound <= 1.0e-04"));
+    CHECK(st.drop_distance[1] < 1e300);
+    // Lossless: nothing dropped, no summary line.
+    Case u(tiny_surface(), material::Material{Complex(2.25, 0.0), 1.0}, 1.0,
+           formulation::Kind::PMCHWT);
+    LogCapture log(spdlog::level::info);
+    const mlfmm::PmlRingOperator ru(u.problem, tree, far_only(forced_aca()), 3.0);
+    CHECK(ru.far_stats().pair_reductions == 0);
+    CHECK(log.lines("triangle pairs reduced").empty());
+    CHECK_THAT(ru.describe(), ContainsSubstring("0 of "));
+}
+
+TEST_CASE("pml_ring: exact blocks of the ACA path equal the exact ring bitwise", "[pml_ring]") {
+    // Review W4: with no admissible block (eta -> 0), leaf rows (row_clusters = false) and a
+    // lossless object (no per-pair drop) the ACA path stores every far block exactly through
+    // detail::BlockSource; its entries, the chunk partition and every summation order of
+    // apply() are those of the exact ring of WP-PML5a, so the products are bitwise equal.
+    for (const bool rough : {false, true}) {
+        Case c(rough ? tiny_rough_surface() : tiny_surface(),
+               material::Material{Complex(2.25, 0.0), 1.0}, 1.0, formulation::Kind::PMCHWT);
+        const mlfmm::Octree tree = ring_tree(c.space, 3);
+        mlfmm::PmlRingParams exact;
+        exact.use_aca = false;
+        mlfmm::PmlRingParams blocks;
+        blocks.eta = 1e-12;  // nothing admissible
+        blocks.row_clusters = false;
+        const mlfmm::PmlRingOperator re(c.problem, tree, exact);
+        const mlfmm::PmlRingOperator rb(c.problem, tree, blocks);
+        const mlfmm::PmlRingFarStats& st = rb.far_stats();
+        INFO((rough ? "rough" : "flat") << ": " << rb.describe());
+        REQUIRE(st.aca);
+        CHECK(st.aca_blocks == 0);
+        CHECK(st.fallback_blocks == 0);
+        CHECK(st.exact_blocks > 0);
+        CHECK(st.pair_reductions == 0);
+        CHECK(st.exact_pairs == re.far_stored_pairs());
+        Real worst = 0;
+        bool bitwise = true;
+        for (const std::uint64_t seed : {41u, 42u, 43u}) {
+            const VectorXc x = random_vector(2 * c.space.size(), seed);
+            const VectorXc ye = re * x;
+            const VectorXc yb = rb * x;
+            worst = std::max(worst, rel(yb, ye));
+            bitwise = bitwise && (yb.array() == ye.array()).all();
+        }
+        INFO("relative difference " << worst);
+        CHECK(worst <= 1e-14);
+        CHECK(bitwise);  // same entries and summation orders: bitwise (pml_ring.hpp)
+    }
+}
+
+TEST_CASE("pml_ring: stored far blocks above the budget are warned about after assembly",
+          "[pml_ring]") {
+    // The budget bounds the blocks known to be exact before assembly; with an explicit max_rank
+    // the ACA factors can end above it: one SBEM_WARN after the assembly, none within budget.
+    Case c(tiny_surface(), material::Material{Complex(2.25, 0.0), 1.0}, 1.0,
+           formulation::Kind::PMCHWT);
+    const mlfmm::Octree tree = ring_tree(c.space, 3);
+    mlfmm::PmlRingParams p = far_only(forced_aca());
+    std::size_t stored = 0, exact_known = 0;
+    {
+        LogCapture log(spdlog::level::warn);
+        const mlfmm::PmlRingOperator r(c.problem, tree, p, 3.0);
+        stored = r.far_stats().exact_bytes + r.far_stats().aca_bytes;
+        exact_known = r.estimate().far_exact_bytes;
+        CHECK(log.lines("more than the far budget").empty());  // automatic budget: dense
+    }
+    REQUIRE(exact_known > 0);
+    REQUIRE(stored > exact_known);
+    p.max_far_bytes = exact_known;  // passes the pre-assembly check, below the stored blocks
+    LogCapture log(spdlog::level::warn);
+    const mlfmm::PmlRingOperator r(c.problem, tree, p, 3.0);
+    const std::vector<std::string> got = log.lines("more than the far budget");
+    REQUIRE(got.size() == 1);
+    CHECK_THAT(got.front(), ContainsSubstring("max_far_bytes"));
+}
+
+TEST_CASE("pml_ring: no ACA attempt below the minimum break-even rank", "[pml_ring]") {
+    // Review W3: under the automatic cap, admissible blocks with a break-even rank below
+    // kPmlRingMinAcaRank are stored exactly without generating rows / columns first; with an
+    // explicit max_rank every admissible block is attempted. aca_surface on 5 levels (leaves of
+    // h = 125 nm) has admissible blocks with break-even ranks below 4 and above.
+    Case c(aca_surface(), material::Material{Complex(2.25, 0.0), 1.0}, 1.0,
+           formulation::Kind::PMCHWT);
+    const mlfmm::Octree tree = ring_tree(c.space, 5);
+    mlfmm::PmlRingParams p = far_only({});
+    const mlfmm::PmlRingOperator r(c.problem, tree, p, 3.0);
+    const mlfmm::PmlRingFarStats& st = r.far_stats();
+    Index skipped = 0, attempted = 0;
+    for (const mlfmm::PmlRingFarBlock& b : r.far_blocks()) {
+        const Index be = b.rows * b.count / (b.rows + b.count);
+        if (!b.admissible) {
+            CHECK_FALSE(b.aca_skipped);
+            continue;
+        }
+        if (be < mlfmm::kPmlRingMinAcaRank) {
+            ++skipped;
+            CHECK(b.aca_skipped);
+            CHECK(b.kind == mlfmm::PmlRingFarBlock::Kind::fallback);
+            CHECK(b.generated_rows == 0);
+            CHECK(b.generated_columns == 0);
+        } else {
+            ++attempted;
+            CHECK_FALSE(b.aca_skipped);
+            CHECK(b.generated_rows > 0);
+        }
+    }
+    INFO(r.describe());
+    CHECK(skipped > 0);
+    CHECK(attempted > 0);
+    CHECK(st.skipped_attempts == skipped);
+    CHECK(st.skipped_attempts <= st.fallback_blocks);
+    CHECK_THAT(r.describe(),
+               ContainsSubstring(std::to_string(skipped) + " without an ACA attempt"));
+    // An explicit rank cap attempts every admissible block (the tiny surface: small blocks).
+    Case t(tiny_surface(), material::Material{Complex(2.25, 0.0), 1.0}, 1.0,
+           formulation::Kind::PMCHWT);
+    const mlfmm::Octree tt = ring_tree(t.space, 3);
+    mlfmm::PmlRingParams automatic_cap = far_only(forced_aca());
+    automatic_cap.max_rank = 0;  // eta 20 with the break-even cap
+    const mlfmm::PmlRingOperator rd(t.problem, tt, automatic_cap, 3.0);
+    const mlfmm::PmlRingOperator rf(t.problem, tt, far_only(forced_aca()), 3.0);
+    CHECK(rd.far_stats().skipped_attempts > 0);
+    CHECK(rf.far_stats().skipped_attempts == 0);
+    for (const mlfmm::PmlRingFarBlock& b : rf.far_blocks())
+        if (b.admissible)
+            CHECK(b.generated_rows > 0);
+}
+
+TEST_CASE("pml_ring: leaf-row ACA ring (row_clusters = false) meets the ring tolerance",
+          "[pml_ring]") {
+    // The brief's base design stays selectable: row leaves against coarse column clusters (and
+    // leaf columns), each within 10^-(d0+1) of the exact far ring on the tiny rough case.
+    Case c(tiny_rough_surface(), material::Material{Complex(2.25, 0.0), 1.0}, 1.0,
+           formulation::Kind::PMCHWT);
+    const Index n2 = 2 * c.space.size();
+    const mlfmm::Octree tree = ring_tree(c.space, 3);
+    mlfmm::PmlRingParams exact;
+    exact.use_aca = false;
+    const mlfmm::PmlRingOperator re(c.problem, tree, exact);
+    for (const bool coarse : {true, false}) {
+        mlfmm::PmlRingParams p = far_only(forced_aca());
+        p.row_clusters = false;
+        p.coarse_columns = coarse;
+        for (const Real d0 : {3.0, 5.0}) {
+            const mlfmm::PmlRingOperator ra(c.problem, tree, p, d0);
+            const Real err = ring_difference_far(ra, re, n2);
+            INFO("coarse columns " << coarse << ", d0 " << d0 << ": " << err << "; "
+                                   << ra.describe());
+            CHECK(ra.far_stats().aca_blocks > 0);
+            for (const mlfmm::PmlRingFarBlock& b : ra.far_blocks())
+                CHECK(b.row_level == tree.leaf_level());
+            CHECK(err <= std::pow(10.0, -(d0 + 1.0)));
+        }
+    }
 }
 
 // ---- WP-PML5c: ring assembly cost (canonical-pair cache, determinism, diagonal, shared plan) ----
@@ -889,6 +1594,21 @@ TEST_CASE("pml_ring: the shared plan gives the same ring as the self-planned con
     CHECK(plan.split.real_pairs == est.rr_near_pairs);
     CHECK(plan.estimate.far_bytes == est.far_bytes);
     CHECK(plan.estimate.far_stored == est.far_stored);
+    // ... and the ACA far partition of WP-PML5b from the same pass as the estimate.
+    CHECK(plan.estimate.far_exact_bytes == est.far_exact_bytes);
+    CHECK(plan.estimate.far_aca_blocks == est.far_aca_blocks);
+    CHECK(plan.estimate.far_exact_blocks == est.far_exact_blocks);
+    CHECK(plan.estimate.far_aca_pairs == est.far_aca_pairs);
+    const std::vector<mlfmm::PmlRingFarBlock> far = mlfmm::plan_pml_ring_far(tree, c->space, s);
+    REQUIRE(plan.far_blocks.size() == far.size());
+    REQUIRE(!far.empty());
+    for (std::size_t i = 0; i < far.size(); ++i) {
+        CHECK(plan.far_blocks[i].row_box == far[i].row_box);
+        CHECK(plan.far_blocks[i].box == far[i].box);
+        CHECK(plan.far_blocks[i].rows == far[i].rows);
+        CHECK(plan.far_blocks[i].admissible == far[i].admissible);
+        CHECK(plan.far_blocks[i].distance == far[i].distance);
+    }
     // A ring from the plan (as MlfmmOperator builds it, real pattern released) equals the
     // self-planned one bitwise.
     const mlfmm::PmlRingOperator self(c->problem, tree);
@@ -900,8 +1620,44 @@ TEST_CASE("pml_ring: the shared plan gives the same ring as the self-planned con
     CHECK(shared.far_pairs() == self.far_pairs());
     CHECK(shared.far_bytes() == self.far_bytes());
     CHECK(shared.estimate().budget == self.estimate().budget);
+    CHECK(shared.far_blocks().size() == self.far_blocks().size());
+    CHECK(shared.far_stats().aca_blocks == self.far_stats().aca_blocks);
+    CHECK(shared.far_stats().rank_max == self.far_stats().rank_max);
     const VectorXc x = random_vector(2 * c->space.size(), 23);
     CHECK(((shared * x).array() == (self * x).array()).all());
+    // The same with the exact far ring (no partition in the plan) and with d0 = 5.
+    mlfmm::PmlRingParams no_aca;
+    no_aca.use_aca = false;
+    const mlfmm::PmlRingPlan plan_exact = mlfmm::plan_pml_ring(tree, c->space, c->pml, no_aca);
+    CHECK(plan_exact.far_blocks.empty());
+    CHECK(plan_exact.estimate.far_exact_bytes == plan_exact.estimate.far_bytes);
+    const mlfmm::PmlRingOperator self_exact(c->problem, tree, no_aca, 5.0);
+    const mlfmm::PmlRingOperator shared_exact(c->problem, tree, plan_exact, no_aca, 5.0);
+    CHECK_FALSE(shared_exact.far_stats().aca);
+    CHECK(((shared_exact * x).array() == (self_exact * x).array()).all());
+    const mlfmm::PmlRingOperator self5(c->problem, tree, {}, 5.0);
+    const mlfmm::PmlRingOperator shared5(c->problem, tree, plan, {}, 5.0);
+    CHECK(shared5.far_stats().epsilon == 1e-6);
+    CHECK(((shared5 * x).array() == (self5 * x).array()).all());
+    // A plan made with other far-partition parameters is refused (its partition and estimate
+    // would not match); the budget and the ACA tolerance may differ.
+    CHECK_THROWS_WITH(mlfmm::PmlRingOperator(c->problem, tree, plan, no_aca),
+                      ContainsSubstring("far-ring partition parameters"));
+    CHECK_THROWS_WITH(mlfmm::PmlRingOperator(c->problem, tree, plan_exact),
+                      ContainsSubstring("far-ring partition parameters"));
+    mlfmm::PmlRingParams other_eta;
+    other_eta.eta = 1.0;
+    CHECK_THROWS_AS(mlfmm::PmlRingOperator(c->problem, tree, plan, other_eta),
+                    std::invalid_argument);
+    mlfmm::PmlRingParams loose;
+    loose.aca_epsilon = 1e-2;
+    CHECK_NOTHROW(mlfmm::PmlRingOperator(c->problem, tree, plan, loose));
+    CHECK_THROWS_AS(mlfmm::PmlRingOperator(c->problem, tree, plan, {}, 0.0), std::invalid_argument);
+    // A far partition that does not match the tree's boxes is refused.
+    mlfmm::PmlRingPlan bad_far = plan;
+    bad_far.far_blocks.front().rows += 1;
+    CHECK_THROWS_WITH(mlfmm::PmlRingOperator(c->problem, tree, std::move(bad_far)),
+                      ContainsSubstring("row count"));
     // MlfmmOperator shares its plan: the ring's counts are the plan's.
     const MlfmmOperator Z(c->problem, tree_params(3, 3.0));
     const mlfmm::PmlRingPlan zp = mlfmm::plan_pml_ring(Z.octree(), c->space, c->pml);

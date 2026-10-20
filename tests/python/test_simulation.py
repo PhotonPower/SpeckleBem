@@ -227,6 +227,9 @@ def test_mlfmm_compression():
             compression="mlfmm", mlfmm=dict(leaf_radius_quantile=0.8, automatic_leaf_size=False)
         )
     assert "leaf_radius_quantile 1," in make_sim(compression="mlfmm").report()
+    # The PML ring keys belong to Simulation.with_pml (WP-PML5b review): refused here.
+    with pytest.raises(ValueError, match="pml_ring_eta.*PML ring"):
+        make_sim(compression="mlfmm", mlfmm=dict(pml_ring_eta=2.0))
     # A lossless interior at d0 = 5 without the leaf rule (r_max / a ~ 0.5): no expansion order.
     bad = sb.Simulation(
         sb.make_icosphere(1.5e-6, 2),

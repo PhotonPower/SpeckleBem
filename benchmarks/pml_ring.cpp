@@ -1,11 +1,18 @@
 // Fast path of the PML route vs dense (WP-PML5a, validation 7h; ADR 0008 amendment 2026-10-18,
 // docs/05 "PML route" row 7h): one case of tests/support/pml_ring_support.hpp per process. The
 // fast run (Simulation with compression "mlfmm" on the PML route: MLFMM on the real functions plus
-// the exact PML ring, GMRES) comes first, then the dense run (DenseStrategy, LU in place) with the
+// the PML ring, GMRES) comes first, then the dense run (DenseStrategy, LU in place) with the
 // matvec comparison of the stored fast products, R and the windowed far field (L2 metric of
 // pml_rough_ag::compare). --fast-only skips the dense run (sizes beyond the dense budget).
+// --compare-far TEST REF [--summary FILE] (first option) compares two far fields stored by earlier
+// runs (FILE.TAG.far / FILE.TAG.dense.far, written with --summary) in the 7c/7d metric.
 // --estimate-only builds only the mesh and the octree and prints the PML ring's pre-assembly sizes
 // (mlfmm::estimate_pml_ring) and the dense size: the memory model of WP-PML5a and its projection.
+// WP-PML5b: the far ring is ACA by default (--exact-far: the exact ring of 5a; --eta, --aca-eps,
+// --max-rank, --leaf-columns: PmlRingParams). --ring-compare builds the fast operator (MLFMM + ACA
+// ring) and then the exact ring of the same Problem and octree and prints the RING line (ring and
+// full-operator matvec differences, memory, times, ranks; no dense matrix, no solve);
+// --ring-compare --no-exact builds the ACA operator only (sizes beyond the exact ring's memory).
 // --assembly-study (WP-PML5c) times the near-ring assembly on the octree's ring pattern without
 // solving, in one process and alternating: the canonical-pair cache (default, "5c"), the
 // per-ordering evaluation of WP-PML5a ("5a"), and the dense assembler's evaluation of exactly
@@ -21,8 +28,9 @@
 //            [--patch L] [--map-patch L] [--taper W] [--gap W] [--pml W] [--h H] [--sigma S]
 //            [--rms SIGMA (0: flat)] [--lc LC] [--w0 W0] [--dark-band-tol T] [--d0 3]
 //            [--tol 1e-7] [--n-theta 90] [--n-phi 180] [--summary FILE] [--fast-only]
-//            [--estimate-only] [--force] [--assembly-study] [--reps 1] [--dense-compare]
-//            [--quick]
+//            [--estimate-only] [--force] [--exact-far] [--eta 2] [--aca-eps 0] [--max-rank 0]
+//            [--leaf-columns] [--ring-compare] [--no-exact] [--seed 1] [--assembly-study]
+//            [--reps 1] [--dense-compare] [--quick]
 // --case must come first (it resets the case).
 #include "specklebem/compression/mlfmm/pml_ring.hpp"
 
@@ -60,6 +68,8 @@ struct Options {
     bool fast_only = false;
     bool estimate_only = false;
     bool force = false;
+    bool ring_compare = false;
+    bool no_exact = false;
     bool assembly_study = false;
     bool dense_compare = false;
     bool quick = false;  ///< --assembly-study: 5a and 5c only (no canonical-only, dense, profile)
@@ -136,6 +146,22 @@ Options parse(int argc, char** argv) {
             o.estimate_only = true;
         } else if (a == "--force") {
             o.force = true;
+        } else if (a == "--exact-far") {
+            o.f.ring.use_aca = false;
+        } else if (a == "--eta") {
+            o.f.ring.eta = real();
+        } else if (a == "--aca-eps") {
+            o.f.ring.aca_epsilon = real();
+        } else if (a == "--max-rank") {
+            o.f.ring.max_rank = std::stoll(value());
+        } else if (a == "--leaf-columns") {
+            o.f.ring.coarse_columns = false;
+        } else if (a == "--ring-compare") {
+            o.ring_compare = true;
+        } else if (a == "--no-exact") {
+            o.no_exact = true;
+        } else if (a == "--seed") {
+            o.c.seed = static_cast<std::uint64_t>(std::stoull(value()));
         } else if (a == "--assembly-study") {
             o.assembly_study = true;
         } else if (a == "--dense-compare") {
@@ -169,8 +195,8 @@ std::string estimate_line(const RoughCase& c, const FastSettings& f) {
     p.accuracy_digits = f.digits;
     const mlfmm::Octree tree = mlfmm::make_octree(space, pml_rough_ag::kLambda, p);
     const std::vector<std::uint8_t> s = mlfmm::classify_stretched(space, st);
-    const mlfmm::PmlRingEstimate e = mlfmm::estimate_pml_ring(tree, space, s);
-    char buf[800];
+    const mlfmm::PmlRingEstimate e = mlfmm::estimate_pml_ring(tree, space, s, f.ring);
+    char buf[1000];
     std::snprintf(
         buf, sizeof(buf),
         "ESTIMATE | %s | L %.4g | pml %.4g | h %.4g | d0 %.1f | 2N %lld | stretched %lld (%.1f %%) "
@@ -188,7 +214,15 @@ std::string estimate_line(const RoughCase& c, const FastSettings& f) {
         static_cast<long long>(e.rr_near_pairs), static_cast<Real>(4 * e.rr_near_pairs * 24) / 1e6,
         static_cast<Real>(e.dense_bytes) / 1e6,
         static_cast<Real>(e.near_bytes + e.far_bytes) / static_cast<Real>(e.dense_bytes));
-    return buf;
+    char aca[300];
+    std::snprintf(aca, sizeof(aca),
+                  " | ACA %s eta %.2f: admissible %lld blocks (%lld pairs), exact %lld blocks "
+                  "%.1f MB",
+                  f.ring.use_aca ? "on" : "off", f.ring.eta,
+                  static_cast<long long>(e.far_aca_blocks), static_cast<long long>(e.far_aca_pairs),
+                  static_cast<long long>(e.far_exact_blocks),
+                  static_cast<Real>(e.far_exact_bytes) / 1e6);
+    return std::string(buf) + aca;
 }
 
 /// The dense assembler's evaluation of exactly the pairs of `pattern` (WP-PML5c gate reference):
@@ -767,6 +801,19 @@ void assembly_study(const RoughCase& c, const FastSettings& f, int reps, bool de
 
 int main(int argc, char** argv) {
     try {
+        // --compare-far TEST REF [--summary FILE]: the 7c/7d metric between two stored far fields
+        // (e.g. the fast-path 7d Si control: L x 1.2 against U).
+        if (argc >= 4 && std::string(argv[1]) == "--compare-far") {
+            const pml_rough_ag::FarField t = pml_rough_ag::read_far_field(argv[2]);
+            const pml_rough_ag::FarField r = pml_rough_ag::read_far_field(argv[3]);
+            const pml_rough_ag::Metrics m = pml_rough_ag::compare(t, r);
+            const std::string line = std::string("COMPARE_FAR | ") + argv[2] + " vs " + argv[3] +
+                                     " | " + pml_rough_ag::compare_line(t, r, m);
+            std::printf("%s\n", line.c_str());
+            if (argc >= 6 && std::string(argv[4]) == "--summary")
+                append_summary(argv[5], line);
+            return 0;
+        }
         const Options o = parse(argc, argv);
         const RoughCase& c = o.c;
         const pml_rough_ag::Size s = pml_rough_ag::size_of(c);
@@ -783,6 +830,14 @@ int main(int argc, char** argv) {
         append_summary(o.summary, est);
         if (o.estimate_only)
             return 0;
+        if (o.ring_compare) {
+            const RingCompare r = run_ring_compare(c, o.f, !o.no_exact);
+            const std::string line = ring_compare_line(c, o.f, r);
+            std::printf("%s\n", line.c_str());
+            append_summary(o.summary, line);
+            std::fflush(stdout);
+            return 0;
+        }
         if (o.assembly_study) {
             assembly_study(c, o.f, o.reps, o.dense_compare, o.quick, o.summary);
             return 0;
@@ -801,17 +856,24 @@ int main(int argc, char** argv) {
             char buf[600];
             std::snprintf(
                 buf, sizeof(buf),
-                "FAST | %s | d0 %.1f | 2N %lld | stretched %lld | levels %d | R %.8f | "
-                "its %d | true res %.2e | op %.1f MB (ring near %.1f, far %.1f) | "
-                "assemble (op + rhs + diag) %.1f s | GMRES %.1f s | matvec %.3f s | peak %.2f GB",
-                c.tag.c_str(), o.f.digits, static_cast<long long>(fr.unknowns),
-                static_cast<long long>(fr.stretched), fr.levels, fr.far.reflectance(),
-                fr.iterations, fr.true_residual, static_cast<Real>(fr.operator_bytes) / 1e6,
+                "FAST | %s | %s | rms %.3g | L %.4g | h %.4g | d0 %.1f | 2N %lld | stretched %lld "
+                "| "
+                "levels %d | R %.8f | its %d | true res %.2e | op %.1f MB (ring near %.1f, far "
+                "%.1f) | assemble (op + rhs + diag) %.1f s (ring near %.1f, far %.1f) | GMRES %.1f "
+                "s | matvec %.3f s | peak %.2f GB",
+                c.tag.c_str(), c.material.c_str(), c.rms, c.patch, c.mesh_size, o.f.digits,
+                static_cast<long long>(fr.unknowns), static_cast<long long>(fr.stretched),
+                fr.levels, fr.far.reflectance(), fr.iterations, fr.true_residual,
+                static_cast<Real>(fr.operator_bytes) / 1e6,
                 static_cast<Real>(fr.ring_near_bytes) / 1e6,
-                static_cast<Real>(fr.ring_far_bytes) / 1e6, fr.assemble_s, fr.solve_s, fr.matvec_s,
-                fr.peak_rss / 1e9);
-            std::printf("%s\n", buf);
-            append_summary(o.summary, buf);
+                static_cast<Real>(fr.ring_far_bytes) / 1e6, fr.assemble_s, fr.ring_near_s,
+                fr.ring_far_s, fr.solve_s, fr.matvec_s, fr.peak_rss / 1e9);
+            const std::string line = std::string(buf) + " | " + far_segment(fr.far_stats);
+            std::printf("%s\n", line.c_str());
+            append_summary(o.summary, line);
+            // The far field for d0 comparisons between fast runs (--summary FILE.far: |F|^2).
+            if (!o.summary.empty())
+                pml_rough_ag::write_far_field(o.summary + "." + c.tag + ".far", fr.far);
             return 0;
         }
         const DenseRun dr = run_dense(c, fr);
@@ -822,6 +884,10 @@ int main(int argc, char** argv) {
         const std::string cmp = pml_rough_ag::compare_line(fr.far, dr.far, m);
         std::printf("%s\n", cmp.c_str());
         append_summary(o.summary, cmp);
+        if (!o.summary.empty()) {  // far fields for cross-case metrics (--compare-far)
+            pml_rough_ag::write_far_field(o.summary + "." + c.tag + ".far", fr.far);
+            pml_rough_ag::write_far_field(o.summary + "." + c.tag + ".dense.far", dr.far);
+        }
         std::fflush(stdout);
         return 0;
     } catch (const std::exception& ex) {

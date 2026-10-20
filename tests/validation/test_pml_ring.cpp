@@ -1,6 +1,7 @@
-// Validation 7h of the PML route at CI size (WP-PML5a; ADR 0008 amendment 2026-10-18 decision 6,
-// docs/05 "PML route" row 7h): the fast path (compression "mlfmm" on the PML route: MLFMM on the
-// real functions plus the exact PML ring) against the dense PML matrix on flat Ag:
+// Validation 7h of the PML route at CI size (WP-PML5a, through the ACA far ring of WP-PML5b; ADR
+// 0008 amendment 2026-10-18 decision 6, docs/05 "PML route" row 7h): the fast path (compression
+// "mlfmm" on the PML route: MLFMM on the real functions plus the PML ring, near exact, far ACA)
+// against the dense PML matrix on flat Ag:
 //  * matvec at d0 = 3 and 5 on a 2N = 2816 surface (< 1e-3 / < 1e-5);
 //  * the GMRES solve against the dense LU solve on a 7a-type case (pml_ring::flat_ag_ci_case():
 //    normal incidence, w0 = lambda, h = lambda / 4, 2N = 4592): matvec < 1e-3 at d0 = 3, R within
@@ -35,6 +36,9 @@ TEST_CASE("pml_ring 7h: flat Ag fast path vs dense LU (CI size)", "[pml_ring_7h]
     CHECK(fr.stretched > 0);
     CHECK(fr.levels >= 3);  // the MLFMM has a far part
     CHECK(fr.ring_far_pairs > 0);
+    // WP-PML5b: through the ACA far ring (default).
+    CHECK(fr.far_stats.aca);
+    CHECK(fr.far_stats.aca_blocks > 0);
     // Validation 7h (docs/05; not loosened).
     CHECK(max_of(dr.matvec_errors) < 1e-3);
     CHECK(std::abs(m.dR) < 1e-4);
@@ -102,7 +106,10 @@ TEST_CASE("pml_ring 7h: matvec vs the dense PML matrix at d0 = 3 and 5 (flat Ag,
              << static_cast<Real>(Z.memory_bytes()) / 1e6 << " MB vs dense "
              << 64.0 * static_cast<Real>(N) * static_cast<Real>(N) / 1e6 << " MB; setup " << fast_s
              << " s (ring near " << ring.near_seconds() << " s, far " << ring.far_seconds()
-             << " s) vs dense " << dense_s << " s");
+             << " s) vs dense " << dense_s << " s; " << pml_ring::far_segment(ring.far_stats()));
+        // WP-PML5b: through the ACA far ring (default).
+        CHECK(ring.far_stats().aca);
+        CHECK(ring.far_stats().aca_blocks > 0);
         // Validation 7h (docs/05; not loosened).
         CHECK(err < (d0 == 3.0 ? 1e-3 : 1e-5));
     }

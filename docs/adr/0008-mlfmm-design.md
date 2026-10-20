@@ -321,6 +321,50 @@ near parts (Z_rr near and the near ring hold every diagonal entry); `split_near_
 are computed two to three times per operator (MlfmmOperator's early budget check, the near split, the ring
 constructor) and could be shared.
 
+**5b result (WP-PML5b, 2026-10-19, `benchmarks/results/pml_ring.md` section "5b").** Decision 3b implemented
+(`aca::compress` in `compression/aca/aca.hpp`, kernel-independent; the far part of `PmlRingOperator`), with these
+choices and deviations: (i) the far blocks are an **H-matrix partition** of the ring rows (row clusters of every
+level, dual descent over same-level box pairs; η-admissibility max(diam R_s, diam C) ≤ η dist on the bounding boxes
+of the support vertices, real coordinates; non-admissible separated leaf pairs exact as in 5a) instead of the leaf
+rows of the brief: with one leaf's ~33 stretched rows the ranks (median 13 at 10⁻⁴) bound the gain to 2.6× at the 7c
+size, the row clusters give 6.4× there (η = 2) and 10× at 2N = 6·10⁴; the leaf-row design stays selectable
+(`row_clusters = false`); (ii) **η = 2** by measurement (7c size: η = 0.5 / 1 / 2 / 3 → 1 260 / 819 / 571 / 524 MB);
+(iii) each sub-block JJ, JM, MJ, MM is compressed separately to 10^{−(d₀+1)} from one shared cache of function
+rows/columns; the stopping rule must hold in two consecutive steps (the plain rule left 1.04 ε on a test block);
+rank cap = the break-even rank (a capped block is stored exactly), so the ACA ring never exceeds the 5a estimate,
+which stays the pre-assembly upper bound; the budget check applies to the blocks known to be exact; (iv) the §6
+bound needs the stretch: Re R̃ ≥ κR with κ = 2/√(4 + σ_max²) (0.447 at σ_max = 4), so the ring uses
+δ = F(1 + αR*)e^{−ακR*}, F = (1 + σ_max²)²/κ³, per block and per triangle pair (Ag's interior parts beyond
+1.2 µm at d₀ = 3; vacuum never dropped, so no PML-route block is dropped whole). Measured: 7h kept through ACA at
+the 7c size (d₀ = 3 matvec 2.1·10⁻⁵, dR 4.8·10⁻⁸, L2 3.3·10⁻⁶, 602 iterations; d₀ = 5 matvec 2.1·10⁻⁷) at a 1.5 GB
+operator (5a 4.6 GB, dense 8.3 GB) and a far-ring assembly of 151 s (5a 522 s); at 2N = 59 600 the ACA ring
+reproduces the exact ring to 5.1·10⁻⁵ (1.1·10⁻⁵ of the operator) with 1.64 GB instead of 16.7 GB in 387 s instead of
+3 568 s; at 2N = 152 960 (L = 16 µm) the fast path runs in 13.3 GB (peak 18 GB; far ring 3.9 GB, the exact one
+would be 70.8 GB), 1 715 GMRES iterations, R of d₀ = 3 and d₀ = 5 within 1.5·10⁻⁸ (L2 1.5·10⁻⁶); the largest run, 2N = 300 160 (L = 24 µm), takes 20.1 GB (peak 33.6 GB with the full-GMRES basis,
+2 679 iterations; far ring 8.3 GB against 198 GB exact), so the 50 GB limit lies near 2N ≈ 4·10⁵. The rough-Si 7d control through the fast path gives 0.2412 % (dense 0.2411 %); 7e through the fast path l2_refl 0.1464 % against the uniform box (dense: the stored WP-PML4c value 0.1464 %, not rerun in WP-PML5b), R equal to 7 digits.
+The ranks stay small (median 12–17, max 37–69 incl. Si), so the fallbacks named above (one-level FMM with complex
+translators, Huygens separation) are not needed up to this size. The near ring (614–890 s, measured before the
+WP-PML5c cache) then dominated the setup; WP-PML5c (below, developed in parallel) addressed it.
+*Open issue (outside 5b):* the GMRES iterations (ICTF + Jacobi, full GMRES to 10⁻⁷, rough Ag) grow ≈ N^0.5–0.6:
+602 at 2N = 2.3·10⁴, 1 715 at 1.5·10⁵, 2 679 at 3·10⁵; at 3·10⁵ the Krylov basis is 12.9 GB of the 33.6 GB peak and
+GMRES took 6 540 s against ≈ 5 000 s of matrix-vector products, so beyond ≈ 4·10⁵ the basis, not the operator, sets
+the memory limit. Candidates: restarted GMRES, or a near-field preconditioner from the stored near parts.
+*Derivation of κ and F (review S).* Per stretched axis x̃ = x − j S(x) with S′ = σ ∈ [0, σ_max], so a pair has
+Δx̃_i = Δx_i (1 − j t_i) with secant slopes t_i ∈ [0, σ_max] (t_z = 0) and R̃² = Σ Δx_i² (1 − j t_i)², Im R̃ ≤ 0. One
+stretched axis alone gives Re R̃ = R; the minimum of Re R̃ / R over slopes and axis weights is reached with one axis
+at σ_max carrying the weight u = 2/(4 + σ_max²) of R² and one unstretched axis, where |R̃²| = R² and
+(Re R̃)² = 4R²/(4 + σ_max²): Re R̃ ≥ κR, κ = 2/√(4 + σ_max²) (sampled in the unit test). Hence, with k = β − jα,
+|e^{−jkR̃}| ≤ e^{−αRe R̃} ≤ e^{−ακR} and 1/|R̃|^p ≤ 1/(κR)^p (|R̃| ≥ Re R̃). The largest factor is in K:
+f̃_m · (∇̃G̃ × f̃_n) dS̃ dS̃′ = (DS f_m) · (∇̃G̃ × DS f_n) dS dS′ (Piola, ADR 0009) with |DS f| ≤ √(1 + σ_max²) |f| for
+test and source, and ∇̃G̃ = −(1 + jkR̃) e^{−jkR̃} Δx̃ / (4π R̃³) with |Δx̃| ≤ √(1 + σ_max²) R, |1 + jkR̃| ≤
+√(1 + σ_max²) (1 + |k| R) and 1/|R̃|³ ≤ 1/(κR)³: together (1 + σ_max²)²/κ³ = F times the undamped bound of the
+gradient with e^{−ακR}; L (factors (1 + σ_max²)/κ, divergence part 1/κ) stays below it. With the WP21 form this
+gives δ = F (1 + αR*) e^{−ακR*}, R* = max(d, (1 − κ)/(ακ)). Two implementation decisions of the review round
+(2026-10-20): under the automatic rank cap no ACA attempt is made when the break-even rank is below
+`kPmlRingMinAcaRank` = 4 (with two confirmations a cap of 3 converges only at numerical rank ≤ 1; such blocks are
+stored exactly at once, `skipped_attempts`), and the per-thread row/column cache is released before a fallback
+block is generated in full, so the transient memory of a failed attempt never exceeds the exact block.
+
 **5c result (WP-PML5c, 2026-10-19, `benchmarks/results/pml_ring.md` "5c: ring assembly").** The near ring costs
 ~95 % in stretched touching pairs (shared vertex 85 %, shared edge 11 % at the 7c size), so evaluating each
 unordered pair once (canonical-pair cache in `op::assemble_sparse_stretched`: B(s, t) = B(t, s)ᵀ bitwise for
@@ -335,8 +379,8 @@ rounding-tolerant key would copy twice as many pairs at 1.8·10⁻¹⁵ of the l
 independent. The Jacobi diagonal is read from the near parts (`MlfmmOperator::diagonal()`; real rows bitwise,
 stretched rows 3.4·10⁻¹⁶ against `op::assemble_diagonal`; 50 s → 0.007 s), and the classification, split near
 pattern and estimate are computed once (`plan_pml_ring`, `PmlRingPlan`). 7h rerun: every printed 5a digit
-reproduced; `Simulation::assemble()` 0.83× the dense assembly of the same (loaded) run, the far ring now ≈ 87 % of
-it (5b). Remaining near-ring levers: mirror classes for the corners, exact grid coordinates. Review round
+reproduced; `Simulation::assemble()` 0.83× the dense assembly of the same (loaded) run, the far ring (still the exact one of
+5a in that run) was then ≈ 87 % of it, which WP-PML5b (above) compresses. Remaining near-ring levers: mirror classes for the corners, exact grid coordinates. Review round
 (2026-10-19): the key is built in the kernels layer next to the touching rule (`kernels::stretched_touching_key`,
 from the rule's own pair setup, with back-references in the rule's code paths), so the operator layer no longer
 mirrors kernel internals; it now also holds the fastmath decision (decided from absolute coordinates), the
@@ -346,3 +390,15 @@ boundary are evaluated individually (σ one ulp past the start is visible for m 
 pairs in the rerun. A `PmlRingPlan` records an octree fingerprint and is refused on another tree; the plan bounds
 the transient assembly cache (`PmlRingEstimate::near_assembly_bytes`, 339 MB at U), which the memory warning
 counts.
+
+**5b + 5c integrated (2026-10-20, `benchmarks/results/pml_ring.md` "5b + 5c integrated").** The two packages were
+developed in parallel from 5a and merged: the near ring is 5c's (canonical pairs, translation classes), the far ring
+5b's ACA (exact blocks with `use_aca = false`); `PmlRingPlan` carries 5b's far partition and the parameters it was
+made with (a plan of other partition parameters is refused), both `PmlRingOperator` constructors take d₀; the
+budget check uses the blocks known to be exact before assembly (5b), the memory warning the peak known before
+assembly, near ring + max(near-ring cache, far blocks stored exactly). 7h rerun at the 7c size: every printed 5b
+digit reproduced (d₀ = 3 matvec 2.08·10⁻⁵, dR 4.8·10⁻⁸, L2 3.3·10⁻⁶, 602 iterations; d₀ = 5 matvec 2.15·10⁻⁷);
+`Simulation::assemble()` 211 s against 678 s for the dense assembly of the same process (0.31×; near ring 89 s,
+ACA far ring 119 s, diagonal 0.002 s), operator 1.52 GB, peak 1.83 GB. At d₀ = 5 the near-ring cache (1.1 GB)
+exceeds the near ring and sets the peak (3.91 GB against 3.58 GB in 5b). At 2N = 59 600 the ACA ring matches the exact one
+to the same 5.1·10⁻⁵ with an operator build of 446 s (5b 1 261 s).

@@ -283,8 +283,13 @@ struct Estimate {
     e.size = size_of(c);
     RoughCase relaxed = c;
     relaxed.dark_band_tolerance = 1e6;
+    // Constructed only (no assembly): compression "mlfmm" so that sizes beyond the dense limit
+    // (WP-PML5b scaling cases) are accepted; the dark band and the mask do not depend on it.
+    SimulationConfig cfg = make_config(relaxed);
+    cfg.compression = "mlfmm";
+    cfg.solver = SolverKind::Gmres;
     const Simulation sim(make_open_mesh(relaxed), make_termination(relaxed),
-                         make_beam(relaxed, e.size.half[2]), make_config(relaxed));
+                         make_beam(relaxed, e.size.half[2]), cfg);
     e.dark_band = sim.dark_band_ratio();
     const std::vector<std::uint8_t> mask =
         op::pml_masked_functions(*sim.problem().space, sim.stretch());

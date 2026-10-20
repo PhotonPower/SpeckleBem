@@ -1,6 +1,6 @@
-# Fast path of the PML route, baseline: MLFMM on the real functions + exact PML ring (WP-PML5a)
+# Fast path of the PML route: MLFMM on the real functions + PML ring (WP-PML5a exact, WP-PML5b ACA far blocks, WP-PML5c ring assembly)
 
-ADR 0008 amendment 2026-10-18 (decisions 1–3a, 5, 6), docs/05 "PML route", row 7h. Library code
+ADR 0008 amendment 2026-10-18 (decisions 1–3a, 5, 6; 3b in section "5b", 4 in section "5c", the combined code in section "5b + 5c integrated" at the end), docs/05 "PML route", row 7h. Library code
 `include/specklebem/compression/mlfmm/pml_ring.hpp` (`mlfmm::PmlRingOperator`, `classify_stretched`,
 `split_near_pattern`, `estimate_pml_ring`) and `MlfmmOperator` with a stretch; case code
 `tests/support/pml_ring_support.hpp`; tests `tests/unit/test_pml_ring.cpp`, `tests/validation/test_pml_ring.cpp`,
@@ -27,11 +27,20 @@ so their values are 4.6 % smaller (e.g. far ring 3 652 MB = 3 483 MiB).
   stretched touching pair in both orderings (`op::assemble_sparse_stretched`, row-wise); the far ring (522 s)
   evaluates every pair of a stretched test triangle with every far source triangle (stretched–stretched pairs
   twice). WP-PML5c (canonical-pair cache, ADR 0008 amendment decision 4) targets ≤ dense / 2.
+- **5b (WP-PML5b, section "5b: ACA far ring"):** ACA far ring (H-matrix row clusters, η = 2, tolerance
+  10^-(d₀+1)): 7h kept (U matvec 2.08·10⁻⁵ / 2.15·10⁻⁷ at d₀ = 3 / 5), far ring 571 MB instead of 3.65 GB at U,
+  operator 1.52 GB (0.18× dense); runs up to 2N = 3·10⁵ in 33.6 GB peak.
 - **5c (WP-PML5c, section "5c: ring assembly"):** near ring 0.41× the dense assembly of the same pairs at U
   (gate ½ met; 0.26× in the review-round rerun with the complete key; 0.14–0.24× the 5a near ring) by evaluating each unordered stretched pair once (canonical-pair
   cache) and the touching pairs of the PML strips once per bit-exact translation class; the matrix is bitwise the
   5a one; the Jacobi diagonal is read from the near parts (50 s → 0.007 s); the 7h rerun reproduces every 5a digit.
-  The far ring (5b) is now ≈ 87 % of the setup.
+  With the exact far ring of 5a the far ring was then ≈ 87 % of the setup (compressed by 5b; combined picture
+  below).
+- **Combined (5b + 5c, the current code; section "5b + 5c integrated"):** near ring of 5c, far ring of 5b's ACA.
+  At U (d₀ = 3) `Simulation::assemble()` takes 211 s against 678 s for the dense assembly of the same process
+  (0.31×; near ring 89 s, ACA far ring 119 s, MLFMM 2.7 s, diagonal 0.002 s), the operator 1.52 GB, peak 1.83 GB,
+  matvec 0.10 s against 0.27 s dense, and every printed 5b accuracy digit is reproduced (matvec 2.081·10⁻⁵, dR
+  +4.76·10⁻⁸, l2 3.33·10⁻⁶, 602 iterations); d₀ = 5 matvec 2.147·10⁻⁷, operator build 292 s.
 
 ## Setup
 
@@ -145,6 +154,165 @@ near ring.
   variants under "Ring apply (review W4)".
 - **Budget.** `PmlRingParams::max_far_bytes` (via `MlfmmParams::pml_ring`), automatic = the dense matrix; checked
   before any allocation (unit test: 1 byte → `std::runtime_error` naming `max_far_bytes`).
+
+## 5b: ACA far ring (WP-PML5b)
+
+ADR 0008 amendment 2026-10-18 decision 3b. Library code `include/specklebem/compression/aca/aca.hpp`
+(`aca::compress`, kernel-independent partially pivoted ACA) and the far part of `PmlRingOperator`
+(`src/compression/mlfmm/pml_ring_far.{hpp,cpp}`: partition, `BlockSource`, `AcaFarRing`); tests
+`tests/unit/test_aca.cpp`, the ACA cases of `tests/unit/test_pml_ring.cpp`, the CI cases of
+`tests/validation/test_pml_ring.cpp` (now through ACA) and the 2N ≈ 6·10⁴ case of
+`tests/validation_large/test_pml_ring_large.cpp`; driver modes `--ring-compare [--no-exact]`, `--eta`,
+`--exact-far`, `--compare-far` of `benchmarks/pml_ring.cpp`, `--pml-solver fast` of
+`benchmarks/pml_si_crosscheck.cpp`. Measured 2026-10-19/20 on the same 12-core desktop with 128 GB (builds and
+tests of other worktrees shared the machine during most runs: the times are ±30 % or worse; memory and accuracy are not
+affected). Defaults: ACA tolerance 10^-(d₀+1), η = 2, H-matrix row clusters, break-even rank cap.
+
+### Summary
+
+- **7h kept through the ACA path** at the 7c size (rough Ag U, 2N = 22 816): d₀ = 3 matvec 2.08·10⁻⁵, dR
+  +4.8·10⁻⁸, L2 3.3·10⁻⁶, 602 GMRES iterations (5a: 1.51·10⁻⁵, 4.1·10⁻⁸, 3.3·10⁻⁶, 602); d₀ = 5 matvec
+  2.15·10⁻⁷ (5a 1.40·10⁻⁷); flat CI 2N = 4 592 matvec 3.16·10⁻⁴, dR 7.0·10⁻⁸, L2 1.95·10⁻⁶; 2N = 2 816
+  3.9·10⁻⁴ / 4.0·10⁻⁸ (d₀ = 3 / 5). Criteria (10⁻³ / 10⁻⁵, 10⁻⁴, 10⁻³) not loosened.
+- **Memory:** far ring 571 MB instead of 3 652 MB at U (6.4×), the whole fast operator 1.52 GB (0.18× dense,
+  5a 0.55×), peak 1.83 GB; at 2N = 59 600 (L = 8.5 µm) 1.64 GB instead of 16.7 GB (10.2×), operator
+  3.68 GB against 57 GB dense; at 2N = 152 960 (L = 16 µm, ACA only) far ring 3.9 GB
+  (exact would be 70.8 GB, 18×), operator 13.3 GB, process peak 18.0 GB with the full-GMRES basis of 1 715
+  iterations; the largest run, 2N = 300 160 (L = 24 µm), fits 50 GB with margin: far ring 8.3 GB
+  (exact 198 GB, 24×), operator 20.1 GB, peak 33.6 GB (2 679 iterations of full GMRES: basis ≈ 12.9 GB); the
+  projected 50 GB limit is 2N ≈ 4·10⁵.
+- **ACA vs the exact far ring** (same Problem, same octree): ring 3.1·10⁻⁵ (U, η = 1) / 5.1·10⁻⁵ (2N = 59 600)
+  relative to the ring product (criterion 10⁻⁴), 0.8–1.1·10⁻⁵ relative to the whole operator.
+- **Time:** far ring 151 s at U (5a 522 s), 387 s at 2N = 59 600 (exact 3 568 s, 9.2×); the ring apply
+  0.078 s against 0.626 s exact there. The near ring (614–866 s, measured before the WP-PML5c cache) then
+  dominated the setup (WP-PML5c, developed in parallel, addressed it; section "5b + 5c integrated").
+- **7d Si control and 7e through the fast path:** the rough-Si L ×1.2 change 0.2412 % through the fast path against
+  0.2411 % dense (WP-PML4b: 0.241 %; criterion < 0.5 %), each Si case 3.6·10⁻⁶ / 9.0·10⁻⁶ (L2) from its dense
+  solve; 7e (rough Si, PML route vs the uniform box) l2_refl 0.1464 %, ε_rr 0.0256 / 0.0412 %, dR −1.63·10⁻⁵ through
+  the fast path against 0.1464 %, 0.0257 / 0.0413 %, −1.62·10⁻⁵ dense (the stored WP-PML4c values: the dense partner of this session was stopped, see below), R 0.3856893 on both.
+
+### Design choices (deviations from the brief noted)
+
+- **Row clusters.** The brief's base design (rows = one leaf's stretched functions, columns grouped into the
+  coarsest admissible boxes) compresses the far ring of U only 2.6× (1 399 MB, η = 1): the ranks at 10⁻⁴ (median
+  13, λ-sized leaves) are a large fraction of the ~33 stretched rows per leaf, and the ratio k/m bounds the gain
+  whatever the column clusters. The default is therefore the H-matrix partition (dual descent over same-level box
+  pairs, row clusters of every level): 819 MB at η = 1, 571 MB at η = 2. `row_clusters = false` keeps the leaf-row
+  design selectable. Each block (R, C) holds R_s × C (stretched rows of R, all functions of C), so the transposed
+  use of 5a is unchanged; the direct products go through the chunk buffers too, since a stretched row belongs to
+  row clusters of several levels (apply still thread-count independent, unit test 1/2/3/max threads, also for the
+  assembly).
+- **η.** U, d₀ = 3, row clusters (driver `--ring-compare --no-exact --eta`):
+
+  | η | far ring | ACA blocks / exact / rank-cap | ranks median / max | far assembly |
+  |---|---|---|---|---|
+  | 0.5 | 1 260 MB | 10 072 / 6 005 / 3 467 | 10 / 19 | 367 s ¹ |
+  | 1 | 819 MB | 4 576 / 2 556 / 1 668 | 13 / 28 | 288 s |
+  | 2 (default) | 571 MB | 1 853 / 1 092 / 1 035 | 14 / 37 | 240 s |
+  | 3 | 524 MB | 2 250 / 40 / 1 450 | 15 / 39 | 261 s |
+
+  ¹ before the per-triangle-pair drop (below). η = 2 takes 70 % of η = 1 and is within 9 % of η = 3 with fewer
+  poorly separated blocks; at 2N = 59 600 η = 3 gives 1 566 MB against 1 636 MB (−4 %, max rank 41 both). The admissibility only sets the ranks (the ACA tolerance controls the error).
+- **Four sub-blocks.** Each of JJ, JM, MJ, MM is compressed separately (their scales differ by η₀² ≈ 1.4·10⁵); one
+  cache of generated function rows/columns serves all four (one triangle-pair evaluation gives all four), and each
+  ACA starts from the previous pivots, so the generated rows are ≈ the JJ rank (U: 39 k rows for 1 853 blocks). On
+  flat meshes K vanishes between far pairs: JM/MJ are found zero from the cached rows and one probe column (rank 0).
+- **Stopping rule.** ‖u_k‖‖v_k‖ ≤ ε‖S_k‖_F must hold in two consecutive steps (`aca::CompressParams::
+  confirmations = 2`): the plain rule left 1.04 ε on a Helmholtz test block (kR = 6, η ≈ 0.9). Zero pivots: next
+  unused row (cached rows first); after 3 consecutive zero rows the iteration ends (k > 0) or probes columns (k = 0,
+  zero block). Rank cap: the break-even rank floor(mn/(m+n)), so no block exceeds its exact bytes; a sub-block
+  that reaches it makes the block exact (U: 1 035 such blocks, 130 MB with the 1 092 non-admissible ones).
+- **Magnitude bound with the stretch.** The §6 bound exp(−α d)/d does not hold as such for the stretched kernel:
+  the complex distance can be shorter than the real one, Re R̃ ≥ κR with κ = 2/√(4 + σ_max²) = 0.447 at
+  σ_max = 4 (secant slopes of the stretch in [0, σ_max]; the minimum over random pairs is checked in a unit test).
+  The ring uses δ = F (1 + αR*) e^{−ακR*}, F = (1 + σ_max²)²/κ³ (Jacobian and Piola factors), applied per block
+  (region parts and whole blocks) and, inside a kept block, per triangle pair (vertex extents; R2 of Ag beyond
+  1.2 µm at d₀ = 3). At U the R2 part is dropped in 1 016 of 3 980 blocks and in 4.9 M of 24 M triangle pairs;
+  vacuum (R1) is never dropped, so no block of the PML route is dropped as a whole. The per-pair drop cut the far
+  assembly from 387 to 240 s (η = 2). For Si (weak loss) nothing is dropped.
+- **Budget.** `max_far_bytes` bounds the blocks known to be exact before assembly (non-admissible leaf pairs,
+  `PmlRingEstimate::far_exact_bytes`); the ACA blocks are bounded by the break-even cap (worst case = the exact
+  estimate `far_bytes`, which stays the upper bound reported before assembly).
+
+### Accuracy and cost per size (d₀ = 3 unless stated, η = 2)
+
+| Case | 2N | ring far (5a exact) | fast op / peak | dense | matvec vs dense | dR / L2 | its | far ring / near ring assembly |
+|---|---|---|---|---|---|---|---|---|
+| flat CI | 4 592 | 49.6 MB (150 MB) | 207 MB / 0.26 GB | 337 MB | 3.16·10⁻⁴ | 7.0·10⁻⁸ / 1.95·10⁻⁶ | 207 | 3.6 s / 98 s |
+| flat 2N = 2 816, d₀ = 3 / 5 | 2 816 | 29 / 21 MB | 105 / 210 MB | 127 MB | 3.9·10⁻⁴ / 4.0·10⁻⁸ | — | — | 3.7 s / 32–41 s |
+| U rough Ag | 22 816 | 571 MB (3 652 MB) | 1 525 MB / 1.83 GB | 8 329 MB | 2.08·10⁻⁵ | 4.8·10⁻⁸ / 3.3·10⁻⁶ | 602 | 151 s / 614 s |
+| U rough Ag, d₀ = 5 | 22 816 | 659 MB (3 430 MB) | 3 485 MB / 3.58 GB | 8 329 MB | 2.15·10⁻⁷ | — | — | 234 s / 890 s |
+| U rough Ag, 5b + 5c integrated ⁴ | 22 816 | 571 MB (3 652 MB) | 1 525 MB / 1.83 GB | 8 329 MB | 2.08·10⁻⁵ | 4.8·10⁻⁸ / 3.3·10⁻⁶ | 602 | 119 s / 89 s |
+| U rough Ag, d₀ = 5, 5b + 5c integrated ⁴ | 22 816 | 659 MB (3 430 MB) | 3 485 MB / 3.91 GB | 8 329 MB | 2.15·10⁻⁷ | — | — | 164 s / 123 s |
+| U rough Si (7d control) | 22 816 | 823 MB | 7 206 MB ² / 7.53 GB | 8 329 MB | 5.2·10⁻⁵ | 3.8·10⁻⁷ / 3.6·10⁻⁶ | 121 | 1 480 s ³ / 827 s |
+| L ×1.2 rough Si (7d control) | 27 472 | 993 MB | 9 471 MB ² / 9.86 GB | 12 075 MB | 4.2·10⁻⁵ | 2.7·10⁻⁷ / 9.0·10⁻⁶ | 128 | 1 807 s ³ / 831 s |
+| 7e rough Si (L 4.5 µm, w₀ L/6) | 27 472 | — | 9 460 MB / 9.84 GB | 12 075 MB (peak 24.3 GB with LU) | — | R as dense to 7 digits | 127 | assembly 1 998 s (dense 4 362 s, WP-PML4c) |
+| L = 8.5 µm rough Ag | 59 600 | 1 636 MB (16 660 MB) | 3 683 MB / 3.86 GB | 56 835 MB | ACA vs exact ring 5.1·10⁻⁵ (ring), 1.1·10⁻⁵ (operator) | — | — | 387 s (exact 3 568 s) / 866 s |
+| L = 8.5 µm rough Ag, 5b + 5c integrated ⁴ | 59 600 | 1 636 MB (16 660 MB) | 3 683 MB / 3.86 GB | 56 835 MB | ACA vs exact ring 5.1·10⁻⁵ (ring), 1.1·10⁻⁵ (operator) | — | — | 333 s (exact 2 808 s) / 105 s |
+| L = 16 µm rough Ag | 152 960 | 3 897 MB (70 779 MB) | 13 334 MB / 17.95 GB | 374 GB | — (dense impossible) | d₀ 3 vs 5: dR 1.5·10⁻⁸ / L2 1.5·10⁻⁶ | 1 715 | 661 s / 1 166 s |
+| L = 16 µm, d₀ = 5 | 152 960 | 6 205 MB | 16 982 MB / 21.6 GB | 374 GB | — | (reference of the row above) | 1 715 | 1 131 s / 1 270 s |
+| L = 24 µm rough Ag | 300 160 | 8 332 MB (198 496 MB) | 20 069 MB / 33.6 GB | 1 442 GB | — | — | 2 679 | 1 478 s / 1 667 s |
+⁴ Section "5b + 5c integrated" (the near ring of 5c; the near ring times of the other rows are the 5a/5b near ring).
+² 5.97 GB of it is the real–real MLFMM far part of Si (unchanged by this WP). ³ Si's interior kernel is not
+damped (no drops) and its ranks are higher (median 16, max 69, mean MM 25): 33 M triangle-pair evaluations.
+
+Ranks (histograms over all ACA sub-blocks, bins [0], [1], [2–3], [4–7], [8–15], [16–31], [32–63], [64–127]): U
+[1 884 0 0 524 2 292 2 614 98]; U d₀ = 5 [304 0 0 80 8 744 1 104] (median 31, max 60); 2N = 59 600 [3 214 0 1 782
+1 014 8 890 5 560 252] (median 12, max 41); Si U [1 268 0 0 20 1 339 1 640 997 4]. The zero ranks are the JM/MJ
+blocks of flat stretched pairs (K = 0) and of blocks with exactly vanishing rows.
+
+### Scaling
+
+The 2N ≈ 6·10⁴ point is the validation-large case "ACA far ring vs the exact far ring at 2N ~ 6e4" (passed,
+4 834 s; exact far ring 16.7 GB built in the same process with `assemble_near = false`, its near part taken from the
+ACA operator): ring difference 5.1·10⁻⁵ relative to the ring product, 1.1·10⁻⁵ relative to the operator product
+(criterion 10⁻⁴, the unit criterion; the 7h matvec budget is 10⁻³). The largest sizes run without a dense or exact
+reference (`--fast-only`): L = 16 µm (2N = 152 960, 19 % stretched, 6 levels, leaf 1.25 λ) at d₀ = 3 and d₀ = 5,
+GMRES (ICTF + Jacobi, tolerance 10⁻⁷, full) 1 715 iterations both; R = 0.97780527 / 0.97780529 (difference
+1.5·10⁻⁸ relative), windowed far field d₀ 3 vs 5 L2 1.5·10⁻⁶ — the d₀ = 5 run is the reference where dense is
+impossible. The largest run, L = 24 µm (2N = 300 160, 13.8 % stretched, 7 levels, leaf 0.875 λ), d₀ = 3 only:
+R = 0.97948552, 2 679 iterations (true residual 1.0·10⁻⁷), `Simulation::assemble()` 3 745 s (ring near 1 667 s,
+ring far 1 478 s), GMRES 6 540 s (1.9 s per matvec plus the full-GMRES orthogonalisation), peak 33.6 GB of which
+≈ 12.9 GB is the Krylov basis. With the operator growing ≈ linearly (13.3 → 20.1 GB for 2N ×2) and the basis
+growing with N × iterations, 50 GB is reached near 2N ≈ 4·10⁵ (restarted GMRES would push it further). A d₀ = 5
+partner was not run at this size (the L = 16 µm pair shows d₀ 3 vs 5 at 1.5·10⁻⁸ in R).
+
+**Finding: GMRES iterations grow with the size (open issue, outside 5b).** ICTF + Jacobi on the rough Ag series,
+full GMRES to 10⁻⁷: 602 iterations at 2N = 22 816, 1 715 at 152 960 and 2 679 at 300 160, i.e. ≈ N^0.55–0.58
+(the exponent from 2.3·10⁴ to 1.5·10⁵ / 3·10⁵; ≈ N^0.5 within the scatter of three points). At 2N = 300 160 the
+Krylov basis (2 679 vectors of 2N complex) is ≈ 12.9 GB of the 33.6 GB peak, and GMRES took 6 540 s against
+≈ 5 000 s of matrix-vector products (2 679 × 1.9 s): the orthogonalisation, quadratic in the iteration count, is
+already ≈ 25 % of the solve, and the basis, not the operator, will set the memory limit beyond 2N ≈ 4·10⁵. Remedies
+(not part of WP-PML5b): restarted GMRES (bounded basis, more iterations) or a better preconditioner than Jacobi,
+e.g. one built from the near-field parts the fast operator already stores (real–real near + near ring).
+
+Memory per size (fast operator; the exact 5a far ring in parentheses):
+
+| 2N | ring far ACA | ring near | Z_rr near / far | operator | peak | ring far / exact |
+|---|---|---|---|---|---|---|
+| 22 816 | 0.57 GB | 0.20 GB | 0.21 / 0.55 GB | 1.52 GB | 1.83 GB | 0.16 |
+| 59 600 | 1.64 GB | 0.22 GB | 0.51 / 1.32 GB | 3.68 GB | 3.86 GB | 0.098 |
+| 152 960 | 3.90 GB | 0.95 GB | 3.81 / 4.67 GB | 13.3 GB | 18.0 GB | 0.055 |
+| 300 160 | 8.33 GB | 0.67 GB | 4.01 / 7.05 GB | 20.1 GB | 33.6 GB | 0.042 |
+The ACA far ring grows about like N (0.57 → 1.64 → 3.90 → 8.33 GB for 2N ×2.6 ×2.6 ×2.0): the median rank stays 12–18 at d₀ = 3
+(27 at d₀ = 5), the max rank 37–56 (78), so the fallbacks of the amendment (one-level FMM with complex translators,
+Huygens separation) are not needed. At 2N ≥ 1.5·10⁵ the Z_rr near part (leaf 1.25 λ there) and the Krylov basis of
+full GMRES are as large as the ring.
+
+### 7d (rough Si control) and 7e through the fast path
+
+Both run once through the drivers (record, not ctest: each dense partner takes 30–75 min on the shared machine).
+**7d Si control** (`specklebem_pml_ring --case u --material si --tag si_u` and `--patch 4.5e-6 --tag si_l12`,
+fast + dense in one process each, then `--compare-far`): fast vs dense per case L2 3.6·10⁻⁶ (U) / 9.0·10⁻⁶
+(L ×1.2), dR −3.8·10⁻⁷ / −2.7·10⁻⁷, matvec 5.2·10⁻⁵ / 4.2·10⁻⁵; the 7d metric (L ×1.2 against U, box-check L2)
+0.24122 % fast against 0.24107 % dense (difference 1.5·10⁻⁶, criterion "within 10⁻³"; WP-PML4b recorded 0.241 %).
+**7e** (`specklebem_pml_si_crosscheck --route box` and `--route pml --pml-solver fast --pml-tol 1e-7`): the box run
+reproduces WP-PML4c identically to 7 digits in R (0.3856955) and in the iteration count (92); the fast PML route gives l2_refl 0.1464 %, ε_rr
+0.0256 / 0.0412 %, dR −1.625·10⁻⁵ (WP-PML4c dense LU: 0.1464 %, 0.0257 / 0.0413 %, −1.617·10⁻⁵; tolerances 0.229 %,
+0.058 %, 4.1·10⁻⁵), R 0.3856893 on both routes, 127 GMRES iterations; the dense partner of this session was stopped
+after 10 h of assembly on the overloaded machine, so the dense values are the stored WP-PML4c ones (same driver, same
+case, `pml_validation_rows.txt`). Cost: fast operator 9.46 GB (dense LU peak 24.3 GB), assembly 1 998 s against
+4 362 s dense in WP-PML4c.
 
 ## 5c: ring assembly (WP-PML5c)
 
@@ -265,13 +433,81 @@ Jacobi diagonal differs by ≤ 3.4·10⁻¹⁶ relative):
 | Part | 5a (record, idle) | 5c (this run, loaded) |
 |---|---|---|
 | ring near | 380.4 s (0.59 × dense assembly 639.8 s) | **125.0 s (0.10 × dense assembly 1 242 s of the same run)** |
-| ring far (unchanged, WP-PML5b) | 522.3 s | 904.1 s |
+| ring far (the exact 5a ring in this run; ACA since WP-PML5b) | 522.3 s | 904.1 s |
 | MLFMM (real–real near + far) | ≈ 3 s | ≈ 5 s |
 | operator total | ≈ 905 s | 1 034.6 s |
 | right-hand side | ≈ 1 s | 0.5 s |
 | Jacobi diagonal | ≈ 50 s (`op::assemble_diagonal`; 72–179 s on this loaded machine) | **0.007 s** |
 | `Simulation::assemble()` | 955.4 s (1.49 × dense) | 1 035.1 s (0.83 × dense of the same run) |
 
-The far ring (O(N_s · N) stretched pairs, every pair of a stretched test triangle with every far source triangle) is
-now ≈ 87 % of the setup; it is WP-PML5b's (ACA). The plan sharing saves only fractions of a second here (each
+The far ring (O(N_s · N) stretched pairs, every pair of a stretched test triangle with every far source triangle) was
+then ≈ 87 % of the setup; WP-PML5b (ACA, section "5b") compresses it (section "5b + 5c integrated"). The plan sharing saves only fractions of a second here (each
 pattern computation took < 0.01 s at U).
+
+## 5b + 5c integrated
+
+WP-PML5b (ACA far ring) and WP-PML5c (near-ring assembly) were developed in parallel from 5a and merged on
+branch `wp/pml5b-integrate` (2026-10-20). The combined `PmlRingOperator` assembles the near ring with 5c's
+canonical-pair cache and translation classes (the only near path) and the far ring with 5b's ACA (default) or the
+exact 5a blocks (`use_aca = false`); `PmlRingPlan` (5c) now also carries 5b's far partition (`far_blocks`, from the
+same pass as the estimate) and the parameters it was made with, so the classification, split near pattern,
+estimate and far partition are computed once per operator; both constructors take `accuracy_digits` (d₀). The
+memory warning counts the peak known before assembly, near ring + max(near-ring cache, far blocks stored exactly)
+(`pml_ring_peak_bytes`; without ACA the 5c form near + max(cache, far ring)); `PmlRingOperator::peak_bytes()` is the
+measured peak with the ACA factors. The Jacobi diagonal is `MlfmmOperator::diagonal()` (5c).
+
+Validation-large 7h cases at the 7c size, rerun once with the integrated code (`ctest --preset win-release -L
+validation-large -R "7h: pml_ring fast path vs dense"`, passed, 1 024 s; `-R "7h: pml_ring matvec at d0 = 5"`,
+passed, 958 s; run one after the other on a machine without other heavy jobs: the dense assembly took 678 s against
+640 s in the idle 5a record). Every printed 5b accuracy digit is reproduced (the near ring is bitwise the 5a/5b one,
+the far ring the same ACA ring); raw lines in `pml_ring_rows.txt` ("5b + 5c integrated").
+
+**U, d₀ = 3 (2N = 22 816), operator setup and `Simulation::assemble()`:**
+
+| Part | 5a (record, idle) | 5c rerun (exact far ring, loaded) | 5b (ACA, loaded) | **5b + 5c integrated** |
+|---|---|---|---|---|
+| ring near | 380.4 s | 125.0 s | 614.2 s | **89.1 s** |
+| ring far | 522.3 s (exact) | 904.1 s (exact) | 151.3 s (ACA) | **119.0 s (ACA)** |
+| MLFMM (real–real near + far) | ≈ 3 s | ≈ 5 s | ≈ 133 s with rhs and diagonal ¹ | **2.7 s (1.82 + 0.84)** |
+| Jacobi diagonal | ≈ 50 s (`op::assemble_diagonal`) | 0.007 s (near parts) | (in ¹) | **0.002 s (near parts)** |
+| right-hand side | ≈ 1 s | 0.5 s | (in ¹) | **0.17 s** |
+| `Simulation::assemble()` | 955.4 s | 1 035.1 s | 898.8 s | **211.0 s** |
+| dense assembly (same process) | 639.8 s | 1 242.0 s | 1 096.7 s | **678.0 s** |
+| assemble() / dense | 1.49 | 0.83 | 0.82 | **0.31** |
+| fast operator / process peak | 4 605 MB / 4.88 GB | 4 605 MB / 4.89 GB | 1 525 MB / 1.83 GB | **1 525 MB / 1.83 GB** |
+| matvec fast / dense | 0.198 / 0.259 s | 0.450 / 0.281 s | 0.340 / 0.296 s | **0.101 / 0.266 s** |
+| matvec vs dense | 1.508·10⁻⁵ | 1.508·10⁻⁵ | 2.081·10⁻⁵ | **2.081·10⁻⁵** |
+| dR / l2 | +4.07·10⁻⁸ / 3.33·10⁻⁶ | +4.07·10⁻⁸ / 3.33·10⁻⁶ | +4.76·10⁻⁸ / 3.33·10⁻⁶ | **+4.76·10⁻⁸ / 3.33·10⁻⁶** |
+| GMRES | 602 its, 125.0 s | 602 its, 331.8 s | 602 its, 191.3 s | **602 its, 64.8 s** |
+
+¹ The 5b ROW line gives only the total and the two ring parts; the remainder (898.8 − 614.2 − 151.3 s) is the
+MLFMM setup, the right-hand side and `op::assemble_diagonal` on the loaded machine.
+
+**U, d₀ = 5 (matvec case):** operator build 291.9 s (ring near 123.3 s, ACA far ring 163.6 s; 5b 1 131.9 s, 5a
+956.2 s), fast operator 3 485 MB (ring near 707, far 659 MB), matvec 2.147·10⁻⁷ against dense (gate 10⁻⁵; 5b
+2.147·10⁻⁷), matvec 0.183 s against 0.259 s dense, process peak **3.91 GB** (5b 3.58 GB): at d₀ = 5 the λ-scale
+leaves (1.94 λ) give 7.4·10⁶ ring near pairs and a transient canonical-pair cache of 1.11 GB (estimate 1.12 GB,
+`near_assembly_bytes`), larger than the near ring it fills (0.67 GB) — the 5c cache, not the far ring, sets the peak
+there. At d₀ = 3 the cache (329 MB) stays below the far ring and the peak is unchanged.
+
+The near ring is now 42 % (d₀ = 3) / 42 % (d₀ = 5) of the operator setup and the ACA far ring 56 %; together with the
+MLFMM part the whole `Simulation::assemble()` is 0.31× the dense assembly at the 7c size.
+
+**2N = 59 600 (L = 8.5 µm, the 6·10⁴ validation-large case "ACA far ring vs the exact far ring", passed, 3 258 s
+against 4 834 s in 5b):** ring difference 5.056·10⁻⁵ relative to the ring product and 1.068·10⁻⁵ relative to the
+operator product (5b: identical digits; criterion 10⁻⁴); fast operator 3 683 MB (ring near 215, ACA far 1 636 MB;
+exact far ring 16 660 MB), peak 3.86 GB; operator build **445.8 s** (ring near 105.0 s, ACA far 333.3 s) against
+1 260.7 s in 5b (ring near 866.2 s, far 386.7 s, loaded machine); the exact far ring of the comparison took 2 808 s
+(5b run 3 568 s); ring apply 0.071 s against 0.521 s exact.
+
+**Review fixes (branch `wp/pml5b-review-fixes-2`, 2026-10-20):** after the W3 change (no ACA attempt for admissible
+blocks with a break-even rank below `kPmlRingMinAcaRank` = 4 under the automatic cap; the row / column cache of a
+failed attempt freed before the exact block) and the ACA zero-rows probe column, the U d₀ = 3 case was rerun once
+(`-R "7h: pml_ring fast path vs dense"`, passed, 998 s, machine idle). Every printed digit and the stored ring
+(blocks, ranks, bytes) are unchanged (matvec 2.081·10⁻⁵, dR +4.762·10⁻⁸, l2 3.328·10⁻⁶); the 884 skipped blocks
+save 2 460 generated rows and columns and 223 320 triangle-pair evaluations (1.2 %), within the timing noise: ACA far
+ring 120.2 s (integrated 119.0 s), ring near 85.6 s, `Simulation::assemble()` 208.6 s against 657.9 s dense. On the
+flat CI case (`specklebem_pml_ring --case flat_ci --ring-compare`, before / after alternating, two rounds each) no
+block is skipped and the RING lines are identical (ring err 7.020·10⁻⁶, generated rows and columns 8 280, far ring
+1.8–1.9 s). The probe column never fired in either case (generated columns unchanged up to the skipped blocks).
+Raw lines in `pml_ring_rows.txt` ("5b + 5c integrated, review fixes").

@@ -2,7 +2,8 @@
 /// @file aca_operator.hpp
 /// Placeholder for Phase 8: Adaptive Cross Approximation of admissible
 /// cluster-pair blocks (kernel-independent low-rank compression). Shares the
-/// Octree / cluster tree with MLFMM. See docs/09_compression_methods.md.
+/// Octree / cluster tree with MLFMM. See docs/09_compression_methods.md. The kernel-independent
+/// block compression (aca::compress) exists since WP-PML5b in aca.hpp (used by the PML ring).
 #include "specklebem/operator/assembler.hpp"
 
 namespace specklebem::aca {

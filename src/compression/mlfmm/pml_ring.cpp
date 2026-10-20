@@ -11,6 +11,7 @@
 #include <array>
 #include <bit>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <limits>
@@ -18,6 +19,8 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+
+#include "pml_ring_far.hpp"
 
 namespace specklebem::mlfmm {
 
@@ -197,11 +200,53 @@ SplitNearPattern split_near_pattern(const Octree& tree, const basis::RwgSpace& s
     return out;
 }
 
+namespace {
+
+void check_aca_params(const PmlRingParams& p) {
+    if (!p.use_aca)
+        return;
+    if (!(p.eta > 0.0 && std::isfinite(p.eta)))
+        throw std::invalid_argument("PmlRingParams::eta must be positive and finite");
+    if (!(p.aca_epsilon >= 0.0 && p.aca_epsilon < 1.0))
+        throw std::invalid_argument("PmlRingParams::aca_epsilon must lie in [0, 1) (0: automatic)");
+    if (p.max_rank < 0)
+        throw std::invalid_argument("PmlRingParams::max_rank must be >= 0 (0: automatic)");
+}
+
+/// estimate_pml_ring; with use_aca also the far partition (moved into *partition if given).
+PmlRingEstimate estimate_impl(const Octree& tree, const basis::RwgSpace& space,
+                              const std::vector<std::uint8_t>& stretched,
+                              const PmlRingParams& params,
+                              std::vector<detail::FarRowLeaf>* partition);
+
+}  // namespace
+
 PmlRingEstimate estimate_pml_ring(const Octree& tree, const basis::RwgSpace& space,
                                   const std::vector<std::uint8_t>& stretched,
                                   const PmlRingParams& params) {
+    return estimate_impl(tree, space, stretched, params, nullptr);
+}
+
+std::vector<PmlRingFarBlock> plan_pml_ring_far(const Octree& tree, const basis::RwgSpace& space,
+                                               const std::vector<std::uint8_t>& stretched,
+                                               const PmlRingParams& params) {
+    std::vector<detail::FarRowLeaf> part;
+    (void)estimate_impl(tree, space, stretched, params, &part);
+    std::vector<PmlRingFarBlock> out;
+    for (const detail::FarRowLeaf& R : part)
+        out.insert(out.end(), R.blocks.begin(), R.blocks.end());
+    return out;
+}
+
+namespace {
+
+PmlRingEstimate estimate_impl(const Octree& tree, const basis::RwgSpace& space,
+                              const std::vector<std::uint8_t>& stretched,
+                              const PmlRingParams& params,
+                              std::vector<detail::FarRowLeaf>* partition) {
     const Index N = space.size();
     check_classification(stretched, N, "estimate_pml_ring");
+    check_aca_params(params);
     const Leaves L = leaves_of(tree, space, "estimate_pml_ring");
     const std::vector<Index>& perm = tree.permutation();
     const std::size_t nl = L.first.size();
@@ -235,21 +280,54 @@ PmlRingEstimate estimate_pml_ring(const Octree& tree, const basis::RwgSpace& spa
     }
     e.near_bytes = sparse_bytes(e.near_pairs, N);
     e.far_bytes = far_bytes;
+    e.far_exact_bytes = far_bytes;
+    if (params.use_aca) {
+        std::vector<detail::FarRowLeaf> part = detail::partition_far_ring(
+            tree, space, stretched, true, params.eta, params.coarse_columns, params.row_clusters);
+        e.far_exact_bytes = 0;
+        for (const detail::FarRowLeaf& R : part) {
+            const auto rows = static_cast<Index>(R.rows.size());
+            e.far_exact_bytes += row_leaf_overhead(rows, 0);
+            for (const PmlRingFarBlock& b : R.blocks) {
+                if (b.admissible) {
+                    ++e.far_aca_blocks;
+                    e.far_aca_pairs += rows * b.count;
+                } else {
+                    ++e.far_exact_blocks;
+                    e.far_exact_bytes += 4 * sz(rows) * sz(b.count) * sizeof(Complex);
+                }
+            }
+        }
+        if (partition != nullptr)
+            *partition = std::move(part);
+    }
     e.dense_bytes = 16 * sz(2 * N) * sz(2 * N);
     e.budget = params.max_far_bytes > 0 ? params.max_far_bytes : e.dense_bytes;
     return e;
 }
 
+}  // namespace
+
 void check_pml_ring_budget(const PmlRingEstimate& e, const PmlRingParams& params) {
-    if (e.far_bytes <= e.budget)
+    if (e.far_exact_bytes <= e.budget)
         return;
     std::ostringstream os;
-    os << "PmlRingOperator: the exact far ring blocks (WP-PML5a) would need " << mb(e.far_bytes)
-       << " MB (" << e.far_stored << " stored pairs of " << e.stretched
-       << " stretched rows x far columns, 64 bytes each), more than the budget of " << mb(e.budget)
+    if (params.use_aca) {
+        os << "PmlRingOperator: the exact (non-admissible) far ring blocks would need "
+           << mb(e.far_exact_bytes) << " MB (" << e.far_exact_blocks
+           << " far leaf blocks of stretched rows, 64 bytes per pair; " << e.far_aca_blocks
+           << " admissible blocks go through ACA)";
+    } else {
+        os << "PmlRingOperator: the exact far ring blocks (WP-PML5a) would need "
+           << mb(e.far_exact_bytes) << " MB (" << e.far_stored << " stored pairs of " << e.stretched
+           << " stretched rows x far columns, 64 bytes each)";
+    }
+    os << ", more than the budget of " << mb(e.budget)
        << " MB (PmlRingParams::max_far_bytes, MlfmmParams::pml_ring"
        << (params.max_far_bytes > 0 ? ")" : "; automatic: the dense matrix)")
-       << "; raise the budget, shrink the PML ring (W_pml, mesh) or use the dense operator";
+       << "; raise the budget, shrink the PML ring (W_pml, mesh)"
+       << (params.use_aca ? ", raise PmlRingParams::eta" : ", use the ACA far ring (use_aca)")
+       << " or use the dense operator";
     throw std::runtime_error(os.str());
 }
 
@@ -288,8 +366,14 @@ PmlRingPlan plan_pml_ring(const Octree& tree, const basis::RwgSpace& space,
                           const geometry::CoordinateStretch& stretch, const PmlRingParams& params) {
     PmlRingPlan plan;
     plan.tree = pml_ring_tree_fingerprint(tree);
+    plan.params = params;
     plan.stretched = classify_stretched(space, stretch);
-    plan.estimate = estimate_pml_ring(tree, space, plan.stretched, params);
+    // The estimate and (with use_aca) the far partition in one pass (WP-PML5b + 5c).
+    std::vector<detail::FarRowLeaf> part;
+    plan.estimate = estimate_impl(tree, space, plan.stretched, params, &part);
+    for (detail::FarRowLeaf& R : part)
+        plan.far_blocks.insert(plan.far_blocks.end(), R.blocks.begin(), R.blocks.end());
+    part.clear();
     plan.split = split_near_pattern(tree, space, plan.stretched);
     plan.estimate.near_assembly_bytes =
         op::estimate_sparse_stretched_cache(space, stretch, plan.split.ring).bytes;
@@ -297,7 +381,7 @@ PmlRingPlan plan_pml_ring(const Octree& tree, const basis::RwgSpace& space,
 }
 
 std::size_t pml_ring_peak_bytes(const PmlRingEstimate& e) {
-    return e.near_bytes + std::max(e.near_assembly_bytes, e.far_bytes);
+    return e.near_bytes + std::max(e.near_assembly_bytes, e.far_exact_bytes);
 }
 
 bool warn_pml_ring_memory(const PmlRingEstimate& e, std::size_t available) {
@@ -305,15 +389,13 @@ bool warn_pml_ring_memory(const PmlRingEstimate& e, std::size_t available) {
     if (available == 0 || peak <= available)
         return false;
     SBEM_WARN(
-        "PmlRingOperator: the ring needs {:.1f} MB at its peak (near ring {:.1f} MB plus the "
-        "larger "
-        "of its assembly cache {:.1f} MB and the exact far ring blocks (WP-PML5a) {:.1f} MB: {} "
-        "stored pairs of {} stretched rows x far columns, 64 bytes each), more than the {:.1f} MB "
-        "of physical memory available now; the run will swap or fail. Shrink the PML ring (W_pml, "
-        "mesh), set MlfmmParams::pml_ring.max_far_bytes to refuse such runs, or use the dense "
-        "operator",
-        mb(peak), mb(e.near_bytes), mb(e.near_assembly_bytes), mb(e.far_bytes), e.far_stored,
-        e.stretched, mb(available));
+        "PmlRingOperator: the ring needs {:.1f} MB at its peak known before assembly (near ring "
+        "{:.1f} MB plus the larger of its assembly cache {:.1f} MB and the far ring blocks stored "
+        "exactly {:.1f} MB, {} stretched rows{}), more than the {:.1f} MB of physical memory "
+        "available now; the run will swap or fail. Shrink the PML ring (W_pml, mesh), set "
+        "MlfmmParams::pml_ring.max_far_bytes to refuse such runs, or use the dense operator",
+        mb(peak), mb(e.near_bytes), mb(e.near_assembly_bytes), mb(e.far_exact_bytes), e.stretched,
+        e.far_exact_bytes < e.far_bytes ? "; the ACA blocks come on top" : "", mb(available));
     return true;
 }
 
@@ -356,6 +438,8 @@ struct PmlRingOperator::Impl {
     PmlRingEstimate est;
     std::size_t far_alloc = 0;
     Real near_s = 0, far_s = 0;
+    std::unique_ptr<detail::AcaFarRing> aca;  ///< ACA far ring (use_aca); row_leaves empty then
+    PmlRingFarStats exact_stats;              ///< far_stats() of the exact path
     op::SparseStretchedStats near_stats;
 
     void assemble_far(const op::Problem& p);
@@ -384,23 +468,13 @@ void PmlRingOperator::Impl::assemble_far(const op::Problem& p) {
     }
     const auto leaf_of = [&](Index basis) { return leaves.leaf_of_pos[sz(inv_perm[sz(basis)])]; };
     // Greedy colouring: triangles sharing a basis function get different colours (as the dense
-    // assembler); the test triangles are those carrying a stretched function.
-    std::vector<int> colour(sz(F), -1);
+    // assembler; shared with the ACA path); the test triangles are those carrying a stretched
+    // function.
+    const std::vector<int> colour = detail::greedy_triangle_colours(space);
     std::vector<std::vector<Index>> groups;
     for (Index t = 0; t < F; ++t) {
         const basis::RwgSpace::Support sup = space.support(t);
-        std::array<bool, 4> used{};
-        for (int a = 0; a < sup.count; ++a) {
-            const Index nb = sup.n[a];
-            const Index other =
-                space.plus_triangle(nb) == t ? space.minus_triangle(nb) : space.plus_triangle(nb);
-            const int c = colour[sz(other)];
-            if (c >= 0)
-                used[static_cast<std::size_t>(c)] = true;
-        }
-        int c = 0;
-        while (used[static_cast<std::size_t>(c)]) ++c;
-        colour[sz(t)] = c;
+        const int c = colour[sz(t)];
         bool test = false;
         for (int a = 0; a < sup.count; ++a) test = test || stretched[sz(sup.n[a])] != 0;
         if (!test)
@@ -533,41 +607,14 @@ void PmlRingOperator::Impl::apply_far(const VectorXc& x, VectorXc& y) const {
                     xs[2 * ns + i] = x(N + b).real();
                     xs[3 * ns + i] = x(N + b).imag();
                 }
-                const Real* w = reinterpret_cast<const Real*>(R.w.data());
+                // The column runs between the near ranges (shared kernel with the ACA path's
+                // exact blocks, detail::apply_exact_columns).
                 std::size_t j = 0;
                 Index p0 = 0;
                 const auto run = [&](Index a, Index e) {
-                    for (Index p = a; p < e; ++p, ++j) {
-                        const Real* c = w + 8 * ns * j;  // JJ, JM, MJ, MM columns (re, im)
-                        const Real* xp = xr.data() + 4 * sz(p);
-                        const Real jr = xp[0], ji = xp[1], mr = xp[2], mi = xp[3];
-                        Real ujr = 0, uji = 0, umr = 0, umi = 0;
-                        for (std::size_t i = 0; i < ns; ++i) {
-                            const Real ar = c[2 * i], ai = c[2 * i + 1];                // JJ
-                            const Real br = c[2 * (ns + i)], bi = c[2 * (ns + i) + 1];  // JM
-                            const Real cr = c[2 * (2 * ns + i)], ci = c[2 * (2 * ns + i) + 1];
-                            const Real dr = c[2 * (3 * ns + i)], di = c[2 * (3 * ns + i) + 1];
-                            // Direct: y_J,s += JJ x_J + JM x_M; y_M,s += MJ x_J + MM x_M.
-                            acc[i] += ar * jr - ai * ji + br * mr - bi * mi;
-                            acc[ns + i] += ar * ji + ai * jr + br * mi + bi * mr;
-                            acc[2 * ns + i] += cr * jr - ci * ji + dr * mr - di * mi;
-                            acc[3 * ns + i] += cr * ji + ci * jr + dr * mi + di * mr;
-                            // Transposed: u_J += JJ x_J,s + JM x_M,s; u_M += MJ x_J,s + MM x_M,s.
-                            const Real sjr = xs[i], sji = xs[ns + i];
-                            const Real smr = xs[2 * ns + i], smi = xs[3 * ns + i];
-                            ujr += ar * sjr - ai * sji + br * smr - bi * smi;
-                            uji += ar * sji + ai * sjr + br * smi + bi * smr;
-                            umr += cr * sjr - ci * sji + dr * smr - di * smi;
-                            umi += cr * sji + ci * sjr + dr * smi + di * smr;
-                        }
-                        if (stretched_pos[sz(p)] == 0) {  // a stretched row's leaf stores the pair
-                            Real* up = u + 4 * sz(p);
-                            up[0] += ujr;
-                            up[1] += uji;
-                            up[2] += umr;
-                            up[3] += umi;
-                        }
-                    }
+                    detail::apply_exact_columns(R.w.data(), ns, xs.data(), xr.data(), a, e, j,
+                                                acc.data(), u, stretched_pos.data());
+                    j += sz(e - a);
                 };
                 for (const auto& rg : R.near_pos) {
                     run(p0, rg[0]);
@@ -605,9 +652,12 @@ void PmlRingOperator::Impl::apply_far(const VectorXc& x, VectorXc& y) const {
 
 namespace {
 
-/// @throws std::invalid_argument for an invalid Problem or one without a non-identity stretch.
-void check_ring_problem(const op::Problem& problem) {
+/// @throws std::invalid_argument for an invalid Problem, one without a non-identity stretch, or
+///         accuracy_digits not positive and finite.
+void check_ring_problem(const op::Problem& problem, Real accuracy_digits) {
     op::validate(problem);
+    if (!(accuracy_digits > 0.0 && std::isfinite(accuracy_digits)))
+        throw std::invalid_argument("PmlRingOperator: accuracy_digits must be positive");
     if (!op::has_stretch(problem)) {
         throw std::invalid_argument(
             "PmlRingOperator: the Problem has no (non-identity) PML stretch; without a stretch "
@@ -616,22 +666,34 @@ void check_ring_problem(const op::Problem& problem) {
 }
 
 PmlRingPlan checked_plan(const op::Problem& problem, const Octree& tree,
-                         const PmlRingParams& params) {
-    check_ring_problem(problem);
+                         const PmlRingParams& params, Real accuracy_digits) {
+    check_ring_problem(problem, accuracy_digits);
     (void)leaves_of(tree, *problem.space, "PmlRingOperator");  // tree checks first
     return plan_pml_ring(tree, *problem.space, *problem.stretch, params);
+}
+
+/// True iff the parameters that shape the far partition (and the estimate's far_exact_bytes /
+/// far_aca_* fields) agree.
+bool same_far_partition(const PmlRingParams& a, const PmlRingParams& b) {
+    if (a.use_aca != b.use_aca)
+        return false;
+    if (!a.use_aca)
+        return true;
+    return a.eta == b.eta && a.coarse_columns == b.coarse_columns &&
+           a.row_clusters == b.row_clusters;
 }
 
 }  // namespace
 
 PmlRingOperator::PmlRingOperator(const op::Problem& problem, const Octree& tree,
-                                 const PmlRingParams& params)
-    : PmlRingOperator(problem, tree, checked_plan(problem, tree, params), params) {}
+                                 const PmlRingParams& params, Real accuracy_digits)
+    : PmlRingOperator(problem, tree, checked_plan(problem, tree, params, accuracy_digits), params,
+                      accuracy_digits) {}
 
 PmlRingOperator::PmlRingOperator(const op::Problem& problem, const Octree& tree, PmlRingPlan plan,
-                                 const PmlRingParams& params)
+                                 const PmlRingParams& params, Real accuracy_digits)
     : impl_(std::make_unique<Impl>()) {
-    check_ring_problem(problem);
+    check_ring_problem(problem, accuracy_digits);
     Impl& m = *impl_;
     const basis::RwgSpace& space = *problem.space;
     m.n = space.size();
@@ -653,6 +715,14 @@ PmlRingOperator::PmlRingOperator(const op::Problem& problem, const Octree& tree,
             " leaves, or a different leaf size / permutation); use plan_pml_ring on the same tree, "
             "space and stretch");
     }
+    // ... and to these far-ring parameters: the far partition and its estimate depend on them.
+    if (!same_far_partition(plan.params, params)) {
+        throw std::invalid_argument(
+            "PmlRingOperator: the PmlRingPlan was made with other far-ring partition parameters "
+            "(PmlRingParams::use_aca, eta, coarse_columns, row_clusters); use plan_pml_ring with "
+            "the parameters of the operator");
+    }
+    check_aca_params(params);
     m.stretched = std::move(plan.stretched);
     m.perm = tree.permutation();
     m.inv_perm = tree.inverse_permutation();
@@ -662,24 +732,71 @@ PmlRingOperator::PmlRingOperator(const op::Problem& problem, const Octree& tree,
     m.est.budget = params.max_far_bytes > 0 ? params.max_far_bytes : m.est.dense_bytes;
     SBEM_INFO(
         "PmlRingOperator: N = {}, {} stretched ({:.1f} %), {} row leaves; near ring {} pairs "
-        "({:.1f} MB; assembly cache <= {:.1f} MB), far ring {} stored pairs ({:.1f} MB, budget "
-        "{:.1f} MB), dense matrix {:.1f} MB",
+        "({:.1f} MB; assembly cache <= {:.1f} MB), far ring {} stored pairs ({:.1f} MB if exact; "
+        "ACA {}: {} admissible blocks ({} pairs), {} exact blocks ({:.1f} MB); budget {:.1f} MB), "
+        "dense matrix {:.1f} MB",
         m.n, m.est.stretched,
         m.n > 0 ? 100.0 * static_cast<Real>(m.est.stretched) / static_cast<Real>(m.n) : 0.0,
         m.est.row_leaves, m.est.near_pairs, mb(m.est.near_bytes), mb(m.est.near_assembly_bytes),
-        m.est.far_stored, mb(m.est.far_bytes), mb(m.est.budget), mb(m.est.dense_bytes));
+        m.est.far_stored, mb(m.est.far_bytes), params.use_aca ? "on" : "off", m.est.far_aca_blocks,
+        m.est.far_aca_pairs, m.est.far_exact_blocks, mb(m.est.far_exact_bytes), mb(m.est.budget),
+        mb(m.est.dense_bytes));
     check_pml_ring_budget(m.est, params);
-    // Near ring.
+    // The ACA far partition of the plan (rows and extents rebuilt from the tree; checked).
+    std::vector<detail::FarRowLeaf> partition;
+    if (params.use_aca)
+        partition =
+            detail::far_partition_from_blocks(tree, space, m.stretched, std::move(plan.far_blocks));
+    // Near ring (WP-PML5c: canonical-pair cache and translation classes).
     auto t0 = std::chrono::steady_clock::now();
     {
+        if (!params.assemble_near) {  // diagnostics: the far ring alone (an empty near pattern)
+            plan.split.ring.group_of_row.assign(sz(m.n), 0);
+            plan.split.ring.col_ptr = {0, 0};
+            plan.split.ring.cols.clear();
+        }
         op::SparseStretchedOptions opt;
         opt.stats = &m.near_stats;
         m.near = op::assemble_sparse_stretched(problem, plan.split.ring, opt);
         plan.split = SplitNearPattern{};  // the patterns are no longer needed
     }
     m.near_s = seconds_since(t0);
-    // Far ring blocks: rows, near ranges, allocation, assembly.
     t0 = std::chrono::steady_clock::now();
+    if (params.use_aca) {
+        // ACA far ring (WP-PML5b): tolerance 10^-(d0 + 1) unless overridden; the magnitude-bound
+        // threshold stays 10^-(d0 + 1).
+        const Real tau = std::pow(10.0, -(accuracy_digits + 1.0));
+        const Real eps = params.aca_epsilon > 0.0 ? params.aca_epsilon : tau;
+        m.aca = std::make_unique<detail::AcaFarRing>(
+            problem, detail::greedy_triangle_colours(space), std::move(partition), m.perm,
+            m.inv_perm, m.stretched_pos, params, eps, tau);
+        m.far_s = seconds_since(t0);
+        const PmlRingFarStats& st = m.aca->stats();
+        SBEM_INFO(
+            "PmlRingOperator: near ring {:.1f} MB in {:.2f} s, ACA far ring {:.1f} MB in {:.2f} s "
+            "(exact estimate {:.1f} MB): {} ACA blocks ({:.1f} MB, ranks min / median / max {} / "
+            "{} / {}, mean JJ {:.1f} JM {:.1f} MJ {:.1f} MM {:.1f}), {} exact + {} rank-cap "
+            "blocks ({} without an ACA attempt; {:.1f} MB), {} dropped; eps {:.1e}, eta {}",
+            mb(m.near->memory_bytes()), m.near_s, mb(m.aca->bytes()), m.far_s, mb(m.est.far_bytes),
+            st.aca_blocks, mb(st.aca_bytes), st.rank_min, st.rank_median, st.rank_max,
+            st.rank_mean[0], st.rank_mean[1], st.rank_mean[2], st.rank_mean[3], st.exact_blocks,
+            st.fallback_blocks, st.skipped_attempts, mb(st.exact_bytes), st.dropped_blocks, eps,
+            params.eta);
+        // The budget checks only the blocks known to be exact before assembly; say so when the
+        // stored blocks (exact + ACA factors) end above it (review suggestion; e.g. an explicit
+        // max_rank above the break-even, or a budget between far_exact_bytes and the result).
+        if (st.exact_bytes + st.aca_bytes > m.est.budget) {
+            SBEM_WARN(
+                "PmlRingOperator: the assembled far ring blocks take {:.1f} MB (exact {:.1f} MB + "
+                "ACA factors {:.1f} MB), more than the far budget of {:.1f} MB "
+                "(PmlRingParams::max_far_bytes; checked before assembly against the {:.1f} MB "
+                "of blocks known to be exact)",
+                mb(st.exact_bytes + st.aca_bytes), mb(st.exact_bytes), mb(st.aca_bytes),
+                mb(m.est.budget), mb(m.est.far_exact_bytes));
+        }
+        return;
+    }
+    // Exact far ring blocks (WP-PML5a): rows, near ranges, allocation, assembly.
     const Leaves& L = m.leaves;
     for (std::size_t g = 0; g < L.first.size(); ++g) {
         RowLeaf R;
@@ -706,6 +823,9 @@ PmlRingOperator::PmlRingOperator(const op::Problem& problem, const Octree& tree,
     m.partition_chunks();
     m.assemble_far(problem);
     m.far_s = seconds_since(t0);
+    m.exact_stats.exact_blocks = static_cast<Index>(m.row_leaves.size());
+    m.exact_stats.exact_pairs = m.est.far_stored;
+    for (const RowLeaf& R : m.row_leaves) m.exact_stats.exact_bytes += R.w.size() * sizeof(Complex);
     SBEM_INFO("PmlRingOperator: near ring {:.1f} MB in {:.2f} s, far ring {:.1f} MB in {:.2f} s",
               mb(m.near->memory_bytes()), m.near_s, mb(m.far_alloc), m.far_s);
 }
@@ -729,20 +849,46 @@ void PmlRingOperator::apply(const VectorXc& x, VectorXc& y) const {
         return;
     }
     impl_->near->apply(x, y);
-    impl_->apply_far(x, y);
+    if (impl_->aca)
+        impl_->aca->apply(x, y);
+    else
+        impl_->apply_far(x, y);
 }
 
 std::string PmlRingOperator::describe() const {
     const Impl& m = *impl_;
     const PmlRingEstimate& e = m.est;
     std::ostringstream os;
-    os << "PmlRingOperator (exact PML ring, WP-PML5a): N = " << m.n << ", " << e.stretched
-       << " stretched / " << m.n - e.stretched << " real functions, " << e.row_leaves
-       << " leaves with stretched functions; near ring " << e.near_pairs << " pairs, "
-       << mb(near_bytes()) << " MB, assembled in " << m.near_s << " s; far ring " << e.far_pairs
-       << " pairs (" << e.far_stored << " stored, the rest applied transposed), " << mb(far_bytes())
-       << " MB, assembled in " << m.far_s << " s (budget " << mb(e.budget) << " MB; dense matrix "
-       << mb(e.dense_bytes) << " MB)";
+    os << "PmlRingOperator (" << (m.aca ? "ACA far ring, WP-PML5b" : "exact PML ring, WP-PML5a")
+       << "): N = " << m.n << ", " << e.stretched << " stretched / " << m.n - e.stretched
+       << " real functions, " << e.row_leaves << " leaves with stretched functions; near ring "
+       << e.near_pairs << " pairs, " << mb(near_bytes()) << " MB, assembled in " << m.near_s
+       << " s; far ring " << e.far_pairs << " pairs (" << e.far_stored
+       << " stored, the rest applied transposed), " << mb(far_bytes()) << " MB, assembled in "
+       << m.far_s << " s (budget " << mb(e.budget) << " MB; exact far ring " << mb(e.far_bytes)
+       << " MB; dense matrix " << mb(e.dense_bytes) << " MB)";
+    if (m.aca) {
+        const PmlRingFarStats& st = m.aca->stats();
+        os << "; ACA (eps " << st.epsilon << ", eta " << st.eta << "): " << st.aca_blocks
+           << " blocks, " << mb(st.aca_bytes) << " MB, " << st.aca_pairs
+           << " stored pairs, ranks min / median / max " << st.rank_min << " / " << st.rank_median
+           << " / " << st.rank_max << ", mean per sub-block JJ " << st.rank_mean[0] << " JM "
+           << st.rank_mean[1] << " MJ " << st.rank_mean[2] << " MM " << st.rank_mean[3]
+           << ", histogram [0, 1, 2-3, 4-7, ...]:";
+        for (const Index h : st.rank_histogram) os << " " << h;
+        os << "; exact blocks " << st.exact_blocks << " + rank-cap fallbacks " << st.fallback_blocks
+           << " (" << st.skipped_attempts << " without an ACA attempt), " << mb(st.exact_bytes)
+           << " MB, " << st.exact_pairs
+           << " pairs; dropped (magnitude bound <= " << st.drop_tolerance << ") "
+           << st.dropped_blocks << " blocks, " << st.dropped_pairs << " pairs, region parts R1 "
+           << st.region_dropped[0] << " / R2 " << st.region_dropped[1]
+           << " blocks, largest dropped bound " << st.max_dropped_bound
+           << "; per triangle pair: drop distances R1 " << st.drop_distance[0] << " / R2 "
+           << st.drop_distance[1] << " m, " << st.pair_reductions << " of "
+           << st.pair_evaluations + st.pair_skips << " pairs reduced (" << st.pair_skips
+           << " skipped); generated rows " << st.generated_rows << ", columns "
+           << st.generated_columns;
+    }
     return os.str();
 }
 
@@ -751,7 +897,16 @@ std::size_t PmlRingOperator::near_bytes() const {
 }
 
 std::size_t PmlRingOperator::far_bytes() const {
-    return impl_->far_alloc;
+    return impl_->aca ? impl_->aca->bytes() : impl_->far_alloc;
+}
+
+const PmlRingFarStats& PmlRingOperator::far_stats() const {
+    return impl_->aca ? impl_->aca->stats() : impl_->exact_stats;
+}
+
+const std::vector<PmlRingFarBlock>& PmlRingOperator::far_blocks() const {
+    static const std::vector<PmlRingFarBlock> none;
+    return impl_->aca ? impl_->aca->blocks() : none;
 }
 
 std::size_t PmlRingOperator::memory_bytes() const {
@@ -790,6 +945,10 @@ Real PmlRingOperator::far_seconds() const {
 
 const op::SparseStretchedStats& PmlRingOperator::near_stats() const {
     return impl_->near_stats;
+}
+
+std::size_t PmlRingOperator::peak_bytes() const {
+    return near_bytes() + std::max(impl_->near_stats.cache_bytes, far_bytes());
 }
 
 const PmlRingEstimate& PmlRingOperator::estimate() const {

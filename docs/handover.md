@@ -132,24 +132,17 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   near parts, `PmlRingPlan` once per operator with a tree fingerprint. Gate met: near ring 0.26–0.41× the dense
   assembly of the same pairs at the 7c size (load varied; idle rerun open), matrix bitwise 5a. Setup is now
   dominated by the far ring (→ WP-PML5b).
-- **In flight:** WP-PML5b (`wp/pml5b-pml-ring-aca`, ACA far ring, scaling to 2N ≥ 1.5e5, 7d-Si/7e through the fast
-  path), started 2026-10-19 from b960d4b; must be rebased onto main after the 5c merge (shared
-  `PmlRingOperator` constructor / ADR 0008 result paragraphs).
-- **Sleep 2026-10-19 09:30:** WP-PML5c squash-merged locally (gate on de73469: 571 ctest both presets, 128
-  pytest, format clean, review MERGE); **main not yet built after the merge and not pushed** — first action
-  after the wake: build main both presets + pytest, then push.
-  - WP-PML5b `wp/pml5b-pml-ring-aca` (worker worktree agent-aa41dc55540dce6b3, head 9240277 + a WIP memory-note
-    commit): ACA far ring implemented (partially pivoted ACA in `compression/aca/`, H-matrix row clusters, η = 2
-    default measured at the 7c size, decayed region parts dropped per pair), validation at CI size, 2N ≈ 6e4 and the
-    7e driver added; at the sleep the 7e PML run through the fast path (`specklebem_pml_si_crosscheck --route pml`)
-    was running and the worker was paused at its turn limit (it resumes when the run ends). Not yet reported, not
-    reviewed. After 5c lands it must be rebased onto main (shared `PmlRingOperator` constructor / plan, ADR 0008
-    result paragraphs, record sections).
-- **Next:** WP-PML5b (ACA for the far ring blocks, scaling to 2N ≥ 1.5e5) and WP-PML5c (touching-block cache,
-  ring assembly time) — independent of each other, then WP-PML6 (Huygens-plane far field, ADR 0010); Ag scaling
-  on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule (7e finding), ADR 0009
-  open point 4 (box for Si).
-- Test counts on `main`: 571 ctest (`-LE "validation-large|slow"`), 128 pytest; labels `slow`, `validation`
+- **Merged:** WP-PML5b (ACA far ring): partially pivoted ACA on H-matrix row clusters (η = 2, tolerance
+  10^−(d₀+1)), stretched drop bound, integrated with 5c. 7h met through the fast path; `assemble()` 0.31× dense at
+  the 7c size, operator 1.5 GB vs 8.3 GB; 2N = 152 960 in 18 GB, 300 160 in 33.6 GB; 7d-Si/7e reproduced. Phase 5
+  PML fast path complete (7a–7e, 7h); 7f/7g await WP-PML6.
+- **In flight:** none.
+- **Next:** WP-PML6 (Huygens-plane far field for rough metals, ADR 0010; rows 7f/7g), then an idle-machine timing
+  rerun of the 5b/5c records and the GMRES preconditioning item (iterations ≈ N^0.5 on rough Ag PML systems:
+  602 → 1 715 → 2 679 at 2N = 2.3e4 / 1.5e5 / 3e5; Krylov basis 12.9 GB at 3e5 — restarted GMRES or a near-field
+  preconditioner, needs an ADR note); Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items:
+  rough-Si mesh rule (7e finding), ADR 0009 open point 4 (box for Si).
+- Test counts on `main`: 586 ctest (`-LE "validation-large|slow"`), 129 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

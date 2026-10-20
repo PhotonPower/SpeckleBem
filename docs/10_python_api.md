@@ -266,7 +266,16 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   r <= ratio(d0) a / 2 there; opt-in until measured at large L (WP22b3), the WP22b1 Si boxes need
   ~0.8 to elevate their coarse box cells; only with `accuracy_digits` <= 3, a value < 1 with
   d0 > 3 raises ValueError because the lambda/2 leaves it allows miss 1e-5), `max_exact_far_bytes` (int, 0 = automatic: max(2 x the
-  near-field bytes, 1 GiB), at most 16 (2N)^2; WP21 review, WP21f).
+  near-field bytes, 1 GiB), at most 16 (2N)^2; WP21 review, WP21f). PML route only
+  (`Simulation.with_pml(..., mlfmm=...)`, WP-PML5b, `mlfmm::PmlRingParams`): `pml_ring_use_aca`
+  (True: far ring blocks by ACA; False: the exact far ring of WP-PML5a), `pml_ring_aca_epsilon`
+  (0 = 10^-(accuracy_digits + 1)), `pml_ring_eta` (admissibility max(diam) <= eta dist, 2.0),
+  `pml_ring_max_rank` (0 = the break-even rank of each block; a positive value replaces it),
+  `pml_ring_row_clusters` (True: H-matrix row clusters; False: row leaves) and
+  `pml_ring_max_far_bytes` (int, 0 = automatic: the dense matrix; bounds the far blocks stored
+  exactly); `Simulation()` (closed surface, no PML ring) raises ValueError for these keys.
+  `report()` prints the ring's ACA statistics (blocks, ranks, bytes, dropped parts, per-pair
+  drop).
   Lossy interiors such as silver use the ADR 0008 §6 policy (WP21): no expansion where it is inaccurate, far pairs truncated by
   the decay bound (1 + alpha d) e^{-alpha d} <= 10^-(d0+1) or evaluated exactly (40 bytes per
   basis pair; allowed only if the exact pairs stay within 4 box edges, x*(d0) / alpha <= 4 a,
@@ -366,12 +375,15 @@ F = sim.far_field(directions, window=sb.CurrentWindow(inner_half, outer_half))
 `Simulation.with_pml` raises `ValueError` for what the C++ PML constructor rejects (no gap,
 taper < Lc of a rough patch, no dark band, controlled ball, an unknown compression or "mlfmm"
 with the direct solver, orientation). Since WP-PML5a `compression="mlfmm"` works on the PML route
-(GMRES; MLFMM on the real functions plus the exact PML ring, default MLFMM parameters; no new
-arguments). The exact far ring of 5a needs about 64 · N_s · N_far bytes (N_s stretched functions,
-N_far the functions outside a leaf's 27-leaf neighbourhood; 3.65 GB at 2N = 22 816, ≈ 60 GB at
-2N = 1.4·10⁵, `benchmarks/results/pml_ring.md`). Its budget defaults to the dense matrix size,
-which this estimate never exceeds, so the default never refuses a run; the C++ operator logs a
-warning when the estimate exceeds the physical memory available at construction. On the PML route R1 is the half space below the surface, so `far_field` (like
+(GMRES; MLFMM on the real functions plus the PML ring). Since WP-PML5b the ring's far blocks are
+compressed by ACA (tolerance 10^-(d0+1), admissibility eta = 2) and `with_pml` takes the `mlfmm`
+dict as `Simulation()` does (the `pml_ring_*` keys above); the exact far ring of 5a
+(`pml_ring_use_aca=False`) needs about 64 · N_s · N_far bytes (N_s stretched functions, N_far the
+functions outside a leaf's 27-leaf neighbourhood; 3.65 GB at 2N = 22 816, ≈ 70 GB at
+2N = 1.5·10⁵), the ACA ring a fraction of it (`benchmarks/results/pml_ring.md`, "5b"). The far
+budget defaults to the dense matrix size; with ACA it bounds the blocks known to be exact before
+assembly, and the C++ operator logs a warning when those exceed the physical memory available at
+construction. On the PML route R1 is the half space below the surface, so `far_field` (like
 `drc` / `radiated_power`, WP25) raises `ValueError` for directions with k_z > 0. The kernel key
 `stretched_touching_points` (4..16) sets the touching-pair rule of PML triangles.
 
@@ -531,7 +543,7 @@ sub-groups):
 | `/solver/history/{iteration,residual,time}` | (k,) int64, float64, float64 [s] (`time` only if recorded) |
 | `/config` attrs | `wavelength`, `formulation`, `formulation_automatic`, `preconditioner`, `preconditioner_automatic`, `solver`, `compression`, `termination` ("box" / "pml"), `num_unknowns` |
 | `/config/{object,exterior}` attrs | `eps_r`, `mu_r` (complex) |
-| `/config/{gmres,kernels,mlfmm}` attrs | every key of the constructor keyword dicts (`mlfmm/max_exact_far_bytes` as uint64) |
+| `/config/{gmres,kernels,mlfmm}` attrs | every key of the constructor keyword dicts (`mlfmm/max_exact_far_bytes` and `mlfmm/pml_ring_max_far_bytes` as uint64) |
 | `/config/pml` attrs | PML route: `sigma_max`, `order`, `correlation_length`, `dark_band_tolerance`, `patch_half`, `taper_end`, `pml_start`, `outer_half`, `dark_band_ratio`, `window_inner_half`, `window_outer_half` |
 | `/excitation` attrs | `type`, `wavelength`, `omega`, `controlled_radius`, `controlled_center`; PlaneWave: `direction`, `polarization` (complex e0); GaussianBeam / AngularSpectrumBeam: `waist`, `polarization` ("P" / "S"), `incidence_angle`, `focus`; AngularSpectrumBeam also `tolerance`, `region_radius`, `grid_change`, `max_polar_angle`, `power`, `num_plane_waves`, `polar_order`, `azimuth_order` |
 | `/excitation/background` attrs | `eps_r`, `mu_r` (complex) |

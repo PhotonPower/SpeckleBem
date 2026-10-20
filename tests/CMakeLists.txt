@@ -51,6 +51,7 @@ add_executable(specklebem_unit_tests
     unit/test_ag_near_field_support.cpp
     unit/test_pml_si_crosscheck.cpp
     unit/test_pml_ring.cpp
+    unit/test_aca.cpp
     # unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
