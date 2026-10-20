@@ -136,7 +136,8 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   10^−(d₀+1)), stretched drop bound, integrated with 5c. 7h met through the fast path; `assemble()` 0.31× dense at
   the 7c size, operator 1.5 GB vs 8.3 GB; 2N = 152 960 in 18 GB, 300 160 in 33.6 GB; 7d-Si/7e reproduced. Phase 5
   PML fast path complete (7a–7e, 7h); 7f/7g await WP-PML6.
-- **In flight:** none.
+- **In flight:** WP-PML6 (`wp/pml6-huygens-far-field`, Huygens-plane far field for the PML route, ADR 0010, rows
+  7f/7g; default switch to the Huygens source if 7g passes), started 2026-10-20 from 9b8123a.
 - **Next:** WP-PML6 (Huygens-plane far field for rough metals, ADR 0010; rows 7f/7g), then an idle-machine timing
   rerun of the 5b/5c records and the GMRES preconditioning item (iterations ≈ N^0.5 on rough Ag PML systems:
   602 → 1 715 → 2 679 at 2N = 2.3e4 / 1.5e5 / 3e5; Krylov basis 12.9 GB at 3e5 — restarted GMRES or a near-field
