@@ -1,7 +1,7 @@
 # ADR 0010: SPP-aware far field of the PML route (Huygens surface in R1)
 
 - **Status**: accepted 2026-10-18 (project lead followed the coordinator's recommendation; implementation after
-  WP-PML5)
+  WP-PML5); amended 2026-10-25 (extended plane, lead decision 2026-10-22)
 - **Date**: 2026-10-18
 - **Phase**: 5
 
@@ -72,3 +72,38 @@ Alternatives considered:
   rough Si; for rough metals it is superseded by this ADR once WP-PML6 is validated.
 - Revisit: if WP-PML5 changes the operator interface, the Huygens evaluation must use the compressed near-field
   product rather than the dense currents loop.
+
+## Amendment 2026-10-25: extended Huygens plane (lead decision 2026-10-22, option (A))
+
+**Finding of WP-PML6 (first measurement, `benchmarks/results/pml_huygens.md`).** 7f is met (flat Ag / Si: Huygens vs
+windowed currents 2.7·10⁻⁴ / 2.8·10⁻⁴, ΔR ≤ 4·10⁻⁷). 7g is not met *and not in the sense of decision 3*: on rough Ag
+7d with the Huygens far field is 2.8 % (currents 2.6 %), but the sensitivities are large (z_H ×1.5 1.05 %, window
+×0.7 / ×1.3 1.75 % / 0.66 %, Huygens vs currents 1.4 %), and 7e with the Huygens far field loses power (ΔR −5·10⁻⁴
+against 4·10⁻⁵). Cause: with the plane window identical to the currents' window (raised-cosine flank Δ = gap = λ
+over the real part) the flank cuts through the propagating field crossing the plane at z_H — at z_H = λ radiation
+under θ crosses the plane only ≈ z_H tan θ beside its source — and through the bound SPP field, which is still
+≈ e⁻² at z_H ≈ λ; a truncated bound field radiates like an edge. The point-source model gives an edge error
+≈ π²/(2(kΔ)²) per flank (unit test: 4.7·10⁻² / 9.8·10⁻³ / 2.3·10⁻³ at Δ = 2 / 4 / 8 λ). The clause "if 7g fails"
+of decision 3 therefore does not apply: the L dependence cannot be called physical from these runs.
+
+**Decision (option (A)).**
+1. The Huygens plane at z = z_H covers the **whole real part** (patch + taper + gap) with window W ≡ 1 and is
+   **extended over the PML zone and beyond**; the field above the PML zone is evaluated from the stretched sources
+   with the analytically continued kernels (complex distance, Piola currents — `post::exterior_scattered_field`,
+   tested: a dipole field continued through the PML to 6·10⁻³).
+2. The raised-cosine flank 1 → 0 lies **entirely outside pml_start**: no part of the window cuts through the field
+   over the real part. Over the PML the stretch damps the outgoing and the bound field, so the truncation there is
+   harmless.
+3. Flank width Δ_H from the point-source error model (≈ 3–4 λ for < 0.1 %): Δ_H = 2, 3, 4 λ are measured and
+   reported, then the default is fixed *before* 7g is asserted (a discretisation rule, not a fit to 7g). z_H stays
+   ≈ λ. The cost of the larger plane (points, time) is recorded next to the results.
+4. Gates unchanged (decision 3): 7f stays met; 7g: 7d < 0.5 % with the Huygens far field, z_H ×1.5 and window
+   ×(1 ± 0.3) each < 0.1 %, rough Si 7e within the box's own sensitivity. If 7g is met, the Huygens source becomes
+   the default of the PML route (decision 2); if not, the result is recorded (result paragraph, docs/05 rows 7f/7g,
+   the record), `FarFieldSource::Currents` stays the default and the lead decides — no further far-field variants
+   without a lead decision.
+
+**Consequences.** The plane has ≈ ((L + 2 W_pml + 2 Δ_H)/(λ/4))² points instead of ≈ ((L + 2 gap)/(λ/4))²
+(U case: ≈ 2·10³ → ≈ 10⁴ points, seconds with the direct evaluation). The stretched-source evaluation of
+`exterior_scattered_field` becomes part of the validated far-field path and needs its own sensitivity (z_H ×1.5
+covers it). Decision 5 of ADR 0009 is unchanged for flat surfaces and rough Si.

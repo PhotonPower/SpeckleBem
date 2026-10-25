@@ -136,7 +136,15 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   10^−(d₀+1)), stretched drop bound, integrated with 5c. 7h met through the fast path; `assemble()` 0.31× dense at
   the 7c size, operator 1.5 GB vs 8.3 GB; 2N = 152 960 in 18 GB, 300 160 in 33.6 GB; 7d-Si/7e reproduced. Phase 5
   PML fast path complete (7a–7e, 7h); 7f/7g await WP-PML6.
-- **In flight (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
+- **Lead note 2026-10-22** (`docs/lead/2026-10-22-next-work-packages.md`, binding): WP-PML6 option (A) (ADR 0010
+  amended 2026-10-25), then WP-PC1 (ADR 0011 written 2026-10-25), WP-PML5d (parallel), WP-G2 conditional;
+  deferred/rejected items listed there — do not schedule them.
+- **In flight (2026-10-25):** WP-PML5d (`wp/pml5d-ring-pair-memo`, step-0 study first); WP-PML6 finishing worker
+  on `wp/pml6-huygens-far-field-3` (record, docs, ctest, extended-plane diagnostic), the option (A)
+  implementation follows on top; WP-PC1 started after ADR 0011. The earlier WP-PML6 continuation worker
+  (worktree agent-a40c1f6891657e9af, deregistered by mistake, see the lesson) may still hand back measurements
+  from `scratchpad/pml6b` — data only.
+- **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
   continuation `wp/pml6-huygens-far-field-2` at f5bd897 in worker worktree agent-a40c1f6891657e9af: 7g reported as
   unmet with regression guards, docs/10 finished, wide-gap diagnostics; still to do there: record
   `benchmarks/results/pml_huygens.md` + rows, docs/05 rows 7f/7g, ADR 0010 result paragraph, full ctest both presets,
