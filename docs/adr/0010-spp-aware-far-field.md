@@ -1,7 +1,8 @@
 # ADR 0010: SPP-aware far field of the PML route (Huygens surface in R1)
 
 - **Status**: accepted 2026-10-18 (project lead followed the coordinator's recommendation; implementation after
-  WP-PML5); amended 2026-10-25 (extended plane, lead decision 2026-10-22)
+  WP-PML5); amended 2026-10-25 (extended plane, lead decision 2026-10-22; withdrawn the same day — see the
+  decision of 2026-10-25: the L dependence of rough metals is accepted as physical)
 - **Date**: 2026-10-18
 - **Phase**: 5
 
@@ -107,3 +108,46 @@ of decision 3 therefore does not apply: the L dependence cannot be called physic
 (U case: ≈ 2·10³ → ≈ 10⁴ points, seconds with the direct evaluation). The stretched-source evaluation of
 `exterior_scattered_field` becomes part of the validated far-field path and needs its own sensitivity (z_H ×1.5
 covers it). Decision 5 of ADR 0009 is unchanged for flat surfaces and rough Si.
+
+## Decision 2026-10-25 (project lead, coordinator's recommendation): option (A) withdrawn, L dependence accepted as physical
+
+**Why option (A) is withdrawn.** The WP-PML6 continuation and its review (`benchmarks/results/pml_huygens.md`)
+showed that the amendment above rested on a wrong premise: the stretched-source evaluation is valid only at
+observation points *inside* the stretch start. For a real observation point over the PML zone and a stretched
+source between it and pml_start, Im R̃² = 2(x − x′)F(x′) > 0, so the principal R̃ has Im R̃ > 0 and the kernel
+grows; near x′ ≈ x the branch cut is crossed. Stretched observation points r̃ = S(r) would give the valid PML field,
+but radiating it with real weights is a wavenumber-dependent taper, not the far field, and with the deformed kernel
+exp(jk k̂·r̃) dS̃ it is exact only for spectral content with k′ₓ > k sin θ — theory first. Neither variant recovers the
+grazing band, whose power is absorbed in the PML and not radiated through a finite plane at z_H (−67 % in
+θ = 75–90° at the U case). The only gain would be a smaller window-end error, which the wide-gap measurement
+already delivers.
+
+**What the measurements establish.** With a real gap of 3 µm (pml_start 5.375 µm, 2N = 62 016) the plane converges
+in the cone θ ≤ 30° for flank widths Δ ≥ 3–4 λ (z_H ×1.5: 0.04–0.07 %, Huygens vs currents 0.04–0.08 %,
+window end 3.8·10⁻⁴), and there L ×1.2 still changes the far field by 2.2–2.4 % — for the Huygens plane with its
+own and with the fixed window, at z_H ×0.5 and ×1.5, with and without the PML sources, **and for the windowed
+currents (2.41 %)**: 20–40× the method's own uncertainty. This is the "if 7g fails" branch of decision 3 with its
+condition (small sensitivities) met.
+
+**Decision.**
+1. The L dependence of the far field of rough *metal* surfaces on the PML route is accepted as physical
+   (re-scattering of the roughness-launched SPPs within the illuminated spot and its surroundings): the model
+   statement of ADR 0009 ("a rough spot in a polished surface of size L") is the result, and L, the gap and the
+   window are part of every rough-metal result. Row 7g of docs/05 is closed as "not met — physical, documented".
+2. `FarFieldSource::Currents` stays the default of the PML route; the Huygens plane remains an option and a
+   diagnostic (7f met). Decision 2 of 2026-10-18 (default switch) is void.
+3. **Configuration rule for rough metals** (to be validated by WP-PML6b and then written into ADR 0009 and docs/05
+   footnote ⁴): the flat gap between the taper and pml_start must be ≥ 6 λ (3 µm at 500 nm) so that the windowed
+   current far field is converged in the cone θ ≤ 30° (window-end sensitivity ≤ 1·10⁻³, Huygens vs currents
+   ≤ 1·10⁻³); results outside that cone and with narrower gaps are reported as qualitative.
+4. **WP-PML6b (confirmation, small):** on the wide-gap plane (U surface with a 3 µm gap and its L ×1.2 partner)
+   the window ×(1 ± 0.3) sensitivity of both sources, a second roughness seed, and the 7d value with the windowed
+   currents; acceptance: window sensitivities ≤ 1·10⁻³ in the θ ≤ 30° cone, 7d ≥ 10× the sensitivities for both
+   seeds (confirming the physical origin), the rule of item 3 recorded with its numbers.
+5. No further far-field variants (plane over the PML, mode subtraction, smoother windows) without a new lead
+   decision.
+
+**Consequences.** Rough-metal far fields of the PML route are quantitative in the θ ≤ 30° cone with a gap ≥ 6 λ
+(≈ 2.7× the unknowns of the λ-gap configuration at the U size; the fast path makes this affordable: assembly
+0.3× dense, 886–904 GMRES iterations at 2N = 62 016). Speckle statistics of rough metals must state L and be read
+as those of a spot of size L. The open questions of ADR 0009 (point 4, box for Si) are unaffected.

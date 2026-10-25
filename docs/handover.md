@@ -139,7 +139,13 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Lead note 2026-10-22** (`docs/lead/2026-10-22-next-work-packages.md`, binding): WP-PML6 option (A) (ADR 0010
   amended 2026-10-25), then WP-PC1 (ADR 0011 written 2026-10-25), WP-PML5d (parallel), WP-G2 conditional;
   deferred/rejected items listed there — do not schedule them.
-- **In flight (2026-10-25):** WP-PML5d (`wp/pml5d-ring-pair-memo`, step-0 study first); WP-PML6 finishing worker
+- **Lead decision 2026-10-25 (option 1, coordinator's recommendation):** ADR 0010 option (A) withdrawn (real
+  observation points over the PML are illegitimate: Im R̃ > 0; stretched points need theory and do not recover the
+  grazing band); the L dependence of rough-metal far fields is accepted as physical (wide-gap plane converged in
+  θ ≤ 30°, 7d ≈ 2.3 % for Huygens and currents); default stays Currents; rule gap ≥ 6 λ for rough metals, to be
+  confirmed by WP-PML6b (window ×(1 ± 0.3), second seed). WP-PML6 is merged as "7f met, 7g not met — physical".
+- **In flight (2026-10-25):** WP-PML6 review fixes (`wp/pml6-review-fixes`: CI 7f size, 7g large runs, Im R̃ guard,
+  wording); WP-PML5d (`wp/pml5d-ring-pair-memo`, step-0 study first); WP-PML6 finishing worker
   on `wp/pml6-huygens-far-field-3` (record, docs, ctest, extended-plane diagnostic), the option (A)
   implementation follows on top; WP-PC1 started after ADR 0011. The earlier WP-PML6 continuation worker
   (worktree agent-a40c1f6891657e9af, deregistered by mistake, see the lesson) may still hand back measurements
