@@ -152,7 +152,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   far-ring wall 0.56–0.61× on Ag, Si limited by its longest row cluster (0.94× wall, 0.61× CPU — open).
 - **Merged:** WP-PML6b: the wide-gap rule (gap ≥ 6 λ, quantitative in θ ≤ 30°) confirmed on two seeds (window
   sensitivities ≤ 8.7e-4 currents / ≤ 3.2e-4 Huygens, 7d 18–76× those); caveat: the currents' margin is 13 % on
-  seed 2 — an optional third seed or a wider-gap check before quoting the rule broadly (lead item).
+  seed 2 — lead decision 2026-10-25: a third seed / gap 8 λ later as the optional package WP-PML6c (not scheduled).
 - **In flight (2026-10-25):** WP-PC1 (`wp/pc1-block-diagonal-preconditioner`, reviewed MERGE AFTER FIXES; integration
   with main on `wp/pc1-integrate`, review fixes on `wp/pc1-review-fixes`).
 - **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
