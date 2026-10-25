@@ -1,4 +1,4 @@
-# Huygens-plane far field of the PML route: validations 7f and 7g (WP-PML6)
+# Huygens-plane far field of the PML route: validations 7f and 7g (WP-PML6), wide-gap confirmation (WP-PML6b)
 
 ADR 0010 decision 2–3, docs/05 "PML route", rows 7f and 7g. Library code
 `include/specklebem/postprocessing/huygens.hpp` (`post::huygens_plane`, `huygens_plane_field`, `huygens_reweight`,
@@ -6,10 +6,11 @@ ADR 0010 decision 2–3, docs/05 "PML route", rows 7f and 7g. Library code
 radiate through the stretched Green's function), `FarFieldSource` / `PmlTermination::far_field_source, huygens`
 (simulation.hpp). Case code `tests/support/pml_huygens_support.hpp`; tests `tests/unit/test_huygens.cpp`,
 `tests/validation/test_pml_huygens.cpp` (7f at CI size, 2N = 7 632), `tests/validation_large/test_pml_huygens_large.cpp`
-(7f in the 7a geometry; 7g, reported values with regression guards); study driver `benchmarks/pml_huygens.cpp` (`--study 7f|7g|si7d`), 7e through
+(7f in the 7a geometry; 7g, reported values with regression guards; 6b, the gates of WP-PML6b), `tests/unit/test_pml_huygens_support.cpp`;
+study driver `benchmarks/pml_huygens.cpp` (`--study 7f|7g|si7d|6b`), 7e through
 `benchmarks/pml_si_crosscheck.cpp --far-field huygens`; raw lines `pml_huygens_rows.txt`. Measured on a 12-core
 desktop with 128 GB RAM, win-release build, one heavy run at a time (7f, 7g, 7e on 2026-10-20, the extended-plane
-diagnostic on 2026-10-25).
+diagnostic and WP-PML6b on 2026-10-25).
 
 ## Summary
 
@@ -104,14 +105,17 @@ thin PML of the 7h CI case (W_pml = λ, σ_max 2) and the 60 × 120 hemisphere, 
 
 The thin PML and the coarser hemisphere change the 7a-size values by < 1 % of themselves (R 0.9816288 /
 0.9816290 and 0.3880908 / 0.3880910, as above). The smaller geometry of the 7h CI case (`pml_ring::
-flat_ag_ci_case()`: patch 1 µm, taper 0.25 µm, 2N = 4 592) does **not** qualify for 7f: its plane window starts
+flat_ag_ci_case()`: patch 1 µm, taper 0.25 µm, 2N = 4 592; `pml_huygens::flat_ci7h_case()`, tags `flat_ci7h_ag` /
+`flat_ci7h_si`) does **not** qualify for 7f: its plane window starts
 at 0.75 µm = 1.5 w₀, the reflected beam crosses the window zone (rms gap currents 4.3·10⁻² of the patch level
 against 8·10⁻⁴ in the CI case) and the plane's truncation error (section "Why 7g
 fails") dominates: Ag / Si L2 8.1·10⁻³ / 7.9·10⁻³, ΔR/R −5.4·10⁻⁴ / −5.5·10⁻⁴, z_h ×1.5 1.8·10⁻² /
 1.8·10⁻² (spacing /1.5 vs the default plane 8.7·10⁻⁵, i.e. the plane quadrature is fine); with a 1 µm patch and
-a 0.5 µm taper (window from 1.0 µm = 2 w₀, 2N = 6 016) Ag still gives L2 2.1·10⁻³, ΔR/R −1.6·10⁻⁵ (z_h ×1.5
+a 0.5 µm taper (`flat_ci7h_taper_case()`, tag `flat_ci7h_t05_ag`; window from 1.0 µm = 2 w₀, 2N = 6 016) Ag still gives L2 2.1·10⁻³, ΔR/R −1.6·10⁻⁵ (z_h ×1.5
 4.8·10⁻³). This is a direct control of the 7f premise: the plane agrees with the currents only when the
-reflected beam has decayed before the plane window.
+reflected beam has decayed before the plane window. The CI rows and these controls are reproduced by
+`benchmarks/pml_huygens.cpp --study 7f --cases ci` and `--cases ci-control` (WP-PML6b; rerun on 2026-10-25: every
+value identical, only times and round-off residuals differ).
 
 ## 7g: rough Ag and rough Si (not met)
 
@@ -286,4 +290,108 @@ Reading (for the lead decision, not validated):
   windowed-current far field of the default 0.5 µm gap is the configuration that is window-limited, not the
   current far field as such.
 - Caveats: one surface, one seed, h = λ/4 (rough-Ag mesh convergence not measured), plane window ×(1 ± 0.3) not
-  repeated on the wide plane, hemisphere sensitivities 0.1–0.2 %, the wide gap costs 2.7× the unknowns of U.
+  repeated on the wide plane, hemisphere sensitivities 0.1–0.2 %, the wide gap costs 2.7× the unknowns of U. The
+  second seed and the window ×(1 ± 0.3) on the wide plane are WP-PML6b (next section).
+
+## WP-PML6b: wide-gap confirmation
+
+**Question** (ADR 0010, decision 2026-10-25, items 3–4): on the wide-gap plane, are both far-field sources converged
+in the cone θ ≤ 30° with respect to their window (×(1 ± 0.3)), for a second roughness seed too, and is the
+L ×1.2 change (7d) there ≥ 10× those sensitivities (the physical L dependence)? Acceptance: window sensitivities
+≤ 1·10⁻³ at θ ≤ 30° for the windowed currents and the Huygens plane (Δ = 4 λ) on both seeds; 7d at θ ≤ 30°
+(currents and Huygens) ≥ 10× the respective sensitivities on both seeds.
+
+**Result: every gate met on both seeds** (GATE lines in `pml_huygens_rows.txt`): window sensitivity at θ ≤ 30°
+currents 4.0·10⁻⁴ / 8.7·10⁻⁴, Huygens 3.0·10⁻⁴ / 3.2·10⁻⁴ (seed 1 / seed 2, max over U and L ×1.2 and over
+×0.7 / ×1.3); 7d at θ ≤ 30° currents 2.26 % / 1.58 % (ratio 56 / 18), Huygens 2.30 % / 1.61 % (ratio 76 / 50).
+Over the hemisphere the currents are not converged with the window (0.17–0.59 %, grazing band θ 75–90° ±11–24 %):
+results outside the cone stay qualitative.
+
+**Setup.** `pml_huygens::wide_gap3_case(seed)` (U: L = 3.75 µm, 3 µm gap) and `wide_gap3_patch_case(seed)`
+(L ×1.2 = 4.5 µm, 2.625 µm gap), both pml_start 5.375 µm, 2N = 62 016, every other parameter as U of WP-PML4b
+(σ = 50 nm, Lc = 500 nm, map generated on 4.5 + 1 µm and cropped, h = λ/4, w₀ = λ, W_pml = 2λ, σ_max 4); seeds
+`pml_huygens::kSeeds = {1, 2}`: seed 1 is the surface of WP-PML4b / WP-PML6 (tags `ugap3`, `l12gap3` as in the
+diagnostic above), seed 2 an independent surface of the same statistics (tags `ugap3_s2`, `l12gap3_s2`; its far
+field differs from seed 1 by 49 % at θ ≤ 30° and 51 % over the hemisphere; its gap currents are 1.6–1.7× those
+of seed 1). Fast path as in 7g (MLFMM d₀ = 3 + PML ring, GMRES 10⁻⁷). One solve per case; only the far-field
+evaluation changes (`pml_huygens::six_b_far_fields`). Driver: `benchmarks/pml_huygens.cpp --study 6b --seed N
+--cases ugap3|l12gap3 --out DIR --in DIR` (one case per process; the partner's far fields are read from DIR,
+bitwise); without `--seed` / `--cases` one process runs all four cases.
+
+**Windows** (`pml_huygens::six_b_windows`). The reference of the window study is the window (taper_end,
+taper_end + Δ) with Δ = 4 λ for both sources (the converged flank of the diagnostic above); ×0.7 / ×1.3 scale the
+flank Δ at a fixed inner edge (2.8 λ / 5.2 λ; on L ×1.2 the ×1.3 window ends at 5.35 µm, inside pml_start) — a
+deviation from the 7g definition of "window ×(1 ± 0.3)": the 7g way of scaling both half widths does not fit the
+wide plane (×0.7 moves the inner edge into the patch,
+1.66 < 1.875 µm; ×1.3 the outer edge beyond pml_start). The currents' default window (taper_end, pml_start;
+Δ = gap = 6 λ / 5.25 λ) is reported with its flank ×0.7 (×1.3 would reach into the PML). 7d is evaluated with each
+case's own windows (default and Δ = 4 λ) and, as a check, with U's absolute windows on L ×1.2. Cone metric:
+`pml_huygens::cone_compare` (the L2 metric of `pml_rough_ag::compare` restricted to θ ≤ 30°); it reproduces the
+CONE values of the diagnostic (Huygens vs currents at Δ = 4 λ on `ugap3` 3.84·10⁻⁴, z_h ×1.5 4.18·10⁻⁴).
+
+**Reproduction of WP-PML6.** The seed-1 runs reproduce the diagnostic above to the printed digits (886 / 904
+GMRES iterations, true residuals 8.68 / 8.89·10⁻⁸, R currents 0.9769936 / 0.9774399, R Huygens 0.9757742 /
+0.9761625; 7d with the currents and the default windows 2.41 % / 2.26 % (hemisphere / θ ≤ 30°), Huygens Δ = 4 λ
+2.45 % / 2.30 %).
+
+L2 metric over the hemisphere / over θ ≤ 30° (window rows: perturbed vs the unperturbed window of the same solve;
+7d rows: L ×1.2 vs U of the same seed):
+
+| Comparison | seed 1 U | seed 1 L ×1.2 | seed 2 U | seed 2 L ×1.2 | gate |
+|---|---|---|---|---|---|
+| currents, Δ = 4 λ, flank ×0.7 | 0.28 % / 4.0·10⁻⁴ | 0.27 % / 3.4·10⁻⁴ | 0.59 % / 8.0·10⁻⁴ | 0.58 % / 8.7·10⁻⁴ | cone ≤ 1·10⁻³ |
+| currents, Δ = 4 λ, flank ×1.3 | 0.18 % / 1.4·10⁻⁴ | 0.17 % / 1.4·10⁻⁴ | 0.37 % / 3.3·10⁻⁴ | 0.36 % / 2.8·10⁻⁴ | cone ≤ 1·10⁻³ |
+| Huygens, Δ = 4 λ, flank ×0.7 | 0.086 % / 2.7·10⁻⁴ | 0.086 % / 3.0·10⁻⁴ | 0.10 % / 2.6·10⁻⁴ | 0.12 % / 3.2·10⁻⁴ | cone ≤ 1·10⁻³ |
+| Huygens, Δ = 4 λ, flank ×1.3 | 0.043 % / 1.0·10⁻⁴ | 0.042 % / 1.2·10⁻⁴ | 0.051 % / 1.0·10⁻⁴ | 0.059 % / 1.3·10⁻⁴ | cone ≤ 1·10⁻³ |
+| currents, default window (Δ = gap), flank ×0.7 | 0.22 % / 1.6·10⁻⁴ | 0.22 % / 1.7·10⁻⁴ | 0.44 % / 3.4·10⁻⁴ | 0.47 % / 3.9·10⁻⁴ | — |
+| currents, Δ = 4 λ vs default window | 0.24 % / 1.9·10⁻⁴ | 0.17 % / 1.4·10⁻⁴ | 0.50 % / 4.1·10⁻⁴ | 0.37 % / 2.6·10⁻⁴ | — |
+| Huygens vs currents, Δ = 4 λ | 0.35 % / 3.8·10⁻⁴ | 0.35 % / 3.6·10⁻⁴ | 0.70 % / 5.4·10⁻⁴ | 0.69 % / 6.2·10⁻⁴ | (rule: cone ≤ 1·10⁻³) |
+| Huygens vs currents, default windows | 0.23 % / 1.8·10⁻⁴ | 0.27 % / 2.0·10⁻⁴ | 0.48 % / 2.4·10⁻⁴ | 0.54 % / 3.8·10⁻⁴ | — |
+| z_h ×1.5, Δ = 4 λ | 0.18 % / 4.2·10⁻⁴ | 0.18 % / 4.2·10⁻⁴ | 0.23 % / 2.6·10⁻⁴ | 0.21 % / 3.0·10⁻⁴ | — |
+
+| 7d (L ×1.2 vs U), hemisphere / θ ≤ 30° | seed 1 | seed 2 | gate (θ ≤ 30°) |
+|---|---|---|---|
+| currents, default windows | 2.41 % / 2.26 % | 2.06 % / 1.58 % | ≥ 10× the currents' sensitivity: 56× / 18× |
+| currents, U's absolute window (2.375, 5.375 µm) | 2.42 % / 2.27 % | 2.04 % / 1.59 % | — |
+| currents, Δ = 4 λ, own windows | 2.40 % / 2.25 % | 2.14 % / 1.58 % | ≥ 10×: 56× / 18× |
+| currents, Δ = 4 λ, U's window | 2.42 % / 2.27 % | 2.04 % / 1.59 % | — |
+| Huygens, Δ = 4 λ, own windows | 2.45 % / 2.30 % | 2.05 % / 1.61 % | ≥ 10× the plane's sensitivity: 76× / 50× |
+| Huygens, Δ = 4 λ, U's window | 2.36 % / 2.24 % | 1.93 % / 1.57 % | — |
+
+Runs (fast path, win-release, 12-core desktop with 128 GB, one heavy run at a time, the machine shared with other
+workers' builds and tests: the times are not benchmarks):
+
+| Case | seed | 2N | GMRES its | true residual | assembly | solve | peak | R currents / Huygens | gap rms \|J\| / \|M\| |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---|
+| U (`ugap3`) | 1 | 62 016 | 886 | 8.7·10⁻⁸ | 1 250 s | 616 s | 4.50 GB | 0.9769936 / 0.9757742 | 0.079 / 0.072 |
+| L ×1.2 (`l12gap3`) | 1 | 62 016 | 904 | 8.9·10⁻⁸ | 786 s | 595 s | 4.52 GB | 0.9774399 / 0.9761625 | 0.086 / 0.082 |
+| U (`ugap3_s2`) | 2 | 62 016 | 874 | 8.9·10⁻⁸ | 924 s | 597 s | 4.48 GB | 0.9699002 / 0.9676458 | 0.128 / 0.104 |
+| L ×1.2 (`l12gap3_s2`) | 2 | 62 016 | 888 | 8.9·10⁻⁸ | 374 s | 322 s | 4.51 GB | 0.9705283 / 0.9680171 | 0.145 / 0.119 |
+
+Wall time per process 13–33 min; setup and far fields (10 / 13 far fields per case, two plane fields of 7 225
+points) take 0.6–2 min of it.
+
+**Reading.**
+
+- In the cone θ ≤ 30° both sources are converged with respect to the Δ = 4 λ flank on both surfaces (the currents'
+  default window only at ×0.7): the largest
+  window sensitivity is 8.7·10⁻⁴ (currents, flank ×0.7, seed 2), the Huygens plane stays ≤ 3.2·10⁻⁴; plane and
+  currents agree to ≤ 6.2·10⁻⁴ (Δ = 4 λ) and ≤ 3.8·10⁻⁴ (default windows), and z_h ×1.5 moves the plane by
+  ≤ 4.2·10⁻⁴. These are the conditions of the configuration rule (ADR 0010 decision 2026-10-25, item 3).
+- L ×1.2 changes the far field in the cone by 2.24–2.30 % (seed 1) and 1.57–1.61 % (seed 2) for every source and
+  window choice (own or common absolute windows), 18–76× the window sensitivities: the L dependence belongs to
+  the surface (its size and realisation), not to the far-field evaluation, on two surfaces.
+- The margin of the currents is smaller on seed 2 (8.7·10⁻⁴ against 1·10⁻³): its gap currents are 1.6–1.7× those
+  of seed 1, and the window sensitivity of the currents grows with them (doubled; the WP-PML4b observation that
+  the window effect follows the current level in the gap). A surface that launches markedly stronger surface
+  waves may need a gap wider than 6 λ to meet 1·10⁻³ with the currents; the Huygens plane (Δ = 4 λ) keeps a 3×
+  margin on both seeds.
+- Outside the cone the windowed currents are not converged with the window (hemisphere 0.17–0.59 %, grazing band
+  θ 75–90° moved by 11–24 %), and the Huygens plane misses grazing power (36–64 % of the band power in θ 75–90°
+  against the currents): rough-metal results outside θ ≤ 30° and with narrower gaps are qualitative.
+
+**Validation-large.** `test_pml_huygens_large.cpp`, case `PML 6b: wide-gap rule on rough Ag, second seed …`
+(seed 2, both solves in one case because 7d needs both; the gates asserted, not loosened): `ctest --preset
+win-release -L validation-large -R "PML 6b"` **passed** on 2026-10-25 in 2 497 s (run alone among my jobs, the
+machine shared with other workers), 874 / 888 GMRES iterations, every CONE value, R and the GATE line identical to
+the driver runs above (window sensitivity currents 8.717·10⁻⁴, Huygens 3.228·10⁻⁴; 7d 1.578 / 1.580 / 1.609 %).

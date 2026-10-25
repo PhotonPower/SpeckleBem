@@ -6,16 +6,22 @@
 //    the same solution, L2 metric <= 1e-3 and |dR| <= 1e-4 (checked; the CI-size 7f cases,
 //    2N = 7 632, are tests/validation/test_pml_huygens.cpp). SKIPs when the matrix plus its LU
 //    copy does not fit into 60 % of the available memory;
-//  * 7g, rough Ag (the WP-PML4b U case, pml_rough_ag::u_case(), 2N = 22 816; its L x 1.2 partner
-//  and
-//    a wide-gap partner, pml_huygens::wide_gap_case()), fast path (compression "mlfmm", d0 = 3,
-//    GMRES 1e-7): 7d with the Huygens far field (L x 1.2 at fixed waist, each run with its own
-//    default plane window) < 0.5 %; z_h x 1.5 and the plane window x (1 +- 0.3) (U's window
-//    scaled on the wide-gap run) < 0.1 % each (ADR 0006 box-check L2 metric);
+//  * 7g, rough Ag (the WP-PML4b U case, pml_rough_ag::u_case(), 2N = 22 816; its L x 1.2
+//    partner and a wide-gap partner, pml_huygens::wide_gap_case()), fast path (compression
+//    "mlfmm", d0 = 3, GMRES 1e-7): 7d with the Huygens far field (L x 1.2 at fixed waist, each
+//    run with its own default plane window) < 0.5 %; z_h x 1.5 and the plane window x (1 +- 0.3)
+//    (U's window scaled on the wide-gap run) < 0.1 % each (ADR 0006 box-check L2 metric);
 //  * 7g, rough Si 7e repeated with the Huygens far field: PML route (fast path, Huygens plane at
-//  its
-//    defaults) against the uniform box (pml_si_crosscheck::Case defaults) within the box's own
-//    sensitivity (pml_si_crosscheck::kTolerances).
+//    its defaults) against the uniform box (pml_si_crosscheck::Case defaults) within the box's
+//    own sensitivity (pml_si_crosscheck::kTolerances);
+//  * 6b (WP-PML6b, ADR 0010 decision 2026-10-25 item 4), the gap >= 6 lambda rule on the
+//    wide-gap pair of the second roughness seed (pml_huygens::wide_gap3_case(2) and
+//    wide_gap3_patch_case(2): 3 / 2.625 um gap, pml_start 5.375 um, 2N = 62 016 each; fast
+//    path; one case, because both solves are needed for 7d, ~1-2 h): in the cone theta <= 30
+//    deg the window sensitivities (flank x 0.7 / x 1.3 of (taper_end, taper_end + 4 lambda),
+//    windowed currents and Huygens plane, U and L x 1.2) <= 1e-3, and 7d (currents with the
+//    default and the 4 lambda windows, Huygens with 4 lambda) >= 10 x the sensitivity of the
+//    same source (pml_huygens::six_b_gates; acceptance of the WP, not loosened).
 // Row 7g is NOT met (WP-PML6, record section "7g"): on rough Ag 7d with the Huygens plane is 2.78
 // %, z_h x 1.5 1.05 %, window x 0.7 / x 1.3 1.75 / 0.66 %; on rough Si l2 and eps_rr pass but R
 // moves by -5.3e-4 (tolerance 4.1e-5). The plane, bounded by pml_start, misses the radiation at
@@ -24,17 +30,21 @@
 // windowed currents (ADR 0010 decision rule); the 7g values are reported with WARN next to the
 // documented values, plus a regression guard on each (a reported value, not an acceptance; as the
 // 7d Ag case of test_pml_rough_ag_large.cpp); the Si l2 / eps_rr parts and the plane-only
-// invariants stay checked. The tolerances of docs/05 are not loosened; the coordinator / lead
-// decide the row (open point). Label `validation-large` (release only, RUN_SERIAL; manual: `ctest
-// --preset win-release -L validation-large -R "7f|7g"`). Each case SKIPs when its estimated peak
-// does not fit into 60 % of the available memory.
+// invariants stay checked. The tolerances of docs/05 are not loosened; the row is closed as
+// "not met - physical" (lead decision 2026-10-25, ADR 0010; confirmed by the 6b case below).
+// Label `validation-large` (release only, RUN_SERIAL; manual: `ctest
+// --preset win-release -L validation-large -R "7f|7g|6b"`). Each case SKIPs when its estimated
+// peak does not fit into 60 % of the available memory.
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <map>
 #include <string>
+#include <vector>
 
 #include "pml_huygens_support.hpp"
 #include "pml_si_crosscheck_support.hpp"
@@ -166,6 +176,54 @@ TEST_CASE("PML 7g: Huygens far field on rough Ag (L x 1.2, z_h x 1.5, window x (
     // The plane window of the wide-gap run at U's window reproduces U (the gap is inert at a fixed
     // window, as for the currents in 7c): a plane-only invariant, checked.
     CHECK(pml_rough_ag::compare(w10, uh).l2 < 1e-3);
+#endif
+}
+
+TEST_CASE("PML 6b: wide-gap rule on rough Ag, second seed (window x (1 +- 0.3), 7d, theta <= 30)",
+          "[pml_6b]") {
+#ifndef NDEBUG
+    SKIP("validation-large cases run in optimised builds only");
+#else
+    using namespace pml_huygens;
+    const Real avail = system_memory::available_memory_bytes();
+    if (!(0.6 * avail > 10e9))
+        SKIP("the fast path of 2N = 62 016 needs ~5 GB; available " << avail / 1e9 << " GB");
+    constexpr std::uint64_t kSeed = kSeeds[1];  // the second surface (new evidence)
+    const RoughCase uc = wide_gap3_case(kSeed);
+    const RoughCase lc = wide_gap3_patch_case(kSeed);
+    const Real u_taper_end = pml_rough_ag::size_of(uc).half[1];
+    CHECK(u_taper_end == Approx(2.375e-6).epsilon(1e-12));
+    // Every window of the study fits before the solves (an invalid one throws here).
+    for (const RoughCase* c : {&uc, &lc}) {
+        const pml_rough_ag::Size size = pml_rough_ag::size_of(*c);
+        CHECK(size.half[2] == Approx(5.375e-6).epsilon(1e-12));
+        REQUIRE_NOTHROW(six_b_windows({size.half[1], size.half[2]}, u_taper_end));
+    }
+    std::map<std::string, FarField> far;
+    for (const RoughCase* c : {&uc, &lc}) {
+        const Solved s = solve(*c, Solver::Fast);
+        REQUIRE(s.unknowns == 62016);
+        REQUIRE(s.converged);
+        CHECK(s.residual < 1e-6);
+        const SixBFields f = six_b_far_fields(s, u_taper_end);
+        for (const std::string& line : f.lines) WARN(line);
+        for (const FarField& x : f.far) far[x.tag] = x;
+    }
+    std::vector<Comparison> cmp = six_b_case_comparisons(uc.tag);
+    for (const Comparison& k : six_b_case_comparisons(lc.tag)) cmp.push_back(k);
+    for (const Comparison& k : six_b_pair_comparisons(uc.tag, lc.tag)) cmp.push_back(k);
+    for (const Comparison& k : cmp)
+        WARN(cone_line(k.label, far.at(k.test), far.at(k.ref),
+                       cone_compare(far.at(k.test), far.at(k.ref))));
+    // Acceptance (ADR 0010 decision 2026-10-25 item 4; not loosened): in the cone theta <= 30 deg
+    // the window sensitivities of both sources <= 1e-3, and 7d >= 10 x them.
+    const SixBGates g = six_b_gates(far, uc.tag, lc.tag);
+    WARN(gate_line(kSeed, g));
+    CHECK(g.sens_currents <= kSixBSensitivity);
+    CHECK(g.sens_huygens <= kSixBSensitivity);
+    CHECK(g.d7_currents >= kSixBRatio * g.sens_currents);
+    CHECK(g.d7_currents_d4 >= kSixBRatio * g.sens_currents);
+    CHECK(g.d7_huygens >= kSixBRatio * g.sens_huygens);
 #endif
 }
 

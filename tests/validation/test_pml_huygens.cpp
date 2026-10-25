@@ -11,7 +11,7 @@
 // 7h CI geometry (2N = 4 592: window from 1.5 w0) does not qualify for 7f (record). The 7a-size
 // cases (2N = 11 440, ~7 min and 4.2 GB each) are in
 // tests/validation_large/test_pml_huygens_large.cpp. Release only (the stretched dense assembly
-// takes minutes under the sanitizers); about 2 min per material on 12 cores.
+// takes minutes under the sanitizers); 4-8 min per material on 12 cores.
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 

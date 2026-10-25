@@ -31,6 +31,7 @@ add_executable(specklebem_unit_tests
     unit/test_pml_route.cpp
     unit/test_pml_spp.cpp
     unit/test_pml_rough_ag.cpp
+    unit/test_pml_huygens_support.cpp
     unit/test_assembler.cpp
     unit/test_gmres.cpp
     unit/test_result_writer.cpp

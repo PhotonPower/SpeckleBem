@@ -178,6 +178,12 @@ condition (small sensitivities) met.
    footnote ⁴): the flat gap between the taper and pml_start must be ≥ 6 λ (3 µm at 500 nm) so that the windowed
    current far field is converged in the cone θ ≤ 30° (window-end sensitivity ≤ 1·10⁻³, Huygens vs currents
    ≤ 1·10⁻³); results outside that cone and with narrower gaps are reported as qualitative.
+   Confirmed by WP-PML6b (2026-10-25, two seeds, `pml_huygens.md` section "WP-PML6b"): with the window
+   (taper_end, taper_end + 4 λ) for both sources, flank ×0.7 / ×1.3 at a fixed inner edge (a deviation from the 7g
+   definition "both half widths", which would push the edges into the patch / the PML) moves the far field at
+   θ ≤ 30° by ≤ 8.7·10⁻⁴ (currents; default window ×0.7 only: ≤ 3.9·10⁻⁴) / ≤ 3.2·10⁻⁴ (Huygens), Huygens vs
+   currents ≤ 6.2·10⁻⁴, 7d 2.2–2.3 % / 1.6 % (seed 1 / 2) = 18–76× the window sensitivities; written into
+   ADR 0009 decision 5 and docs/05 footnote ⁴.
 4. **WP-PML6b (confirmation, small):** on the wide-gap plane (U surface with a 3 µm gap and its L ×1.2 partner)
    the window ×(1 ± 0.3) sensitivity of both sources, a second roughness seed, and the 7d value with the windowed
    currents; acceptance: window sensitivities ≤ 1·10⁻³ in the θ ≤ 30° cone, 7d ≥ 10× the sensitivities for both

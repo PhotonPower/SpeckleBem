@@ -18,17 +18,36 @@
 // diagnostic "extended plane" (pml_huygens.md; delta_windows) evaluates the window transitions
 // Delta = 1, 2, 3, 4, 6 lambda from each case's taper end (and from U's on l12gap3): Huygens vs
 // currents, z_h x 1.5 and 7d per Delta.
-// Every result is one machine-readable line (ROW, PLANE, CMP), also appended to --summary FILE;
-// --out DIR stores the far fields (pml_rough_ag::write_far_field, one file per evaluation).
+//  --study 7f --cases 7a,ci,ci-control  7a (default): the 7a geometry as above; ci: the CI-size
+//              7f case (flat_ci_case, 2N = 7 632; the lines of tests/validation/
+//              test_pml_huygens.cpp, pml_huygens::evaluate_7f); ci-control: the 7f premise
+//              controls (flat_ci7h_case: the 7h CI geometry, 2N = 4 592, Ag and Si; with Ag also
+//              flat_ci7h_taper_case, 2N = 6 016), the same evaluate_7f lines.
+//  --study 6b  WP-PML6b, wide-gap confirmation (ADR 0010 decision 2026-10-25 item 4; record
+//              section "WP-PML6b"): ugap3 / l12gap3 (pml_huygens::wide_gap3_case(seed),
+//              wide_gap3_patch_case(seed)) for --seed N (default: both kSeeds), fast path; per
+//              case the far fields of six_b_far_fields (window flank x 0.7 / x 1.3 of (taper_end,
+//              taper_end + 4 lambda) for the windowed currents and the Huygens plane, the default
+//              windows, U's absolute window on L x 1.2), per pair the 7d comparisons and the
+//              acceptance gates (GATE line), each comparison as a CMP and a CONE line (hemisphere
+//              and theta <= 30 deg). One case per process is possible: --out DIR stores the far
+//              fields, --in DIR reads the missing ones of the partner (bitwise, "%.17g").
+// Every result is one machine-readable line (ROW, PLANE, CMP, CONE, GATE), also appended to
+// --summary FILE; --out DIR stores the far fields (pml_rough_ag::write_far_field, one file per
+// evaluation).
 //
-// Usage: specklebem_pml_huygens --study 7f|7g|si7d [--material ag|si|both] [--solver dense|fast]
-//            [--cases u,l12,ugap,ugap3,l12gap3] [--summary FILE] [--out DIR]
+// Usage: specklebem_pml_huygens --study 7f|7g|si7d|6b [--material ag|si|both]
+//            [--solver dense|fast] [--cases u,l12,ugap,ugap3,l12gap3 | 7a,ci,ci-control]
+//            [--seed N] [--summary FILE] [--out DIR] [--in DIR]
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -47,6 +66,8 @@ struct Options {
     std::vector<std::string> cases;
     std::string summary;
     std::string out;
+    std::string in;
+    std::optional<std::uint64_t> seed;
 };
 
 Options parse(int argc, char** argv) {
@@ -78,12 +99,21 @@ Options parse(int argc, char** argv) {
             o.summary = value();
         } else if (a == "--out") {
             o.out = value();
+        } else if (a == "--in") {
+            o.in = value();
+        } else if (a == "--seed") {
+            const std::string v = value();
+            if (v.empty() || v.find_first_not_of("0123456789") != std::string::npos)
+                throw std::invalid_argument("--seed must be a non-negative integer");
+            o.seed = static_cast<std::uint64_t>(std::stoull(v));
         } else {
             throw std::invalid_argument("unknown argument " + a);
         }
     }
-    if (o.study != "7f" && o.study != "7g" && o.study != "si7d")
-        throw std::invalid_argument("--study must be 7f, 7g or si7d");
+    if (o.study != "7f" && o.study != "7g" && o.study != "si7d" && o.study != "6b")
+        throw std::invalid_argument("--study must be 7f, 7g, si7d or 6b");
+    if (o.seed && o.study != "6b")
+        throw std::invalid_argument("--seed applies to --study 6b only");
     return o;
 }
 
@@ -102,6 +132,19 @@ void emit(const std::string& summary, const std::string& line) {
 struct Store {
     std::map<std::string, FarField> far;
     std::string out;
+    std::string in;  ///< directory of stored far fields (--in), read on demand by ensure()
+    /// True if the far field `tag` is in the store or could be read from `in`.
+    bool ensure(const std::string& tag) {
+        if (far.count(tag) > 0)
+            return true;
+        if (in.empty())
+            return false;
+        const std::string path = in + "/" + tag + ".txt";
+        if (!std::filesystem::exists(core::path_from_utf8(path)))
+            return false;
+        far[tag] = pml_rough_ag::read_far_field(path);
+        return true;
+    }
     const FarField& add(const FarField& f) {
         if (!out.empty()) {
             std::filesystem::create_directories(core::path_from_utf8(out));
@@ -166,13 +209,44 @@ Solved standard(const Options& o, Store& st, const RoughCase& c, Solver solver) 
 }
 
 int run_7f(const Options& o) {
-    Store st{{}, o.out};
+    Store st{{}, o.out, {}};
     const Solver solver = o.solver.value_or(Solver::Dense);
     std::vector<std::string> mats;
     if (o.material == "both")
         mats = {"ag", "si"};
     else
         mats = {o.material};
+    const std::vector<std::string> cases =
+        o.cases.empty() ? std::vector<std::string>{"7a"} : o.cases;
+    for (const std::string& name : cases)
+        if (name != "7a" && name != "ci" && name != "ci-control")
+            throw std::invalid_argument("--study 7f: unknown case " + name +
+                                        " (7a, ci or ci-control)");
+    // CI size and premise controls: the evaluate_7f lines (ROW and five COMPARE lines), as the
+    // validation test writes them.
+    const auto seven_f = [&](const RoughCase& c) {
+        std::printf("SOLVING | %s | %s\n", c.tag.c_str(),
+                    solver == Solver::Fast ? "fast" : "dense");
+        std::fflush(stdout);
+        const Solved s = solve(c, solver);
+        std::printf("%s\n", s.report.c_str());
+        if (!s.converged)
+            throw std::runtime_error(c.tag + ": the solve did not converge");
+        const SevenF r = evaluate_7f(s);
+        for (const FarField* f : {&r.currents, &r.huygens, &r.z15, &r.spacing}) (void)st.add(*f);
+        for (const std::string& line : r.lines) emit(o.summary, line);
+    };
+    for (const std::string& name : cases) {
+        if (name == "ci") {
+            for (const std::string& m : mats) seven_f(flat_ci_case(m));
+        } else if (name == "ci-control") {
+            for (const std::string& m : mats) seven_f(flat_ci7h_case(m));
+            if (std::find(mats.begin(), mats.end(), "ag") != mats.end())
+                seven_f(flat_ci7h_taper_case());
+        }
+    }
+    if (std::find(cases.begin(), cases.end(), "7a") == cases.end())
+        return 0;
     for (const std::string& m : mats) {
         const RoughCase c = flat_case(m);
         const Solved s = standard(o, st, c, solver);
@@ -228,7 +302,7 @@ void delta_windows(const Options& o, Store& st, const Solved& s, Real abs_inner,
 }
 
 int run_7g(const Options& o, bool si) {
-    Store st{{}, o.out};
+    Store st{{}, o.out, {}};
     const Solver solver = o.solver.value_or(Solver::Fast);
     std::vector<std::string> cases = o.cases;
     if (cases.empty())
@@ -379,6 +453,85 @@ int run_7g(const Options& o, bool si) {
     return 0;
 }
 
+/// WP-PML6b (record section "WP-PML6b: wide-gap confirmation"): the wide-gap pair per seed.
+int run_6b(const Options& o) {
+    Store st{{}, o.out, o.in};
+    const Solver solver = o.solver.value_or(Solver::Fast);
+    std::vector<std::uint64_t> seeds(kSeeds.begin(), kSeeds.end());
+    if (o.seed)
+        seeds = {*o.seed};
+    const std::vector<std::string> cases =
+        o.cases.empty() ? std::vector<std::string>{"ugap3", "l12gap3"} : o.cases;
+    const auto make = [](const std::string& name, std::uint64_t seed) {
+        if (name == "ugap3")
+            return wide_gap3_case(seed);
+        if (name == "l12gap3")
+            return wide_gap3_patch_case(seed);
+        throw std::invalid_argument("--study 6b: unknown case " + name + " (ugap3 or l12gap3)");
+    };
+    // U's taper end (the absolute window on L x 1.2); every window is checked before a solve.
+    const Real u_taper_end = pml_rough_ag::size_of(wide_gap3_case()).half[1];
+    std::set<std::string> solved;  // the cases of this process: only their comparisons are emitted
+    for (const std::uint64_t seed : seeds) {
+        for (const std::string& name : cases) {
+            const RoughCase c = make(name, seed);
+            const pml_rough_ag::Size size = pml_rough_ag::size_of(c);
+            (void)six_b_windows({size.half[1], size.half[2]}, u_taper_end);
+            std::printf("SOLVING | %s | seed %llu | %s\n", c.tag.c_str(),
+                        static_cast<unsigned long long>(seed),
+                        solver == Solver::Fast ? "fast" : "dense");
+            std::fflush(stdout);
+            const Solved s = solve(c, solver);
+            std::printf("%s\n", s.report.c_str());
+            if (!s.converged)
+                throw std::runtime_error(c.tag + ": the solve did not converge");
+            const SixBFields f = six_b_far_fields(s, u_taper_end);
+            for (const FarField& x : f.far) (void)st.add(x);
+            for (const std::string& line : f.lines) emit(o.summary, line);
+            solved.insert(c.tag);
+        }
+    }
+    const auto emit_cmp = [&](const Comparison& k) {
+        if (!st.ensure(k.test) || !st.ensure(k.ref))
+            return;
+        const FarField& t = st.at(k.test);
+        const FarField& r = st.at(k.ref);
+        emit(o.summary, "CMP | " + k.label + " | " +
+                            pml_rough_ag::compare_line(t, r, pml_rough_ag::compare(t, r)));
+        emit(o.summary, cone_line(k.label, t, r, cone_compare(t, r)));
+    };
+    for (const std::uint64_t seed : seeds) {
+        const std::string u = wide_gap3_case(seed).tag;
+        const std::string l = wide_gap3_patch_case(seed).tag;
+        for (const std::string& t : {u, l})
+            if (solved.count(t) > 0)
+                for (const Comparison& k : six_b_case_comparisons(t)) emit_cmp(k);
+        if (solved.count(u) == 0 && solved.count(l) == 0)
+            continue;
+        for (const Comparison& k : six_b_pair_comparisons(u, l)) emit_cmp(k);
+        bool complete = true;
+        for (const std::string& t : {u, l})
+            for (const char* sfx :
+                 {".C", ".CD4", ".CD4f07", ".CD4f13", ".HD4", ".HD4f07", ".HD4f13"})
+                complete = st.ensure(t + sfx) && complete;
+        if (complete)
+            emit(o.summary, gate_line(seed, six_b_gates(st.far, u, l)));
+        if (seed != 1) {
+            // How different the two surfaces are (information, not a gate).
+            for (const auto& [a, b] : std::vector<std::pair<std::string, std::string>>{
+                     {u, wide_gap3_case().tag}, {l, wide_gap3_patch_case().tag}}) {
+                if (solved.count(a) == 0)
+                    continue;
+                emit_cmp({"6b seed " + std::to_string(seed) + " vs seed 1, currents", a + ".C",
+                          b + ".C"});
+                emit_cmp({"6b seed " + std::to_string(seed) + " vs seed 1, huygens D4", a + ".HD4",
+                          b + ".HD4"});
+            }
+        }
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -386,6 +539,8 @@ int main(int argc, char** argv) {
         const Options o = parse(argc, argv);
         if (o.study == "7f")
             return run_7f(o);
+        if (o.study == "6b")
+            return run_6b(o);
         return run_7g(o, o.study == "si7d");
     } catch (const std::exception& ex) {
         std::fprintf(stderr, "pml_huygens: %s\n", ex.what());

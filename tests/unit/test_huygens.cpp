@@ -277,6 +277,7 @@ TEST_CASE("huygens: plane radiation of dipole fields reproduces their far field"
     const Vec3c p(Complex(1.0, 0.2), Complex(-0.4, 0.1), Complex(0.7, -0.3));
     const Vec3c m = eta * Vec3c(Complex(0.3, -0.5), Complex(0.9, 0.0), Complex(-0.2, 0.4));
     const Vertices dirs = cone_directions(-1.0, {0.0, 10.0, 20.0, 30.0, 40.0}, 8);
+    constexpr Real kInner = 2.0;  // inner window edge [lambda]
     struct Source {
         Vec3c p, m;
         const char* name;
@@ -286,7 +287,7 @@ TEST_CASE("huygens: plane radiation of dipole fields reproduces their far field"
         Real prev = 1.0;
         for (const Real outer : {8.0, 11.0}) {
             const post::HuygensPlane pl = post::huygens_plane(
-                -kLam, -1.0, post::CurrentWindow{2.0 * kLam, outer * kLam}, kLam / 6.0);
+                -kLam, -1.0, post::CurrentWindow{kInner * kLam, outer * kLam}, kLam / 6.0);
             FieldMatrix E, H, F;
             sample_dipoles(pl, r0, src.p, src.m, E, H);
             post::huygens_radiate(pl, E, H, Complex(2.0 * constants::pi / kLam, 0.0),
@@ -300,7 +301,8 @@ TEST_CASE("huygens: plane radiation of dipole fields reproduces their far field"
             const Real rel = err / scale;
             WARN(src.name << " dipole, window outer " << outer
                           << " lambda: max |dF| / max |F| = " << rel);
-            const Real k_delta = 2.0 * constants::pi * (outer - 2.0);  // k Delta, Delta in lambda
+            const Real k_delta =
+                2.0 * constants::pi * (outer - kInner);  // k Delta, Delta in lambda
             const Real model = constants::pi * constants::pi / (2.0 * k_delta * k_delta);
             CHECK(rel < 5.5 * model);
             CHECK(rel < prev);  // decreases with the window (quadrature/truncation controlled)
@@ -467,12 +469,12 @@ TEST_CASE("huygens: the stretched kernel distance has Im R~ <= 0 and refuses gro
     std::uniform_real_distribution<Real> u(-1.0, 1.0);
     std::uniform_real_distribution<Real> pml(start * (1.0 + 1e-9), outer);
     Real max_im = -1.0;
-    int stretched = 0;
-    for (int i = 0; i < 2000; ++i) {
+    Index stretched = 0;
+    for (Index i = 0; i < 2000; ++i) {
         const Vec3 r(start * u(rng), start * u(rng), -kLam * (0.05 + std::abs(u(rng))));
         // Source in the PML along x, along y or both (corner), on either side.
         Vec3 q(start * u(rng), start * u(rng), 0.1e-6 * u(rng));
-        const int zone = i % 3;
+        const Index zone = i % 3;
         if (zone != 1)
             q.x() = std::copysign(pml(rng), u(rng));
         if (zone != 0)

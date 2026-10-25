@@ -135,8 +135,21 @@ regression. The PML route becomes the default for plasmonic objects once it pass
      window) still holds. Diagnostic (not validated, `benchmarks/results/pml_huygens.md`): with the real gap
      widened to 3 µm and a plane window transition of 3–6 λ the plane converges at θ ≤ 30° (z_H ×1.5 ≤ 0.07 %,
      plane vs currents ≤ 0.08 %) and L ×1.2 still changes the rough-Ag far field by ≈ 2.3 % there, for both
-     sources — evidence for the "rough spot in a polished surface" model statement of 7d. Decision on the
-     follow-up pending (ADR 0010 "Result").
+     sources — evidence for the "rough spot in a polished surface" model statement of 7d. Decided 2026-10-25
+     (ADR 0010: L dependence physical, option (A) withdrawn) and confirmed by WP-PML6b (next bullet).
+   - *Rule for rough metals (2026-10-25, WP-PML6b; ADR 0010 decision 2026-10-25, items 3–4).* Rough-metal far
+     fields of the PML route are quantitative only with a flat gap ≥ 6 λ between the taper and pml_start (3 µm at
+     500 nm) and only in the cone θ ≤ 30°: there the windowed currents and the Huygens plane, both with the window
+     (taper_end, taper_end + 4 λ), are converged with respect to that window's flank (×0.7 / ×1.3 at a fixed inner
+     edge, θ ≤ 30°: ≤ 8.7·10⁻⁴ currents, ≤ 3.2·10⁻⁴ plane; the currents' default window across the whole gap only
+     at ×0.7: ≤ 3.9·10⁻⁴), agree to ≤ 6.2·10⁻⁴, and L ×1.2 changes the far field by 2.2–2.3 % (seed 1) / 1.6 %
+     (seed 2), 18–76× those sensitivities (rough Ag, σ = 50 nm, Lc = 500 nm, L = 3.75 µm, two seeds, at equal
+     discretisation h = λ/4 — rough-Ag mesh convergence not measured; `benchmarks/results/pml_huygens.md`, section
+     "WP-PML6b"). Scaling the flank at a fixed inner edge deviates from the 7g definition of "window ×(1 ± 0.3)"
+     (both half widths), which on the wide plane would move the inner edge into the patch and the outer edge into
+     the PML. Results outside the cone or with narrower gaps are qualitative; every rough-metal result states L,
+     the gap and the window. The currents' margin shrinks with the SPP current level in the gap (seed 2, 1.6× the
+     gap currents of seed 1: 8.7·10⁻⁴ against 4.0·10⁻⁴); stronger-SPP surfaces may need a wider gap.
 6. **Fast method.**
    - The **prototype is dense** (validation only, 2N ≲ 6·10⁴).
    - At scale the PML ring is a large share of the surface: W_pml ≈ 1–2 µm against L = 30 µm gives about 4 W/L ≈

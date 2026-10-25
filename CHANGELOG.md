@@ -5,6 +5,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / docs (WP-PML6b, ADR 0010 decision 2026-10-25 items 3–4): confirmation of the physical L dependence and the
+  wide-gap rule for rough metals on two roughness seeds (wide-gap plane, gap 3 µm = 6 λ, 2N = 62 016, fast path):
+  in the cone θ ≤ 30° the window flank ×0.7 / ×1.3 moves the windowed currents by ≤ 4.0·10⁻⁴ (seed 1) / 8.7·10⁻⁴
+  (seed 2) and the Huygens plane (Δ = 4 λ) by ≤ 3.0 / 3.2·10⁻⁴, the two sources agree to ≤ 6.2·10⁻⁴, and L ×1.2
+  changes the far field by 2.26 % / 1.58 % = 18–76× the sensitivities; over the full hemisphere the currents are not
+  window-converged (0.17–0.59 %). Rule written into ADR 0009 decision 5 and docs/05 footnote ⁴: rough-metal far
+  fields of the PML route are quantitative only with a gap ≥ 6 λ and in θ ≤ 30°, every result states L, gap and
+  window; caveat: the currents' margin shrinks with the SPP current level in the gap (seed 2: 8.7·10⁻⁴ vs 1·10⁻³).
+  Support: seeds and tags, flank scaling, cone metric, 6b gates (`tests/support/pml_huygens_support.hpp`), driver
+  `--study 6b` / `--study 7f --cases 7a,ci,ci-control` (committed path for the CI-size 7f rows and the premise control,
+  tags `flat_ci7h_*`), unit tests `[pml_huygens]`, validation-large case "PML 6b" (seed-2 pair, 2 497 s), record
+  section "WP-PML6b"; WP-PML6 re-review follow-ups S1–S4/S6 closed.
 - mlfmm (WP-PML5d, ADR 0008 "5d result"): triangle-pair memo in the ACA far ring of the PML route — the entry
   generator keeps evaluated pair blocks in lazily allocated strips per test triangle (`row()`) and per source
   triangle (`column()`) within a per-block budget (`PmlRingParams::pair_memo_bytes`, default 16 MiB, one block per

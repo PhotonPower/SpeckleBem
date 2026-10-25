@@ -704,6 +704,9 @@ void exterior_scattered_field(const SurfaceSolution& s, const Vertices& points, 
         E.row(p) = e.transpose();
         H.row(p) = h.transpose();
     }
+    // Defensive: unreachable through the public API, because observation points over the PML
+    // (the only ones for which Im R~ > 0 can occur) are refused before the parallel region; the
+    // capture only keeps an invariant violation from escaping the OpenMP region (std::terminate).
     if (error)
         std::rethrow_exception(error);
 }

@@ -150,10 +150,11 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   run them separately, a combined run exceeds a 2 h shell). Next on this thread: WP-PML6b (wide-gap rule).
 - **Merged:** WP-PML5d (pair memo in the ACA far ring): bitwise identical far ring, kernel evaluations −30…−40 %,
   far-ring wall 0.56–0.61× on Ag, Si limited by its longest row cluster (0.94× wall, 0.61× CPU — open).
+- **Merged:** WP-PML6b: the wide-gap rule (gap ≥ 6 λ, quantitative in θ ≤ 30°) confirmed on two seeds (window
+  sensitivities ≤ 8.7e-4 currents / ≤ 3.2e-4 Huygens, 7d 18–76× those); caveat: the currents' margin is 13 % on
+  seed 2 — an optional third seed or a wider-gap check before quoting the rule broadly (lead item).
 - **In flight (2026-10-25):** WP-PC1 (`wp/pc1-block-diagonal-preconditioner`, reviewed MERGE AFTER FIXES; integration
-  with main on `wp/pc1-integrate`, then the fix round); WP-PML6b
-  (`wp/pml6b-wide-gap-confirmation`, started 2026-10-25 after the WP-PML6 merge; also closes the re-review follow-ups
-  W1/S1-S6 of WP-PML6: committed driver path for the CI-size 7f rows and the premise control, comment and type fixes).
+  with main on `wp/pc1-integrate`, review fixes on `wp/pc1-review-fixes`).
 - **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
   continuation `wp/pml6-huygens-far-field-2` at f5bd897 in worker worktree agent-a40c1f6891657e9af: 7g reported as
   unmet with regression guards, docs/10 finished, wide-gap diagnostics; still to do there: record
@@ -183,7 +184,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   rule confirmation), WP-G2 only if the ADR 0011 condition is met; then an idle-machine timing rerun of the 5b/5c
   records; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 603 ctest (`-LE "validation-large|slow"`), 131 pytest; labels `slow`, `validation`
+- Test counts on `main`: 607 ctest (`-LE "validation-large|slow"`), 131 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
