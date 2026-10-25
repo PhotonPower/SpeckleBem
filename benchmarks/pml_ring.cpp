@@ -13,6 +13,12 @@
 // ring) and then the exact ring of the same Problem and octree and prints the RING line (ring and
 // full-operator matvec differences, memory, times, ranks; no dense matrix, no solve);
 // --ring-compare --no-exact builds the ACA operator only (sizes beyond the exact ring's memory).
+// WP-PML5d: --ring-compare also prints PAIRS lines (triangle-pair evaluations, memo hits and
+// distinct pairs per block level and kind) and RINGHASH (FNV-1a of the bits of the ring products
+// ring x for the fixed seeds: equal hashes = bitwise equal products, e.g. memo on / off);
+// --pair-memo BYTES sets PmlRingParams::pair_memo_bytes (0: no memo). --memo-ab [--reps R]
+// builds the far ring alone R times with the memo off and on, alternating, in one process
+// (MEMOAB lines: far time, process CPU time, evaluations, memo hits, product hash).
 // --assembly-study (WP-PML5c) times the near-ring assembly on the octree's ring pattern without
 // solving, in one process and alternating: the canonical-pair cache (default, "5c"), the
 // per-ordering evaluation of WP-PML5a ("5a"), and the dense assembler's evaluation of exactly
@@ -29,7 +35,8 @@
 //            [--rms SIGMA (0: flat)] [--lc LC] [--w0 W0] [--dark-band-tol T] [--d0 3]
 //            [--tol 1e-7] [--n-theta 90] [--n-phi 180] [--summary FILE] [--fast-only]
 //            [--estimate-only] [--force] [--exact-far] [--eta 2] [--aca-eps 0] [--max-rank 0]
-//            [--leaf-columns] [--ring-compare] [--no-exact] [--seed 1] [--assembly-study]
+//            [--leaf-columns] [--pair-memo BYTES] [--ring-compare] [--no-exact] [--seed 1]
+//            [--assembly-study]
 //            [--reps 1] [--dense-compare] [--quick]
 // --case must come first (it resets the case).
 #include "specklebem/compression/mlfmm/pml_ring.hpp"
@@ -57,6 +64,21 @@
 
 #include "pml_ring_support.hpp"
 
+// After the case headers: <windows.h> defines the macros near / far (undefined below).
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#undef near
+#undef far
+#else
+#include <sys/resource.h>
+#endif
+
 namespace {
 
 using namespace pml_ring;
@@ -74,6 +96,7 @@ struct Options {
     bool dense_compare = false;
     bool quick = false;  ///< --assembly-study: 5a and 5c only (no canonical-only, dense, profile)
     int reps = 1;
+    bool memo_ab = false;  ///< WP-PML5d: far ring with the pair memo off / on, --reps times
 };
 
 Options parse(int argc, char** argv) {
@@ -154,6 +177,8 @@ Options parse(int argc, char** argv) {
             o.f.ring.aca_epsilon = real();
         } else if (a == "--max-rank") {
             o.f.ring.max_rank = std::stoll(value());
+        } else if (a == "--pair-memo") {  // WP-PML5d: PmlRingParams::pair_memo_bytes
+            o.f.ring.pair_memo_bytes = static_cast<std::size_t>(std::stoull(value()));
         } else if (a == "--leaf-columns") {
             o.f.ring.coarse_columns = false;
         } else if (a == "--ring-compare") {
@@ -164,6 +189,8 @@ Options parse(int argc, char** argv) {
             o.c.seed = static_cast<std::uint64_t>(std::stoull(value()));
         } else if (a == "--assembly-study") {
             o.assembly_study = true;
+        } else if (a == "--memo-ab") {
+            o.memo_ab = true;
         } else if (a == "--dense-compare") {
             o.dense_compare = true;
         } else if (a == "--quick") {
@@ -797,6 +824,143 @@ void assembly_study(const RoughCase& c, const FastSettings& f, int reps, bool de
     emit();
 }
 
+/// Process CPU time [s] (user + kernel, all threads).
+Real process_cpu_seconds() {
+#ifdef _WIN32
+    FILETIME c, e, k, u;
+    if (GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u) == 0)
+        return 0.0;
+    const auto t = [](const FILETIME& f) {
+        return static_cast<Real>((static_cast<unsigned long long>(f.dwHighDateTime) << 32) |
+                                 f.dwLowDateTime) *
+               1e-7;
+    };
+    return t(k) + t(u);
+#else
+    rusage ru{};
+    if (getrusage(RUSAGE_SELF, &ru) != 0)
+        return 0.0;
+    return static_cast<Real>(ru.ru_utime.tv_sec + ru.ru_stime.tv_sec) +
+           1e-6 * static_cast<Real>(ru.ru_utime.tv_usec + ru.ru_stime.tv_usec);
+#endif
+}
+
+/// WP-PML5d --memo-ab: the far ring alone (standalone PmlRingOperator, assemble_near = false) on
+/// the case's Problem and the octree of its MLFMM operator, built `reps` times with the pair memo
+/// off (0) and on (--pair-memo, else the default), the order alternating per repetition, in one
+/// process (robust against the load drift of a shared machine): MEMOAB lines with the far
+/// assembly wall time, the process CPU time of the build, kernel evaluations, memo hits and the
+/// FNV-1a hash of the far ring products (equal hashes: bitwise equal far rings).
+void memo_ab(const RoughCase& c, const FastSettings& f, int reps, const std::string& summary) {
+    const pml_rough_ag::Estimate est = pml_rough_ag::estimate(c);
+    const auto beam = pml_rough_ag::make_beam(c, est.size.half[2]);
+    SimulationConfig cfg = pml_rough_ag::make_config(c);
+    cfg.compression = "mlfmm";
+    cfg.solver = SolverKind::Gmres;
+    cfg.mlfmm.accuracy_digits = f.digits;
+    cfg.mlfmm.pml_ring = f.ring;
+    cfg.mlfmm.pml_ring.pair_memo_bytes = 0;  // the octree's operator (not timed)
+    const Simulation sim(pml_rough_ag::make_open_mesh(c), pml_rough_ag::make_termination(c), beam,
+                         cfg);
+    const mlfmm::MlfmmOperator Z(sim.problem(), cfg.mlfmm);
+    std::vector<VectorXc> xs;
+    for (const std::uint64_t seed : kSeeds) xs.push_back(random_vector(Z.cols(), seed));
+    const std::size_t on = f.ring.pair_memo_bytes;
+    for (int r = 0; r < reps; ++r) {
+        for (int k = 0; k < 2; ++k) {
+            const std::size_t budget = ((k == 0) == (r % 2 == 0)) ? 0 : on;
+            mlfmm::PmlRingParams p = f.ring;
+            p.assemble_near = false;
+            p.pair_memo_bytes = budget;
+            const Real cpu0 = process_cpu_seconds();
+            const mlfmm::PmlRingOperator ring(sim.problem(), Z.octree(), p, f.digits);
+            const Real cpu = process_cpu_seconds() - cpu0;
+            std::vector<VectorXc> ys;
+            for (const VectorXc& x : xs) ys.push_back(ring * x);
+            const mlfmm::PmlRingFarStats& st = ring.far_stats();
+            char buf[400];
+            std::snprintf(buf, sizeof(buf),
+                          "MEMOAB | %s | rep %d | memo %.1f MB | far %.1f s | cpu %.1f s | evals "
+                          "%lld | memo hits %lld | far ring %.1f MB | hash %016llx",
+                          c.tag.c_str(), r + 1, static_cast<Real>(budget) / 1e6, ring.far_seconds(),
+                          cpu, static_cast<long long>(st.pair_evaluations),
+                          static_cast<long long>(st.pair_memo_hits),
+                          static_cast<Real>(ring.far_bytes()) / 1e6,
+                          static_cast<unsigned long long>(fnv1a(ys)));
+            std::printf("%s\n", buf);
+            std::fflush(stdout);
+            append_summary(summary, buf);
+        }
+    }
+}
+
+/// WP-PML5d: PAIRS lines of the far ring blocks, triangle-pair evaluations against distinct pairs
+/// per level (the column cluster's; with row clusters the row cluster has the same level) and
+/// block kind, and in total (all blocks; admissible = ACA blocks + rank-cap fallbacks).
+void pair_lines(const RoughCase& c, const std::vector<mlfmm::PmlRingFarBlock>& blocks,
+                const std::string& summary) {
+    struct Sum {
+        Index blocks = 0, evals = 0, hits = 0, distinct = 0, skips = 0, reductions = 0, limited = 0;
+        std::size_t memo_max = 0;
+        void add(const mlfmm::PmlRingFarBlock& b) {
+            ++blocks;
+            evals += b.pair_evaluations;
+            hits += b.pair_memo_hits;
+            limited += b.memo_limited ? 1 : 0;
+            memo_max = std::max(memo_max, b.memo_bytes);
+            distinct += b.pair_distinct;
+            skips += b.pair_skips;
+            reductions += b.pair_reductions;
+        }
+    };
+    using Kind = mlfmm::PmlRingFarBlock::Kind;
+    const auto kind_name = [](Kind k) -> const char* {
+        switch (k) {
+            case Kind::aca:
+                return "aca";
+            case Kind::exact:
+                return "exact";
+            case Kind::fallback:
+                return "fallback";
+            case Kind::dropped:
+                return "dropped";
+        }
+        return "?";
+    };
+    std::map<std::pair<int, int>, Sum> by;  // (level, kind)
+    Sum all, admissible;
+    for (const mlfmm::PmlRingFarBlock& b : blocks) {
+        by[{b.level, static_cast<int>(b.kind)}].add(b);
+        all.add(b);
+        if (b.admissible)
+            admissible.add(b);
+    }
+    const auto ratio = [](Index a, Index b) {
+        return b > 0 ? static_cast<Real>(a) / static_cast<Real>(b) : 0.0;
+    };
+    const auto line = [&](const std::string& what, const Sum& s) {
+        char buf[400];
+        std::snprintf(
+            buf, sizeof(buf),
+            "PAIRS | %s | %s | blocks %lld | evals %lld | memo hits %lld | distinct %lld | "
+            "(evals + hits) / distinct %.3f | evals / distinct %.3f | skips %lld | reductions "
+            "%lld | memo max %.2f MB, %lld blocks at the budget",
+            c.tag.c_str(), what.c_str(), static_cast<long long>(s.blocks),
+            static_cast<long long>(s.evals), static_cast<long long>(s.hits),
+            static_cast<long long>(s.distinct), ratio(s.evals + s.hits, s.distinct),
+            ratio(s.evals, s.distinct), static_cast<long long>(s.skips),
+            static_cast<long long>(s.reductions), static_cast<Real>(s.memo_max) / 1e6,
+            static_cast<long long>(s.limited));
+        std::printf("%s\n", buf);
+        append_summary(summary, buf);
+    };
+    for (const auto& [key, s] : by)
+        line("level " + std::to_string(key.first) + " " + kind_name(static_cast<Kind>(key.second)),
+             s);
+    line("admissible", admissible);
+    line("all", all);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -835,7 +999,17 @@ int main(int argc, char** argv) {
             const std::string line = ring_compare_line(c, o.f, r);
             std::printf("%s\n", line.c_str());
             append_summary(o.summary, line);
+            pair_lines(c, r.far_blocks, o.summary);
+            char hash[200];
+            std::snprintf(hash, sizeof(hash), "RINGHASH | %s | ring x products %016llx",
+                          c.tag.c_str(), static_cast<unsigned long long>(r.ring_hash));
+            std::printf("%s\n", hash);
+            append_summary(o.summary, hash);
             std::fflush(stdout);
+            return 0;
+        }
+        if (o.memo_ab) {
+            memo_ab(c, o.f, o.reps, o.summary);
             return 0;
         }
         if (o.assembly_study) {

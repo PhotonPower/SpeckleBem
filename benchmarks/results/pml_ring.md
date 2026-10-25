@@ -41,6 +41,11 @@ so their values are 4.6 % smaller (e.g. far ring 3 652 MB = 3 483 MiB).
   (0.31×; near ring 89 s, ACA far ring 119 s, MLFMM 2.7 s, diagonal 0.002 s), the operator 1.52 GB, peak 1.83 GB,
   matvec 0.10 s against 0.27 s dense, and every printed 5b accuracy digit is reproduced (matvec 2.081·10⁻⁵, dR
   +4.76·10⁻⁸, l2 3.33·10⁻⁶, 602 iterations); d₀ = 5 matvec 2.147·10⁻⁷, operator build 292 s.
+- **5d (WP-PML5d, section "5d: pair memo"):** the ACA entry generation evaluated each far triangle pair 1.5×
+  (U, 2N = 59 600) / 1.9× (Si) on average; a per-block triangle-pair memo (16 MiB per block by default) cuts the
+  kernel evaluations by 31 / 30 / 40 % and the far-ring build to ≈ 0.6× (Ag, in-process A/B on a loaded machine;
+  Si: CPU 0.61×, wall 0.94×, bound by its longest row cluster), with
+  the far ring bitwise unchanged (product hashes equal to `main`) and +0.05 GB process peak.
 
 ## Setup
 
@@ -511,3 +516,129 @@ flat CI case (`specklebem_pml_ring --case flat_ci --ring-compare`, before / afte
 block is skipped and the RING lines are identical (ring err 7.020·10⁻⁶, generated rows and columns 8 280, far ring
 1.8–1.9 s). The probe column never fired in either case (generated columns unchanged up to the skipped blocks).
 Raw lines in `pml_ring_rows.txt` ("5b + 5c integrated, review fixes").
+
+## 5d: pair memo (WP-PML5d)
+
+Lead note 2026-10-22, "WP-PML5d"; branch `wp/pml5d-ring-pair-memo` (2026-10-25). `detail::BlockSource`
+(`src/compression/mlfmm/pml_ring_far.cpp`) generates the ACA rows and columns of a far block from
+triangle-pair blocks: `row(i)` evaluates the pairs of the row's two test triangles with every source triangle of
+the block, `column(j)` those of every test triangle with the column's two source triangles, `full()` (exact and
+rank-cap blocks) every pair once. Rows sharing a test triangle, columns sharing a source triangle, row / column
+overlaps and the exact generation after a failed attempt meet the same pairs again. Measured on the 12-core
+desktop with 128 GB, win-release build; the machine was shared all day with other work packages' runs
+(preconditioner and far-field benchmarks), so absolute times are 1.5–3× the idle ones of the 5b + 5c record and
+vary by up to 2× between runs; evaluation counts and hashes are deterministic.
+
+### 5d: pair memo study (step 0)
+
+Distinct triangle pairs per block next to `pair_evaluations` (`PmlRingFarBlock::pair_distinct`,
+`PmlRingFarStats::pair_distinct`, `describe()`, the RING line; per-level PAIRS lines of `specklebem_pml_ring
+--ring-compare`), counted exactly from the rows / columns / `full()` passes already made (a pair was met before iff
+its test triangle had a generated row, its source triangle a generated column, or `full()` ran). Cases
+(`--ring-compare --no-exact`, d₀ = 3, η = 2): U (rough Ag, 2N = 22 816), the 2N = 59 600 Ag case (L = 8.5 µm,
+`--case u --patch 8.5e-6 --map-patch 8.5e-6`) and the 7d-Si control geometry (`--case u --material si`, rough Si
+on the U mesh; the driver has no flat Si 7a case). Evaluations / distinct pairs (the gate: implement if ≥ 1.3
+overall):
+
+| block level, kind | U (Ag) | 2N = 59 600 (Ag) | U Si (7d control) |
+|---|---|---|---|
+| level 2 ACA | 7.34 M / 5.44 M = 1.35 | 20.19 M / 16.32 M = 1.24 | 14.14 M / 8.63 M = 1.64 |
+| level 3 ACA | 6.81 M / 4.28 M = 1.59 | 15.79 M / 11.41 M = 1.38 | 11.64 M / 5.32 M = 2.19 |
+| level 3 rank-cap fallback | 0.29 M / 0.15 M = 1.99 | — | 1.20 M / 0.60 M = 2.01 |
+| level 4 ACA (leaf level of U) | 2.80 M / 1.26 M = 2.22 | 11.23 M / 6.12 M = 1.83 | 2.31 M / 0.91 M = 2.55 |
+| level 5 ACA (leaf level of 59 600) | — | 4.27 M / 1.81 M = 2.36 | — |
+| leaf rank-cap fallback | 0.43 M / 0.32 M = 1.36 | 5.94 M / 1.88 M = 3.16 | 2.20 M / 0.81 M = 2.73 |
+| leaf exact (non-admissible) | 1.24 M / 1.24 M = 1.00 | 1.71 M / 1.71 M = 1.00 | 1.24 M / 1.24 M = 1.00 |
+| **admissible** | 17.68 M / 11.45 M = **1.54** | 57.42 M / 37.54 M = **1.53** | 31.48 M / 16.26 M = **1.94** |
+| **all** | 18.92 M / 12.69 M = **1.49** | 59.13 M / 39.25 M = **1.51** | 32.72 M / 17.50 M = **1.87** |
+
+The gate (≥ 1.3) is met in all three cases, so the memo was implemented. The repetition is largest on the finest
+far level (nearly every row and column of a small block is generated, and a rank-cap fallback generates the block a
+second time), smaller on the coarse levels (few generated rows of many, which share a test triangle less often),
+and larger for Si (higher ranks: more generated rows and columns per block).
+
+### Design
+
+- **Memo strips.** `BlockSource` keeps the evaluated `op::TrianglePairBlocks` (576 bytes; 584 with the state byte:
+  not evaluated / evaluated / no region left after the per-pair bound) in lazily allocated strips: `row()`
+  allocates the strip of each of its test triangles (one entry per source triangle of the block), `column()` the
+  strips of its source triangles (one entry per test triangle), as long as the strips of the block fit into
+  `PmlRingParams::pair_memo_bytes`; a strip that does not fit is not allocated (its pairs are evaluated and not
+  kept; `memo_limited`). A pair is looked up in its test triangle's strip, then in its source triangle's strip, and
+  evaluated (and stored in the first strip that exists) only if neither holds it. `full()` reads the memo and
+  allocates nothing (it meets each pair once). This holds only what was actually generated (a dense |T| × |S| memo
+  of a level-2 block at U would need ≈ 1 GB); the "memo per test triangle only" fallback of the lead note is the
+  special case of a budget that admits the test strips only.
+- **Bitwise.** The loop nesting of `row()` and `column()` is unchanged (in `column()` the outer loop over `test_`,
+  the inner one over the column's source triangles); only the call of `evaluate()` became the lookup `pair()`, so
+  the summation order of every entry is that of `main`. `PairBlockEvaluator::evaluate` overwrites its whole output
+  (`pair_blocks` zero-fills it), so a memoised pair has the bits of a fresh evaluation.
+- **Budget.** Per block (one block per assembling thread at a time), default 16 MiB: at U it holds every block of
+  the two finest far levels completely (largest memo 9.9 MB) and 124 of the 128 level-2 blocks in part; 64 MiB
+  would hold all of U (largest 46 MB) but at 2N = 59 600 a level-2 block needs up to 131 MB. Study (`--pair-memo
+  BYTES`, kernel evaluations):
+
+| memo budget | U | 2N = 59 600 |
+|---|---|---|
+| 0 (= `main`) | 18.92 M | 59.13 M |
+| 4 MiB | 14.33 M (514 blocks at the budget) | — |
+| **16 MiB (default)** | **12.99 M** (124) | **41.41 M** (406) |
+| 64 MiB | 12.69 M (0) | 39.46 M (86) |
+| 1 GiB | 12.69 M (0, largest 46 MB) | 39.25 M (0, largest 131 MB) |
+| distinct pairs (floor) | 12.69 M | 39.25 M |
+
+  16 MiB gets 94 % (U) / 89 % (59 600) of the possible saving with at most 12 × 16 MiB = 201 MB of transient memo on
+  the 12 threads.
+- **Memory accounting.** `BlockSource::cache_bytes()` includes the memo; `release_cache()` still frees the row /
+  column caches before a fallback's exact block is allocated and keeps the memo (≤ the budget) for `full()`;
+  `PmlRingEstimate::far_memo_bytes` = budget × min(threads, row clusters) enters `pml_ring_peak_bytes` (near +
+  max(near cache, far exact + memo)), `PmlRingFarStats::memo_peak_bytes` (threads × largest block memo) enters
+  `PmlRingOperator::peak_bytes()`. Measured process peaks: U 1.61 → 1.65–1.67 GB, 2N = 59 600 3.86–3.87 →
+  3.93–3.94 GB, Si 7.48 → 7.53–7.55 GB.
+- **Statistics.** `pair_evaluations` now counts kernel evaluations, `pair_memo_hits` the blocks taken from the memo
+  (their sum is the 5b count), `pair_distinct` the distinct evaluated pairs; `pair_reductions` / `pair_skips` count
+  each distinct pair once (5b counted every visit), and the INFO summary / `describe()` say "reduced R of
+  (pair_distinct + pair_skips)". `memo_budget`, `memo_bytes_max`, `memo_limited_blocks`, `memo_peak_bytes` per
+  ring; `memo_bytes`, `memo_limited` per block. Driver: `--pair-memo BYTES`, PAIRS lines, RINGHASH (FNV-1a of the
+  ring products), `--memo-ab` (below).
+
+### Before / after
+
+**Bitwise.** The RINGHASH of the ring products (three fixed vectors) is the same for `main` (0b2df8a with only the
+hash print added to the driver) and the branch in every run: U `0c7823704fa32159`, 2N = 59 600
+`8b8d67eb1d996525`, Si `a5d3b4ef354f918e`; also for every memo budget of the study (0 … 1 GiB). Unit tests:
+the existing bitwise gates of `test_pml_ring` (exact blocks vs the 5a ring, thread-count independence, plan
+sharing, etc.) unchanged and green with the memo on by default; new: the applied far ring (ring e_k for every k,
+i.e. every stored ACA and exact entry) and the block metadata with budgets 0 / 30 kB / unlimited bitwise equal on
+the tiny flat and rough cases and a lossy object and exterior (skips), with forced ACA and the default parameters
+(fallbacks), plus assembly with 1 / 2 / 3 / all threads with the default and a small budget.
+
+**Separate processes** (`specklebem_pml_ring --ring-compare --no-exact`, one process per run, order main, branch,
+branch, main; far ring assembly time, kernel evaluations):
+
+| case | main r1 / r2 | branch r1 / r2 | evaluations main → branch (memo hits) |
+|---|---|---|---|
+| U (Ag) | 230.4 / 444.7 s | 170.2 / 232.0 s | 18.92 M → 12.99 M (5.93 M), −31 % |
+| 2N = 59 600 (Ag) | 850.0 / 506.3 s | 920.6 / 643.4 s | 59.13 M → 41.41 M (17.72 M), −30 % |
+| U Si (7d control) | 2 375.8 / 1 797.9 s | 1 059.4 / 1 568.0 s | 32.72 M → 19.53 M (13.20 M), −40 % |
+
+The load of the other runs swung the times by up to 2× between consecutive processes (U main r2, 59 600 branch
+r1), so these rounds bound the effect only loosely. **In one process** (`--memo-ab --reps R`: the far ring alone,
+standalone with `assemble_near = false`, on the case's Problem and octree, memo off and on alternating; far time /
+process CPU time of the build):
+
+| case | memo off | memo on (16 MiB) | on / off |
+|---|---|---|---|
+| U, 3 reps | 276.8 / 249.0 / 282.5 s; CPU 2 631 / 2 539 / 2 573 s | 134.1 / 132.3 / 186.7 s; CPU 1 831 / 1 774 / 1 883 s | wall 0.56, CPU 0.71 |
+| 2N = 59 600, 2 reps | 730.0 / 655.1 s; CPU 7 511 / 7 797 s | 478.5 / 363.1 s; CPU 5 165 / 5 130 s | wall 0.61, CPU 0.67 |
+| U Si, 1 rep | 1 694.5 s; CPU 15 990 s | 1 600.7 s; CPU 9 698 s | wall 0.94, CPU 0.61 |
+| flat CI (2N = 4 592), 2 reps | 7.2 / 6.9 s; CPU 36.0 / 36.1 s | 4.3 / 4.2 s; CPU 22.2 / 22.6 s | wall 0.60, CPU 0.62 |
+
+The CPU time falls with the kernel evaluations (0.69 / 0.70 / 0.60 / 0.58 of them at U / 59 600 / Si / flat CI);
+the wall time falls somewhat more on this loaded machine for Ag, but hardly for Si: there the far assembly is
+bounded by its longest row cluster (OpenMP over row clusters, each cluster's blocks serially; CPU / 12 threads =
+1 332 s without and 808 s with the memo against 1 694 / 1 601 s wall), presumably a coarse cluster whose blocks are
+larger than the 16 MiB memo (open point: balance the far assembly within the coarse row clusters, or a larger
+budget for them). With the 5b + 5c idle far-ring times (119 s at U, 333 s at 2N =
+59 600) the expected idle far ring is ≈ 80 s / ≈ 230 s, i.e. `Simulation::assemble()` at U ≈ 0.25× the dense
+assembly instead of 0.31×. Raw lines in `pml_ring_rows.txt` ("WP-PML5d").

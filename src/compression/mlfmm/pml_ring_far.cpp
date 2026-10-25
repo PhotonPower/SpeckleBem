@@ -17,6 +17,10 @@
 #include <string>
 #include <utility>
 
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#include <omp.h>
+#endif
+
 namespace specklebem::mlfmm::detail {
 
 namespace {
@@ -413,30 +417,70 @@ Real pml_ring_decay_bound(Real alpha, Real d, Real c) {
 
 namespace specklebem::mlfmm::detail {
 
-bool BlockSource::evaluate(Index t, Index s, op::TrianglePairBlocks& out) const {
+const op::TrianglePairBlocks* BlockSource::pair(std::size_t a, std::size_t s, bool seen) {
+    // Memo lookup (WP-PML5d): the test triangle's strip, then the source triangle's; a pair not
+    // found is evaluated into the first of them that exists (else into the scratch blocks).
+    MemoEntry* slot = nullptr;
+    for (MemoEntry* e : {test_memo_[a].empty() ? nullptr : &test_memo_[a][s],
+                         src_memo_[s].empty() ? nullptr : &src_memo_[s][a]}) {
+        if (e == nullptr)
+            continue;
+        if (e->state == 1) {
+            ++memo_hits_;
+            return &e->blk;
+        }
+        if (e->state == 2)
+            return nullptr;
+        if (slot == nullptr)
+            slot = e;
+    }
+    const Index t = test_[a].t, u = src_[s].t;
     int mask = mask_;
     if (!eval_.tri_ext.empty()) {
-        const Real d = extent_distance(eval_.tri_ext[sz(t)], eval_.tri_ext[sz(s)]);
+        const Real d = extent_distance(eval_.tri_ext[sz(t)], eval_.tri_ext[sz(u)]);
         for (int i = 0; i < 2; ++i) {
             if ((mask & (1 << i)) != 0 && d > eval_.drop_distance[static_cast<std::size_t>(i)])
                 mask &= ~(1 << i);
         }
+    }
+    if (!seen) {  // reductions, skips and distinct pairs count each pair once
         if (mask != mask_)
             ++reductions_;
+        ++(mask == 0 ? skips_ : distinct_);
     }
     if (mask == 0) {
-        ++skips_;
-        return false;
+        if (slot != nullptr)
+            slot->state = 2;
+        return nullptr;
     }
     ++evaluations_;
-    eval_.eval[static_cast<std::size_t>(mask)]->evaluate(t, s, out);
-    return true;
+    op::TrianglePairBlocks& out = slot != nullptr ? slot->blk : scratch_;
+    eval_.eval[static_cast<std::size_t>(mask)]->evaluate(t, u, out);
+    if (slot != nullptr)
+        slot->state = 1;
+    return &out;
+}
+
+void BlockSource::allocate_strip(std::vector<MemoEntry>& strip, std::size_t entries) {
+    if (!strip.empty() || entries == 0 || memo_budget_ == 0)
+        return;
+    const std::size_t bytes = entries * sizeof(MemoEntry);
+    if (memo_bytes_ > memo_budget_ || bytes > memo_budget_ - memo_bytes_) {
+        memo_limited_ = true;
+        return;
+    }
+    strip.resize(entries);
+    memo_bytes_ += bytes;
 }
 
 BlockSource::BlockSource(const basis::RwgSpace& space, const PairEvaluators& eval, int mask,
                          const std::vector<int>& colour, const std::vector<Index>& perm,
-                         const std::vector<Index>& rows, Index c0, Index n)
-    : eval_(eval), mask_(mask), m_(static_cast<Index>(rows.size())), n_(n) {
+                         const std::vector<Index>& rows, Index c0, Index n, std::size_t memo_budget)
+    : eval_(eval),
+      mask_(mask),
+      m_(static_cast<Index>(rows.size())),
+      n_(n),
+      memo_budget_(memo_budget) {
     // Test triangles: (colour, triangle, slot, local row) of every row's two triangles.
     struct Entry {
         int colour;
@@ -483,6 +527,10 @@ BlockSource::BlockSource(const basis::RwgSpace& space, const PairEvaluators& eva
     }
     row_cache_.resize(rows.size());
     col_cache_.resize(sz(n));
+    test_seen_.assign(test_.size(), 0);
+    src_seen_.assign(src_.size(), 0);
+    test_memo_.resize(test_.size());
+    src_memo_.resize(src_.size());
 }
 
 const Complex* BlockSource::row(Index i) {
@@ -491,13 +539,17 @@ const Complex* BlockSource::row(Index i) {
         return out.data();
     const std::size_t n = sz(n_);
     out.assign(4 * n, Complex(0.0, 0.0));
-    op::TrianglePairBlocks blk;
     for (const Index e : row_tris_[sz(i)]) {  // the row's test triangles in colour order
         const Tri& T = test_[sz(e)];
         int a = 0;
         while (T.local[static_cast<std::size_t>(a)] != i) ++a;
-        for (const Tri& S : src_) {
-            if (!evaluate(T.t, S.t, blk))
+        const bool seen_t = full_seen_ || test_seen_[sz(e)] != 0;
+        test_seen_[sz(e)] = 1;
+        allocate_strip(test_memo_[sz(e)], src_.size());
+        for (std::size_t s = 0; s < src_.size(); ++s) {
+            const Tri& S = src_[s];
+            const op::TrianglePairBlocks* blk = pair(sz(e), s, seen_t || src_seen_[s] != 0);
+            if (blk == nullptr)
                 continue;
             for (int b = 0; b < 3; ++b) {
                 const Index j = S.local[static_cast<std::size_t>(b)];
@@ -505,10 +557,10 @@ const Complex* BlockSource::row(Index i) {
                     continue;
                 const auto k = static_cast<std::size_t>(3 * a + b);
                 const std::size_t jj = sz(j);
-                out[jj] += blk.jj[k];
-                out[n + jj] += blk.jm[k];
-                out[2 * n + jj] += blk.mj[k];
-                out[3 * n + jj] += blk.mm[k];
+                out[jj] += blk->jj[k];
+                out[n + jj] += blk->jm[k];
+                out[2 * n + jj] += blk->mj[k];
+                out[3 * n + jj] += blk->mm[k];
             }
         }
     }
@@ -522,14 +574,25 @@ const Complex* BlockSource::column(Index j) {
         return out.data();
     const std::size_t m = sz(m_);
     out.assign(4 * m, Complex(0.0, 0.0));
-    op::TrianglePairBlocks blk;
     const auto& ct = col_tris_[sz(j)];  // ascending (src_ is sorted)
-    for (const Tri& T : test_) {
-        for (const Index e : ct) {
-            const Tri& S = src_[sz(e)];
+    // Distinct-pair bookkeeping (pair_distinct): the column's source triangles before this call.
+    std::array<bool, 2> seen_s{};
+    for (std::size_t c = 0; c < 2; ++c) {
+        seen_s[c] = full_seen_ || src_seen_[sz(ct[c])] != 0;
+        src_seen_[sz(ct[c])] = 1;
+        allocate_strip(src_memo_[sz(ct[c])], test_.size());
+    }
+    // Loop nesting as without the memo (test triangles outer, the column's source triangles
+    // inner): the summation order into `out` is unchanged (WP-PML5d).
+    for (std::size_t a0 = 0; a0 < test_.size(); ++a0) {
+        const Tri& T = test_[a0];
+        for (std::size_t c = 0; c < 2; ++c) {
+            const Tri& S = src_[sz(ct[c])];
             int b = 0;
             while (S.local[static_cast<std::size_t>(b)] != j) ++b;
-            if (!evaluate(T.t, S.t, blk))
+            const op::TrianglePairBlocks* blk =
+                pair(a0, sz(ct[c]), seen_s[c] || test_seen_[a0] != 0);
+            if (blk == nullptr)
                 continue;
             for (int a = 0; a < 3; ++a) {
                 const Index i = T.local[static_cast<std::size_t>(a)];
@@ -537,10 +600,10 @@ const Complex* BlockSource::column(Index j) {
                     continue;
                 const auto k = static_cast<std::size_t>(3 * a + b);
                 const std::size_t ii = sz(i);
-                out[ii] += blk.jj[k];
-                out[m + ii] += blk.jm[k];
-                out[2 * m + ii] += blk.mj[k];
-                out[3 * m + ii] += blk.mm[k];
+                out[ii] += blk->jj[k];
+                out[m + ii] += blk->jm[k];
+                out[2 * m + ii] += blk->mj[k];
+                out[3 * m + ii] += blk->mm[k];
             }
         }
     }
@@ -557,16 +620,20 @@ std::size_t BlockSource::cache_bytes() const {
     std::size_t b = 0;
     for (const Index i : row_order_) b += row_cache_[sz(i)].capacity() * sizeof(Complex);
     for (const Index j : col_order_) b += col_cache_[sz(j)].capacity() * sizeof(Complex);
-    return b;
+    return b + memo_bytes_;
 }
 
-void BlockSource::full(std::vector<Complex>& w) const {
+void BlockSource::full(std::vector<Complex>& w) {
     const std::size_t m = sz(m_);
     w.assign(4 * m * sz(n_), Complex(0.0, 0.0));
-    op::TrianglePairBlocks blk;
-    for (const Tri& T : test_) {
-        for (const Tri& S : src_) {
-            if (!evaluate(T.t, S.t, blk))
+    const bool seen_all = full_seen_;
+    for (std::size_t a0 = 0; a0 < test_.size(); ++a0) {
+        const Tri& T = test_[a0];
+        for (std::size_t s = 0; s < src_.size(); ++s) {
+            const Tri& S = src_[s];
+            const op::TrianglePairBlocks* blk =
+                pair(a0, s, seen_all || test_seen_[a0] != 0 || src_seen_[s] != 0);
+            if (blk == nullptr)
                 continue;
             for (int a = 0; a < 3; ++a) {
                 const Index i = T.local[static_cast<std::size_t>(a)];
@@ -579,14 +646,15 @@ void BlockSource::full(std::vector<Complex>& w) const {
                     const auto k = static_cast<std::size_t>(3 * a + b);
                     Complex* col = w.data() + 4 * m * sz(j);
                     const std::size_t ii = sz(i);
-                    col[ii] += blk.jj[k];
-                    col[m + ii] += blk.jm[k];
-                    col[2 * m + ii] += blk.mj[k];
-                    col[3 * m + ii] += blk.mm[k];
+                    col[ii] += blk->jj[k];
+                    col[m + ii] += blk->jm[k];
+                    col[2 * m + ii] += blk->mj[k];
+                    col[3 * m + ii] += blk->mm[k];
                 }
             }
         }
     }
+    full_seen_ = true;
 }
 
 void apply_exact_columns(const Complex* wc, std::size_t ns, const Real* xs, const Real* xr,
@@ -723,6 +791,7 @@ AcaFarRing::AcaFarRing(const op::Problem& problem, const std::vector<int>& colou
     m.stats.epsilon = epsilon;
     m.stats.drop_tolerance = drop_tolerance;
     m.stats.eta = params.eta;
+    m.stats.memo_budget = params.pair_memo_bytes;
     // Evaluators: both regions, R1 only, R2 only (the region-masked formulations exist only
     // during construction; the evaluators copy the weights).
     const op::PairBlockEvaluator both(problem);
@@ -802,7 +871,8 @@ AcaFarRing::AcaFarRing(const op::Problem& problem, const std::vector<int>& colou
                     continue;
                 }
                 const int mask = (b.region[0] ? 1 : 0) | (b.region[1] ? 2 : 0);
-                BlockSource src(space, pe, mask, colour, perm, R.rows, b.first, b.count);
+                BlockSource src(space, pe, mask, colour, perm, R.rows, b.first, b.count,
+                                params.pair_memo_bytes);
                 Stored s;
                 s.first = b.first;
                 s.count = b.count;
@@ -869,6 +939,10 @@ AcaFarRing::AcaFarRing(const op::Problem& problem, const std::vector<int>& colou
                         D.cost += static_cast<Real>(f.rank * (rows + b.count));
                 }
                 b.pair_evaluations = src.pair_evaluations();
+                b.pair_memo_hits = src.pair_memo_hits();
+                b.pair_distinct = src.pair_distinct();
+                b.memo_bytes = src.memo_bytes();
+                b.memo_limited = src.memo_limited();
                 b.pair_reductions = src.pair_reductions();
                 b.pair_skips = src.pair_skips();
                 D.blocks.push_back(std::move(s));
@@ -920,11 +994,21 @@ AcaFarRing::AcaFarRing(const op::Problem& problem, const std::vector<int>& colou
             st.generated_rows += b.generated_rows;
             st.generated_columns += b.generated_columns;
             st.pair_evaluations += b.pair_evaluations;
+            st.pair_memo_hits += b.pair_memo_hits;
+            st.pair_distinct += b.pair_distinct;
+            st.memo_bytes_max = std::max(st.memo_bytes_max, b.memo_bytes);
+            st.memo_limited_blocks += b.memo_limited ? 1 : 0;
             st.pair_reductions += b.pair_reductions;
             st.pair_skips += b.pair_skips;
             m.info.push_back(b);
         }
     }
+    // Pair memos alive at once (WP-PML5d): one block per assembling thread.
+    std::size_t threads = 1;
+#ifdef SPECKLEBEM_HAVE_OPENMP
+    threads = static_cast<std::size_t>(std::max(1, omp_get_max_threads()));
+#endif
+    st.memo_peak_bytes = std::min(threads, partition.size()) * st.memo_bytes_max;
     m.bytes += st.aca_bytes + st.exact_bytes +
                m.info.size() * (sizeof(Stored) + sizeof(PmlRingFarBlock)) +
                m.perm.size() * sizeof(Index) + m.stretched_pos.size();
@@ -946,7 +1030,7 @@ AcaFarRing::AcaFarRing(const op::Problem& problem, const std::vector<int>& colou
             "triangle pairs reduced {} of {} ({} skipped; region parts dropped beyond R1 {} / R2 "
             "{}, each with bound <= {:.1e})",
             tau, st.dropped_blocks, st.dropped_pairs, st.region_dropped[0], st.region_dropped[1],
-            st.max_dropped_bound, st.pair_reductions, st.pair_evaluations + st.pair_skips,
+            st.max_dropped_bound, st.pair_reductions, st.pair_distinct + st.pair_skips,
             st.pair_skips, distance_text(st.drop_distance[0]), distance_text(st.drop_distance[1]),
             tau);
     }

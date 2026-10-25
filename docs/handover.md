@@ -148,7 +148,9 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   decision 2026-10-25): default stays `Currents`, the plane is an option/diagnostic, Im R̃ guard, no silent
   stretch-start fallback, 7f/7g large cases as `validation-large` ctests (rough Ag 58 min, rough Si 61 min —
   run them separately, a combined run exceeds a 2 h shell). Next on this thread: WP-PML6b (wide-gap rule).
-- **In flight (2026-10-25):** WP-PML5d (`wp/pml5d-ring-pair-memo`, before/after timings + debug tests) and WP-PC1
+- **Merged:** WP-PML5d (pair memo in the ACA far ring): bitwise identical far ring, kernel evaluations −30…−40 %,
+  far-ring wall 0.56–0.61× on Ag, Si limited by its longest row cluster (0.94× wall, 0.61× CPU — open).
+- **In flight (2026-10-25):** (WP-PML5d merged) and WP-PC1
   (`wp/pc1-block-diagonal-preconditioner`, measuring jacobi / leaf / parent blocks at the U size); WP-PML6b
   (`wp/pml6b-wide-gap-confirmation`, started 2026-10-25 after the WP-PML6 merge; also closes the re-review follow-ups
   W1/S1-S6 of WP-PML6: committed driver path for the CI-size 7f rows and the premise control, comment and type fixes).
@@ -165,6 +167,9 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   part over the PML zone and beyond with stretched-source field evaluation (already implemented and tested: dipole
   continued through the PML to 6e-3) and fix the window transition Δ ≈ 3–4 λ from the point-source error model
   before rerunning 7g (needs an ADR 0010 amendment; coordinator's recommendation), or (B) document the failure.
+- **Lesson (coordinator, 2026-10-25):** never stop a gate by killing `ninja`/`cmake` by name — other workers'
+  builds share the machine and die with it; kill the gate's own shell (its script name / PID tree) only, or let
+  the gate run out and re-gate the extra commit.
 - **Lesson (2026-10-20):** never remove an agent worktree on a "stopped at turn limit" notification alone — the
   WP-PML6 worker was still running measurements from scratchpad copies of its executables (process filter on the
   worktree path missed them); check processes by worktree *and* scratchpad path, and prefer leaving the worktree
@@ -178,7 +183,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   rule confirmation), WP-G2 only if the ADR 0011 condition is met; then an idle-machine timing rerun of the 5b/5c
   records; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 601 ctest (`-LE "validation-large|slow"`), 131 pytest; labels `slow`, `validation`
+- Test counts on `main`: 603 ctest (`-LE "validation-large|slow"`), 131 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

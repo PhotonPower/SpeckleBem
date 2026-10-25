@@ -22,6 +22,10 @@
 
 #include "pml_ring_far.hpp"
 
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#include <omp.h>
+#endif
+
 namespace specklebem::mlfmm {
 
 namespace {
@@ -213,6 +217,18 @@ void check_aca_params(const PmlRingParams& p) {
         throw std::invalid_argument("PmlRingParams::max_rank must be >= 0 (0: automatic)");
 }
 
+/// PmlRingEstimate::far_memo_bytes: the pair memo budget per assembling thread (WP-PML5d).
+std::size_t far_memo_bound(const PmlRingParams& p, std::size_t row_clusters) {
+    std::size_t threads = 1;
+#ifdef SPECKLEBEM_HAVE_OPENMP
+    threads = static_cast<std::size_t>(std::max(1, omp_get_max_threads()));
+#endif
+    const std::size_t n = std::min(threads, row_clusters);
+    return n > 0 && p.pair_memo_bytes > std::numeric_limits<std::size_t>::max() / n
+               ? std::numeric_limits<std::size_t>::max()
+               : p.pair_memo_bytes * n;
+}
+
 /// estimate_pml_ring; with use_aca also the far partition (moved into *partition if given).
 PmlRingEstimate estimate_impl(const Octree& tree, const basis::RwgSpace& space,
                               const std::vector<std::uint8_t>& stretched,
@@ -298,6 +314,7 @@ PmlRingEstimate estimate_impl(const Octree& tree, const basis::RwgSpace& space,
                 }
             }
         }
+        e.far_memo_bytes = far_memo_bound(params, part.size());
         if (partition != nullptr)
             *partition = std::move(part);
     }
@@ -381,7 +398,13 @@ PmlRingPlan plan_pml_ring(const Octree& tree, const basis::RwgSpace& space,
 }
 
 std::size_t pml_ring_peak_bytes(const PmlRingEstimate& e) {
-    return e.near_bytes + std::max(e.near_assembly_bytes, e.far_exact_bytes);
+    // Saturating sums: an unlimited pair memo budget (far_memo_bytes = SIZE_MAX) must not wrap
+    // the peak to a small value and silence warn_pml_ring_memory (WP-PML5d review W2).
+    constexpr std::size_t kMax = std::numeric_limits<std::size_t>::max();
+    const std::size_t far =
+        e.far_exact_bytes > kMax - e.far_memo_bytes ? kMax : e.far_exact_bytes + e.far_memo_bytes;
+    const std::size_t inner = std::max(e.near_assembly_bytes, far);
+    return e.near_bytes > kMax - inner ? kMax : e.near_bytes + inner;
 }
 
 bool warn_pml_ring_memory(const PmlRingEstimate& e, std::size_t available) {
@@ -730,6 +753,13 @@ PmlRingOperator::PmlRingOperator(const op::Problem& problem, const Octree& tree,
     for (Index p = 0; p < m.n; ++p) m.stretched_pos[sz(p)] = m.stretched[sz(m.perm[sz(p)])];
     m.est = plan.estimate;
     m.est.budget = params.max_far_bytes > 0 ? params.max_far_bytes : m.est.dense_bytes;
+    // The memo bound of this operator's parameters (a shared plan may come with another budget).
+    if (params.use_aca) {
+        std::size_t clusters = 0;  // runs of blocks with one row box (far_partition_from_blocks)
+        for (std::size_t i = 0; i < plan.far_blocks.size(); ++i)
+            clusters += i == 0 || plan.far_blocks[i].row_box != plan.far_blocks[i - 1].row_box;
+        m.est.far_memo_bytes = far_memo_bound(params, clusters);
+    }
     SBEM_INFO(
         "PmlRingOperator: N = {}, {} stretched ({:.1f} %), {} row leaves; near ring {} pairs "
         "({:.1f} MB; assembly cache <= {:.1f} MB), far ring {} stored pairs ({:.1f} MB if exact; "
@@ -885,9 +915,12 @@ std::string PmlRingOperator::describe() const {
            << " blocks, largest dropped bound " << st.max_dropped_bound
            << "; per triangle pair: drop distances R1 " << st.drop_distance[0] << " / R2 "
            << st.drop_distance[1] << " m, " << st.pair_reductions << " of "
-           << st.pair_evaluations + st.pair_skips << " pairs reduced (" << st.pair_skips
-           << " skipped); generated rows " << st.generated_rows << ", columns "
-           << st.generated_columns;
+           << st.pair_distinct + st.pair_skips << " distinct pairs reduced (" << st.pair_skips
+           << " skipped); pair evaluations " << st.pair_evaluations << " + memo hits "
+           << st.pair_memo_hits << " (distinct " << st.pair_distinct << "; memo "
+           << mb(st.memo_budget) << " MB per block, largest " << mb(st.memo_bytes_max) << " MB, "
+           << st.memo_limited_blocks << " blocks at the budget); generated rows "
+           << st.generated_rows << ", columns " << st.generated_columns;
     }
     return os.str();
 }
@@ -948,7 +981,8 @@ const op::SparseStretchedStats& PmlRingOperator::near_stats() const {
 }
 
 std::size_t PmlRingOperator::peak_bytes() const {
-    return near_bytes() + std::max(impl_->near_stats.cache_bytes, far_bytes());
+    const std::size_t memo = impl_->aca ? impl_->aca->stats().memo_peak_bytes : 0;
+    return near_bytes() + std::max(impl_->near_stats.cache_bytes, far_bytes() + memo);
 }
 
 const PmlRingEstimate& PmlRingOperator::estimate() const {

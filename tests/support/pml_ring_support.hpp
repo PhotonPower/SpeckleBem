@@ -55,7 +55,7 @@ struct FastSettings {
 
 /// One ROW-line segment with the far ring statistics (WP-PML5b; exact path: "exact far ring").
 [[nodiscard]] inline std::string far_segment(const mlfmm::PmlRingFarStats& s) {
-    char buf[900];
+    char buf[1200];
     if (!s.aca) {
         std::snprintf(buf, sizeof(buf), "ring far exact (5a) %lld blocks %.1f MB",
                       static_cast<long long>(s.exact_blocks),
@@ -70,7 +70,8 @@ struct FastSettings {
         "%.1f "
         "MB, dropped %lld (R1 %lld, R2 %lld, max bound %.1e) | ranks min %lld med %lld max %lld "
         "mean JJ %.2f JM %.2f MJ %.2f MM %.2f | hist [%s] | gen rows %lld cols %lld | pair evals "
-        "%lld, reduced %lld (R2 beyond %.3g m)",
+        "%lld + memo %lld (distinct %lld; memo budget %.1f MB, max %.2f MB, %lld blocks at it), "
+        "reduced %lld (R2 beyond %.3g m)",
         s.epsilon, s.eta, static_cast<long long>(s.aca_blocks),
         static_cast<Real>(s.aca_bytes) / 1e6, static_cast<long long>(s.exact_blocks),
         static_cast<long long>(s.fallback_blocks), static_cast<Real>(s.exact_bytes) / 1e6,
@@ -80,7 +81,10 @@ struct FastSettings {
         static_cast<long long>(s.rank_max), s.rank_mean[0], s.rank_mean[1], s.rank_mean[2],
         s.rank_mean[3], hist.c_str(), static_cast<long long>(s.generated_rows),
         static_cast<long long>(s.generated_columns), static_cast<long long>(s.pair_evaluations),
-        static_cast<long long>(s.pair_reductions), s.drop_distance[1]);
+        static_cast<long long>(s.pair_memo_hits), static_cast<long long>(s.pair_distinct),
+        static_cast<Real>(s.memo_budget) / 1e6, static_cast<Real>(s.memo_bytes_max) / 1e6,
+        static_cast<long long>(s.memo_limited_blocks), static_cast<long long>(s.pair_reductions),
+        s.drop_distance[1]);
     return buf;
 }
 
@@ -368,7 +372,24 @@ struct RingCompare {
     Real peak_fast = 0, peak_exact = 0;
     bool exact_run = false;
     mlfmm::PmlRingFarStats far_stats;
+    std::vector<mlfmm::PmlRingFarBlock> far_blocks;  ///< PmlRingOperator::far_blocks (WP-PML5d)
+    /// FNV-1a over the bytes of the ring products ring x (kSeeds order; WP-PML5d bitwise checks)
+    std::uint64_t ring_hash = 0;
 };
+
+/// FNV-1a (64 bit) over the bytes of the vectors (bitwise equality checks across runs).
+[[nodiscard]] inline std::uint64_t fnv1a(const std::vector<VectorXc>& vs) {
+    std::uint64_t h = 1469598103934665603ULL;
+    for (const VectorXc& v : vs) {
+        const auto* p = reinterpret_cast<const unsigned char*>(v.data());
+        const std::size_t n = static_cast<std::size_t>(v.size()) * sizeof(Complex);
+        for (std::size_t i = 0; i < n; ++i) {
+            h ^= p[i];
+            h *= 1099511628211ULL;
+        }
+    }
+    return h;
+}
 
 inline RingCompare run_ring_compare(const RoughCase& c, const FastSettings& f, bool with_exact) {
     RingCompare r;
@@ -399,6 +420,7 @@ inline RingCompare run_ring_compare(const RoughCase& c, const FastSettings& f, b
     r.ring_near_s = ring.near_seconds();
     r.ring_far_s = ring.far_seconds();
     r.far_stats = ring.far_stats();
+    r.far_blocks = ring.far_blocks();
     for (const std::uint64_t seed : kSeeds) xs.push_back(random_vector(Z.cols(), seed));
     t0 = std::chrono::steady_clock::now();
     for (const VectorXc& x : xs) zf.push_back(Z * x);
@@ -406,6 +428,7 @@ inline RingCompare run_ring_compare(const RoughCase& c, const FastSettings& f, b
     t0 = std::chrono::steady_clock::now();
     for (const VectorXc& x : xs) ra.push_back(ring * x);
     r.ring_matvec_s = seconds(t0) / static_cast<Real>(xs.size());
+    r.ring_hash = fnv1a(ra);
     r.peak_fast = system_memory::peak_rss_bytes();
     if (!with_exact)
         return r;

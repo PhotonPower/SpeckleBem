@@ -402,3 +402,17 @@ digit reproduced (d₀ = 3 matvec 2.08·10⁻⁵, dR 4.8·10⁻⁸, L2 3.3·10�
 ACA far ring 119 s, diagonal 0.002 s), operator 1.52 GB, peak 1.83 GB. At d₀ = 5 the near-ring cache (1.1 GB)
 exceeds the near ring and sets the peak (3.91 GB against 3.58 GB in 5b). At 2N = 59 600 the ACA ring matches the exact one
 to the same 5.1·10⁻⁵ with an operator build of 446 s (5b 1 261 s).
+
+**5d result (WP-PML5d, 2026-10-25, `benchmarks/results/pml_ring.md` "5d: pair memo").** The ACA entry generator
+evaluated the same triangle pair several times per far block (rows sharing a test triangle, columns sharing a source
+triangle, row / column overlaps, the exact generation after a rank-cap attempt): evaluations / distinct pairs 1.49
+at U, 1.51 at 2N = 59 600, 1.87 for the U-size Si control (gate 1.3). `detail::BlockSource` now keeps the evaluated
+pair blocks per block in lazily allocated strips per test / source triangle within `PmlRingParams::pair_memo_bytes`
+(default 16 MiB per block, i.e. per assembling thread; strips beyond it are not kept), counted in the estimate and
+peak guards. The loop nesting and summation order of `row()` / `column()` / `full()` are unchanged, so the far ring
+is bitwise the one without the memo (product hashes equal to `main` at all three sizes and for every budget; unit
+tests over budgets and thread counts). Kernel evaluations −31 % (U), −30 % (59 600), −40 % (Si); far-ring build in
+one process 0.56× / 0.61× / 0.94× wall and 0.71× / 0.67× / 0.61× CPU (U / 59 600 / Si; the Si wall time is bound by
+its longest row cluster) on a loaded machine; process peak +0.05 GB.
+Statistics: `pair_evaluations` counts kernel evaluations, `pair_memo_hits` the reuses, reductions and skips count
+distinct pairs.

@@ -1089,7 +1089,7 @@ std::string Simulation::report() const {
                 return t.str();
             };
             o << "  ring far drop:  triangle pairs reduced " << f.pair_reductions << " of "
-              << f.pair_evaluations + f.pair_skips << " (" << f.pair_skips
+              << f.pair_distinct + f.pair_skips << " (" << f.pair_skips
               << " skipped), region parts dropped R1 " << beyond(f.drop_distance[0]) << ", R2 "
               << beyond(f.drop_distance[1]) << " (bound <= " << f.drop_tolerance << ")\n";
         }

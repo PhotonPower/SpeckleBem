@@ -1,6 +1,6 @@
 ---
 name: pml-ring-findings
-description: WP-PML5a fast PML ring (MLFMM Z_rr + exact ring) - design, costs, d0 = 5 at 7c, chunked thread-independent apply, 5a limit; WP-PML5b ACA far ring (row clusters, eta 2, kappa stretch bound, 2N 3e5); WP-PML5c near-ring cost (touching 95 %, bitwise translation classes, kernels key, plan fingerprint); 5b+5c integration; 5b review fixes (min ACA rank 4, zero-rows probe, no timing effect)
+description: WP-PML5d far-ring pair memo (1.5x repeats, strips, 16 MiB, in-process A/B); WP-PML5a fast PML ring (MLFMM Z_rr + exact ring) - design, costs, d0 = 5 at 7c, chunked thread-independent apply, 5a limit; WP-PML5b ACA far ring (row clusters, eta 2, kappa stretch bound, 2N 3e5); WP-PML5c near-ring cost (touching 95 %, bitwise translation classes, kernels key, plan fingerprint); 5b+5c integration; 5b review fixes (min ACA rank 4, zero-rows probe, no timing effect)
 metadata:
   type: project
 ---
@@ -121,3 +121,15 @@ WP-PML5b (2026-10-19, ACA far ring; record benchmarks/results/pml_ring.md "5b"):
   config() of a closed Simulation still reports them (no round-trip use exists).
 - Before/after timing without a second worktree: `git archive <rev>` into scratch and build only
   the benchmark target there with the same preset.
+
+WP-PML5d (2026-10-25, branch wp/pml5d-ring-pair-memo; record pml_ring.md "5d: pair memo"):
+- ACA entry generation repeats triangle pairs: evals / distinct 1.49 (U), 1.51 (2N 59 600), 1.87 (U Si);
+  leaf level and rank-cap fallbacks 2-3x, coarse levels 1.2-1.6x. Exact distinct count is cheap: a pair was met
+  iff its test tri had a row, its source tri a column, or full() ran (no bitset needed).
+- Memo = strips per test / source triangle, lazily allocated within a per-block budget (16 MiB default); a dense
+  |T| x |S| memo is ~1 GB for a level-2 block. 16 MiB gets ~90-94 % of the saving; unlimited needs 46 MB (U) /
+  131 MB (59 600) per block. Bitwise for any budget because PairBlockEvaluator zero-fills its output.
+- Far ring time ~ kernel evaluations (CPU 0.67-0.71x for -30 % evals). Separate-process rounds on the shared
+  machine swung 2x; the driver's in-process `--memo-ab` (memo off / on alternating) is the usable comparison.
+- <windows.h> defines `near` / `far` macros: include it after headers with .far members and #undef both.
+- Unit tests: hundreds of tiny apply() calls with all threads on a loaded machine took minutes; apply with 1 thread.

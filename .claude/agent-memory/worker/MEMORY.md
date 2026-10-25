@@ -36,5 +36,5 @@
 - [PML Si cross-check (WP-PML4c, 7e)](pml_si_crosscheck_findings.md) — PML vs box 0.146 % vs box L-shift 0.16 %, lambda/4 not converged (2 %), tolerance rule, shared map, costs
 - [Dense LU findings (WP-LU1)](dense_lu_findings.md) — zgetrf vs Eigen same kernel 1 thread, load not content, zgecon cost, 10-40x unreproduced, trace numbers
 - [PML rough Ag 7c/7d (WP-PML4b)](pml_rough_ag_findings.md) — 7c met 1e-5..1e-4, 7d Si 0.24 % / Ag 2.6 % via SPPs, l2 ~ 0.3 x gap J, loss diag, W = lambda, foreign batch
-- [PML ring findings (WP-PML5a/5b/5c)](pml_ring_findings.md) — 5a exact ring design/costs; 5b ACA row clusters, eta 2, kappa bound, 2N 3e5; 5c exact translation classes; plan shares far partition
+- [PML ring findings (WP-PML5a/5b/5c/5d)](pml_ring_findings.md) — 5d pair memo 16 MiB -30 % evals, bitwise; 5a exact ring design/costs; 5b ACA row clusters, eta 2, kappa bound, 2N 3e5; 5c exact translation classes; plan shares far partition
 - [PML Huygens far field (WP-PML6)](pml_huygens_findings.md) — 7f met / 7g not (plane window Delta = lambda), wide-gap Delta study: plane converges theta<=30, 7d ~2.3 % stays; 7f needs window >= 2.5 w0 (CI 2N 7 632)

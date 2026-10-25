@@ -5,6 +5,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- mlfmm (WP-PML5d, ADR 0008 "5d result"): triangle-pair memo in the ACA far ring of the PML route — the entry
+  generator keeps evaluated pair blocks in lazily allocated strips per test triangle (`row()`) and per source
+  triangle (`column()`) within a per-block budget (`PmlRingParams::pair_memo_bytes`, default 16 MiB, one block per
+  thread), `full()` reads only; the loop nesting is unchanged, so the far ring is bitwise identical to the previous
+  one (RINGHASH equal at U / 2N = 59 600 / Si for every budget; applied-ring test for budgets 0 / 30 kB / unlimited incl.
+  skips and fallbacks; 1 / 2 / 3 / all threads bitwise). Step-0 study (kernel evaluations per distinct pair, gate ≥ 1.3):
+  1.49 / 1.51 / 1.87. Kernel evaluations −31 / −30 / −40 %; in-process A/B far-ring wall time 0.56× / 0.61× (Ag),
+  Si 0.94× wall at 0.61× CPU (longest row cluster limits — open point), all under load. Memo bytes in
+  `PmlRingEstimate::far_memo_bytes` / `pml_ring_peak_bytes` / `PmlRingOperator::peak_bytes()` (process peak +0.04–0.07 GB);
+  statistics `pair_evaluations` (kernel evaluations only), `pair_memo_hits`, `pair_distinct`, `memo_*`;
+  `pair_reductions` / `pair_skips` per distinct pair; driver `--pair-memo`, `--memo-ab`, RINGHASH line; record
+  `benchmarks/results/pml_ring.md` "5d: pair memo".
 - post / simulation / python (WP-PML6, ADR 0010): Huygens-plane far field of the PML route — `post::huygens_far_field`
   radiates the equivalent currents of a plane at z_H ≈ λ above patch + taper + gap (`HuygensPlane`, `HuygensOptions`
   {z_h, spacing, window, pml_sources}, raised-cosine window), the plane fields from `post::exterior_scattered_field`

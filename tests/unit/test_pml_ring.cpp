@@ -587,16 +587,27 @@ TEST_CASE("pml_ring: budget refusal, errors, describe and memory", "[pml_ring]")
     // before assembly (WP-PML5c review S1, WP-PML5b; estimate_pml_ring alone has no stretch,
     // hence no cache estimate).
     CHECK(est.near_assembly_bytes == 0);
-    CHECK(mlfmm::pml_ring_peak_bytes(est) == est.near_bytes + est.far_exact_bytes);
+    // WP-PML5d: the far-ring pair memo (pair_memo_bytes per assembling thread) is counted with
+    // the far blocks known to be exact.
+    CHECK(est.far_memo_bytes > 0);
+    CHECK(est.far_memo_bytes % mlfmm::PmlRingParams{}.pair_memo_bytes == 0);
+    CHECK(mlfmm::pml_ring_peak_bytes(est) ==
+          est.near_bytes + est.far_exact_bytes + est.far_memo_bytes);
     CHECK(mlfmm::warn_pml_ring_memory(est, 1));
     CHECK(mlfmm::warn_pml_ring_memory(est, est.far_exact_bytes));
     CHECK_FALSE(mlfmm::warn_pml_ring_memory(est, mlfmm::pml_ring_peak_bytes(est)));
     CHECK_FALSE(mlfmm::warn_pml_ring_memory(est, 0));
+    // An unlimited memo budget saturates the peak instead of wrapping it (review W2).
+    mlfmm::PmlRingEstimate unlimited = est;
+    unlimited.far_memo_bytes = std::numeric_limits<std::size_t>::max();
+    CHECK(mlfmm::pml_ring_peak_bytes(unlimited) == std::numeric_limits<std::size_t>::max());
+    CHECK(mlfmm::warn_pml_ring_memory(unlimited, unlimited.near_bytes + unlimited.far_exact_bytes));
     // Without ACA every far block is exact: the peak of WP-PML5c, near + far_bytes.
     mlfmm::PmlRingParams no_aca;
     no_aca.use_aca = false;
     const mlfmm::PmlRingEstimate est_exact = mlfmm::estimate_pml_ring(tree, c->space, s, no_aca);
     CHECK(est_exact.far_exact_bytes == est_exact.far_bytes);
+    CHECK(est_exact.far_memo_bytes == 0);
     CHECK(mlfmm::pml_ring_peak_bytes(est_exact) == est_exact.near_bytes + est_exact.far_bytes);
     CHECK(mlfmm::warn_pml_ring_memory(est_exact, est_exact.far_bytes));
     CHECK_FALSE(mlfmm::warn_pml_ring_memory(est_exact, mlfmm::pml_ring_peak_bytes(est_exact)));
@@ -615,10 +626,17 @@ TEST_CASE("pml_ring: budget refusal, errors, describe and memory", "[pml_ring]")
     CHECK(planned.estimate().near_assembly_bytes == ce.bytes);
     const mlfmm::PmlRingEstimate pe = planned.estimate();
     CHECK(mlfmm::pml_ring_peak_bytes(pe) ==
-          pe.near_bytes + std::max(pe.near_assembly_bytes, pe.far_exact_bytes));
-    // The measured peak: near ring + max(measured cache, allocated far blocks incl. ACA factors).
+          pe.near_bytes + std::max(pe.near_assembly_bytes, pe.far_exact_bytes + pe.far_memo_bytes));
+    // The measured peak: near ring + max(measured cache, allocated far blocks incl. ACA factors
+    // + the pair memos alive at once).
+    const mlfmm::PmlRingFarStats& fs = planned.far_stats();
+    CHECK(fs.memo_bytes_max > 0);
+    CHECK(fs.memo_bytes_max <= fs.memo_budget);
+    CHECK(fs.memo_peak_bytes >= fs.memo_bytes_max);
+    CHECK(fs.memo_peak_bytes <= pe.far_memo_bytes);
     CHECK(planned.peak_bytes() ==
-          planned.near_bytes() + std::max(ns.cache_bytes, planned.far_bytes()));
+          planned.near_bytes() +
+              std::max(ns.cache_bytes, planned.far_bytes() + fs.memo_peak_bytes));
     CHECK(planned.far_stats().exact_bytes + planned.far_stats().aca_bytes <= pe.far_bytes);
     CHECK(op::estimate_sparse_stretched_cache(c->space, c->pml, plan.split.ring,
                                               op::StretchedPairEvaluation::per_ordering)
@@ -1263,7 +1281,7 @@ TEST_CASE("pml_ring: the per-triangle-pair drop is logged with its bound", "[pml
     CHECK_THAT(line, ContainsSubstring("magnitude bound"));
     CHECK_THAT(line,
                ContainsSubstring("triangle pairs reduced " + std::to_string(st.pair_reductions) +
-                                 " of " + std::to_string(st.pair_evaluations + st.pair_skips)));
+                                 " of " + std::to_string(st.pair_distinct + st.pair_skips)));
     CHECK_THAT(line, ContainsSubstring("R1 never"));
     CHECK_THAT(line, ContainsSubstring("bound <= 1.0e-04"));
     CHECK(st.drop_distance[1] < 1e300);
@@ -1900,4 +1918,179 @@ TEST_CASE("pml_ring: the translation key holds the fastmath decision and the sha
     }
     CHECK(words[0] != words[1]);
     CHECK(words[0].size() == words[1].size());
+}
+
+// ---------------------------------------------------------------------------------------------
+// WP-PML5d: triangle-pair memo of the ACA far ring.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// The applied far ring as a matrix: column k = ring e_k (bitwise comparisons of the stored
+/// blocks through apply(); a far-only ring).
+/// Applied with one thread (apply() is thread-count independent, unit test above; hundreds of
+/// tiny parallel regions are slow on a loaded machine).
+std::vector<VectorXc> applied_columns(const mlfmm::PmlRingOperator& r, Index n2) {
+#ifdef SPECKLEBEM_HAVE_OPENMP
+    const int saved = omp_get_max_threads();
+    omp_set_num_threads(1);
+#endif
+    std::vector<VectorXc> cols;
+    cols.reserve(sz(n2));
+    for (Index k = 0; k < n2; ++k) {
+        VectorXc e = VectorXc::Zero(n2);
+        e(k) = Complex(1.0, 0.0);
+        cols.push_back(r * e);
+    }
+#ifdef SPECKLEBEM_HAVE_OPENMP
+    omp_set_num_threads(saved);
+#endif
+    return cols;
+}
+
+bool same_columns(const std::vector<VectorXc>& a, const std::vector<VectorXc>& b) {
+    if (a.size() != b.size())
+        return false;
+    for (std::size_t k = 0; k < a.size(); ++k)
+        if (!(a[k].array() == b[k].array()).all())
+            return false;
+    return true;
+}
+
+/// Block metadata that the memo must not change (everything but the evaluation counters).
+bool same_blocks(const std::vector<mlfmm::PmlRingFarBlock>& a,
+                 const std::vector<mlfmm::PmlRingFarBlock>& b) {
+    if (a.size() != b.size())
+        return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const mlfmm::PmlRingFarBlock& x = a[i];
+        const mlfmm::PmlRingFarBlock& y = b[i];
+        if (x.row_box != y.row_box || x.box != y.box || x.kind != y.kind || x.rank != y.rank ||
+            x.region != y.region || x.generated_rows != y.generated_rows ||
+            x.generated_columns != y.generated_columns || x.aca_skipped != y.aca_skipped ||
+            x.pair_distinct != y.pair_distinct || x.pair_reductions != y.pair_reductions ||
+            x.pair_skips != y.pair_skips)
+            return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+TEST_CASE("pml_ring: the triangle-pair memo leaves the stored far blocks bitwise unchanged",
+          "[pml_ring]") {
+    // WP-PML5d: the far ring with memo budgets 0 (no memo: the evaluation without the memo),
+    // small (strips refused) and unlimited, on the tiny flat and rough surfaces and a lossy
+    // object and exterior (per-pair drops, skips), with forced ACA (low-rank blocks) and the
+    // default parameters (rank-cap fallbacks and blocks without an ACA attempt: full() after the
+    // attempt): the applied far ring e_k for every k (all stored ACA and exact entries) is
+    // bitwise the same, so are the ranks, kinds and generated rows / columns. Every kernel
+    // evaluation saved is a memo hit; unlimited, each distinct pair is evaluated once.
+    struct Variant {
+        const char* name;
+        bool rough;
+        Complex eps;
+    };
+    const std::array<Variant, 3> variants = {{
+        {"flat", false, Complex(2.25, 0.0)},
+        {"rough", true, Complex(2.25, 0.0)},
+        {"flat lossy", false, Complex(-30.0, -20.0)},
+    }};
+    constexpr std::size_t kSmall = 30000;  // a few strips of the tiny blocks (584 B per pair)
+    Index limited = 0, saved = 0, skips = 0, fallbacks = 0;
+    for (const Variant& v : variants) {
+        Case c(v.rough ? tiny_rough_surface() : tiny_surface(), material::Material{v.eps, 1.0}, 1.0,
+               formulation::Kind::PMCHWT);
+        if (v.eps.imag() < 0.0)  // both regions damped: pairs with no region left exist
+            c.problem.exterior = material::Material{v.eps, 1.0};
+        const Index n2 = 2 * c.space.size();
+        const mlfmm::Octree tree = ring_tree(c.space, 3);
+        for (const bool forced : {true, false}) {
+            mlfmm::PmlRingParams p = far_only(forced ? forced_aca() : mlfmm::PmlRingParams{});
+            p.pair_memo_bytes = 0;
+            const mlfmm::PmlRingOperator base(c.problem, tree, p);
+            const mlfmm::PmlRingFarStats& bs = base.far_stats();
+            const std::vector<VectorXc> cb = applied_columns(base, n2);
+            CHECK(bs.pair_memo_hits == 0);
+            CHECK(bs.memo_bytes_max == 0);
+            CHECK(bs.memo_limited_blocks == 0);
+            CHECK(bs.pair_evaluations >= bs.pair_distinct);
+            if (forced)
+                CHECK(bs.aca_blocks > 0);
+            fallbacks += bs.fallback_blocks;
+            skips += bs.pair_skips;
+            for (const std::size_t budget : {kSmall, std::numeric_limits<std::size_t>::max()}) {
+                p.pair_memo_bytes = budget;
+                const mlfmm::PmlRingOperator r(c.problem, tree, p);
+                const mlfmm::PmlRingFarStats& st = r.far_stats();
+                INFO(v.name << (forced ? ", forced ACA" : ", default") << ", budget " << budget
+                            << ": " << r.describe());
+                CHECK(same_columns(applied_columns(r, n2), cb));
+                CHECK(same_blocks(r.far_blocks(), base.far_blocks()));
+                CHECK(st.aca_bytes == bs.aca_bytes);
+                CHECK(st.exact_bytes == bs.exact_bytes);
+                CHECK(st.memo_budget == budget);
+                CHECK(st.pair_evaluations + st.pair_memo_hits == bs.pair_evaluations);
+                CHECK(st.pair_distinct == bs.pair_distinct);
+                CHECK(st.pair_reductions == bs.pair_reductions);
+                CHECK(st.pair_skips == bs.pair_skips);
+                CHECK(st.memo_bytes_max <= budget);
+                if (budget == kSmall) {
+                    limited += st.memo_limited_blocks;
+                } else {
+                    CHECK(st.memo_limited_blocks == 0);
+                    CHECK(st.pair_evaluations == st.pair_distinct);
+                    saved += bs.pair_evaluations - st.pair_evaluations;
+                }
+                for (const mlfmm::PmlRingFarBlock& b : r.far_blocks())
+                    CHECK(b.memo_bytes <= budget);
+            }
+        }
+    }
+    CHECK(limited > 0);    // the small budget exercised the refused-strip path
+    CHECK(saved > 0);      // the memo saved evaluations
+    CHECK(skips > 0);      // the lossy object exercised the memoised skip decisions
+    CHECK(fallbacks > 0);  // full() after an ACA attempt read the memo
+}
+
+TEST_CASE("pml_ring: the far ring with the pair memo is thread-count independent", "[pml_ring]") {
+    // WP-PML5d: assembly (forced ACA) with 1 / 2 / 3 / all threads, with the default memo and with
+    // a small budget (strips refused; the memo is per block and filled by one thread in the block's
+    // own order): bitwise the same applied far ring and statistics.
+    Case c(tiny_rough_surface(), material::Material{Complex(2.25, 0.0), 1.0}, 1.0,
+           formulation::Kind::PMCHWT);
+    const Index n2 = 2 * c.space.size();
+    const mlfmm::Octree tree = ring_tree(c.space, 3);
+    for (const std::size_t budget : {mlfmm::PmlRingParams{}.pair_memo_bytes, std::size_t{30000}}) {
+        mlfmm::PmlRingParams p = far_only(forced_aca());
+        p.pair_memo_bytes = budget;
+#ifdef SPECKLEBEM_HAVE_OPENMP
+        const int saved = omp_get_max_threads();
+        const int most = std::max(saved, omp_get_num_procs());
+        std::vector<std::vector<VectorXc>> cols;
+        std::vector<mlfmm::PmlRingFarStats> stats;
+        std::vector<std::vector<mlfmm::PmlRingFarBlock>> blocks;
+        for (const int t : {1, 2, 3, most}) {
+            omp_set_num_threads(t);
+            const mlfmm::PmlRingOperator r(c.problem, tree, p);
+            cols.push_back(applied_columns(r, n2));
+            stats.push_back(r.far_stats());
+            blocks.push_back(r.far_blocks());
+        }
+        omp_set_num_threads(saved);
+        REQUIRE(stats[0].pair_memo_hits > 0);
+        for (std::size_t i = 1; i < cols.size(); ++i) {
+            INFO("budget " << budget << ", variant " << i);
+            CHECK(same_columns(cols[i], cols[0]));
+            CHECK(same_blocks(blocks[i], blocks[0]));
+            CHECK(stats[i].pair_evaluations == stats[0].pair_evaluations);
+            CHECK(stats[i].pair_memo_hits == stats[0].pair_memo_hits);
+            CHECK(stats[i].memo_bytes_max == stats[0].memo_bytes_max);
+            CHECK(stats[i].memo_limited_blocks == stats[0].memo_limited_blocks);
+        }
+#else
+        const mlfmm::PmlRingOperator r(c.problem, tree, p);
+        CHECK(r.far_stats().pair_memo_hits > 0);
+#endif
+    }
 }
