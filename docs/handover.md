@@ -159,7 +159,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   until measured); growth exponent unchanged (≈ N^0.57) — Phase 8 Schur/Calderón is the next lever; WP-G2 not
   scheduled (condition not met). Older PML records state "Jacobi" for their historical runs; new fast-path runs
   use the block default unless set explicitly (`preconditioner = Diagonal` reproduces the old path).
-- **In flight (2026-10-25):** WP-S1 (`wp/s1-speckle-statistics-harness`, Phase 6 part 1: KS test, synthetic reference speckle, speckle-size convention, Python harness); WP-S2 (real sweep) awaits the configuration decision.
+- **In flight (2026-10-25):** WP-S1 (`wp/s1-speckle-statistics-harness`, Phase 6 part 1: KS test, synthetic reference speckle, speckle-size convention, Python harness); WP-S2 (real sweep) follows with the lead's configuration (2026-10-25): Si, box route, L ~ 10 um, h = 50 nm, 5 sigma x 2 seeds, z = -1 mm.
 - **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
   continuation `wp/pml6-huygens-far-field-2` at f5bd897 in worker worktree agent-a40c1f6891657e9af: 7g reported as
   unmet with regression guards, docs/10 finished, wide-gap diagnostics; still to do there: record
