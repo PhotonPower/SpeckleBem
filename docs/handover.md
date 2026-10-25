@@ -152,7 +152,11 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Lesson (2026-10-20):** never remove an agent worktree on a "stopped at turn limit" notification alone — the
   WP-PML6 worker was still running measurements from scratchpad copies of its executables (process filter on the
   worktree path missed them); check processes by worktree *and* scratchpad path, and prefer leaving the worktree
-  until the agent's hand-back report has arrived. Only its memory note was lost.
+  until the agent's hand-back report has arrived. Only its memory note was lost. Repeated 2026-10-25 with the
+  continuation worker (it had resumed after the wake and was running `scratchpad/pml6b/bin/huygens_v4.exe`): a
+  5-day-old 0-byte task output file is **not** evidence that an agent is dead. Pre-removal check (both paths):
+  `Get-CimInstance Win32_Process | ? { $_.CommandLine -match '<agent-id>' -or $_.ExecutablePath -match 'scratchpad' }`;
+  a "Permission denied" from `git worktree remove` means a process still holds the tree — stop, do not force.
 - **Next:** WP-PML6 (Huygens-plane far field for rough metals, ADR 0010; rows 7f/7g), then an idle-machine timing
   rerun of the 5b/5c records and the GMRES preconditioning item (iterations ≈ N^0.5 on rough Ag PML systems:
   602 → 1 715 → 2 679 at 2N = 2.3e4 / 1.5e5 / 3e5; Krylov basis 12.9 GB at 3e5 — restarted GMRES or a near-field
