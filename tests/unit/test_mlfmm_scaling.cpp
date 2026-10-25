@@ -365,7 +365,7 @@ TEST_CASE("mlfmm_scaling: one tiny Ag case runs end to end", "[mlfmm_scaling]") 
     const Geometry geo = make_geometry(c);
     const Result r = run(geo, c, estimate(geo, c));
     CHECK(r.formulation == "ICTF");
-    CHECK(r.jacobi);
+    CHECK(r.preconditioner == "diagonal");
     CHECK(r.converged);
     CHECK(r.true_residual < 0.2);
     CHECK(r.est.levels >= 3);
@@ -388,8 +388,9 @@ TEST_CASE("mlfmm_scaling: one tiny Ag case runs end to end", "[mlfmm_scaling]") 
     CHECK(line.find(" N2=" + std::to_string(r.est.unknowns) + " ") != std::string::npos);
     CHECK(line.find(" beam=paraxial ") != std::string::npos);
     CHECK(line.find(" sigma_nm=50 ") != std::string::npos);
-    CHECK(line.find(" form=ictf jacobi=1") != std::string::npos);  // formulation::recommend
-    CHECK(line.find(" R=") == std::string::npos);                  // no power summary requested
+    // formulation::recommend (ICTF + left Jacobi for Ag); no power summary requested.
+    CHECK(line.find(" form=ictf jacobi=1 precond=diagonal") != std::string::npos);
+    CHECK(line.find(" R=") == std::string::npos);
     CHECK(r.p_inc == 0.0);
 #endif
 }
@@ -603,7 +604,7 @@ TEST_CASE("mlfmm_scaling: history record and appended history file", "[mlfmm_sca
     c.beam = Beam::angular_spectrum;
     Result r;
     r.formulation = "PMCHWT";
-    r.jacobi = false;
+    r.preconditioner = "none";
     r.iterations = 12;
     r.converged = false;
     r.est.unknowns = 1234;
@@ -615,7 +616,8 @@ TEST_CASE("mlfmm_scaling: history record and appended history file", "[mlfmm_sca
     // Ag default waist L/4 (waist_factor_of) and the iteration cap (review round keys).
     CHECK(h.find(" fine=0 waist=4 beam=angular_spectrum ") != std::string::npos);
     CHECK(h.find(" tol=0.001 max_iter=3000 seed=1 ") != std::string::npos);
-    CHECK(h.find(" N2=1234 form=pmchwt jacobi=0 it=12 conv=0 stride=5 ") != std::string::npos);
+    CHECK(h.find(" N2=1234 form=pmchwt jacobi=0 precond=none it=12 conv=0 stride=5 ") !=
+          std::string::npos);
     // k = 0, 5, 10, 12: 2^-k / 3 with 3 significant digits.
     CHECK(h.substr(h.find(" res=")) == " res=3.33e-01,1.04e-02,3.26e-04,8.14e-05");
     // 17 digits: every iteration, and each value reads back exactly.
@@ -629,7 +631,11 @@ TEST_CASE("mlfmm_scaling: history record and appended history file", "[mlfmm_sca
         ++k;
     }
     CHECK(k == r.residual_history.size());
-    CHECK(row(c, r).find(" form=pmchwt jacobi=0") != std::string::npos);
+    CHECK(row(c, r).find(" form=pmchwt jacobi=0 precond=none") != std::string::npos);
+    // A block-diagonal solve is named by precond= (jacobi= is 1 for left Jacobi only).
+    Result rb = r;
+    rb.preconditioner = "block_diagonal";
+    CHECK(row(c, rb).find(" jacobi=0 precond=block_diagonal") != std::string::npos);
     CHECK(formulation_key(Result{}) == "unknown");
 
     CHECK_THROWS_AS(history_record(c, r, 0, 3), std::invalid_argument);

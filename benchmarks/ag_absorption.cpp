@@ -914,12 +914,12 @@ int main(int argc, char** argv) {
             "%+.4f | 1-R-A %+.3e | solve %.0f s",
             c.material.c_str(), c.L, c.waist, c.theta_deg,
             c.pol == excitation::Polarization::P ? "p" : "s", c.mesh_size, r.formulation.c_str(),
-            r.jacobi ? "+J" : "", c.compression.c_str(), c.tolerance,
-            static_cast<long long>(r.est.unknowns), r.iterations, r.r_sim(), r.ref.beam.reflectance,
-            100.0 * r.error_beam(), d.deg2.total() / P, d.a_beam,
-            d.deg2.total() / P / d.a_beam - 1.0, (d.p_ext - p_sca) / P, d.deg2.top / P,
-            d.deg2.walls / P, d.deg2.bottom / P, d.centre.p_sim / d.centre.p_ref - 1.0,
-            d.centre.p_int / d.centre.p_ref - 1.0,
+            r.preconditioner == "diagonal" ? "+J" : (r.preconditioner == "none" ? "" : "+B"),
+            c.compression.c_str(), c.tolerance, static_cast<long long>(r.est.unknowns),
+            r.iterations, r.r_sim(), r.ref.beam.reflectance, 100.0 * r.error_beam(),
+            d.deg2.total() / P, d.a_beam, d.deg2.total() / P / d.a_beam - 1.0,
+            (d.p_ext - p_sca) / P, d.deg2.top / P, d.deg2.walls / P, d.deg2.bottom / P,
+            d.centre.p_sim / d.centre.p_ref - 1.0, d.centre.p_int / d.centre.p_ref - 1.0,
             1e3 * (std::arg(d.centre.c_m) - std::arg(d.centre.c_j)),
             d.inner.p_sim / d.inner.p_ref - 1.0, 1.0 - r.r_sim() - d.deg2.total() / P, r.solve_s);
         std::printf("%s\n", buf);

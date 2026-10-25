@@ -476,7 +476,9 @@ inline FarTableEstimate estimate_far_tables(const basis::RwgSpace& space, const 
 struct Result {
     Estimate est;
     std::string formulation;
-    bool jacobi = false;
+    /// to_string(Simulation::preconditioner_kind()) of the solve ("none", "diagonal" = left
+    /// Jacobi, "block_diagonal").
+    std::string preconditioner = "none";
     int iterations = 0;
     bool converged = false;
     Real final_residual = 0;  ///< monitored (preconditioned) residual
@@ -711,7 +713,7 @@ inline Result run(const Geometry& geo, const Case& c, const Estimate& est,
     const std::shared_ptr<excitation::Excitation> beam = make_beam(c, geo);
     Simulation sim(geo.mesh, beam, make_config(c));
     r.formulation = formulation::make_formulation(sim.formulation_kind())->name();
-    r.jacobi = sim.diagonal_preconditioner();
+    r.preconditioner = to_string(sim.preconditioner_kind());
     {
         const auto t0 = Clock::now();
         sim.assemble();
@@ -854,8 +856,8 @@ inline std::string summary(const Estimate& e) {
 inline std::string summary(const Result& r) {
     std::ostringstream os;
     os << summary(r.est) << "\n"
-       << "formulation " << r.formulation << (r.jacobi ? " + left Jacobi" : "") << "; GMRES "
-       << r.iterations << " iterations, converged " << (r.converged ? "yes" : "no")
+       << "formulation " << r.formulation << fresnel_flat::preconditioner_suffix(r.preconditioner)
+       << "; GMRES " << r.iterations << " iterations, converged " << (r.converged ? "yes" : "no")
        << ", monitored residual " << r.final_residual << ", true residual " << r.true_residual
        << "\nsetup " << r.assembly_s << " s (octree " << r.tree_s << " s, far " << r.far_s
        << " s incl. exact parts " << r.exact_s << " s, near " << r.near_s << " s); matvec "
@@ -877,6 +879,12 @@ inline std::string summary(const Result& r) {
     return os.str();
 }
 
+/// The ROW / HISTORY key jacobi= (WP22b2): 1 for the left Jacobi preconditioner, else 0; the
+/// solve's preconditioner itself is the key precond= (Result::preconditioner).
+inline int jacobi_key(const Result& r) {
+    return r.preconditioner == "diagonal" ? 1 : 0;
+}
+
 /// Lower-case formulation name of a result ("pmchwt", "ictf", "mctf", "jmcfie"; the ROW and
 /// HISTORY key form=); "unknown" before run() set it.
 inline std::string formulation_key(const Result& r) {
@@ -887,8 +895,9 @@ inline std::string formulation_key(const Result& r) {
 }
 
 /// One machine-readable line (key=value, SI seconds, GB), parsed by
-/// benchmarks/mlfmm_scaling_fit.py. Ends with form= (formulation_key) and jacobi=0|1 (WP22b2)
-/// before the optional power-summary keys.
+/// benchmarks/mlfmm_scaling_fit.py. Ends with form= (formulation_key), jacobi=0|1 (WP22b2; 1 for
+/// the left Jacobi preconditioner, kept for the readers and the older rows) and precond=
+/// (Result::preconditioner, WP-PC1 review) before the optional power-summary keys.
 inline std::string row(const Case& c, const Result& r) {
     std::ostringstream os;
     os.precision(6);
@@ -913,7 +922,7 @@ inline std::string row(const Case& c, const Result& r) {
        << " peak_est_gb=" << gb(r.est.peak_setup_bytes) << " far_gb=" << gb(r.far_bytes)
        << " krylov_gb=" << gb(r.krylov_bytes) << " peak_setup_gb=" << gb(r.peak_setup_rss)
        << " peak_gb=" << gb(r.peak_rss) << " form=" << formulation_key(r)
-       << " jacobi=" << (r.jacobi ? 1 : 0);
+       << " jacobi=" << jacobi_key(r) << " precond=" << r.preconditioner;
     if (r.p_inc > 0.0)
         os << " R=" << r.p_refl / r.p_inc << " R_coarse=" << r.p_refl_coarse / r.p_inc
            << " A=" << r.p_abs / r.p_inc << " post_s=" << r.post_s;
@@ -939,7 +948,7 @@ inline std::vector<int> history_indices(int iterations, int stride) {
 }
 
 /// One line "HISTORY material=.. L_um=.. box=.. fine=.. waist=.. beam=.. d0=.. tol=.. max_iter=..
-/// seed=.. N2=.. form=.. jacobi=0|1 it=.. conv=0|1 stride=.. res=r_0,r_s,r_2s,...,r_it" of a
+/// seed=.. N2=.. form=.. jacobi=0|1 precond=.. it=.. conv=0|1 stride=.. res=r_0,r_s,...,r_it" of a
 /// solved case: the monitored residuals at history_indices(it, stride) with `digits` significant
 /// digits (WP22b2, benchmarks/results/formulation_convergence_mlfmm_histories.txt; stride 1 and
 /// 17 digits give the full-precision history of the Jacobi identity check). waist=
@@ -960,9 +969,9 @@ inline std::string history_record(const Case& c, const Result& r, int stride, in
        << " fine=" << (uses_fine_band(c) ? 1 : 0) << " waist=" << waist_factor_of(c)
        << " beam=" << beam_name(c) << " d0=" << c.digits << " tol=" << c.tolerance
        << " max_iter=" << c.max_iter << " seed=" << c.seed << " N2=" << r.est.unknowns
-       << " form=" << formulation_key(r) << " jacobi=" << (r.jacobi ? 1 : 0)
-       << " it=" << r.iterations << " conv=" << (r.converged ? 1 : 0) << " stride=" << stride
-       << " res=";
+       << " form=" << formulation_key(r) << " jacobi=" << jacobi_key(r)
+       << " precond=" << r.preconditioner << " it=" << r.iterations
+       << " conv=" << (r.converged ? 1 : 0) << " stride=" << stride << " res=";
     std::array<char, 40> buf{};
     for (std::size_t i = 0; i < ks.size(); ++i) {
         std::snprintf(buf.data(), buf.size(), "%.*e", digits - 1,

@@ -28,8 +28,9 @@ File layout (format ``specklebem-hdf5``, ``format_version`` 1; SI units, exp(+jw
                                       residual, true_residual, wall_seconds, ...
 ``/solver/history/iteration``,        (k,) int64, (k,) float64, (k,) float64 [s] (if recorded)
 ``residual``, ``time``
-``/config`` attrs and sub-groups      wavelength, formulation, preconditioner, solver,
-                                      compression, termination ("box" / "pml"), num_unknowns;
+``/config`` attrs and sub-groups      wavelength, formulation, preconditioner, block_level,
+                                      solver, compression, termination ("box" / "pml"),
+                                      num_unknowns;
                                       ``object`` / ``exterior`` (eps_r, mu_r complex),
                                       ``gmres``, ``kernels``, ``mlfmm``, ``pml`` (PML route)
 ``/excitation`` attrs                 type, wavelength, omega, background eps_r / mu_r and the

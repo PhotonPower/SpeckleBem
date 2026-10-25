@@ -53,9 +53,10 @@
 //
 // Formulation sweep (WP22b2, record benchmarks/results/formulation_convergence.md): --formulation
 // and --jacobi 0|1 override formulation::recommend (Si: ICTF, Ag: ICTF + left Jacobi); the ROW
-// line names the solved system (form=, jacobi=). --history-file <path> appends one line
-// "HISTORY <case keys> form= jacobi= it= conv= stride= res=r_0,r_s,r_2s,...,r_it" after the solve
-// (--history-stride, default 10; --history-digits significant digits, default 4);
+// line names the solved system (form=, jacobi=, and since the WP-PC1 review precond=
+// none|diagonal|block_diagonal). --history-file <path> appends one line
+// "HISTORY <case keys> form= jacobi= precond= it= conv= stride= res=r_0,r_s,...,r_it" after the
+// solve (--history-stride, default 10; --history-digits significant digits, default 4);
 // --history-full-file <path> appends the same record with every iteration at 17 digits (the
 // Jacobi identity check). Options are parsed by mlfmm_scaling::parse_options (numeric values
 // must be consumed whole; the history options are refused with --no-solve and --estimate-only);

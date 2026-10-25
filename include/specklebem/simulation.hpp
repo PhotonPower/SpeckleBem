@@ -247,6 +247,16 @@ enum class SolverKind {
     Direct  ///< solver::solve_direct (dense LU) on the dense operator
 };
 
+/// Preconditioner of the GMRES solve (SimulationConfig::preconditioner; WP-PC1, ADR 0011).
+enum class PreconditionerKind {
+    None,          ///< solver::IdentityPreconditioner
+    Diagonal,      ///< Jacobi, solver::DiagonalPreconditioner (the diagonal of Z)
+    BlockDiagonal  ///< near-field blocks of the octree boxes, make_block_preconditioner()
+};
+
+/// "none", "diagonal" or "block_diagonal".
+[[nodiscard]] const char* to_string(PreconditionerKind kind);
+
 struct SimulationConfig {
     /// Vacuum wavelength [m]; must equal the excitation's wavelength (relative 1e-12).
     Real wavelength = 500e-9;
@@ -258,8 +268,33 @@ struct SimulationConfig {
     /// Left/right Jacobi preconditioner (the diagonal of Z: op::assemble_diagonal, or the near
     /// parts of the MLFMM operator for "mlfmm") of the GMRES solve; empty: the
     /// recommendation's choice, formulation::recommend(object.eps_r).diagonal_preconditioner
-    /// (also when the formulation is set explicitly). Ignored by the direct solver.
+    /// (also when the formulation is set explicitly). Ignored by the direct solver. Kept for
+    /// compatibility; `preconditioner` below is the general option.
     std::optional<bool> diagonal_preconditioner;
+    /// Preconditioner of the GMRES solve (WP-PC1, ADR 0011): None, Diagonal (Jacobi) or
+    /// BlockDiagonal (one LU-factorised block per octree box over the J and M unknowns of its
+    /// basis functions, from the near-field entries; make_block_preconditioner()). Empty: from
+    /// diagonal_preconditioner (true -> Diagonal, false -> None), or, if that is empty too, the
+    /// automatic choice: BlockDiagonal on the PML route with compression "mlfmm" (the GMRES
+    /// solver; WP-PC1, ADR 0011 decision 3: 3.2x fewer iterations than Jacobi on rough Ag up to
+    /// 3e5 unknowns and 2.5x fewer than none on rough Si; benchmarks/results/preconditioner.md),
+    /// otherwise the recommendation (Diagonal for metals, None for dielectrics, as before WP-PC1),
+    /// also on the dense PML route (not measured) and the box route (on the Ag sphere the blocks
+    /// need more iterations than Jacobi). The automatic BlockDiagonal logs an SBEM_WARN at
+    /// assembly when its largest block holds more than half of the unknowns (a tiny or coarse
+    /// tree whose block level is the root: a dense LU); an explicit BlockDiagonal does not. Both
+    /// set: they must agree (Diagonal with true, None with false; BlockDiagonal with an empty
+    /// diagonal_preconditioner only), otherwise the constructors throw std::invalid_argument.
+    /// Ignored by the direct solver. An explicit BlockDiagonal is allowed on every route.
+    std::optional<PreconditionerKind> preconditioner;
+    /// BlockDiagonal only: the block level, 0 = the octree leaves, 1 = one level above them (the
+    /// two levels of ADR 0011; other values are rejected). Default 1, the faster level at every
+    /// measured PML size (it also needs the fewest iterations). On the dense route the octree is
+    /// mlfmm::make_octree with the `mlfmm` parameters below (the tree "mlfmm" would build, so they
+    /// are validated by the constructors whenever BlockDiagonal is set); on a tree of two levels
+    /// (e.g. the tiny PML meshes of the tests) one level up is the root, i.e. one block = the
+    /// dense LU of Z and GMRES converges in one iteration: use 0 to exercise the block path.
+    int block_levels_above_leaf = 1;
     /// "dense" (default) or "mlfmm" (mlfmm::MlfmmOperator with the `mlfmm` parameters; GMRES
     /// only, the Jacobi diagonal is read from the operator's near parts,
     /// mlfmm::MlfmmOperator::diagonal(), equal to op::assemble_diagonal; WP-PML5c). "aca" and
@@ -273,6 +308,25 @@ struct SimulationConfig {
     kernels::OperatorOptions kernels;
     SolverKind solver = SolverKind::Gmres;
 };
+
+/// Near-field block-diagonal preconditioner of an assembled system operator Z (WP-PC1, ADR
+/// 0011): one block per octree box on level max(0, leaf_level - levels_above_leaf), over the J
+/// and M unknowns of the box's basis functions (mlfmm::level_unknown_blocks; box index as the
+/// block id), entries taken exactly once from
+///  * mlfmm::MlfmmOperator: its octree, near_operator() plus, on the PML route, the near ring
+///    (PmlRingOperator::near_operator(); the two partition the near pattern, and every same-box
+///    pair on these two levels is near, so the blocks equal those of the dense matrix);
+///  * op::DenseOperator: the octree mlfmm::make_octree(*problem.space, lambda_1, mlfmm)
+///    (lambda_1 = 2 pi / Re k_1, the reference of the MLFMM operator), blocks of the matrix.
+/// Simulation uses it for PreconditionerKind::BlockDiagonal; drivers can use it to compare
+/// preconditioners on one assembled operator.
+/// @throws std::invalid_argument for levels_above_leaf not 0 or 1, another operator type, an
+///         operator whose size is not 2N of problem.space, and as solver::extract_diagonal_blocks
+///         / mlfmm::make_octree; std::runtime_error for a singular or ill-conditioned block
+///         (solver::BlockDiagonalPreconditioner, the message names the box).
+[[nodiscard]] std::unique_ptr<solver::BlockDiagonalPreconditioner> make_block_preconditioner(
+    const op::LinearOperator& Z, const op::Problem& problem, const mlfmm::MlfmmParams& mlfmm,
+    int levels_above_leaf);
 
 /// Far-field source of the PML route (ADR 0010, WP-PML6).
 enum class FarFieldSource {
@@ -334,16 +388,21 @@ public:
     ///         2N > op::kMaxDenseUnknowns for the dense strategy, compression "mlfmm" with
     ///         SolverKind::Direct, a formulation that is not
     ///         implemented (formulation::Kind::JMCFIE), invalid kernel options or GMRES
-    ///         parameters (tolerance not finite or <= 0, max_iter < 1, restart < 0), and
-    ///         everything op::validate rejects.
+    ///         parameters (tolerance not finite or <= 0, max_iter < 1, restart < 0),
+    ///         preconditioner and diagonal_preconditioner set inconsistently, an invalid
+    ///         PreconditionerKind, block_levels_above_leaf not 0 or 1, invalid MLFMM
+    ///         parameters (SimulationConfig::mlfmm) with compression "mlfmm" or with an explicit
+    ///         BlockDiagonal on the dense route (its octree), and everything op::validate
+    ///         rejects.
     Simulation(geometry::TriangleMesh mesh, std::shared_ptr<excitation::Excitation> excitation,
                SimulationConfig config);
     /// Open rough surface terminated by a complex-coordinate-stretching PML (ADR 0009, WP-PML3a):
     /// the PML route, dense (prototype, validated by 7a-7e) or with compression "mlfmm" (fast
     /// path, WP-PML5a / 5b: MLFMM on the real functions plus the PML ring, near exact, far ACA,
-    /// mlfmm::MlfmmOperator; GMRES with the diagonal preconditioner as on the dense route, the
-    /// masked test rows stay in the system with right-hand side 0). Cheap (no assembly), like
-    /// the box constructor.
+    /// mlfmm::MlfmmOperator; GMRES with the near-field block-diagonal preconditioner by default
+    /// since WP-PC1 (the "mlfmm" route only, the dense route keeps the recommendation;
+    /// SimulationConfig::preconditioner), the masked test rows stay in the system with
+    /// right-hand side 0). Cheap (no assembly), like the box constructor.
     ///
     /// Builds the stretch geometry::make_pml_stretch(open, pml.sigma_max, pml.order) and sets
     /// op::Problem::stretch, so that the dense operator uses the stretched kernels, the
@@ -381,7 +440,8 @@ public:
     ///    message reports the ratio and suggests a smaller waist or a wider gap);
     ///  * everything the box constructor checks that applies here (null excitation, wavelength,
     ///    exterior material, unknown compression, dense limit, formulation, kernel options,
-    ///    GMRES parameters, op::validate).
+    ///    GMRES parameters, preconditioner settings incl. the MLFMM octree parameters of explicit
+    ///    BlockDiagonal blocks on the dense route, op::validate).
     Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
                std::shared_ptr<excitation::Excitation> excitation, SimulationConfig config);
     ~Simulation();
@@ -390,12 +450,14 @@ public:
     Simulation(Simulation&&) = delete;
     Simulation& operator=(Simulation&&) = delete;
 
-    /// Assembles the operator, the right-hand side and (GMRES with the Jacobi preconditioner
-    /// only) the diagonal, and times them. Idempotent: what is already assembled is kept, so
-    /// later calls do nothing (after an exception a later call retries the missing parts).
+    /// Assembles the operator, the right-hand side and (GMRES only) the preconditioner's data:
+    /// the Jacobi diagonal or the block-diagonal preconditioner (make_block_preconditioner), and
+    /// times them. Idempotent: what is already assembled is kept, so later calls do nothing
+    /// (after an exception a later call retries the missing parts).
     /// @throws std::invalid_argument / std::runtime_error from the operator construction; for
     ///         "mlfmm" a std::runtime_error when no expansion order meets 10^-d0 (lossy
-    ///         interior such as Ag: the ADR 0008 §6 policy is WP21), with the remedies.
+    ///         interior such as Ag: the ADR 0008 §6 policy is WP21), with the remedies;
+    ///         std::runtime_error for a singular block of the block-diagonal preconditioner.
     void assemble();
     /// Same as solve(config().gmres, cb).
     solver::GmresResult solve(const solver::IterationCallback& cb = {});
@@ -424,7 +486,8 @@ public:
     /// True once a solve() has completed (also a non-converged GMRES solve, whose solution is
     /// stored), i.e. solution() does not throw. Never throws.
     [[nodiscard]] bool solved() const;
-    /// Multi-line report: mesh size, formulation / preconditioner used (and whether automatic),
+    /// Multi-line report: mesh size, formulation / preconditioner used (and whether automatic;
+    /// block-diagonal: the block level, and after assembly the blocks, setup time and memory),
     /// solver (with the GMRES parameters of the last solve, config().gmres before the first),
     /// compression, operator memory (PML route with "mlfmm": the stretched / real split and the
     /// ring's near / far bytes), timings, iterations and residuals.
@@ -438,6 +501,11 @@ public:
     [[nodiscard]] formulation::Kind formulation_kind() const;
     /// Whether the Jacobi preconditioner is used by the GMRES solve (resolved setting).
     [[nodiscard]] bool diagonal_preconditioner() const;
+    /// Preconditioner of the GMRES solve (resolved setting, SimulationConfig::preconditioner).
+    [[nodiscard]] PreconditionerKind preconditioner_kind() const;
+    /// The block-diagonal preconditioner once built (assemble() with PreconditionerKind::
+    /// BlockDiagonal and the GMRES solver), nullptr otherwise.
+    [[nodiscard]] const solver::BlockDiagonalPreconditioner* block_preconditioner() const;
     /// Number of unknowns 2N.
     [[nodiscard]] Index num_unknowns() const;
     /// System operator and right-hand side. @throws std::logic_error before assemble().

@@ -1,13 +1,14 @@
 // Validation 7h of the PML route at the 7c size (WP-PML5a; ADR 0008 amendment 2026-10-18 decision
 // 6, docs/05 "PML route" row 7h): the fast path (compression "mlfmm" on the PML route: MLFMM on
 // the real functions plus the PML ring: near exact, far ACA since WP-PML5b; GMRES with the
-// recommended diagonal preconditioner, tolerance 1e-7) against the dense PML matrix and its LU
-// solve on the rough Ag U case of WP-PML4b (pml_rough_ag::u_case(): sigma = 50 nm, Lc = 500 nm,
-// seed 1, L = 3.75 um, h = lambda / 4, w0 = lambda, PML defaults; 2N = 22 816, 45 % of the
-// functions stretched). Criteria (docs/05, not loosened): matvec < 1e-3 at d0 = 3, R within 1e-4
-// relative, windowed far field L2 (ADR 0006 metric, pml_rough_ag::compare) < 1e-3. Memory and time
-// of both paths are reported (WARN ROW line; record benchmarks/results/pml_ring.md). A second case
-// checks the d0 = 5 matvec gate (< 1e-5) on the same case without a solve (WARN MATVEC line).
+// automatic preconditioner, block-diagonal since WP-PC1 (Jacobi before), tolerance 1e-7) against
+// the dense PML matrix and its LU solve on the rough Ag U case of WP-PML4b (pml_rough_ag::u_case():
+// sigma = 50 nm, Lc = 500 nm, seed 1, L = 3.75 um, h = lambda / 4, w0 = lambda, PML defaults;
+// 2N = 22 816, 45 % of the functions stretched). Criteria (docs/05, not loosened): matvec < 1e-3 at
+// d0 = 3, R within 1e-4 relative, windowed far field L2 (ADR 0006 metric, pml_rough_ag::compare) <
+// 1e-3. Memory and time of both paths are reported (WARN ROW line; record
+// benchmarks/results/pml_ring.md). A second case checks the d0 = 5 matvec gate (< 1e-5) on the same
+// case without a solve (WARN MATVEC line).
 //
 // Label `validation-large` (release only, RUN_SERIAL; manual:
 // `ctest --preset win-release -L validation-large -R "ring|7h"`). SKIPs when the dense matrix

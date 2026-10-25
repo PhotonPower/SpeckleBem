@@ -99,7 +99,9 @@ struct Estimate {
 struct Result {
     Estimate est;
     std::string formulation;
-    bool jacobi = false;
+    /// to_string(Simulation::preconditioner_kind()) of the solve ("none", "diagonal" = left
+    /// Jacobi, "block_diagonal").
+    std::string preconditioner = "none";
     Real eps_xz = 0, eps_yz = 0;            ///< kRcsAngles
     Real eps_xz_fine = 0, eps_yz_fine = 0;  ///< kRcsAnglesFine
     int iterations = 0;
@@ -198,7 +200,7 @@ inline Result run(const Case& c, const std::function<void(const Simulation&)>& a
     r.est = estimate(mesh, c);
     Simulation sim(mesh, make_wave(), make_config(c));
     r.formulation = formulation::make_formulation(sim.formulation_kind())->name();
-    r.jacobi = sim.diagonal_preconditioner();
+    r.preconditioner = to_string(sim.preconditioner_kind());
     {
         const auto t0 = Clock::now();
         sim.assemble();
@@ -271,7 +273,10 @@ inline std::string summary(const Estimate& e) {
 inline std::string summary(const Result& r) {
     std::ostringstream os;
     os << summary(r.est) << "\n"
-       << "formulation " << r.formulation << (r.jacobi ? " + left Jacobi" : "")
+       << "formulation " << r.formulation
+       << (r.preconditioner == "diagonal"         ? " + left Jacobi"
+           : r.preconditioner == "block_diagonal" ? " + block-diagonal"
+                                                  : "")
        << "; eps_rr xz = " << r.eps_xz << ", yz = " << r.eps_yz << " (" << kRcsAngles
        << " angles), " << r.eps_xz_fine << " / " << r.eps_yz_fine << " (" << kRcsAnglesFine
        << " angles)\n"

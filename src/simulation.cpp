@@ -24,6 +24,18 @@
 
 namespace specklebem {
 
+const char* to_string(PreconditionerKind kind) {
+    switch (kind) {
+        case PreconditionerKind::None:
+            return "none";
+        case PreconditionerKind::Diagonal:
+            return "diagonal";
+        case PreconditionerKind::BlockDiagonal:
+            return "block_diagonal";
+    }
+    return "invalid";
+}
+
 namespace {
 
 constexpr Real kRelTol = 1e-12;
@@ -132,6 +144,41 @@ void check_gmres_params(const solver::GmresParams& g) {
 
 const char* side_name(solver::PreconditionerSide s) {
     return s == solver::PreconditionerSide::Left ? "left" : "right";
+}
+
+/// Preconditioner settings (WP-PC1): a valid kind, consistency with diagonal_preconditioner, the
+/// block level, and on the dense route with BlockDiagonal the MLFMM octree parameters (the
+/// partition uses mlfmm::make_octree).
+void check_preconditioner_config(const SimulationConfig& c) {
+    if (c.block_levels_above_leaf != 0 && c.block_levels_above_leaf != 1) {
+        throw std::invalid_argument(
+            "Simulation: block_levels_above_leaf must be 0 (octree leaves) or 1 (one level up)");
+    }
+    // Unset: the automatic BlockDiagonal arises only with compression "mlfmm" (Impl::setup),
+    // whose parameters check_operator_config validates anyway.
+    if (!c.preconditioner)
+        return;
+    const PreconditionerKind k = *c.preconditioner;
+    if (k != PreconditionerKind::None && k != PreconditionerKind::Diagonal &&
+        k != PreconditionerKind::BlockDiagonal) {
+        throw std::invalid_argument("Simulation: invalid PreconditionerKind value");
+    }
+    if (c.diagonal_preconditioner) {
+        const bool diag = *c.diagonal_preconditioner;
+        if ((k == PreconditionerKind::Diagonal) != diag || k == PreconditionerKind::BlockDiagonal) {
+            throw std::invalid_argument(
+                std::string("Simulation: preconditioner \"") + to_string(k) +
+                "\" contradicts diagonal_preconditioner = " + (diag ? "true" : "false") +
+                " (set one of them, or both consistently: diagonal with true, none with false)");
+        }
+    }
+    if (k == PreconditionerKind::BlockDiagonal && c.compression == "dense")
+        check_mlfmm_params(c.mlfmm);
+}
+
+/// lambda_1 = 2 pi / Re k_1, the MLFMM octree's leaf-size reference.
+Real octree_wavelength(const op::Problem& p) {
+    return 2.0 * constants::pi / p.exterior.wavenumber(p.omega).real();
 }
 
 }  // namespace
@@ -366,19 +413,25 @@ struct Simulation::Impl {
     std::unique_ptr<formulation::Formulation> form;
     formulation::Kind kind = formulation::Kind::ICTF;
     bool kind_auto = false;
-    bool jacobi = false;
-    bool jacobi_auto = false;
+    PreconditionerKind pre = PreconditionerKind::None;  ///< resolved preconditioner
+    bool pre_auto = false;
     op::Problem problem;
 
     std::shared_ptr<op::LinearOperator> op;  ///< null until assemble()
     VectorXc rhs;
     VectorXc diagonal;  ///< empty unless the Jacobi preconditioner is used
-    double assembly_s = 0, rhs_s = 0, diagonal_s = 0, solve_s = 0;
+    /// Null unless the block-diagonal preconditioner is used (built by assemble()).
+    std::unique_ptr<solver::BlockDiagonalPreconditioner> block;
+    double assembly_s = 0, rhs_s = 0, diagonal_s = 0, block_s = 0, solve_s = 0;
 
     /// GMRES with the Jacobi preconditioner (the only solve that needs the diagonal).
     [[nodiscard]] bool uses_diagonal() const;
     /// Assembles the diagonal once if uses_diagonal(); no-op otherwise.
     void ensure_diagonal();
+    /// GMRES with the block-diagonal preconditioner.
+    [[nodiscard]] bool uses_block() const;
+    /// Builds the block-diagonal preconditioner once if uses_block(); no-op otherwise.
+    void ensure_block();
 
     bool solved = false;
     solver::GmresParams last_gmres;  ///< parameters of the last solve (for report())
@@ -444,6 +497,7 @@ void check_operator_config(const SimulationConfig& config, Index unknowns) {
     }
     kernels::validate(config.kernels);
     check_gmres_params(config.gmres);
+    check_preconditioner_config(config);
 }
 
 std::unique_ptr<formulation::Formulation> checked_formulation(formulation::Kind kind) {
@@ -461,8 +515,21 @@ void Simulation::Impl::setup(const formulation::Recommendation& rec, formulation
                              std::unique_ptr<formulation::Formulation> f) {
     kind_auto = !config.formulation.has_value();
     kind = k;
-    jacobi_auto = !config.diagonal_preconditioner.has_value();
-    jacobi = config.diagonal_preconditioner.value_or(rec.diagonal_preconditioner);
+    pre_auto = !config.preconditioner.has_value() && !config.diagonal_preconditioner.has_value();
+    if (config.preconditioner) {
+        pre = *config.preconditioner;
+    } else if (!config.diagonal_preconditioner && pml && config.compression == "mlfmm" &&
+               config.solver == SolverKind::Gmres) {
+        // Default of the fast PML route since WP-PC1 (ADR 0011 decision 3, benchmarks/results/
+        // preconditioner.md): rough Ag 2.3e4 / 1.5e5 / 3.0e5 unknowns 602 / 1715 / 2679 Jacobi
+        // iterations against 184 / 520 / 844 with the blocks one level above the leaves. Only
+        // the "mlfmm" PML route was measured; the dense PML route keeps the recommendation.
+        pre = PreconditionerKind::BlockDiagonal;
+    } else {
+        pre = config.diagonal_preconditioner.value_or(rec.diagonal_preconditioner)
+                  ? PreconditionerKind::Diagonal
+                  : PreconditionerKind::None;
+    }
     form = std::move(f);
 
     problem.space = &space;
@@ -842,7 +909,70 @@ Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
 Simulation::~Simulation() = default;
 
 bool Simulation::Impl::uses_diagonal() const {
-    return config.solver == SolverKind::Gmres && jacobi;
+    return config.solver == SolverKind::Gmres && pre == PreconditionerKind::Diagonal;
+}
+
+bool Simulation::Impl::uses_block() const {
+    return config.solver == SolverKind::Gmres && pre == PreconditionerKind::BlockDiagonal;
+}
+
+void Simulation::Impl::ensure_block() {
+    if (!uses_block() || block != nullptr)
+        return;
+    const ScopedTimer t("Simulation: block-diagonal preconditioner");
+    block = make_block_preconditioner(*op, problem, config.mlfmm, config.block_levels_above_leaf);
+    block_s = t.elapsed_seconds();
+    SBEM_INFO("Simulation: {}", block->describe());
+    // Automatic default only (explicit settings are the caller's choice): on a tiny or coarse
+    // octree the chosen level can be (close to) the root, and a block solve is then (close to)
+    // a dense LU of Z. Kept (no fallback), but said.
+    if (pre_auto && 2 * block->max_block_size() > block->size()) {
+        SBEM_WARN(
+            "Simulation: the automatic block-diagonal preconditioner's largest block holds {} of "
+            "the {} unknowns ({} blocks, {}): on this coarse tree a block solve is close to a "
+            "dense LU of the system; set block_levels_above_leaf = 0 or an explicit "
+            "preconditioner",
+            block->max_block_size(), block->size(), block->num_blocks(),
+            config.block_levels_above_leaf == 0 ? "octree leaves" : "one level above the leaves");
+    }
+}
+
+std::unique_ptr<solver::BlockDiagonalPreconditioner> make_block_preconditioner(
+    const op::LinearOperator& Z, const op::Problem& problem, const mlfmm::MlfmmParams& mlfmm,
+    int levels_above_leaf) {
+    if (levels_above_leaf != 0 && levels_above_leaf != 1) {
+        throw std::invalid_argument(
+            "make_block_preconditioner: levels_above_leaf must be 0 (octree leaves) or 1");
+    }
+    if (problem.space == nullptr)
+        throw std::invalid_argument("make_block_preconditioner: the problem has no RWG space");
+    const Index n2 = 2 * problem.space->size();
+    if (Z.rows() != n2 || Z.cols() != n2) {
+        throw std::invalid_argument(
+            "make_block_preconditioner: the operator is not 2N x 2N for "
+            "the problem's RWG space");
+    }
+    const auto partition = [&](const mlfmm::Octree& tree) {
+        const int level = std::max(0, tree.leaf_level() - levels_above_leaf);
+        solver::BlockPartition p;
+        p.blocks = mlfmm::level_unknown_blocks(tree, level, &p.ids);
+        return p;
+    };
+    if (const auto* fast = dynamic_cast<const mlfmm::MlfmmOperator*>(&Z)) {
+        std::vector<const op::SparseOperator::Matrix*> sources = {&fast->near_operator().matrix()};
+        if (fast->ring_operator() != nullptr)
+            sources.push_back(&fast->ring_operator()->near_operator().matrix());
+        return std::make_unique<solver::BlockDiagonalPreconditioner>(partition(fast->octree()),
+                                                                     sources);
+    }
+    if (const auto* dense = dynamic_cast<const op::DenseOperator*>(&Z)) {
+        const mlfmm::Octree tree =
+            mlfmm::make_octree(*problem.space, octree_wavelength(problem), mlfmm);
+        return std::make_unique<solver::BlockDiagonalPreconditioner>(partition(tree),
+                                                                     dense->matrix());
+    }
+    throw std::invalid_argument(
+        "make_block_preconditioner: the operator is neither an MLFMM nor a dense operator");
 }
 
 void Simulation::Impl::ensure_diagonal() {
@@ -915,6 +1045,7 @@ void Simulation::assemble() {
         s.op = std::move(Z);
     }
     s.ensure_diagonal();
+    s.ensure_block();
 }
 
 solver::GmresResult Simulation::solve(const solver::IterationCallback& cb) {
@@ -941,9 +1072,11 @@ solver::GmresResult Simulation::solve(const solver::GmresParams& params,
         res.converged = true;
         res.true_relative_residual = s.direct_info.residual;
         res.residual_history = {s.direct_info.residual};
-    } else if (s.jacobi) {
+    } else if (s.pre == PreconditionerKind::Diagonal) {
         const solver::DiagonalPreconditioner M(s.diagonal);
         res = solver::gmres(*s.op, s.rhs, M, params, cb);
+    } else if (s.pre == PreconditionerKind::BlockDiagonal) {
+        res = solver::gmres(*s.op, s.rhs, *s.block, params, cb);
     } else {
         res = solver::gmres(*s.op, s.rhs, solver::IdentityPreconditioner(), params, cb);
     }
@@ -965,9 +1098,12 @@ solver::GmresResult Simulation::solve(const solver::GmresParams& params,
         "Simulation: {} {}{}, 2N = {}: {} it, converged {}, true residual {:.3e}, "
         "assembly {:.3f} s, solve {:.3f} s",
         s.form->name(), s.config.solver == SolverKind::Direct ? "direct LU" : "GMRES",
-        s.config.solver == SolverKind::Gmres && s.jacobi ? " + Jacobi" : "", num_unknowns(),
-        res.iterations, res.converged, res.true_relative_residual,
-        s.assembly_s + s.rhs_s + s.diagonal_s, s.solve_s);
+        s.config.solver != SolverKind::Gmres         ? ""
+        : s.pre == PreconditionerKind::Diagonal      ? " + Jacobi"
+        : s.pre == PreconditionerKind::BlockDiagonal ? " + block-diagonal"
+                                                     : "",
+        num_unknowns(), res.iterations, res.converged, res.true_relative_residual,
+        s.assembly_s + s.rhs_s + s.diagonal_s + s.block_s, s.solve_s);
     return res;
 }
 
@@ -999,13 +1135,22 @@ std::string Simulation::report() const {
       << ", exterior eps_r = " << s.config.exterior.eps_r << "\n";
     o << "  formulation:    " << s.form->name() << (s.kind_auto ? " (automatic)" : " (explicit)")
       << "\n";
-    o << "  preconditioner: " << (s.jacobi ? "diagonal (Jacobi)" : "none")
-      << (s.jacobi_auto ? " (automatic)" : " (explicit)");
+    o << "  preconditioner: "
+      << (s.pre == PreconditionerKind::Diagonal        ? "diagonal (Jacobi)"
+          : s.pre == PreconditionerKind::BlockDiagonal ? "block-diagonal (near field)"
+                                                       : "none")
+      << (s.pre_auto ? " (automatic)" : " (explicit)");
+    if (s.pre == PreconditionerKind::BlockDiagonal)
+        o << ", blocks: "
+          << (s.config.block_levels_above_leaf == 0 ? "octree leaves"
+                                                    : "one level above the leaves");
     if (direct)
         o << ", unused by the direct solver";
-    else if (s.jacobi)
+    else if (s.pre != PreconditionerKind::None)
         o << ", " << side_name(g.side) << " side";
     o << "\n";
+    if (s.block != nullptr)
+        o << "  preconditioner setup: " << s.block_s << " s, " << s.block->describe() << "\n";
     o << "  solver:         ";
     if (direct)
         o << "direct LU\n";
@@ -1097,6 +1242,8 @@ std::string Simulation::report() const {
     o << "  assembly:       Z " << s.assembly_s << " s, rhs " << s.rhs_s << " s";
     if (s.diagonal.size() > 0)
         o << ", diagonal " << s.diagonal_s << " s";
+    if (s.block != nullptr)
+        o << ", block-diagonal preconditioner " << s.block_s << " s";
     o << "\n";
     if (!s.solved) {
         o << "  solve:          not run\n";
@@ -1130,7 +1277,15 @@ formulation::Kind Simulation::formulation_kind() const {
 }
 
 bool Simulation::diagonal_preconditioner() const {
-    return impl_->jacobi;
+    return impl_->pre == PreconditionerKind::Diagonal;
+}
+
+PreconditionerKind Simulation::preconditioner_kind() const {
+    return impl_->pre;
+}
+
+const solver::BlockDiagonalPreconditioner* Simulation::block_preconditioner() const {
+    return impl_->block.get();
 }
 
 Index Simulation::num_unknowns() const {

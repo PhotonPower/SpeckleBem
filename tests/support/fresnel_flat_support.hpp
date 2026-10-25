@@ -577,7 +577,9 @@ struct Result {
     Estimate est;
     Reference ref;
     std::string formulation;
-    bool jacobi = false;
+    /// to_string(Simulation::preconditioner_kind()) of the solve ("none", "diagonal" = left
+    /// Jacobi, "block_diagonal").
+    std::string preconditioner = "none";
     int iterations = 0;
     bool converged = false;
     Real true_residual = 0;
@@ -619,7 +621,7 @@ inline Result run(const Case& c, const Geometry& geo,
     r.ref = reference(c, *beam, beam_build_s);
     Simulation sim(geo.mesh, beam, make_config(c));
     r.formulation = formulation::make_formulation(sim.formulation_kind())->name();
-    r.jacobi = sim.diagonal_preconditioner();
+    r.preconditioner = to_string(sim.preconditioner_kind());
     {
         const auto t0 = Clock::now();
         sim.assemble();
@@ -703,13 +705,22 @@ inline std::string summary(const Reference& r) {
     return os.str();
 }
 
+/// " + left Jacobi", " + block-diagonal" or "" for a Result::preconditioner (the summaries).
+inline std::string preconditioner_suffix(const std::string& kind) {
+    if (kind == "diagonal")
+        return " + left Jacobi";
+    if (kind == "block_diagonal")
+        return " + block-diagonal";
+    return "";
+}
+
 /// Multi-line summary of a result.
 inline std::string summary(const Result& r) {
     std::ostringstream os;
     os.precision(8);
     os << summary(r.est) << "\n"
        << summary(r.ref) << "\n"
-       << "formulation " << r.formulation << (r.jacobi ? " + left Jacobi" : "") << "; GMRES "
+       << "formulation " << r.formulation << preconditioner_suffix(r.preconditioner) << "; GMRES "
        << r.iterations << " iterations, converged " << (r.converged ? "yes" : "no")
        << ", true residual " << r.true_residual << "; assembly " << r.assembly_s << " s, solve "
        << r.solve_s << " s, post " << r.post_s << " s\n"

@@ -54,6 +54,7 @@ add_executable(specklebem_unit_tests
     unit/test_pml_si_crosscheck.cpp
     unit/test_pml_ring.cpp
     unit/test_aca.cpp
+    unit/test_block_preconditioner.cpp
     # unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
@@ -116,6 +117,7 @@ add_executable(specklebem_validation_tests
     validation/test_drc_power.cpp
     validation/test_ag_near_field.cpp
     validation/test_pml_ring.cpp
+    validation/test_block_preconditioner_mie.cpp
     validation/test_pml_huygens.cpp
 )
 target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)

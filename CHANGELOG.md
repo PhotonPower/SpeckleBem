@@ -5,6 +5,24 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver / mlfmm / simulation / python (WP-PC1, ADR 0011): near-field block-diagonal preconditioner
+  `solver::BlockDiagonalPreconditioner` — one block per octree box (leaf or one level up) over the J and M unknowns
+  of the box (`mlfmm::level_unknown_blocks`), entries extracted exactly once from the near parts
+  (`MlfmmOperator::near_operator()` + the PML near ring, or a dense matrix; duplicate / missing entries throw),
+  `Eigen::PartialPivLU` per block in parallel, block-disjoint alias-safe apply, bitwise thread-count independent,
+  non-finite or rcond < 1e-13 blocks throw with the box id. `SimulationConfig::preconditioner`
+  (`PreconditionerKind {None, Diagonal, BlockDiagonal}`), `block_levels_above_leaf` (0 or 1), `make_block_preconditioner`,
+  report lines; Python `preconditioner="block_diagonal"`, `block_level=`, HDF5 `/config` key. Measurement (rough Ag
+  PML, ICTF, 1e-7, loaded 12-core desktop): iterations 602 / 1 715 / 2 679 (Jacobi) → 184 / 520 / 844 (one level up)
+  at 2N = 2.3e4 / 1.5e5 / 3e5, setup ≤ 3 s, 1.4 GB, Krylov basis 12.9 → 4.1 GB, total solve at 3e5 2 916 s vs 6 540 s
+  → ADR 0011 switch rule met: **the PML route with GMRES on the mlfmm operator now defaults to the block-diagonal
+  preconditioner one level above the leaves** (the dense PML route keeps Jacobi until measured; a warning names
+  blocks covering more than half of the unknowns on tiny trees); box route, direct solver and explicit choices
+  unchanged (Ag sphere blocks are worse than Jacobi there). Growth exponent unchanged (≈ N^0.57): a constant factor ≈ 3.2. Results within
+  tolerance of the Jacobi solves (R 5e-8 Ag, 4e-7 Si, RCS 5e-6); 7h rerun with the default passes. WP-G2 condition not
+  met (orthogonalisation 10.5 % of GMRES time). Unit tests `[block_preconditioner]` (13 cases, fixed seeds),
+  validation Ag sphere MLFMM, Python test, study driver `benchmarks/preconditioner_study`, record
+  `benchmarks/results/preconditioner.md`, ADR 0011 "Result", docs/05 note, docs/10.
 - tests / docs (WP-PML6b, ADR 0010 decision 2026-10-25 items 3–4): confirmation of the physical L dependence and the
   wide-gap rule for rough metals on two roughness seeds (wide-gap plane, gap 3 µm = 6 λ, 2N = 62 016, fast path):
   in the cone θ ≤ 30° the window flank ×0.7 / ×1.3 moves the windowed currents by ≤ 4.0·10⁻⁴ (seed 1) / 8.7·10⁻⁴

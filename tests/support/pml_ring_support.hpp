@@ -3,8 +3,9 @@
 /// Validation 7h of the PML route (WP-PML5a/5b/5c; ADR 0008 amendment 2026-10-18 decision 6,
 /// docs/05 "PML route" row 7h): the fast path (Simulation with compression "mlfmm" on the PML
 /// route: MLFMM on the real functions plus the PML ring, near part exact, far part ACA by
-/// default, GMRES with the recommended diagonal preconditioner) against the dense PML matrix and
-/// its LU solve on the same case:
+/// default, GMRES with the automatic preconditioner: the near-field block-diagonal one, one level
+/// above the leaves, since WP-PC1 (ADR 0011; the Jacobi diagonal before), recorded as precond in
+/// the ROW line) against the dense PML matrix and its LU solve on the same case:
 ///  * matvec: max over random vectors (fixed seeds) of |Z_fast x - Z_dense x| / |Z_dense x|
 ///    (< 1e-3 at d0 = 3, < 1e-5 at d0 = 5);
 ///  * solve: R = P_refl / P_inc of the windowed far field (pml_rough_ag::FarField::reflectance)
@@ -100,9 +101,10 @@ struct FastRun {
                 rr_far_bytes = 0;
     Index ring_near_pairs = 0, ring_far_pairs = 0;
     mlfmm::PmlRingFarStats far_stats;  ///< ring far part (ACA / exact)
-    /// Simulation::assemble(): the operator (MLFMM + ring), the right-hand side and the Jacobi
-    /// diagonal (ROW "fast assemble"; the operator alone is about ring_near_s + ring_far_s + the
-    /// MLFMM setup, the diagonal is read from the near parts, MlfmmOperator::diagonal)
+    /// Simulation::assemble(): the operator (MLFMM + ring), the right-hand side and the
+    /// preconditioner's data (ROW "fast assemble"; the operator alone is about ring_near_s +
+    /// ring_far_s + the MLFMM setup; the block-diagonal preconditioner of the default takes
+    /// seconds, a Jacobi diagonal is read from the near parts, MlfmmOperator::diagonal)
     Real assemble_s = 0;
     Real ring_near_s = 0, ring_far_s = 0;
     Real matvec_s = 0;  ///< one apply (mean over the matvec vectors)
@@ -110,6 +112,8 @@ struct FastRun {
     int iterations = 0;
     bool converged = false;
     Real true_residual = 0;
+    /// to_string(Simulation::preconditioner_kind()) of the solve (ROW "precond").
+    std::string preconditioner;
     Real peak_rss = 0;  ///< process peak after the fast run [bytes]
     std::string report;
 };
@@ -173,6 +177,7 @@ inline FastRun run_fast(const RoughCase& c, const FastSettings& f) {
     r.iterations = g.iterations;
     r.converged = g.converged;
     r.true_residual = g.true_relative_residual;
+    r.preconditioner = to_string(sim.preconditioner_kind());
     r.x = sim.solution().currents;
     r.far = pml_rough_ag::evaluate_far_field(sim, sim.solution(), c, *sim.far_field_window(),
                                              beam->power());
@@ -312,9 +317,10 @@ inline MatvecRun run_matvec(const RoughCase& c, const FastSettings& f) {
         "ROW | pml_ring | %s | %s | rms %.3g | L %.4g | taper %.4g | gap %.4g | pml %.4g | h %.4g "
         "| sigma %.3g | d0 %.1f | tol %.1e | 2N %lld | stretched %lld (%.1f %%) | levels %d | leaf "
         "%.3f lambda | matvec %.3e | R fast %.8f | R dense %.8f | dR %+.3e | l2 %.3e | l2_off30 "
-        "%.3e | its %d | true res %.2e | dense res %.1e | fast op %.1f MB (rr near %.1f, rr far "
-        "%.1f, ring near %.1f, ring far %.1f) | dense %.1f MB | ring pairs near %lld far %lld | "
-        "fast assemble (op + rhs + diag) %.1f s (ring near %.1f, far %.1f) | matvec fast %.3f s "
+        "%.3e | its %d | precond %s | true res %.2e | dense res %.1e | fast op %.1f MB (rr near "
+        "%.1f, rr far %.1f, ring near %.1f, ring far %.1f) | dense %.1f MB | ring pairs near %lld "
+        "far %lld | fast assemble (op + rhs + precond) %.1f s (ring near %.1f, far %.1f) | matvec "
+        "fast %.3f s "
         "dense %.3f s | "
         "GMRES %.1f s | dense assembly %.1f s | LU %.1f s | peak fast %.2f GB dense %.2f GB",
         c.tag.c_str(), c.material.c_str(), c.rms, c.patch, c.taper, c.gap, c.pml_width, c.mesh_size,
@@ -322,7 +328,7 @@ inline MatvecRun run_matvec(const RoughCase& c, const FastSettings& f) {
         static_cast<long long>(fr.stretched),
         200.0 * static_cast<Real>(fr.stretched) / static_cast<Real>(fr.unknowns), fr.levels,
         fr.leaf_lambda, max_of(dr.matvec_errors), fr.far.reflectance(), dr.far.reflectance(), m.dR,
-        m.l2, m.l2_off30, fr.iterations, fr.true_residual, dr.residual,
+        m.l2, m.l2_off30, fr.iterations, fr.preconditioner.c_str(), fr.true_residual, dr.residual,
         static_cast<Real>(fr.operator_bytes) / 1e6, static_cast<Real>(fr.rr_near_bytes) / 1e6,
         static_cast<Real>(fr.rr_far_bytes) / 1e6, static_cast<Real>(fr.ring_near_bytes) / 1e6,
         static_cast<Real>(fr.ring_far_bytes) / 1e6, dr.dense_bytes / 1e6,

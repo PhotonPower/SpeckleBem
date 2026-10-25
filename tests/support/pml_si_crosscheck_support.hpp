@@ -787,7 +787,10 @@ inline RouteResult run_pml(const Case& c, const geometry::HeightMap& map) {
         r.converged = true;
     } else {
         const solver::GmresResult g = sim.solve();
-        r.solver = c.pml_solver == PmlSolver::Fast ? "fast-gmres" : "gmres";
+        // The solver label carries the preconditioner (automatic on the fast route: block-
+        // diagonal since WP-PC1; on the dense route the recommendation).
+        r.solver = std::string(c.pml_solver == PmlSolver::Fast ? "fast-gmres+" : "gmres+") +
+                   to_string(sim.preconditioner_kind());
         r.iterations = g.iterations;
         r.converged = g.converged;
         r.residual = g.true_relative_residual;

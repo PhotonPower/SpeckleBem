@@ -151,6 +151,7 @@ def test_sphere_round_trip_lossless(direct, h5py, tmp_path):
         "formulation_automatic",
         "preconditioner",
         "preconditioner_automatic",
+        "block_level",
         "solver",
         "compression",
     ):

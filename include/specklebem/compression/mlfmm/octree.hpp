@@ -191,4 +191,18 @@ private:
     Index elevated_total_ = 0;
 };
 
+/// Unknown blocks of the boxes of one level (the block-diagonal preconditioner, WP-PC1, ADR
+/// 0011): for the k-th box of boxes_at_level(level) (Morton order) the unknowns of the [J; M]
+/// system (N = permutation().size() basis functions) of its basis functions, the box range
+/// [first_element, first_element + num_elements) of the permuted list: first the J indices
+/// permutation()[p], p ascending, then the M indices permutation()[p] + N in the same order.
+/// Every unknown of [0, 2N) is in exactly one block (elevated functions in their leaf's box, by
+/// midpoint). Every pair of functions in one box of the leaf level or of the level above it is
+/// a near pair of the MLFMM (their leaves coincide or touch), so these blocks are complete in the
+/// near field; two levels above the leaves they are not.
+/// @param box_ids if not null, receives the box index of each block
+/// @throws std::out_of_range for an invalid level
+[[nodiscard]] std::vector<std::vector<Index>> level_unknown_blocks(
+    const Octree& tree, int level, std::vector<Index>* box_ids = nullptr);
+
 }  // namespace specklebem::mlfmm

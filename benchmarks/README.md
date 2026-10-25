@@ -58,6 +58,13 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
   (`specklebem_pml_huygens --study 7f|7g|si7d [--solver dense|fast] [--cases ...] [--summary F]
   [--out DIR]`).
 
+- [`results/preconditioner.md`](results/preconditioner.md) — near-field block-diagonal
+  preconditioner (WP-PC1, ADR 0011 decision 3): GMRES iterations, setup, memory and solve times of
+  Jacobi / none / leaf blocks / blocks one level up on the rough Ag PML sizes 2N = 2.3·10⁴ –
+  3.0·10⁵, rough Si PML and the Ag sphere (box route), the default decision. Raw lines:
+  [`results/preconditioner_rows.txt`](results/preconditioner_rows.txt); driver
+  `preconditioner_study.cpp` (executable below).
+
 ## Executables (`-DSPECKLEBEM_BUILD_BENCHMARKS=ON`)
 
 - `specklebem_mlfmm_scaling` (`mlfmm_scaling.cpp`): the WP22b1 study, one case per process.
@@ -95,3 +102,9 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
   `--micro` (single-thread cost per far pair and degree), `--threads T`, `--target <t>`,
   `--no-decay` / `--libm` (switch off `decay_aware_target` / `fast_plain_kernel`),
   `--schedule-threads T`. See `results/dense_assembly_profile.md`.
+- `specklebem_preconditioner_study` (`preconditioner_study.cpp`): the WP-PC1 study, one case per
+  process, the operator assembled once (compression "mlfmm") and solved with each requested
+  preconditioner on the same system. Options `--case pml|mie` (first), `--tag`, `--material ag|si`,
+  `--patch L` / `--map-patch L` (the WP-PML5b L = 16 / 24 µm sizes), `--d0`, `--tol`,
+  `--max-iter`, `--precond jacobi,none,leaf,parent`, `--diameter`, `--subdiv`, `--n-theta`,
+  `--n-phi`, `--summary FILE` (SETUP / ROW lines appended). See `results/preconditioner.md`.

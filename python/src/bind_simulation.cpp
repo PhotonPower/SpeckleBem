@@ -293,8 +293,9 @@ SimulationConfig make_config(const std::shared_ptr<excitation::Excitation>& exc,
                              const material::Material& object,
                              const std::optional<material::Material>& exterior,
                              std::optional<Real> wavelength, const py::object& form,
-                             const std::string& preconditioner, const std::string& solver_name,
-                             const std::string& compression, const std::optional<py::dict>& gmres,
+                             const std::string& preconditioner, int block_level,
+                             const std::string& solver_name, const std::string& compression,
+                             const std::optional<py::dict>& gmres,
                              const std::optional<py::dict>& kernel_opts,
                              const std::optional<py::dict>& mlfmm_opts) {
     if (!exc) {
@@ -306,11 +307,21 @@ SimulationConfig make_config(const std::shared_ptr<excitation::Excitation>& exc,
     c.object = object;
     c.formulation = parse_formulation(form);
     const std::string pre = to_lower(preconditioner);
-    if (pre == "diagonal" || pre == "none") {
-        c.diagonal_preconditioner = pre == "diagonal";
+    if (pre == "diagonal") {
+        c.preconditioner = PreconditionerKind::Diagonal;
+    } else if (pre == "none") {
+        c.preconditioner = PreconditionerKind::None;
+    } else if (pre == "block_diagonal") {
+        c.preconditioner = PreconditionerKind::BlockDiagonal;
     } else if (pre != "auto") {
-        throw py::value_error("preconditioner: expected \"auto\", \"none\" or \"diagonal\"");
+        throw py::value_error(
+            "preconditioner: expected \"auto\", \"none\", \"diagonal\" or \"block_diagonal\"");
     }
+    if (block_level != 0 && block_level != 1) {
+        throw py::value_error(
+            "block_level: expected 0 (octree leaves) or 1 (one level above the leaves)");
+    }
+    c.block_levels_above_leaf = block_level;
     const std::string sol = to_lower(solver_name);
     if (sol != "gmres" && sol != "direct") {
         throw py::value_error("solver: expected \"gmres\" or \"direct\"");
@@ -333,7 +344,7 @@ std::unique_ptr<PySimulation> make_simulation(
     const geometry::TriangleMesh& mesh, std::shared_ptr<excitation::Excitation> exc,
     const material::Material& object, const std::optional<material::Material>& exterior,
     std::optional<Real> wavelength, const py::object& form, const std::string& preconditioner,
-    const std::string& solver_name, const std::string& compression,
+    int block_level, const std::string& solver_name, const std::string& compression,
     const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
     const std::optional<py::dict>& mlfmm_opts) {
     if (mlfmm_opts) {  // the PML ring exists on the PML route only
@@ -347,8 +358,9 @@ std::unique_ptr<PySimulation> make_simulation(
             }
         }
     }
-    SimulationConfig c = make_config(exc, object, exterior, wavelength, form, preconditioner,
-                                     solver_name, compression, gmres, kernel_opts, mlfmm_opts);
+    SimulationConfig c =
+        make_config(exc, object, exterior, wavelength, form, preconditioner, block_level,
+                    solver_name, compression, gmres, kernel_opts, mlfmm_opts);
     geometry::TriangleMesh copy = mesh;
     std::shared_ptr<excitation::Excitation> keep = exc;
     py::gil_scoped_release release;
@@ -362,11 +374,13 @@ std::unique_ptr<PySimulation> make_pml_simulation(
     const geometry::OpenSurfaceMesh& open, std::shared_ptr<excitation::Excitation> exc,
     const std::optional<PmlTermination>& pml, const material::Material& object,
     const std::optional<material::Material>& exterior, std::optional<Real> wavelength,
-    const py::object& form, const std::string& preconditioner, const std::string& solver_name,
-    const std::string& compression, const std::optional<py::dict>& gmres,
-    const std::optional<py::dict>& kernel_opts, const std::optional<py::dict>& mlfmm_opts) {
-    SimulationConfig c = make_config(exc, object, exterior, wavelength, form, preconditioner,
-                                     solver_name, compression, gmres, kernel_opts, mlfmm_opts);
+    const py::object& form, const std::string& preconditioner, int block_level,
+    const std::string& solver_name, const std::string& compression,
+    const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
+    const std::optional<py::dict>& mlfmm_opts) {
+    SimulationConfig c =
+        make_config(exc, object, exterior, wavelength, form, preconditioner, block_level,
+                    solver_name, compression, gmres, kernel_opts, mlfmm_opts);
     geometry::OpenSurfaceMesh copy = open;
     const PmlTermination term = pml.value_or(PmlTermination{});
     std::shared_ptr<excitation::Excitation> keep = exc;
@@ -603,8 +617,10 @@ py::dict config_dict(const PySimulation& s) {
     d["wavelength"] = c.wavelength;
     d["formulation"] = py::cast(s.formulation_kind()).attr("name");
     d["formulation_automatic"] = !c.formulation.has_value();
-    d["preconditioner"] = s.diagonal_preconditioner() ? "diagonal" : "none";
-    d["preconditioner_automatic"] = !c.diagonal_preconditioner.has_value();
+    d["preconditioner"] = to_string(s.preconditioner_kind());
+    d["preconditioner_automatic"] =
+        !c.preconditioner.has_value() && !c.diagonal_preconditioner.has_value();
+    d["block_level"] = c.block_levels_above_leaf;
     d["solver"] = c.solver == SolverKind::Direct ? "direct" : "gmres";
     d["compression"] = c.compression;
     d["gmres"] = gmres_dict(c.gmres);
@@ -1051,7 +1067,17 @@ wavelength : float, optional
 formulation : str or Formulation
     "auto" (formulation.recommend(object.eps_r)), "PMCHWT", "ICTF" or "MCTF" (any case).
 preconditioner : str
-    "auto" (the recommendation's choice), "none" or "diagonal" (Jacobi); GMRES only.
+    "auto" (the recommendation's choice: "diagonal" for metals, "none" otherwise; on the PML
+    route (Simulation.with_pml) with compression "mlfmm" "block_diagonal", with a warning at
+    assembly if its largest block holds more than half of the unknowns), "none", "diagonal"
+    (Jacobi) or
+    "block_diagonal" (LU-factorised near-field blocks, one per octree box over the J and M
+    unknowns of its basis functions; WP-PC1, ADR 0011); GMRES only.
+block_level : int
+    "block_diagonal" only: 0 = blocks of the octree leaves, 1 (default) = one level up. On the
+    dense route the octree is the one compression "mlfmm" would build from the ``mlfmm`` keys.
+    On a two-level tree (tiny meshes) level 1 is the root: one block = a dense LU, GMRES
+    converges in one iteration; use 0 to exercise the block path.
 solver : str
     "gmres" or "direct" (dense LU).
 compression : str
@@ -1110,16 +1136,17 @@ works). A main thread waiting for the lock stays interruptible with Ctrl-C
         .def(py::init(&make_simulation), py::arg("mesh"), py::arg("excitation"), py::kw_only(),
              py::arg("object"), py::arg("exterior") = py::none(),
              py::arg("wavelength") = py::none(), py::arg("formulation") = "auto",
-             py::arg("preconditioner") = "auto", py::arg("solver") = "gmres",
-             py::arg("compression") = "dense", py::arg("gmres") = py::none(),
-             py::arg("kernels") = py::none(), py::arg("mlfmm") = py::none())
+             py::arg("preconditioner") = "auto", py::arg("block_level") = 1,
+             py::arg("solver") = "gmres", py::arg("compression") = "dense",
+             py::arg("gmres") = py::none(), py::arg("kernels") = py::none(),
+             py::arg("mlfmm") = py::none())
         .def_static("with_pml", &make_pml_simulation, py::arg("open_mesh"), py::arg("excitation"),
                     py::kw_only(), py::arg("pml") = py::none(), py::arg("object"),
                     py::arg("exterior") = py::none(), py::arg("wavelength") = py::none(),
                     py::arg("formulation") = "auto", py::arg("preconditioner") = "auto",
-                    py::arg("solver") = "gmres", py::arg("compression") = "dense",
-                    py::arg("gmres") = py::none(), py::arg("kernels") = py::none(),
-                    py::arg("mlfmm") = py::none(), R"doc(
+                    py::arg("block_level") = 1, py::arg("solver") = "gmres",
+                    py::arg("compression") = "dense", py::arg("gmres") = py::none(),
+                    py::arg("kernels") = py::none(), py::arg("mlfmm") = py::none(), R"doc(
 Simulation of an open surface terminated by a PML (ADR 0009; dense, or "mlfmm" since WP-PML5a).
 
 Parameters
@@ -1131,7 +1158,7 @@ excitation : Excitation
     waist <~ pml_start / 3.5 whose region_radius covers the gap corners).
 pml : PmlTermination, optional
     None = PmlTermination() (sigma_max 4, order 2, flat patch, dark band 1e-4).
-object, exterior, wavelength, formulation, preconditioner, solver, gmres, kernels, mlfmm :
+object, exterior, wavelength, formulation, preconditioner, block_level, solver, gmres, kernels, mlfmm :
     As for Simulation(); compression "dense" or "mlfmm" (GMRES only: MLFMM on the functions
     outside the PML plus the PML ring: near pairs exact, far pairs by ACA since WP-PML5b). The
     mlfmm keys pml_ring_use_aca (True; False: the exact far ring of WP-PML5a),
@@ -1184,8 +1211,9 @@ SolveResult
                                "Formulation used (resolved).")
         .def_property_readonly(
             "preconditioner",
-            [](const PySimulation& s) { return s.diagonal_preconditioner() ? "diagonal" : "none"; },
-            "Preconditioner of the GMRES solve (resolved): \"diagonal\" or \"none\".")
+            [](const PySimulation& s) { return std::string(to_string(s.preconditioner_kind())); },
+            "Preconditioner of the GMRES solve (resolved): \"none\", \"diagonal\" or "
+            "\"block_diagonal\".")
         .def_property_readonly(
             "solver",
             [](const PySimulation& s) {
@@ -1254,7 +1282,8 @@ SolveResult
             "PML route: the PmlTermination (copy); None for the box route.")
         .def_property_readonly("config", &config_dict, R"doc(
 Resolved configuration (a new dict): wavelength [m], formulation (name), formulation_automatic,
-preconditioner ("diagonal" / "none"), preconditioner_automatic, solver, compression, and the
+preconditioner ("none" / "diagonal" / "block_diagonal"), preconditioner_automatic, block_level
+(0 = octree leaves, 1 = one level up; used by "block_diagonal" only), solver, compression, and the
 dicts gmres, kernels and mlfmm with every key of the constructor keywords (restart 0 = full
 GMRES). Used by specklebem.io.save_hdf5.
 )doc")

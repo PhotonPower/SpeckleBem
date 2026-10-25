@@ -55,6 +55,15 @@ geometric shadow |x| < a, z > 0; lit = every other exterior point, including z �
 the forward region beside the sphere; both outside the near-surface band |r| − a < h/2. The
 denominator of the per-point error is the local |E_Mie| (`benchmarks/results/ag_near_field.md`).
 
+Preconditioners change iteration counts, not the solution, so they have no row of their own: a new
+preconditioner must reproduce the existing solves to the solver tolerance. For the near-field
+block-diagonal preconditioner (WP-PC1, ADR 0011; the default of the "mlfmm" PML route since then,
+the only measured case) this is gated by
+`tests/validation/test_block_preconditioner_mie.cpp` (Ag sphere d = 1 µm, MLFMM: bistatic RCS within
+10⁻⁵ of the Jacobi solve at GMRES tolerance 10⁻⁶, ε_rr unchanged to 10⁻⁵) and by the PML-route rows,
+which now run with it (7h fast path vs dense); the rough Ag / Si PML sizes up to 2N = 3·10⁵ reproduce
+the Jacobi reflectance to 5·10⁻⁸ / 4·10⁻⁷ (`benchmarks/results/preconditioner.md`).
+
 ## Rough-surface specific checks
 
 - **Box-depth sensitivity**: scattered far field changes by < 0.1 % when the closing box depth is doubled (Si and Ag). Documents that the artificial boundary is inert.

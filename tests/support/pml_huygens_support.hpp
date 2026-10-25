@@ -210,6 +210,8 @@ inline Solved solve(const RoughCase& c, Solver solver, const FastSettings& f = {
     }
     r.sim = std::make_unique<Simulation>(pml_rough_ag::make_open_mesh(c),
                                          pml_rough_ag::make_termination(c), r.beam, cfg);
+    if (solver == Solver::Fast)  // the label carries the (automatic) preconditioner
+        r.solver += std::string("+") + to_string(r.sim->preconditioner_kind());
     r.unknowns = r.sim->num_unknowns();
     auto t0 = std::chrono::steady_clock::now();
     r.sim->assemble();

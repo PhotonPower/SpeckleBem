@@ -29,7 +29,7 @@ beam = sb.AngularSpectrumBeam(wavelength=500e-9, waist=5e-6, polarization="p",
 # --- simulation ------------------------------------------------------------
 sim = sb.Simulation(mesh, beam, object=si, exterior=sb.vacuum(),
                     formulation="ICTF",           # "PMCHWT" | "ICTF" | "MCTF" | "auto"
-                    preconditioner="none",        # "none" | "diagonal" | "block" | "hlu"
+                    preconditioner="none",        # "none" | "diagonal" | "block_diagonal" | "hlu"
                     compression="mlfmm",          # "dense" | "mlfmm" | "aca" | "hmatrix"
                     mlfmm=dict(accuracy_digits=3, max_elements_per_leaf=100),
                     backend="cpu")                # "cpu" | "cuda"
@@ -216,7 +216,7 @@ mie.scattering_cross_section(), mie.extinction_cross_section(), mie.a_n, mie.b_n
 
 ```python
 sim = sb.Simulation(mesh, excitation, *, object, exterior=None, wavelength=None,
-                    formulation="auto", preconditioner="auto", solver="gmres",
+                    formulation="auto", preconditioner="auto", block_level=1, solver="gmres",
                     compression="dense", gmres=None, kernels=None, mlfmm=None)
 sim.assemble()                          # idempotent; GIL released
 res = sim.solve(tol=None, max_iter=None, restart=None, side=None, callback=None)  # SolveResult
@@ -225,7 +225,7 @@ res.wall_seconds, res.x                 # residual_history: float64 copy; x: rea
 res.orthogonalization_seconds, res.reorthogonalizations  # GMRES Gram-Schmidt time / 2nd passes
 res.hessenberg                          # (k + 1, k) Arnoldi Hessenberg with gmres keep_hessenberg
 sim.report()                            # str
-sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "diagonal" | "none"
+sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "none" | "diagonal" | "block_diagonal"
 sim.solver, sim.wavelength, sim.num_unknowns
 sim.currents                            # [J; M] copy; RuntimeError before solve()
 Z = sim.operator()                      # sb.LinearOperator: .shape, .dtype, .matvec(x), Z @ x,
@@ -250,8 +250,18 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   only value the C++ constructor accepts; WP14b3) / `wavelength`
   (None = `excitation.wavelength`); `formulation` "auto" leaves `formulation` empty (the
   recommendation), "PMCHWT" / "ICTF" / "MCTF" (any case) or an `sb.Formulation` set it ("JMCFIE"
-  raises `ValueError`, not implemented); `preconditioner` "auto" / "none" / "diagonal" ->
-  `diagonal_preconditioner` empty / false / true; `solver` "gmres" / "direct" -> `SolverKind`;
+  raises `ValueError`, not implemented); `preconditioner` "auto" / "none" / "diagonal" /
+  "block_diagonal" -> `SimulationConfig::preconditioner` empty / `PreconditionerKind::None` /
+  `Diagonal` / `BlockDiagonal` ("auto": block-diagonal on the PML route with compression
+  "mlfmm" since WP-PC1, the only measured case (`SBEM_WARN` at assembly when its largest block
+  holds more than half of the unknowns), otherwise, also on the dense PML route, the
+  recommendation: Jacobi for metals, none otherwise;
+  `diagonal_preconditioner` stays empty); `block_level` 0 / 1 (default) ->
+  `block_levels_above_leaf`
+  (block-diagonal only: LU-factorised near-field blocks of the octree leaves or of the level
+  above, over the J and M unknowns of each box; WP-PC1, ADR 0011; other values raise
+  `ValueError`; on a two-level tree, as on the tiny PML test meshes, level 1 is the root, one
+  block is a dense LU and GMRES converges in one iteration, so tests of the block path use 0); `solver` "gmres" / "direct" -> `SolverKind`;
   `compression` is passed through ("dense" or "mlfmm" (WP20b, GMRES only); "aca" / "hmatrix"
   raise `ValueError`); `mlfmm` keys (WP20b, WP21): `accuracy_digits` (d0, default 3; 5 is
   verified for leaves >= lambda/2 with r_max / a <= 0.3, ADR 0008), `max_elements_per_leaf`
@@ -560,7 +570,8 @@ API (`specklebem.io`, pure Python; type hints and docstrings in the module):
   `time` (seconds since construction or `reset()`).
 - Simulation properties added for the file (also useful on their own): `mesh` (TriangleMesh
   copy), `excitation`, `object`, `exterior`, `zones` (PML route, else None), `pml_termination`
-  (PML route, else None), `config` (dict: wavelength, resolved formulation / preconditioner with
+  (PML route, else None), `config` (dict: wavelength, resolved formulation / preconditioner
+  (and `block_level`) with
   `*_automatic` flags, solver, compression and the `gmres`, `kernels`, `mlfmm` dicts with every
   constructor key), `last_result` (SolveResult copy of the last successful solve or None),
   `last_solve_params` (its GMRES parameters as a dict or None), `assembled` and `solved`
@@ -585,7 +596,7 @@ sub-groups):
 | `/far_fields/<name>/{directions,F}` | (n, 3) float64; (n, 3) complex128 [V], E_s ~ F exp(-j k1 r) / r with k1 the exterior (R1) wavenumber (attr `description` of `F`) |
 | `/solver` attrs | `formulation`, `preconditioner`, `solver`, `tolerance`, `max_iter`, `restart`, `side`, `orthogonalization` (the parameters only for the last solve, see `result`), `iterations`, `converged`, `residual` (last monitored), `true_residual`, `wall_seconds`, `orthogonalization_seconds`, `reorthogonalizations` |
 | `/solver/history/{iteration,residual,time}` | (k,) int64, float64, float64 [s] (`time` only if recorded) |
-| `/config` attrs | `wavelength`, `formulation`, `formulation_automatic`, `preconditioner`, `preconditioner_automatic`, `solver`, `compression`, `termination` ("box" / "pml"), `num_unknowns` |
+| `/config` attrs | `wavelength`, `formulation`, `formulation_automatic`, `preconditioner`, `preconditioner_automatic`, `block_level`, `solver`, `compression`, `termination` ("box" / "pml"), `num_unknowns` |
 | `/config/{object,exterior}` attrs | `eps_r`, `mu_r` (complex) |
 | `/config/{gmres,kernels,mlfmm}` attrs | every key of the constructor keyword dicts (`mlfmm/max_exact_far_bytes` and `mlfmm/pml_ring_max_far_bytes` as uint64) |
 | `/config/pml` attrs | PML route: `sigma_max`, `order`, `correlation_length`, `dark_band_tolerance`, `patch_half`, `taper_end`, `pml_start`, `outer_half`, `dark_band_ratio`, `window_inner_half`, `window_outer_half` |

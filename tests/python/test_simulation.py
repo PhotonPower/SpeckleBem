@@ -66,6 +66,28 @@ def test_gmres_equals_direct(direct):
     assert sim.num_unknowns == 240 and "converged" in sim.report()
 
 
+def test_block_diagonal_preconditioner(direct):
+    # WP-PC1: preconditioner="block_diagonal" with block_level 0 (octree leaves) or 1 (one
+    # level up); the dense route takes the octree of the mlfmm keys (default leaf rule).
+    for level in (0, 1):
+        sim = make_sim(formulation="PMCHWT", preconditioner="block_diagonal", block_level=level)
+        assert sim.preconditioner == "block_diagonal"
+        cfg = sim.config
+        assert cfg["preconditioner"] == "block_diagonal" and cfg["block_level"] == level
+        assert cfg["preconditioner_automatic"] is False
+        res = sim.solve(tol=1e-10)
+        assert res.converged
+        assert rel(sim.currents, direct.currents) < 1e-7
+        rep = sim.report()
+        assert "block-diagonal (near field) (explicit)" in rep
+        assert "preconditioner setup:" in rep
+    assert make_sim().config["block_level"] == 1
+    assert make_sim(sb.silver_500nm()).config["preconditioner_automatic"] is True
+    for bad in (dict(block_level=2), dict(block_level=-1), dict(preconditioner="block")):
+        with pytest.raises(ValueError):
+            make_sim(preconditioner=bad.pop("preconditioner", "block_diagonal"), **bad)
+
+
 def test_gmres_orthogonalization(direct):
     # WP-G1: gmres['orthogonalization'] selects the Gram-Schmidt variant (case-insensitive).
     res_direct = direct.solve()

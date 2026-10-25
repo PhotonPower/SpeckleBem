@@ -384,4 +384,29 @@ std::string Octree::summary() const {
     return os.str();
 }
 
+std::vector<std::vector<Index>> level_unknown_blocks(const Octree& tree, int level,
+                                                     std::vector<Index>* box_ids) {
+    const std::vector<Index>& boxes = tree.boxes_at_level(level);  // throws for a bad level
+    const auto N = static_cast<Index>(tree.permutation().size());
+    std::vector<std::vector<Index>> out;
+    out.reserve(boxes.size());
+    if (box_ids != nullptr) {
+        box_ids->clear();
+        box_ids->reserve(boxes.size());
+    }
+    for (const Index b : boxes) {
+        const Box& box = tree.boxes()[sz(b)];
+        std::vector<Index> u;
+        u.reserve(sz(2 * box.num_elements));
+        for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p)
+            u.push_back(tree.permutation()[sz(p)]);
+        for (Index p = box.first_element; p < box.first_element + box.num_elements; ++p)
+            u.push_back(tree.permutation()[sz(p)] + N);
+        out.push_back(std::move(u));
+        if (box_ids != nullptr)
+            box_ids->push_back(b);
+    }
+    return out;
+}
+
 }  // namespace specklebem::mlfmm
