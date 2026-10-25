@@ -149,8 +149,9 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   stretch-start fallback, 7f/7g large cases as `validation-large` ctests (rough Ag 58 min, rough Si 61 min —
   run them separately, a combined run exceeds a 2 h shell). Next on this thread: WP-PML6b (wide-gap rule).
 - **In flight (2026-10-25):** WP-PML5d (`wp/pml5d-ring-pair-memo`, before/after timings + debug tests) and WP-PC1
-  (`wp/pc1-block-diagonal-preconditioner`, measuring jacobi / leaf / parent blocks at the U size); WP-PML6b to be
-  spawned when a worker slot frees.
+  (`wp/pc1-block-diagonal-preconditioner`, measuring jacobi / leaf / parent blocks at the U size); WP-PML6b
+  (`wp/pml6b-wide-gap-confirmation`, started 2026-10-25 after the WP-PML6 merge; also closes the re-review follow-ups
+  W1/S1-S6 of WP-PML6: committed driver path for the CI-size 7f rows and the premise control, comment and type fixes).
 - **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
   continuation `wp/pml6-huygens-far-field-2` at f5bd897 in worker worktree agent-a40c1f6891657e9af: 7g reported as
   unmet with regression guards, docs/10 finished, wide-gap diagnostics; still to do there: record
