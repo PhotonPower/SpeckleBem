@@ -150,8 +150,8 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   run them separately, a combined run exceeds a 2 h shell). Next on this thread: WP-PML6b (wide-gap rule).
 - **Merged:** WP-PML5d (pair memo in the ACA far ring): bitwise identical far ring, kernel evaluations −30…−40 %,
   far-ring wall 0.56–0.61× on Ag, Si limited by its longest row cluster (0.94× wall, 0.61× CPU — open).
-- **In flight (2026-10-25):** (WP-PML5d merged) and WP-PC1
-  (`wp/pc1-block-diagonal-preconditioner`, measuring jacobi / leaf / parent blocks at the U size); WP-PML6b
+- **In flight (2026-10-25):** WP-PC1 (`wp/pc1-block-diagonal-preconditioner`, reviewed MERGE AFTER FIXES; integration
+  with main on `wp/pc1-integrate`, then the fix round); WP-PML6b
   (`wp/pml6b-wide-gap-confirmation`, started 2026-10-25 after the WP-PML6 merge; also closes the re-review follow-ups
   W1/S1-S6 of WP-PML6: committed driver path for the CI-size 7f rows and the premise control, comment and type fixes).
 - **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
