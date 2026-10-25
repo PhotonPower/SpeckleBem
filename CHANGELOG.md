@@ -5,6 +5,23 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- post / simulation / python (WP-PML6, ADR 0010): Huygens-plane far field of the PML route — `post::huygens_far_field`
+  radiates the equivalent currents of a plane at z_H ≈ λ above patch + taper + gap (`HuygensPlane`, `HuygensOptions`
+  {z_h, spacing, window, pml_sources}, raised-cosine window), the plane fields from `post::exterior_scattered_field`
+  with the PML source triangles radiating through the stretched Green's function (valid inside the stretch start
+  only: observation points over the PML and Im R̃ > 0 are refused with `std::logic_error`, no silent stretch-start
+  fallback); `FarFieldSource {Currents, Huygens}`, `FieldOptions::huygens`, `PmlTermination::far_field_source /
+  huygens`, Python `far_field(source=, z_h=, spacing=)`, HDF5 round trip. Validation: row 7f met at two sizes with
+  the same gates (flat Ag / Si, dense LU: Huygens vs currents L2 2.7·10⁻⁴ / 2.8·10⁻⁴, ΔR/R ≤ 4·10⁻⁷; CI size
+  2N = 7 632, the 7a size 11 440 as `validation-large`); row 7g not met — closed as physical by the lead decision of
+  2026-10-25 (ADR 0010): a finite plane ending at pml_start misses the grazing band (θ 75–90°: −67 %) and its
+  λ-wide flank truncates the fields crossing it (window-end error ≈ π²/(2(kΔ)²) per end), while on a 3 µm gap
+  (2N = 62 016) the plane converges in the θ ≤ 30° cone and the L ×1.2 change of ≈ 2.3 % remains for the Huygens
+  plane and the windowed currents alike. Default far-field source of the PML route stays `Currents`; the plane is an
+  option and a diagnostic. Record `benchmarks/results/pml_huygens.md` (+ rows file), driver `benchmarks/pml_huygens`,
+  unit tests `[huygens]` (window error model, dipole bounds 5.5·π²/(2(kΔ)²), Im R̃ guard with fixed seeds),
+  validation 7f (CI size), validation-large 7f (7a size) and 7g (rough Ag 58 min, rough Si 61 min), docs/05 rows
+  7f/7g, ADR 0009 note, ADR 0010 "Result" + decision, docs/10.
 - aca / mlfmm / simulation / python (WP-PML5b, ADR 0008 amendment decision 3b): the far ring of the fast PML route
   is compressed by partially pivoted ACA (`aca::compress`, core + Eigen, kernel-independent entry generator;
   stopping rule ‖u‖‖v‖ ≤ ε‖S_k‖_F confirmed twice, zero-pivot handling, rank cap) at a relative block tolerance

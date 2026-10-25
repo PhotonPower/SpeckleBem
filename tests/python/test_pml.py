@@ -150,6 +150,90 @@ def test_with_pml_tiny_solve():
     assert np.all(np.isfinite(sim.far_field([1.0, 0.0, 0.0])))  # grazing k_z = 0 is accepted
 
 
+def test_pml_termination_huygens_options():
+    """WP-PML6 (ADR 0010): far-field source and Huygens-plane options of PmlTermination."""
+    t = sb.PmlTermination()
+    assert t.far_field_source == "currents"
+    assert t.huygens_z_h is None and t.huygens_spacing is None and t.huygens_window is None
+    w = sb.CurrentWindow(0.3e-6, 0.6e-6)
+    t = sb.PmlTermination(
+        far_field_source="Huygens", huygens_z_h=0.4e-6, huygens_spacing=1e-7, huygens_window=w
+    )
+    assert t.far_field_source == "huygens" and "far_field_source=huygens" in repr(t)
+    assert t.huygens_z_h == 0.4e-6 and t.huygens_spacing == 1e-7
+    assert t.huygens_window.outer_half == 0.6e-6
+    t.far_field_source = "currents"
+    t.huygens_z_h = None
+    assert t.far_field_source == "currents" and t.huygens_z_h is None
+    with pytest.raises(ValueError, match="currents"):
+        sb.PmlTermination(far_field_source="plane")
+    with pytest.raises(ValueError, match="huygens.spacing"):
+        sb.Simulation.with_pml(
+            open_mesh(),
+            beam(),
+            pml=sb.PmlTermination(huygens_spacing=0.3e-6, **RELAXED),
+            object=sb.silicon_500nm(),
+        )
+    sim = sb.Simulation.with_pml(
+        open_mesh(),
+        beam(),
+        pml=sb.PmlTermination(far_field_source="huygens", huygens_z_h=0.4e-6, **RELAXED),
+        object=sb.silicon_500nm(),
+    )
+    assert sim.far_field_source == "huygens"
+    assert sim.pml_termination.huygens_z_h == 0.4e-6
+    assert "far field:      Huygens plane" in sim.report()
+    box = sb.Simulation(
+        sb.make_icosphere(0.3e-6, 1),
+        sb.PlaneWave(LAMBDA, [0, 0, 1], [1, 0, 0]),
+        object=sb.silicon_500nm(),
+    )
+    assert box.far_field_source == "currents"
+
+
+def test_with_pml_tiny_solve_huygens_far_field():
+    """Simulation.far_field(source="huygens") on the PML route: the termination's default
+    source, per-call z_h / spacing / plane window, and the refusals."""
+    om = open_mesh(patch=0.2e-6, taper=0.1e-6, gap=0.1e-6, pml=0.1e-6)
+    sim = sb.Simulation.with_pml(
+        om,
+        beam(region_radius=0.6e-6),
+        pml=sb.PmlTermination(sigma_max=1.0, far_field_source="huygens", **RELAXED),
+        object=sb.Material(eps_r=2.25),
+        solver="direct",
+        kernels=dict(
+            outer_grading_levels=0,
+            target_accuracy=0.0,
+            quad_degree_near=5,
+            stretched_touching_points=4,
+        ),
+    )
+    assert sim.solve().converged
+    dirs = np.array([[0.0, 0.0, -1.0], [0.5, 0.0, -0.8]])
+    F = sim.far_field(dirs)  # the termination's source: Huygens
+    np.testing.assert_array_equal(sim.far_field(dirs, source="huygens"), F)
+    Fc = sim.far_field(dirs, source="currents")
+    assert np.all(np.isfinite(F)) and np.all(np.isfinite(Fc))
+    assert np.linalg.norm(F - Fc) > 0  # a different (equivalent) source
+    F2 = sim.far_field(dirs, source="huygens", z_h=0.3e-6, spacing=1e-7)
+    assert np.all(np.isfinite(F2)) and not np.array_equal(F2, F)
+    F3 = sim.far_field(dirs, window=sb.CurrentWindow(0.1e-6, 0.25e-6), source="huygens")
+    assert not np.array_equal(F3, F)
+    D = sim.drc(dirs)  # the observables follow the termination's source
+    ratio = D / np.sum(np.abs(F) ** 2, axis=1)
+    np.testing.assert_allclose(ratio, ratio[0], rtol=1e-12)
+    Dc = sim.drc(dirs[:1])
+    assert Dc != pytest.approx(np.sum(np.abs(Fc[0]) ** 2) * ratio[0], rel=1e-9)
+    with pytest.raises(ValueError, match="Huygens source only"):
+        sim.far_field(dirs, source="currents", z_h=0.3e-6)
+    with pytest.raises(ValueError, match="currents"):
+        sim.far_field(dirs, source="plane")
+    with pytest.raises(ValueError, match="k_z > 0"):
+        sim.far_field([0.0, 0.0, 1.0], source="huygens")
+    with pytest.raises(ValueError, match="beyond the PML stretch start"):
+        sim.far_field(dirs, window=sb.CurrentWindow(0.1e-6, 0.35e-6), source="huygens")
+
+
 def test_with_pml_mlfmm_solve():
     """compression="mlfmm" on the PML route (WP-PML5a: MLFMM on the real functions + the exact
     PML ring) solves and agrees with the dense GMRES solve of the same system."""

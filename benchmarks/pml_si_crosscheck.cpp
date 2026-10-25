@@ -26,6 +26,7 @@
 //            [--sigma-max 4] [--order 2] [--dark-band-tol 1e-4] [--acc 1e-5] [--stp 10]
 //            [--pml-solver lu|gmres|fast] [--eigen-lu] [--pml-tol 1e-8] [--pml-max-iter 2000]
 //            [--depth-factor 1] [--d0 3] [--tol 1e-5] [--max-iter 400] [--ff-degree 10]
+//            [--far-field currents|huygens]
 //            [--max-gb 50] [--force] [--estimate-only] [--tag NAME] [--out DIR]
 //            [--reference DIR]... [--summary FILE]
 //        specklebem_pml_si_crosscheck --compare REF TEST [TEST...] [--summary FILE]
@@ -125,6 +126,14 @@ Options parse(int argc, char** argv) {
             o.c.box_tol = real();
         } else if (a == "--max-iter") {
             o.c.box_max_iter = std::stoi(value());
+        } else if (a == "--far-field") {  // WP-PML6: PML route far-field source
+            const std::string v = value();
+            if (v == "currents")
+                o.c.pml_far_field = FarFieldSource::Currents;
+            else if (v == "huygens")
+                o.c.pml_far_field = FarFieldSource::Huygens;
+            else
+                throw std::invalid_argument("--far-field must be currents or huygens");
         } else if (a == "--ff-degree") {
             o.c.ff_degree = std::stoi(value());
         } else if (a == "--max-gb") {
@@ -249,8 +258,24 @@ int run(const Options& o) {
     std::fflush(stdout);
     if (!r.converged)
         throw std::runtime_error("the solve did not converge; nothing stored or compared");
-    if (!o.out.empty())
+    if (r.ff_currents) {
+        // WP-PML6: the Huygens far field against the windowed currents of the same solution.
+        emit(o.summary, compare_line(tag + "-huygens", tag + "-currents",
+                                     compare(r.ff, *r.ff_currents, r.reflectance(),
+                                             r.p_refl_currents / r.p_inc),
+                                     kTolerances));
+    }
+    if (!o.out.empty()) {
         store(o.out, c, r, tag);
+        if (r.ff_currents) {
+            RouteResult rc = r;
+            rc.ff = *r.ff_currents;
+            rc.p_refl = r.p_refl_currents;
+            Case cc = c;
+            cc.pml_far_field = FarFieldSource::Currents;
+            store(o.out + "_currents", cc, rc, tag + "-currents");
+        }
+    }
     for (const std::string& ref_dir : o.references) {
         const StoredRun ref = load(ref_dir);
         const StoredRun self = load(o.out);  // the stored attributes carry the shared keys

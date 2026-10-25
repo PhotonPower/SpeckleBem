@@ -57,13 +57,17 @@
 #include "specklebem/postprocessing/fields.hpp"
 
 #include "specklebem/basis/rwg.hpp"
+#include "specklebem/geometry/coordinate_stretch.hpp"
 #include "specklebem/kernels/quadrature.hpp"
+#include "specklebem/postprocessing/huygens.hpp"
 
 #include <Eigen/Geometry>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <exception>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -432,14 +436,108 @@ void radiate(const std::vector<Sample>& src, const Vec3& r, const Medium& med, R
     H = sign * (-K_j - L_m / (med.eta * med.eta));
 }
 
-void scattered_impl(const SurfaceSolution& s, const Vertices& points, FieldMatrix& E,
-                    FieldMatrix& H, const FieldOptions& opt, RegionVector& region,
-                    const std::string& who) {
+/// Near-field functions take neither a current window nor Huygens options.
+void require_near_field_options(const FieldOptions& opt, const std::string& who) {
     if (opt.window) {
         throw std::invalid_argument(who +
                                     ": FieldOptions::window applies to far_field only (a "
                                     "windowed current has no physical near field)");
     }
+    if (opt.huygens) {
+        throw std::invalid_argument(who + ": FieldOptions::huygens applies to far_field only");
+    }
+}
+
+/// Source currents of a quadrature point in the PML (WP-PML6): the mapped position S(r') and the
+/// Piola-transformed currents DS J, DS M (complex), the plain divergences (div~ f~ dS~ = div f dS).
+struct StretchedSample {
+    Complex x, y;  ///< x~, y~ of the source point (z is not stretched)
+    Real z;
+    Real w;          ///< Dunavant weight x triangle area (real: the Piola factor sits in DS J)
+    Complex j[3];    ///< DS J
+    Complex m[3];    ///< DS M
+    Complex dj, dm;  ///< surface divergences of J, M
+};
+
+/// Splits the samples into the unstretched ones (kept in `src`, order preserved) and the
+/// stretched ones (CoordinateStretch::in_pml, returned in order).
+std::vector<StretchedSample> split_stretched(std::vector<Sample>& src,
+                                             const geometry::CoordinateStretch& st) {
+    std::vector<StretchedSample> out;
+    std::size_t kept = 0;
+    for (const Sample& smp : src) {
+        const Vec3 r(smp.x, smp.y, smp.z);
+        if (!st.in_pml(r)) {
+            src[kept++] = smp;
+            continue;
+        }
+        const Vec3c rt = st.map(r);
+        const Vec3c ds = st.jacobian_diag(r);
+        StretchedSample t{};
+        t.x = rt.x();
+        t.y = rt.y();
+        t.z = smp.z;
+        t.w = smp.w;
+        for (std::size_t c = 0; c < 3; ++c) {
+            const Complex f = ds(static_cast<Index>(c));
+            t.j[c] = f * Complex(smp.jr[c], smp.ji[c]);
+            t.m[c] = f * Complex(smp.mr[c], smp.mi[c]);
+        }
+        t.dj = Complex(smp.djr, smp.dji);
+        t.dm = Complex(smp.dmr, smp.dmi);
+        out.push_back(t);
+    }
+    src.resize(kept);
+    return out;
+}
+
+/// R1 field (*) at the real point r of the stretched samples (J_1 = DS J, M_1 = DS M radiating
+/// with the stretched Green's function, see exterior_scattered_field in fields.hpp), added to
+/// E and H.
+void radiate_stretched(const std::vector<StretchedSample>& src, const Vec3& r, const Medium& med,
+                       Real omega, Vec3c& E, Vec3c& H) {
+    const Complex jk = kJ * med.k;
+    Complex g_j[3] = {}, g_m[3] = {}, p_j[3] = {}, p_m[3] = {}, x_j[3] = {}, x_m[3] = {};
+    for (std::size_t i = 0; i < src.size(); ++i) {
+        const StretchedSample& s = src[i];
+        const Complex d[3] = {r.x() - s.x, r.y() - s.y, Complex(r.z() - s.z, 0.0)};
+        const Complex R2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        // Principal branch, Re R >= 0; Im R <= 0 is checked (std::logic_error otherwise: a
+        // growing kernel, which the observation-point rule of the caller excludes).
+        const Complex R =
+            detail::stretched_distance(r, Vec3c(s.x, s.y, s.z), static_cast<Index>(i));
+        const Complex G = s.w * std::exp(-jk * R) / (kFourPi * R);
+        const Complex f = -(1.0 + jk * R) * G / R2;  // grad_r G = f (r - r~')
+        const Complex fdj = f * s.dj;
+        const Complex fdm = f * s.dm;
+        const Complex cj[3] = {d[1] * s.j[2] - d[2] * s.j[1], d[2] * s.j[0] - d[0] * s.j[2],
+                               d[0] * s.j[1] - d[1] * s.j[0]};
+        const Complex cm[3] = {d[1] * s.m[2] - d[2] * s.m[1], d[2] * s.m[0] - d[0] * s.m[2],
+                               d[0] * s.m[1] - d[1] * s.m[0]};
+        for (int c = 0; c < 3; ++c) {
+            g_j[c] += G * s.j[c];
+            g_m[c] += G * s.m[c];
+            p_j[c] += fdj * d[c];
+            p_m[c] += fdm * d[c];
+            x_j[c] += f * cj[c];  // int grad G x J = -K J
+            x_m[c] += f * cm[c];
+        }
+    }
+    const auto vec = [](const Complex(&v)[3]) { return Vec3c(v[0], v[1], v[2]); };
+    const Complex jwmu = kJ * omega * med.mu;
+    const Complex jweps = kJ * omega * med.eps;
+    const Vec3c L_j = jwmu * vec(g_j) - vec(p_j) / jweps;
+    const Vec3c L_m = jwmu * vec(g_m) - vec(p_m) / jweps;
+    const Vec3c K_j = -vec(x_j);
+    const Vec3c K_m = -vec(x_m);
+    E += -L_j + K_m;
+    H += -K_j - L_m / (med.eta * med.eta);
+}
+
+void scattered_impl(const SurfaceSolution& s, const Vertices& points, FieldMatrix& E,
+                    FieldMatrix& H, const FieldOptions& opt, RegionVector& region,
+                    const std::string& who) {
+    require_near_field_options(opt, who);
     const basis::RwgSpace& space = checked_space(s, who);
     const Real omega = resolve_omega(s, who);
     region = regions_impl(space.mesh(), points, opt.min_distance_factor, who);
@@ -464,6 +562,25 @@ void scattered_impl(const SurfaceSolution& s, const Vertices& points, FieldMatri
 }
 
 }  // namespace
+
+Complex detail::stretched_distance(const Vec3& r, const Vec3c& source, Index sample) {
+    const Complex d0 = r.x() - source.x();
+    const Complex d1 = r.y() - source.y();
+    const Complex d2 = r.z() - source.z();
+    const Complex R = std::sqrt(d0 * d0 + d1 * d1 + d2 * d2);
+    if (R.imag() > 0.0 && R.imag() > 1e-12 * std::abs(R)) {
+        std::ostringstream msg;
+        msg.precision(9);
+        msg << "exterior_scattered_field: internal invariant violated, Im R~ = " << R.imag()
+            << " m > 0 between the observation point (" << r.x() << ", " << r.y() << ", " << r.z()
+            << ") m and the stretched source sample " << sample << " at (" << source.x() << ", "
+            << source.y() << ", " << source.z()
+            << ") m: the stretched Green's function would grow (an observation point over the "
+               "PML must be refused by the caller)";
+        throw std::logic_error(msg.str());
+    }
+    return R;
+}
 
 Real winding_number(const geometry::TriangleMesh& mesh, const Vec3& r) {
     if (!r.allFinite()) {
@@ -518,6 +635,79 @@ void total_field(const SurfaceSolution& s, const Vertices& points, FieldMatrix& 
     }
 }
 
+void exterior_scattered_field(const SurfaceSolution& s, const Vertices& points, FieldMatrix& E,
+                              FieldMatrix& H, const FieldOptions& opt, bool pml_sources) {
+    const std::string who = "exterior_scattered_field";
+    require_near_field_options(opt, who);
+    const basis::RwgSpace& space = checked_space(s, who, /*allow_stretch=*/true);
+    const Real omega = resolve_omega(s, who);
+    const geometry::CoordinateStretch* st =
+        op::has_stretch(*s.problem) ? s.problem->stretch : nullptr;
+    if (st != nullptr) {
+        // Observation points must be real points of the representation (unstretched zone).
+        if (!st->profile_x() || !st->profile_y()) {
+            throw std::logic_error(who +
+                                   ": internal invariant violated, a non-identity stretch "
+                                   "without a profile on both axes");
+        }
+        const Real sx = st->profile_x()->start;
+        const Real sy = st->profile_y()->start;
+        for (Index p = 0; p < points.rows(); ++p) {
+            if (!(std::abs(points(p, 0)) <= sx && std::abs(points(p, 1)) <= sy)) {
+                throw std::invalid_argument(
+                    who + ": observation point " + std::to_string(p) +
+                    " lies over the PML (|x| > x_start or |y| > y_start); the representation "
+                    "with stretched sources holds only for real observation points");
+            }
+        }
+    }
+    const RegionVector region = regions_impl(space.mesh(), points, opt.min_distance_factor, who);
+    for (Index p = 0; p < points.rows(); ++p) {
+        if (region(p) != 1) {
+            throw std::invalid_argument(who + ": observation point " + std::to_string(p) +
+                                        " lies in R2 (only R1 points are accepted)");
+        }
+    }
+    std::vector<Sample> src = sample_currents(space, s.currents, opt.quad_degree, who);
+    std::vector<StretchedSample> stretched;
+    if (st != nullptr) {
+        stretched = split_stretched(src, *st);
+        if (!pml_sources)
+            stretched.clear();  // diagnostic: the representation truncated at the stretch start
+    }
+    const Medium med = medium_of(s.problem->exterior, omega);
+    const Index np = points.rows();
+    E.resize(np, 3);
+    H.resize(np, 3);
+    std::exception_ptr error;  // radiate_stretched's invariant check must not leave the region
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic, 4)
+#endif
+    for (Index p = 0; p < np; ++p) {
+        const Vec3 r = points.row(p).transpose();
+        Vec3c e;
+        Vec3c h;
+        radiate(src, r, med, omega, 1.0, e, h);
+        if (!stretched.empty()) {
+            try {
+                radiate_stretched(stretched, r, med, omega, e, h);
+            } catch (...) {
+#ifdef SPECKLEBEM_HAVE_OPENMP
+#pragma omp critical(specklebem_exterior_field_exception)
+#endif
+                {
+                    if (!error)
+                        error = std::current_exception();
+                }
+            }
+        }
+        E.row(p) = e.transpose();
+        H.row(p) = h.transpose();
+    }
+    if (error)
+        std::rethrow_exception(error);
+}
+
 Real current_window_value(const CurrentWindow& w, Real t) {
     if (!(std::isfinite(w.inner_half) && std::isfinite(w.outer_half) && w.inner_half >= 0.0 &&
           w.outer_half > w.inner_half)) {
@@ -544,6 +734,10 @@ void far_field(const SurfaceSolution& s, const Vertices& directions, FieldMatrix
 
 void far_field(const SurfaceSolution& s, const Vertices& directions, FieldMatrix& F,
                const FieldOptions& opt) {
+    if (opt.huygens) {
+        huygens_far_field(s, directions, F, opt);
+        return;
+    }
     const std::string who = "far_field";
     const basis::RwgSpace& space = checked_space(s, who, /*allow_stretch=*/true);
     if (opt.window)

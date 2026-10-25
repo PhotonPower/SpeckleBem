@@ -120,3 +120,9 @@ target_link_libraries(specklebem_pml_rough_ag PRIVATE SpeckleBem::specklebem spe
 # the validation tests (tests/support/pml_ring_support.hpp).
 add_executable(specklebem_pml_ring pml_ring.cpp)
 target_link_libraries(specklebem_pml_ring PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+# Validations 7f / 7g of the PML route's Huygens-plane far field (WP-PML6, ADR 0010): flat Ag / Si
+# (7a geometry) and rough Ag (U, L x 1.2, wide gap; fast path), Huygens vs windowed currents and
+# the z_h / spacing / window sensitivities; run by hand, see benchmarks/results/pml_huygens.md.
+# Shares the code with the validation tests (tests/support/pml_huygens_support.hpp).
+add_executable(specklebem_pml_huygens pml_huygens.cpp)
+target_link_libraries(specklebem_pml_huygens PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)

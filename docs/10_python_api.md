@@ -372,6 +372,50 @@ F = sim.far_field(directions, window=sb.CurrentWindow(inner_half, outer_half))
 # sim.bistatic_rcs and sim.field raise RuntimeError on the PML route; use sim.far_field / sim.drc
 ```
 
+### Since WP-PML6: Huygens-plane far field (ADR 0010)
+
+```python
+pml = sb.PmlTermination(far_field_source="huygens",      # or "currents"
+                        huygens_z_h=None,                # plane distance below the lowest vertex [m]; None = lambda_1
+                        huygens_spacing=None,            # grid spacing [m]; None = lambda_1 / 4 (<= lambda_1 / 2)
+                        huygens_window=None)             # CurrentWindow of the plane; None = the current window
+sim = sb.Simulation.with_pml(om, beam, pml=pml, object=sb.silver_500nm(), compression="mlfmm")
+sim.far_field_source                                     # "currents" | "huygens" ("currents" on the box route)
+F = sim.far_field(directions)                            # the termination's source (also drc, radiated_power, ...)
+F = sim.far_field(directions, source="huygens", z_h=0.75e-6, spacing=125e-9)    # per call
+F = sim.far_field(directions, source="currents")         # the windowed currents (ADR 0009 decision 5)
+```
+
+- `"huygens"` evaluates the scattered E, H on a plane in R1 (on the PML route below the surface,
+  at `z_h` below its lowest vertex; the PML currents radiate through the stretched Green's
+  function, `post::exterior_scattered_field`) and radiates the windowed equivalent currents
+  n x H, -n x E of the plane (n pointing away from the surface); it filters the bound
+  surface-plasmon field of rough metals by distance instead of truncating it with the current
+  window. The plane window must end at or before `pml_start` (ValueError otherwise).
+- `far_field(..., window=...)` is the plane window for `"huygens"` and the current window for
+  `"currents"`; `z_h` / `spacing` with `"currents"` raise ValueError, `"huygens"` on the box route
+  RuntimeError (no Huygens plane for a closed mesh). The PML-route options are checked by
+  `with_pml` (ValueError). `report()` names the far-field source; `save_hdf5` stores
+  `/config/pml` attrs `far_field_source` (and `huygens_*` when set).
+- Status (WP-PML6, `benchmarks/results/pml_huygens.md`): the default stays `"currents"`. Row 7f
+  (flat Ag / Si: Huygens vs currents ≤ 1e-3) is met; row 7g (rough Ag: L ×1.2, z_h ×1.5, plane
+  window ×(1 ± 0.3); rough Si 7e) is not. The cause is the plane window: the plane ends at
+  `pml_start` with its raised cosine across the gap (transition = gap width, λ by default), so it
+  misses the radiation at grazing angles (θ 75–90°: −67 % of that band's power on rough Ag) and
+  truncates every field crossing the window zone (≈ π²/(2(kΔ)²) per window end), increasingly with
+  `z_h`, on Ag and Si alike (R lower by 2–3·10⁻³ on rough Ag, 5·10⁻⁴ on rough Si); its z_h and
+  window sensitivities (0.7–1.8 % on rough Ag) are as large as the L ×1.2 change. A wider real gap
+  with a wider plane window (transition ≥ 3–4 λ) converges the plane in the cone θ ≤ 30° (record,
+  "Diagnostic: extended plane"; not validated). Use `"huygens"` as a diagnostic and state `z_h`,
+  spacing and the plane window with every result.
+- C++: `post::HuygensOptions`, `FieldOptions::huygens`, `post::huygens_plane`,
+  `post::huygens_plane_field`, `post::huygens_reweight`, `post::huygens_radiate`,
+  `post::huygens_far_field` (postprocessing/huygens.hpp), `post::exterior_scattered_field`,
+  `FarFieldSource`, `PmlTermination::far_field_source / huygens`,
+  `Simulation::far_field_options(quad_degree, source)`, `Simulation::far_field_source()`;
+  `HuygensOptions::pml_sources = false` (C++ only, diagnostic) drops the PML source triangles
+  from the plane fields.
+
 `Simulation.with_pml` raises `ValueError` for what the C++ PML constructor rejects (no gap,
 taper < Lc of a rough patch, no dark band, controlled ball, an unknown compression or "mlfmm"
 with the direct solver, orientation). Since WP-PML5a `compression="mlfmm"` works on the PML route
@@ -426,7 +470,7 @@ D_cyl = sb.differential_reflection_coefficient(E_cyl, n_theta, n_y, radius=r,
   rounding from n_theta >= 7 / 8 (spectral in n_theta: the WP22c reflectance rule, now in the
   library). `ValueError` for z_sign other than +1 / -1, n_theta < 1, n_phi < 4.
 - All far-field observables use `far_field_options(quad_degree)`, so the PML route's current
-  window is applied automatically. On the PML route R1 is the half space below the surface:
+  window (or, with `far_field_source="huygens"`, its Huygens plane) is applied automatically. On the PML route R1 is the half space below the surface:
   directions with k_z > 0 raise `ValueError` (as in `far_field`) and `scattered_power` raises
   `RuntimeError` (the PML-route exception rule above).
   A lossy exterior raises `ValueError` (no far-field power at infinity).

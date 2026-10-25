@@ -562,6 +562,42 @@ void check_pml_termination(const PmlTermination& p) {
         throw std::invalid_argument(
             "Simulation (PML): PmlTermination::dark_band_tolerance must be finite and > 0");
     }
+    if (p.far_field_source != FarFieldSource::Currents &&
+        p.far_field_source != FarFieldSource::Huygens) {
+        throw std::invalid_argument("Simulation (PML): unknown PmlTermination::far_field_source");
+    }
+}
+
+/// HuygensOptions of the PML route (ADR 0010): z_h > 0, 0 < spacing <= lambda_1 / 2, a valid
+/// window ending at or before pml_start (plane points over the PML are not real observation
+/// points).
+void check_huygens_options(const post::HuygensOptions& h, Real lambda1, Real pml_start) {
+    if (h.z_h && !(std::isfinite(*h.z_h) && *h.z_h > 0.0)) {
+        throw std::invalid_argument(
+            "Simulation (PML): PmlTermination::huygens.z_h must be finite and > 0");
+    }
+    if (h.spacing &&
+        !(std::isfinite(*h.spacing) && *h.spacing > 0.0 && *h.spacing <= 0.5 * lambda1)) {
+        std::ostringstream os;
+        os << "Simulation (PML): PmlTermination::huygens.spacing must be finite, > 0 and <= "
+              "lambda_1 / 2 = "
+           << 0.5 * lambda1 << " m";
+        throw std::invalid_argument(os.str());
+    }
+    if (h.window) {
+        (void)post::current_window_value(*h.window, 0.0);  // validates the window
+        if (!(h.window->outer_half <= pml_start)) {
+            std::ostringstream os;
+            os << "Simulation (PML): PmlTermination::huygens.window ends at "
+               << h.window->outer_half << " m, beyond pml_start = " << pml_start
+               << " m (plane points over the PML are not real observation points)";
+            throw std::invalid_argument(os.str());
+        }
+    }
+}
+
+const char* source_name(FarFieldSource s) {
+    return s == FarFieldSource::Huygens ? "Huygens plane" : "windowed currents";
 }
 
 Real longest_edge(const geometry::TriangleMesh& mesh) {
@@ -736,6 +772,7 @@ Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
         throw std::invalid_argument(os.str());
     }
     const Real lambda1 = exterior_wavelength(config.exterior, config.wavelength);
+    check_huygens_options(pml.huygens, lambda1, open.pml_start);
 
     geometry::CoordinateStretch stretch =
         geometry::make_pml_stretch(open, pml.sigma_max, pml.order);
@@ -796,9 +833,10 @@ Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
     op::validate(s.problem);
     SBEM_INFO(
         "Simulation (PML): sigma_max {}, order {}, gap {:.4g} m, window [{:.4g}, {:.4g}] m, "
-        "dark band ratio {:.3e}, {} of {} test functions masked",
+        "dark band ratio {:.3e}, {} of {} test functions masked, far field from the {}",
         pml.sigma_max, pml.order, gap, s.pml->half[1], s.pml->half[2], ratio,
-        std::count(masked.begin(), masked.end(), std::uint8_t{1}), masked.size());
+        std::count(masked.begin(), masked.end(), std::uint8_t{1}), masked.size(),
+        source_name(pml.far_field_source));
 }
 
 Simulation::~Simulation() = default;
@@ -999,6 +1037,18 @@ std::string Simulation::report() const {
           << p.termination.order << "), half widths patch " << p.half[0] << " / taper " << p.half[1]
           << " / PML start " << p.half[2] << " / outer " << p.half[3] << " m, far-field window ["
           << p.half[1] << ", " << p.half[2] << "] m, dark band ratio " << p.dark_band_ratio << "\n";
+        o << "  far field:      " << source_name(p.termination.far_field_source);
+        if (p.termination.far_field_source == FarFieldSource::Huygens) {
+            const post::HuygensOptions& h = p.termination.huygens;
+            const Real lambda1 = exterior_wavelength(s.config.exterior, s.config.wavelength);
+            const post::CurrentWindow w = h.window.value_or(*s.window);
+            o << " (ADR 0010): z_h " << h.z_h.value_or(lambda1)
+              << " m below the lowest vertex, spacing " << h.spacing.value_or(0.25 * lambda1)
+              << " m, plane window [" << w.inner_half << ", " << w.outer_half << "] m";
+        } else {
+            o << " (ADR 0009 decision 5), window [" << p.half[1] << ", " << p.half[2] << "] m";
+        }
+        o << "\n";
     }
     if (s.op == nullptr) {
         o << "  operator:       not assembled\n";
@@ -1110,10 +1160,26 @@ const std::optional<post::CurrentWindow>& Simulation::far_field_window() const {
 }
 
 post::FieldOptions Simulation::far_field_options(int quad_degree) const {
+    return far_field_options(quad_degree, far_field_source());
+}
+
+post::FieldOptions Simulation::far_field_options(int quad_degree, FarFieldSource source) const {
     post::FieldOptions o;
     o.quad_degree = quad_degree;
     o.window = impl_->window;
+    if (source == FarFieldSource::Huygens) {
+        if (!has_pml()) {
+            throw std::logic_error(
+                "Simulation::far_field_options: FarFieldSource::Huygens needs the PML route (a "
+                "closed mesh has no Huygens plane)");
+        }
+        o.huygens = impl_->pml->termination.huygens;
+    }
     return o;
+}
+
+FarFieldSource Simulation::far_field_source() const {
+    return has_pml() ? impl_->pml->termination.far_field_source : FarFieldSource::Currents;
 }
 
 namespace {

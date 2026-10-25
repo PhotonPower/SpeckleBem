@@ -49,6 +49,15 @@ Curated result records (Markdown, tracked in git despite the global `results/` i
   component, extrapolation and `--estimate-only` numbers for L = 20–32 µm, and the template for
   the server results of `scripts/server_run_kit/`.
 
+- [`results/pml_huygens.md`](results/pml_huygens.md) — Huygens-plane far field of the PML route
+  (WP-PML6, ADR 0010; docs/05 rows 7f / 7g): flat Ag / Si against the windowed currents (7f met),
+  rough Ag 7d, z_h and plane-window sensitivities and rough Si 7e with the plane (7g not met: the
+  plane window truncates the radiating field), the point-source window-error model, plane-evaluation
+  times and the extended-plane diagnostic (wide real gap, window transitions 1–6 λ). Raw lines:
+  [`results/pml_huygens_rows.txt`](results/pml_huygens_rows.txt); driver `pml_huygens.cpp`
+  (`specklebem_pml_huygens --study 7f|7g|si7d [--solver dense|fast] [--cases ...] [--summary F]
+  [--out DIR]`).
+
 ## Executables (`-DSPECKLEBEM_BUILD_BENCHMARKS=ON`)
 
 - `specklebem_mlfmm_scaling` (`mlfmm_scaling.cpp`): the WP22b1 study, one case per process.

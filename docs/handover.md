@@ -144,12 +144,13 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   grazing band); the L dependence of rough-metal far fields is accepted as physical (wide-gap plane converged in
   θ ≤ 30°, 7d ≈ 2.3 % for Huygens and currents); default stays Currents; rule gap ≥ 6 λ for rough metals, to be
   confirmed by WP-PML6b (window ×(1 ± 0.3), second seed). WP-PML6 is merged as "7f met, 7g not met — physical".
-- **In flight (2026-10-25):** WP-PML6 review fixes (`wp/pml6-review-fixes`: CI 7f size, 7g large runs, Im R̃ guard,
-  wording); WP-PML5d (`wp/pml5d-ring-pair-memo`, step-0 study first); WP-PML6 finishing worker
-  on `wp/pml6-huygens-far-field-3` (record, docs, ctest, extended-plane diagnostic), the option (A)
-  implementation follows on top; WP-PC1 started after ADR 0011. The earlier WP-PML6 continuation worker
-  (worktree agent-a40c1f6891657e9af, deregistered by mistake, see the lesson) may still hand back measurements
-  from `scratchpad/pml6b` — data only.
+- **Merged:** WP-PML6 (Huygens-plane far field, ADR 0010): 7f met at two sizes; 7g not met — physical (lead
+  decision 2026-10-25): default stays `Currents`, the plane is an option/diagnostic, Im R̃ guard, no silent
+  stretch-start fallback, 7f/7g large cases as `validation-large` ctests (rough Ag 58 min, rough Si 61 min —
+  run them separately, a combined run exceeds a 2 h shell). Next on this thread: WP-PML6b (wide-gap rule).
+- **In flight (2026-10-25):** WP-PML5d (`wp/pml5d-ring-pair-memo`, before/after timings + debug tests) and WP-PC1
+  (`wp/pc1-block-diagonal-preconditioner`, measuring jacobi / leaf / parent blocks at the U size); WP-PML6b to be
+  spawned when a worker slot frees.
 - **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
   continuation `wp/pml6-huygens-far-field-2` at f5bd897 in worker worktree agent-a40c1f6891657e9af: 7g reported as
   unmet with regression guards, docs/10 finished, wide-gap diagnostics; still to do there: record
@@ -171,12 +172,12 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   5-day-old 0-byte task output file is **not** evidence that an agent is dead. Pre-removal check (both paths):
   `Get-CimInstance Win32_Process | ? { $_.CommandLine -match '<agent-id>' -or $_.ExecutablePath -match 'scratchpad' }`;
   a "Permission denied" from `git worktree remove` means a process still holds the tree — stop, do not force.
-- **Next:** WP-PML6 (Huygens-plane far field for rough metals, ADR 0010; rows 7f/7g), then an idle-machine timing
-  rerun of the 5b/5c records and the GMRES preconditioning item (iterations ≈ N^0.5 on rough Ag PML systems:
-  602 → 1 715 → 2 679 at 2N = 2.3e4 / 1.5e5 / 3e5; Krylov basis 12.9 GB at 3e5 — restarted GMRES or a near-field
-  preconditioner, needs an ADR note); Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items:
-  rough-Si mesh rule (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 586 ctest (`-LE "validation-large|slow"`), 129 pytest; labels `slow`, `validation`
+- **Next:** WP-PC1 (ADR 0011, block-diagonal preconditioner; GMRES iterations ≈ N^0.55 on rough Ag PML systems:
+  602 → 1 715 → 2 679 at 2N = 2.3e4 / 1.5e5 / 3e5), WP-PML5d (pair memo in the ACA far ring), WP-PML6b (wide-gap
+  rule confirmation), WP-G2 only if the ADR 0011 condition is met; then an idle-machine timing rerun of the 5b/5c
+  records; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
+  (7e finding), ADR 0009 open point 4 (box for Si).
+- Test counts on `main`: 601 ctest (`-LE "validation-large|slow"`), 131 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

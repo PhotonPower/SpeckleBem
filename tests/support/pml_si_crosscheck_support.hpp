@@ -109,6 +109,9 @@ struct Case {
     int box_max_iter = 400;
     // Far field.
     int ff_degree = 10;  ///< Dunavant degree of the far-field source quadrature
+    /// PML route only (WP-PML6): far-field source of the observables (windowed currents, the
+    /// WP-PML4c record; or the Huygens plane at its defaults, ADR 0010).
+    FarFieldSource pml_far_field = FarFieldSource::Currents;
 };
 
 /// Throws std::invalid_argument for an invalid case (before any meshing).
@@ -461,6 +464,7 @@ inline PmlTermination make_termination(const Case& c) {
     p.order = c.order;
     p.correlation_length = c.correlation_length;
     p.dark_band_tolerance = c.dark_band_tolerance;
+    p.far_field_source = c.pml_far_field;
     return p;
 }
 
@@ -682,6 +686,10 @@ struct RouteResult {
     Real p_refl = 0;  ///< reflected power on the kRTheta x kRPhi grid [W]
     [[nodiscard]] Real reflectance() const { return p_refl / p_inc; }
     box_validity::FarField ff;
+    /// PML route with Case::pml_far_field == Huygens (WP-PML6): the windowed-current far field
+    /// of the same solution and its reflected power, for the Huygens-vs-currents comparison.
+    std::optional<box_validity::FarField> ff_currents;
+    Real p_refl_currents = 0;
     Real ff_check = 0;  ///< l2_refl of Dunavant degree 8 against ff_degree
     Index plane_waves = 0;
     // Costs.
@@ -789,6 +797,12 @@ inline RouteResult run_pml(const Case& c, const geometry::HeightMap& map) {
     const auto t3 = std::chrono::steady_clock::now();
     const post::SurfaceSolution s{&sim.problem(), x};
     detail::observe(sim, s, c, r);
+    if (c.pml_far_field == FarFieldSource::Huygens) {
+        const post::FieldOptions fc = sim.far_field_options(c.ff_degree, FarFieldSource::Currents);
+        r.ff_currents = far_field(s, fc);
+        r.p_refl_currents =
+            post::radiated_power(s, post::hemisphere_grid(-1.0, kRTheta, kRPhi), fc);
+    }
     r.decay = pml_fresnel::edge_decay(s, r.half[3], c.mesh_size);
     r.post_s = detail::seconds_since(t3);
     r.report = sim.report();
@@ -844,7 +858,7 @@ inline std::string row_line(const Case& c, const RouteResult& r, const std::stri
             "half %.4g/%.4g/%.4g/%.4g | 2N %lld | triangles %lld | masked %lld of %lld | dark "
             "%.3e | edge J %.2e M %.2e | %s | iterations %d | residual %.2e | R %.7f | P_refl "
             "%.6e | P_inc %.6e | ff check %.2e | waves %lld | setup %.1f s | assembly %.1f s | "
-            "solve %.1f s | post %.1f s | operator %.2f GB | peak %.2f GB",
+            "solve %.1f s | post %.1f s | operator %.2f GB | peak %.2f GB%s",
             tag.c_str(), static_cast<unsigned long long>(c.seed), c.sigma, c.correlation_length,
             c.L, c.waist, c.mesh_size, c.gen_spacing, c.map_size, c.taper, c.gap, c.pml_width,
             c.sigma_max, c.order, r.half[0], r.half[1], r.half[2], r.half[3],
@@ -852,7 +866,9 @@ inline std::string row_line(const Case& c, const RouteResult& r, const std::stri
             static_cast<long long>(r.masked), static_cast<long long>(r.unknowns / 2), r.dark_band,
             r.decay.j, r.decay.m, r.solver.c_str(), r.iterations, r.residual, r.reflectance(),
             r.p_refl, r.p_inc, r.ff_check, static_cast<long long>(r.plane_waves), r.setup_s,
-            r.assembly_s, r.solve_s, r.post_s, r.operator_gb, r.peak_rss / 1e9);
+            r.assembly_s, r.solve_s, r.post_s, r.operator_gb, r.peak_rss / 1e9,
+            c.pml_far_field == FarFieldSource::Huygens ? " | far field Huygens plane (WP-PML6)"
+                                                       : "");
     } else {
         len = std::snprintf(
             buf, sizeof(buf),
@@ -929,6 +945,9 @@ inline void store(const std::string& dir, const Case& c, const RouteResult& r,
     w->write_matrix("cut_yz_intensity", r.ff.cut_yz);
     w->write_attribute("tag", tag);
     w->write_attribute("route", r.route);
+    if (r.route == "pml")
+        w->write_attribute("far_field_source",
+                           c.pml_far_field == FarFieldSource::Huygens ? "huygens" : "currents");
     w->write_attribute("seed", static_cast<Real>(c.seed));
     w->write_attribute("sigma", c.sigma);
     w->write_attribute("correlation_length", c.correlation_length);

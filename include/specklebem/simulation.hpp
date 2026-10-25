@@ -12,6 +12,7 @@
 #include "specklebem/material/material.hpp"
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/postprocessing/fields.hpp"
+#include "specklebem/postprocessing/huygens.hpp"
 #include "specklebem/postprocessing/scattering.hpp"
 #include "specklebem/solver/gmres.hpp"
 
@@ -273,6 +274,17 @@ struct SimulationConfig {
     SolverKind solver = SolverKind::Gmres;
 };
 
+/// Far-field source of the PML route (ADR 0010, WP-PML6).
+enum class FarFieldSource {
+    /// Radiation of the surface currents of the real part with the raised-cosine window across
+    /// the gap (ADR 0009 decision 5; post::far_field with FieldOptions::window).
+    Currents,
+    /// Radiation of the windowed equivalent currents of a Huygens plane in R1 at the distance
+    /// z_h below the surface (post::huygens_far_field; FieldOptions::huygens), which filters
+    /// the bound surface-plasmon field by distance instead of truncating it.
+    Huygens
+};
+
 /// PML termination of an open rough surface (ADR 0009, Simulation's second constructor). The
 /// stretch is geometry::make_pml_stretch(open, sigma_max, order) (start = pml_start, width =
 /// outer_half - pml_start, the same profile on x and y).
@@ -291,6 +303,14 @@ struct PmlTermination {
     /// max(|x|, |y|) = pml_start) relative to the largest |E_inc| on the patch vertices must not
     /// exceed this (> 0; the PML target 1e-4 by default).
     Real dark_band_tolerance = 1e-4;
+    /// Source of every far-field observable of the Simulation (far_field(directions,
+    /// quad_degree), drc, drc_polarized, radiated_power, reflected_power; WP-PML6, ADR 0010).
+    FarFieldSource far_field_source = FarFieldSource::Currents;
+    /// Huygens plane of FarFieldSource::Huygens (post::HuygensOptions: z_h default lambda_1,
+    /// spacing default lambda_1 / 4, window default the current window (taper_end, pml_start)).
+    /// Checked by the constructor whatever the source: z_h finite and > 0, spacing finite, > 0
+    /// and <= lambda_1 / 2, a window valid and ending at or before pml_start.
+    post::HuygensOptions huygens;
 };
 
 /// Owns everything a solve needs: the mesh, the RWG space, the formulation, the excitation
@@ -429,8 +449,17 @@ public:
     /// The PML route's default far-field window (taper_end, pml_start); empty for the box route.
     [[nodiscard]] const std::optional<post::CurrentWindow>& far_field_window() const;
     /// FieldOptions for post::far_field on solution(): quad_degree, the default
-    /// min_distance_factor and far_field_window() (none for the box route).
+    /// min_distance_factor and far_field_window() (none for the box route), and on the PML route
+    /// with far_field_source() == FarFieldSource::Huygens also FieldOptions::huygens =
+    /// pml_termination().huygens (the plane window defaults to far_field_window()).
     [[nodiscard]] post::FieldOptions far_field_options(int quad_degree = 6) const;
+    /// Same for an explicit source. @throws std::logic_error for FarFieldSource::Huygens on the
+    /// box route (a closed mesh has no Huygens plane; valid call, wrong state).
+    [[nodiscard]] post::FieldOptions far_field_options(int quad_degree,
+                                                       FarFieldSource source) const;
+    /// Far-field source of the observables: PmlTermination::far_field_source on the PML route,
+    /// FarFieldSource::Currents on the box route.
+    [[nodiscard]] FarFieldSource far_field_source() const;
     /// Far-field amplitude F [V] per row of `directions` (E_s ~ F exp(-j k_1 r) / r in R1):
     /// post::far_field on solution() with `opt` (e.g. far_field_options() with another window).
     /// On the PML route the rows must lie in the reflection hemisphere, as for drc() below; the
@@ -439,17 +468,18 @@ public:
     ///         PML route and everything post::far_field throws for.
     [[nodiscard]] Eigen::Matrix<Complex, Eigen::Dynamic, 3> far_field(
         const Vertices& directions, const post::FieldOptions& opt) const;
-    /// Same with far_field_options(quad_degree) (the PML route's window applied automatically).
+    /// Same with far_field_options(quad_degree) (the PML route's window, or its Huygens plane for
+    /// FarFieldSource::Huygens, applied automatically).
     [[nodiscard]] Eigen::Matrix<Complex, Eigen::Dynamic, 3> far_field(const Vertices& directions,
                                                                       int quad_degree = 6) const;
 
     /// Absolute far-field observables (WP25). All of them evaluate post::far_field on
-    /// solution() with far_field_options(quad_degree), so the PML route's current window is
-    /// applied automatically. On the PML route R1 is the half space below the surface: every
-    /// direction must point into the reflection hemisphere, k_z <= 1e-12 |k_hat| (rows with
-    /// k_z > 0 throw std::invalid_argument, as far_field() does), and scattered_power() is
-    /// refused (std::logic_error: a valid call in the wrong state; the same rule as the Python
-    /// binding's bistatic_rcs and field on that route).
+    /// solution() with far_field_options(quad_degree), so the PML route's current window (or
+    /// its Huygens plane, far_field_source()) is applied automatically. On the PML route R1 is the
+    /// half space below the surface: every direction must point into the reflection hemisphere, k_z
+    /// <= 1e-12 |k_hat| (rows with k_z > 0 throw std::invalid_argument, as far_field() does), and
+    /// scattered_power() is refused (std::logic_error: a valid call in the wrong state; the same
+    /// rule as the Python binding's bistatic_rcs and field on that route).
     ///
     /// Incident power P_inc [W] of the excitation: AngularSpectrumBeam::power() (through any
     /// plane normal to the beam axis, the normalisation of the WP22c / PML reflectances) or

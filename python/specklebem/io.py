@@ -344,7 +344,17 @@ def _config_attrs(sim: Any) -> dict[str, Any]:
             "dark_band_ratio": float(sim.dark_band_ratio),
             "window_inner_half": float(w.inner_half),
             "window_outer_half": float(w.outer_half),
+            "far_field_source": str(t.far_field_source),  # WP-PML6, ADR 0010
         }
+        # Huygens-plane options only when set (None = the defaults lambda_1, lambda_1 / 4 and
+        # the current window).
+        if t.huygens_z_h is not None:
+            a["pml"]["huygens_z_h"] = float(t.huygens_z_h)
+        if t.huygens_spacing is not None:
+            a["pml"]["huygens_spacing"] = float(t.huygens_spacing)
+        if t.huygens_window is not None:
+            a["pml"]["huygens_window_inner_half"] = float(t.huygens_window.inner_half)
+            a["pml"]["huygens_window_outer_half"] = float(t.huygens_window.outer_half)
     return a
 
 

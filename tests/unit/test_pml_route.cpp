@@ -599,6 +599,70 @@ TEST_CASE("pml simulation: compression, gap, taper, orientation and termination 
     }
 }
 
+TEST_CASE("pml simulation: far-field source, Huygens options and report", "[pml_simulation]") {
+    const auto exc = beam(0.4e-6, 1.0e-6);
+    // Default: the windowed currents (WP-PML6 switches only after 7f / 7g, ADR 0010).
+    const Simulation cur(sim_surface(), relaxed(), exc, dense_config());
+    CHECK(cur.far_field_source() == FarFieldSource::Currents);
+    CHECK_FALSE(cur.far_field_options().huygens.has_value());
+    const post::FieldOptions explicit_h = cur.far_field_options(6, FarFieldSource::Huygens);
+    REQUIRE(explicit_h.huygens.has_value());
+    CHECK_FALSE(explicit_h.huygens->z_h.has_value());
+    CHECK(explicit_h.window->outer_half == 0.6e-6);
+    CHECK_THAT(cur.report(), ContainsSubstring("far field:      windowed currents"));
+
+    PmlTermination h = relaxed();
+    h.far_field_source = FarFieldSource::Huygens;
+    h.huygens.z_h = 0.75e-6;
+    h.huygens.spacing = 100e-9;
+    const Simulation hs(sim_surface(), h, exc, dense_config());
+    CHECK(hs.far_field_source() == FarFieldSource::Huygens);
+    const post::FieldOptions fo = hs.far_field_options(8);
+    REQUIRE(fo.huygens.has_value());
+    CHECK(*fo.huygens->z_h == 0.75e-6);
+    CHECK(*fo.huygens->spacing == 100e-9);
+    CHECK(fo.quad_degree == 8);
+    CHECK(fo.window->inner_half == 0.4e-6);  // the plane window defaults to the current window
+    CHECK_FALSE(hs.far_field_options(6, FarFieldSource::Currents).huygens.has_value());
+    CHECK_THAT(hs.report(), ContainsSubstring("far field:      Huygens plane") &&
+                                ContainsSubstring("z_h 7.5e-07") &&
+                                ContainsSubstring("plane window [4e-07, 6e-07]"));
+
+    // Option checks at construction (whatever the source).
+    const auto refused = [&](const post::HuygensOptions& o) {
+        PmlTermination t = relaxed();
+        t.huygens = o;
+        CHECK_THROWS_AS(Simulation(sim_surface(), t, exc, dense_config()), std::invalid_argument);
+    };
+    post::HuygensOptions o;
+    o.z_h = 0.0;
+    refused(o);
+    o.z_h = std::nan("");
+    refused(o);
+    o = {};
+    o.spacing = 0.0;
+    refused(o);
+    o.spacing = 0.26e-6;  // > lambda / 2
+    refused(o);
+    o = {};
+    o.window = post::CurrentWindow{0.4e-6, 0.61e-6};  // beyond pml_start
+    refused(o);
+    o.window = post::CurrentWindow{0.5e-6, 0.4e-6};
+    refused(o);
+    o.window = post::CurrentWindow{0.2e-6, 0.6e-6};
+    PmlTermination ok = relaxed();
+    ok.huygens = o;
+    CHECK_NOTHROW(Simulation(sim_surface(), ok, exc, dense_config()));
+
+    // Box route: currents only.
+    const Simulation box(
+        geometry::make_icosphere(0.3e-6, 1),
+        std::make_shared<excitation::PlaneWave>(kLambda, Vec3(0.0, 0.0, 1.0), Vec3c(1.0, 0.0, 0.0)),
+        dense_config());
+    CHECK(box.far_field_source() == FarFieldSource::Currents);
+    CHECK_THROWS_AS(box.far_field_options(6, FarFieldSource::Huygens), std::logic_error);
+}
+
 TEST_CASE("pml simulation: a tiny dense PML solve runs (direct and GMRES)", "[pml_simulation]") {
     // Patch 0.2, taper 0.1, gap 0.1, PML 0.1 um at h = 100 nm: 8 x 8 cells, 128 triangles.
     // Structural only (no dark band, PML one cell): masked rhs, finite currents, windowed far
@@ -643,6 +707,18 @@ TEST_CASE("pml simulation: a tiny dense PML solve runs (direct and GMRES)", "[pm
     post::far_field(sim.solution(), dirs, F, sim.far_field_options());
     CHECK(F.allFinite());
     CHECK(F.norm() > 0.0);
+    // Huygens source through Simulation::far_field = post::huygens_far_field (WP-PML6); k_z > 0
+    // rows are refused as for the currents.
+    const post::FieldOptions fh = sim.far_field_options(6, FarFieldSource::Huygens);
+    const FieldMatrix Fs = sim.far_field(dirs, fh);
+    FieldMatrix Fh;
+    post::huygens_far_field(sim.solution(), dirs, Fh, fh);
+    CHECK((Fs.array() == Fh.array()).all());
+    CHECK(Fs.allFinite());
+    CHECK(Fs.norm() > 0.0);
+    Vertices up(1, 3);
+    up << 0.0, 0.3, 0.5;
+    CHECK_THROWS_AS(sim.far_field(up, fh), std::invalid_argument);
     if (!kRelease)
         return;
     // GMRES (Jacobi per the recommendation) reproduces the direct solution.

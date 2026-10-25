@@ -37,3 +37,4 @@
 - [Dense LU findings (WP-LU1)](dense_lu_findings.md) — zgetrf vs Eigen same kernel 1 thread, load not content, zgecon cost, 10-40x unreproduced, trace numbers
 - [PML rough Ag 7c/7d (WP-PML4b)](pml_rough_ag_findings.md) — 7c met 1e-5..1e-4, 7d Si 0.24 % / Ag 2.6 % via SPPs, l2 ~ 0.3 x gap J, loss diag, W = lambda, foreign batch
 - [PML ring findings (WP-PML5a/5b/5c)](pml_ring_findings.md) — 5a exact ring design/costs; 5b ACA row clusters, eta 2, kappa bound, 2N 3e5; 5c exact translation classes; plan shares far partition
+- [PML Huygens far field (WP-PML6)](pml_huygens_findings.md) — 7f met / 7g not (plane window Delta = lambda), wide-gap Delta study: plane converges theta<=30, 7d ~2.3 % stays; 7f needs window >= 2.5 w0 (CI 2N 7 632)

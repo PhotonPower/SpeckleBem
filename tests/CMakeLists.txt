@@ -24,6 +24,7 @@ add_executable(specklebem_unit_tests
     unit/test_angular_spectrum_beam.cpp
     unit/test_direct.cpp
     unit/test_fields.cpp
+    unit/test_huygens.cpp
     unit/test_scattering.cpp
     unit/test_operators.cpp
     unit/test_stretched_kernels.cpp
@@ -114,6 +115,7 @@ add_executable(specklebem_validation_tests
     validation/test_drc_power.cpp
     validation/test_ag_near_field.cpp
     validation/test_pml_ring.cpp
+    validation/test_pml_huygens.cpp
 )
 target_link_libraries(specklebem_validation_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
@@ -137,6 +139,7 @@ add_executable(specklebem_validation_large_tests
     validation_large/test_pml_spp_large.cpp
     validation_large/test_pml_rough_ag_large.cpp
     validation_large/test_pml_ring_large.cpp
+    validation_large/test_pml_huygens_large.cpp
 )
 target_link_libraries(specklebem_validation_large_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 target_include_directories(specklebem_validation_large_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)

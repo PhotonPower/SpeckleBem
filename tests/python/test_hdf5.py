@@ -345,6 +345,7 @@ def test_pml_round_trip(h5py, tmp_path):
     p = c["pml"]
     assert p["sigma_max"] == 1.0 and p["order"] == 2.0 and p["correlation_length"] == 0.0
     assert p["dark_band_tolerance"] == 0.9 and p["dark_band_ratio"] == sim.dark_band_ratio
+    assert p["far_field_source"] == "currents" and "huygens_z_h" not in p
     assert (p["patch_half"], p["taper_end"], p["pml_start"], p["outer_half"]) == (
         sim.zone_half_widths
     )

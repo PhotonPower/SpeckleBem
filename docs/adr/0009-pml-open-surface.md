@@ -127,6 +127,16 @@ regression. The PML route becomes the default for plasmonic objects once it pass
      far field remains the validated route for flat surfaces and rough Si; for rough metals it is superseded by the
      Huygens-plane far field of ADR 0010 (WP-PML6, after WP-PML5). Until then rough-metal results state L, gap and
      window (lead decision 2026-10-18 on the coordinator's recommendation).
+   - *Note (WP-PML6, 2026-10, ADR 0010 "Result").* The Huygens plane is implemented (`FarFieldSource::Huygens`,
+     `post::huygens_far_field`) and meets 7f (flat Ag / Si), but not 7g: a plane that ends at pml_start with the
+     window across the gap (Δ = λ) truncates the radiating field itself (grazing directions, window-end error), so
+     its z_h and window sensitivities are 1–2 % on rough Ag. The windowed current far field of this decision
+     therefore stays the default far-field source of the PML route; the rough-metal caveat above (state L, gap and
+     window) still holds. Diagnostic (not validated, `benchmarks/results/pml_huygens.md`): with the real gap
+     widened to 3 µm and a plane window transition of 3–6 λ the plane converges at θ ≤ 30° (z_H ×1.5 ≤ 0.07 %,
+     plane vs currents ≤ 0.08 %) and L ×1.2 still changes the rough-Ag far field by ≈ 2.3 % there, for both
+     sources — evidence for the "rough spot in a polished surface" model statement of 7d. Decision on the
+     follow-up pending (ADR 0010 "Result").
 6. **Fast method.**
    - The **prototype is dense** (validation only, 2N ≲ 6·10⁴).
    - At scale the PML ring is a large share of the surface: W_pml ≈ 1–2 µm against L = 30 µm gives about 4 W/L ≈

@@ -1,8 +1,9 @@
 # ADR 0010: SPP-aware far field of the PML route (Huygens surface in R1)
 
 - **Status**: accepted 2026-10-18 (project lead followed the coordinator's recommendation; implementation after
-  WP-PML5); amended 2026-10-25 (extended plane, lead decision 2026-10-22; withdrawn the same day — see the
-  decision of 2026-10-25: the L dependence of rough metals is accepted as physical)
+  WP-PML5); implemented in WP-PML6 (section "Result": 7f met, 7g not met, default unchanged); amended
+  2026-10-25 (extended plane, lead decision 2026-10-22; withdrawn the same day — see the decision of
+  2026-10-25: the L dependence of rough metals is accepted as physical, row 7g closed as "not met — physical")
 - **Date**: 2026-10-18
 - **Phase**: 5
 
@@ -60,6 +61,43 @@ Alternatives considered:
    - If 7g fails: the L dependence is physical (re-scattering of SPPs at the roughness changes the radiating
      currents with L, not only the window) — then the model statement of ADR 0009 ("rough spot in a polished
      surface") is the result and (b) is not pursued either.
+
+## Result (WP-PML6, 2026-10)
+
+- **Status:** implemented, 7f met, 7g not met; the default far-field source of the PML route stays the windowed
+  currents (`FarFieldSource::Currents`); the Huygens plane is available as `FarFieldSource::Huygens` /
+  `FieldOptions::huygens` (`post::huygens_far_field`, `post::exterior_scattered_field` with the PML source
+  triangles radiating through the stretched Green's function). Record `benchmarks/results/pml_huygens.md`.
+- **7f (flat Ag / Si, dense LU):** Huygens vs currents L2 2.73·10⁻⁴ / 2.83·10⁻⁴, ΔR/R −1.7·10⁻⁷ / −4.2·10⁻⁷; z_H ×1.5
+  2.6 / 2.7·10⁻⁴ (vs the currents 5.3 / 5.4·10⁻⁴), spacing /1.5 8.5 / 7.4·10⁻⁷, plane quadrature 5·10⁻¹²; plane
+  evaluation 0.3 s (729 points), 1.5 s at the rough U case (2 025 points).
+- **7g (rough Ag U, fast path):** 7d with the Huygens plane 2.78 % (own default windows) / 1.83 % (the same absolute
+  window), currents 2.57 %; z_H ×1.5 1.05 %, plane window ×0.7 / ×1.3 1.75 % / 0.66 %; spacing /1.5 4·10⁻⁵, gap
+  width at a fixed window 3·10⁻⁵ (inert). Rough Si 7e with the plane: l2_refl 0.220 % and ε_rr 0.038 / 0.044 %
+  pass, ΔR/R −5.3·10⁻⁴ fails (4.1·10⁻⁵; the same −5.2·10⁻⁴ against the currents of the same solve).
+- **Diagnosis:** the plane window, not the physics. The plane ends at pml_start and its raised cosine spans the gap
+  (Δ = λ): grazing directions are missed (θ 75–90°: −67 % band power vs the currents) and the window end leaves
+  ≈ π²/(2(kΔ)²) per end of every field crossing it (point-source unit test 4.7·10⁻² / 9.8·10⁻³ / 2.3·10⁻³ at
+  Δ = 2 / 4 / 8 λ, 0.28 at Δ = λ). The plane's own sensitivities are as large as the 7d change, so the clause
+  "if 7g fails, the L dependence is physical" (decision 3) does not apply to this result. Tolerances not loosened.
+- **Extended-plane diagnostic (not validated, for the lead decision):** the plane cannot reach over the PML without
+  code changes and a theory for stretched observation points (record, section "Diagnostic: extended plane"); on
+  the U surface with a 3 µm real gap and Δ = 1 / 2 / 3 / 4 / 6 λ: z_H ×1.5 1.05 / 0.49 / 0.28 / 0.18 / 0.10 %
+  (θ ≤ 30°: 0.81 / 0.21 / 0.073 / 0.042 / 0.018 %), Huygens vs currents at θ ≤ 30° 0.97 / 0.16 / 0.079 / 0.038 /
+  0.018 %, and 7d with the plane 2.78 / 2.55 / 2.48 / 2.45 / 2.43 % (θ ≤ 30°: 2.68 / 2.39 / 2.32 / 2.30 / 2.28 %),
+  with the currents 2.4 % at every Δ ≥ 2 λ. In the cone θ ≤ 30° the plane converges and the L ×1.2 change of
+  ≈ 2.3 % remains for both sources (the condition of the clause met there); the hemisphere is not converged
+  (grazing band −44 % at Δ = 6 λ).
+- **Plane evaluation kept direct:** the plane fields are the direct O(N_H · N_tri) evaluation of
+  `exterior_scattered_field` (OpenMP over the plane points), not the compressed near-field operator foreseen
+  by decision 2 ("Fast path") and the "Revisit" consequence: 0.3 s at 729 points (7f), 1.5 s at 2 025 (U), 12.5 s at 7 225 points (the Δ = 6 λ
+  wide-gap plane, 2N = 62 016; 10.8–21.6 s across the runs of that plane depending on the machine load), against
+  assembly and solve times of 10³ s on the same cases. The compressed path stays a revisit item if planes of
+  ≫ 10⁴ points become the default.
+- **Decision taken (lead, 2026-10-25, section "Decision 2026-10-25" below):** the L dependence is accepted as
+  physical on the wide-gap evidence (θ ≤ 30° cone), `FarFieldSource::Currents` stays the default, the gap ≥ 6 λ
+  rule is confirmed by WP-PML6b (window ×(1 ± 0.3) on the wide plane, a second seed); the plane over the PML is
+  not pursued. Rough-metal PML results state L, gap and window.
 
 ## Consequences
 

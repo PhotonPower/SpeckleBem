@@ -31,6 +31,7 @@ set(SPECKLEBEM_SOURCES
     backend/cpu/cpu_backend.cpp
     solver/direct.cpp
     postprocessing/fields.cpp
+    postprocessing/huygens.cpp
     postprocessing/scattering.cpp
     compression/mlfmm/plane_wave.cpp
     compression/mlfmm/interpolation.cpp

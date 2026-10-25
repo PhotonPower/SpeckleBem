@@ -491,15 +491,46 @@ py::tuple field(PySimulation& sim, const py::object& points, const std::string& 
     return py::make_tuple(fields_to_array(E, single), fields_to_array(H, single));
 }
 
+/// "currents" / "huygens" (case-insensitive) -> FarFieldSource (ValueError otherwise).
+FarFieldSource parse_far_field_source(const std::string& name) {
+    const std::string s = to_lower(name);
+    if (s == "currents")
+        return FarFieldSource::Currents;
+    if (s == "huygens")
+        return FarFieldSource::Huygens;
+    throw py::value_error("far-field source: expected \"currents\" or \"huygens\", got \"" + name +
+                          "\"");
+}
+
+const char* far_field_source_name(FarFieldSource s) {
+    return s == FarFieldSource::Huygens ? "huygens" : "currents";
+}
+
 py::object far_field(PySimulation& sim, const py::object& directions, int quad_degree,
-                     const std::optional<post::CurrentWindow>& window) {
+                     const std::optional<post::CurrentWindow>& window,
+                     const std::optional<std::string>& source, const std::optional<Real>& z_h,
+                     const std::optional<Real>& spacing) {
     bool single = false;
     const Vertices d = points_from_array(directions, "directions", &single);
     require_all_finite(d, "directions");
-    // None: the Simulation's default (the PML route's window across the gap; none for the box).
-    post::FieldOptions opt = sim.far_field_options(quad_degree);
-    if (window)
+    // None: the Simulation's default source (PmlTermination.far_field_source; currents on the
+    // box route) and window (the PML route's window across the gap; none for the box).
+    const FarFieldSource src = source ? parse_far_field_source(*source) : sim.far_field_source();
+    if (src == FarFieldSource::Currents && (z_h || spacing)) {
+        throw py::value_error("far_field: z_h and spacing apply to the Huygens source only");
+    }
+    post::FieldOptions opt = sim.far_field_options(quad_degree, src);
+    if (src == FarFieldSource::Huygens) {
+        // window: the plane window; z_h / spacing override the termination's Huygens options.
+        if (window)
+            opt.huygens->window = window;
+        if (z_h)
+            opt.huygens->z_h = z_h;
+        if (spacing)
+            opt.huygens->spacing = spacing;
+    } else if (window) {
         opt.window = window;
+    }
     // Simulation::far_field: on the PML route k_z > 0 rows raise ValueError, as drc.
     const FieldMatrix F = sim.locked([&] { return sim.far_field(d, opt); });
     return fields_to_array(F, single);
@@ -940,23 +971,66 @@ correlation_length : Lc [m] of the height map; required (> 0) for a rough patch,
     be at least Lc wide; 0 for a flat patch
 dark_band_tolerance : largest allowed |E_inc| on the PML-start square relative to its maximum on
     the patch (> 0, default 1e-4)
+far_field_source : "currents" (windowed surface currents, ADR 0009 decision 5) or "huygens"
+    (windowed equivalent currents of a plane in R1 at huygens_z_h below the surface, ADR 0010);
+    the source of far_field, drc, radiated_power, reflected_power and reflectance
+huygens_z_h : distance [m] of the Huygens plane below the lowest vertex; None = lambda_1
+huygens_spacing : grid spacing [m] of the plane; None = lambda_1 / 4 (must be <= lambda_1 / 2)
+huygens_window : CurrentWindow of the plane; None = the current window (taper_end, pml_start)
 )doc")
         .def(py::init([](Real sigma_max, Real order, Real correlation_length,
-                         Real dark_band_tolerance) {
-                 return PmlTermination{sigma_max, order, correlation_length, dark_band_tolerance};
+                         Real dark_band_tolerance, const std::string& far_field_source,
+                         const std::optional<Real>& huygens_z_h,
+                         const std::optional<Real>& huygens_spacing,
+                         const std::optional<post::CurrentWindow>& huygens_window) {
+                 PmlTermination t;
+                 t.sigma_max = sigma_max;
+                 t.order = order;
+                 t.correlation_length = correlation_length;
+                 t.dark_band_tolerance = dark_band_tolerance;
+                 t.far_field_source = parse_far_field_source(far_field_source);
+                 t.huygens.z_h = huygens_z_h;
+                 t.huygens.spacing = huygens_spacing;
+                 t.huygens.window = huygens_window;
+                 return t;
              }),
              py::kw_only(), py::arg("sigma_max") = dp.sigma_max, py::arg("order") = dp.order,
              py::arg("correlation_length") = dp.correlation_length,
-             py::arg("dark_band_tolerance") = dp.dark_band_tolerance)
+             py::arg("dark_band_tolerance") = dp.dark_band_tolerance,
+             py::arg("far_field_source") = far_field_source_name(dp.far_field_source),
+             py::arg("huygens_z_h") = py::none(), py::arg("huygens_spacing") = py::none(),
+             py::arg("huygens_window") = py::none())
         .def_readwrite("sigma_max", &PmlTermination::sigma_max)
         .def_readwrite("order", &PmlTermination::order)
         .def_readwrite("correlation_length", &PmlTermination::correlation_length)
         .def_readwrite("dark_band_tolerance", &PmlTermination::dark_band_tolerance)
+        .def_property(
+            "far_field_source",
+            [](const PmlTermination& t) { return far_field_source_name(t.far_field_source); },
+            [](PmlTermination& t, const std::string& s) {
+                t.far_field_source = parse_far_field_source(s);
+            },
+            "\"currents\" or \"huygens\".")
+        .def_property(
+            "huygens_z_h", [](const PmlTermination& t) { return t.huygens.z_h; },
+            [](PmlTermination& t, const std::optional<Real>& v) { t.huygens.z_h = v; },
+            "Huygens plane distance below the lowest vertex [m] or None (lambda_1).")
+        .def_property(
+            "huygens_spacing", [](const PmlTermination& t) { return t.huygens.spacing; },
+            [](PmlTermination& t, const std::optional<Real>& v) { t.huygens.spacing = v; },
+            "Huygens plane grid spacing [m] or None (lambda_1 / 4).")
+        .def_property(
+            "huygens_window", [](const PmlTermination& t) { return t.huygens.window; },
+            [](PmlTermination& t, const std::optional<post::CurrentWindow>& v) {
+                t.huygens.window = v;
+            },
+            "CurrentWindow of the Huygens plane or None (the current window).")
         .def("__repr__", [](const PmlTermination& t) {
             return "<PmlTermination sigma_max=" + std::to_string(t.sigma_max) +
                    " order=" + std::to_string(t.order) +
                    " correlation_length=" + std::to_string(t.correlation_length) +
-                   " dark_band_tolerance=" + std::to_string(t.dark_band_tolerance) + ">";
+                   " dark_band_tolerance=" + std::to_string(t.dark_band_tolerance) +
+                   " far_field_source=" + far_field_source_name(t.far_field_source) + ">";
         });
 
     py::class_<PySimulation>(m, "Simulation", R"doc(
@@ -1262,13 +1336,23 @@ RuntimeError
     Before solve() and on the PML route (no near fields there; use far_field).
 )doc")
         .def("far_field", &far_field, py::arg("directions"), py::arg("quad_degree") = 6,
-             py::arg("window") = py::none(),
+             py::arg("window") = py::none(), py::kw_only(), py::arg("source") = py::none(),
+             py::arg("z_h") = py::none(), py::arg("spacing") = py::none(),
              "Far-field amplitude F [V] with E_s ~ F exp(-jkr) / r for directions (n, 3) "
-             "(normalised internally); returns (n, 3) complex128. window: CurrentWindow on the "
-             "currents; None = far_field_window (the PML route's window across the gap, none "
-             "for the box route). On the PML route the directions must lie in the reflection "
+             "(normalised internally); returns (n, 3) complex128. source: \"currents\" or "
+             "\"huygens\" (PML route only, ADR 0010); None = far_field_source. window: "
+             "CurrentWindow on the currents (or, for \"huygens\", on the plane); None = "
+             "far_field_window (the PML route's window across the gap, none for the box route) "
+             "or the termination's huygens_window. z_h, spacing: Huygens plane distance and "
+             "grid spacing [m] for this call (None = the termination's; ValueError with "
+             "\"currents\"). On the PML route the directions must lie in the reflection "
              "hemisphere k_z <= 0 (ValueError otherwise; R1 is the half space below the "
-             "surface). RuntimeError before solve().")
+             "surface). RuntimeError before solve() and for \"huygens\" on the box route.")
+        .def_property_readonly(
+            "far_field_source",
+            [](const PySimulation& s) { return far_field_source_name(s.far_field_source()); },
+            "Source of far_field / drc / radiated_power / reflected_power: \"currents\" or "
+            "\"huygens\" (PmlTermination.far_field_source; \"currents\" on the box route).")
         .def("bistatic_rcs", &bistatic_rcs, py::arg("angles"), py::arg("plane") = "xz", R"doc(
 Bistatic radar cross section sigma(theta) [m^2] (incidence along +z).
 
