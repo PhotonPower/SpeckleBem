@@ -141,5 +141,6 @@ void bind_geometry(py::module_& m);
 void bind_excitation(py::module_& m);
 void bind_simulation(py::module_& m);
 void bind_io(py::module_& m);
+void bind_postprocessing(py::module_& m);
 
 }  // namespace specklebem::python

@@ -154,4 +154,5 @@ outside the table.
     specklebem::python::bind_excitation(m);
     specklebem::python::bind_simulation(m);
     specklebem::python::bind_io(m);
+    specklebem::python::bind_postprocessing(m);
 }

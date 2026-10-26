@@ -2,7 +2,8 @@
 
 Headless Python front end for the C++ core. See docs/10_python_api.md. HDF5 result files:
 ``specklebem.io`` (``save_hdf5``, ``load_hdf5``, ``npy_to_hdf5``; needs h5py) and
-``Simulation.save``.
+``Simulation.save``. Speckle-ensemble statistics (KS test, contrast, correlation, speckle size
+vs lambda z / D): ``specklebem.speckle``.
 SI units throughout (metres, seconds, V/m, A/m); time convention exp(+jwt).
 """
 
@@ -10,6 +11,7 @@ from ._specklebem import (  # noqa: F401
     MAX_BEAM_WAIST_FRACTION,
     WEAK_ABSORBER_BEAM_WAIST_FRACTION,
     AngularSpectrumBeam,
+    ApertureShape,
     BoxGradingMode,
     CurrentWindow,
     DispersiveMaterial,
@@ -17,6 +19,7 @@ from ._specklebem import (  # noqa: F401
     Formulation,
     GaussianBeam,
     HeightMap,
+    KsResult,
     LinearOperator,
     LogLevel,
     Material,
@@ -37,11 +40,13 @@ from ._specklebem import (  # noqa: F401
     __version__,
     beam_waist_fraction,
     check_beam_waist,
+    correlation_coefficient,
     cylinder_grid,
     default_box_depth,
     default_box_fine_depth,
     differential_reflection_coefficient,
     exterior_wavelength,
+    field_correlation_from_intensity,
     field_decay_length,
     generate_gaussian_height_map,
     graded_box_mesh_size,
@@ -50,8 +55,13 @@ from ._specklebem import (  # noqa: F401
     has_openmp,
     hemisphere_grid,
     intensity,
+    intensity_autocorrelation,
+    intensity_pdf,
+    intensity_pdf_rms_error,
     is_plasmonic,
     is_weakly_absorbing,
+    kolmogorov_survival,
+    ks_test_exponential,
     make_icosphere,
     make_mesh_from_height_map,
     make_open_surface_mesh,
@@ -69,7 +79,12 @@ from ._specklebem import (  # noqa: F401
     set_log_level,
     silicon_500nm,
     silver_500nm,
+    speckle_contrast,
+    speckle_size,
+    speckle_size_constant,
+    speckle_size_expected,
     sphere_grid,
+    stephens_exponential_critical_value,
     vacuum,
     write_gmsh,
     write_mesh,
@@ -77,6 +92,7 @@ from ._specklebem import (  # noqa: F401
     write_stl,
 )
 from . import io  # HDF5 result files (h5py is imported lazily)
+from . import speckle  # speckle-ensemble harness (NumPy over the bound statistics)
 from .rough_surface import RoughSurface
 
 # Simulation.save(path, ...) = io.save_hdf5(path, sim, ...): a Python method added to the
@@ -87,6 +103,7 @@ __all__ = [
     "MAX_BEAM_WAIST_FRACTION",
     "WEAK_ABSORBER_BEAM_WAIST_FRACTION",
     "AngularSpectrumBeam",
+    "ApertureShape",
     "BoxGradingMode",
     "CurrentWindow",
     "DispersiveMaterial",
@@ -94,6 +111,7 @@ __all__ = [
     "Formulation",
     "GaussianBeam",
     "HeightMap",
+    "KsResult",
     "LinearOperator",
     "LogLevel",
     "Material",
@@ -115,11 +133,13 @@ __all__ = [
     "__version__",
     "beam_waist_fraction",
     "check_beam_waist",
+    "correlation_coefficient",
     "cylinder_grid",
     "default_box_depth",
     "default_box_fine_depth",
     "differential_reflection_coefficient",
     "exterior_wavelength",
+    "field_correlation_from_intensity",
     "field_decay_length",
     "generate_gaussian_height_map",
     "graded_box_mesh_size",
@@ -128,8 +148,13 @@ __all__ = [
     "has_openmp",
     "hemisphere_grid",
     "intensity",
+    "intensity_autocorrelation",
+    "intensity_pdf",
+    "intensity_pdf_rms_error",
     "is_plasmonic",
     "is_weakly_absorbing",
+    "kolmogorov_survival",
+    "ks_test_exponential",
     "make_icosphere",
     "make_mesh_from_height_map",
     "make_open_surface_mesh",
@@ -147,7 +172,13 @@ __all__ = [
     "set_log_level",
     "silicon_500nm",
     "silver_500nm",
+    "speckle",
+    "speckle_contrast",
+    "speckle_size",
+    "speckle_size_constant",
+    "speckle_size_expected",
     "sphere_grid",
+    "stephens_exponential_critical_value",
     "vacuum",
     "write_gmsh",
     "write_mesh",

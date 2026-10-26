@@ -159,7 +159,14 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   until measured); growth exponent unchanged (≈ N^0.57) — Phase 8 Schur/Calderón is the next lever; WP-G2 not
   scheduled (condition not met). Older PML records state "Jacobi" for their historical runs; new fast-path runs
   use the block default unless set explicitly (`preconditioner = Diagonal` reproduces the old path).
-- **In flight (2026-10-25):** WP-S1 (`wp/s1-speckle-statistics-harness`, Phase 6 part 1: KS test, synthetic reference speckle, speckle-size convention, Python harness); WP-S2 (`wp/s2-speckle-sweep`, started in parallel: driver `benchmarks/speckle_sweep.py` and the 10 solves, Si box route, L ~ 10 um, h = 50 nm, 5 sigma x 2 seeds, z = -1 mm; intensities saved locally; the DoD ctest = WP-S2b after WP-S1).
+- **Merged:** WP-S1 (Phase 6 part 1): the speckle-statistics module and its bindings (it had not existed), KS test
+  with asymptotic Kolmogorov p (conservative, mean from the sample), speckle-size convention FWHM(|μ_A|²) = c·λz/D
+  (square 0.886, disc 1.029, Gaussian D = 2w₀ 1.060), NumPy harness `specklebem.speckle.ensemble_statistics`;
+  synthetic checks all met (KS p 0.51–0.98, contrast 0.995, size within 2.7 %). Lead decisions for the DoD test
+  (WP-S2b): the negative-exponential gate applies to fully developed cases only (coherent fraction
+  exp(−(2kσ)²) < 1e-2, i.e. σ ≥ 150 nm at 633 nm; no specular masking; σ = 50 / 100 nm report contrast < 1 as
+  the physical expectation), gate with the level-correct Stephens-modified KS statistic at 5 %, plain p reported.
+- **In flight (2026-10-25):** WP-S2 (`wp/s2-speckle-sweep`, started in parallel to WP-S1: driver `benchmarks/speckle_sweep.py` and the 10 solves, Si box route, L ~ 10 um, h = 50 nm, 5 sigma x 2 seeds, z = -1 mm; intensities saved locally; the DoD ctest = WP-S2b after WP-S1).
 - **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
   continuation `wp/pml6-huygens-far-field-2` at f5bd897 in worker worktree agent-a40c1f6891657e9af: 7g reported as
   unmet with regression guards, docs/10 finished, wide-gap diagnostics; still to do there: record
@@ -187,7 +194,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 623 ctest (`-LE "validation-large|slow"`), 132 pytest; labels `slow`, `validation`
+- Test counts on `main`: 641 ctest (`-LE "validation-large|slow"`), 141 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

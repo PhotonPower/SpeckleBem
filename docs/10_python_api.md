@@ -496,6 +496,84 @@ D_cyl = sb.differential_reflection_coefficient(E_cyl, n_theta, n_y, radius=r,
   of `Simulation.drc` over the reflection hemisphere of a flat Si surface (PML route) against the
   Fresnel beam reflectance. Evaluation cost: `benchmarks/results/drc_evaluation.md`.
 
+## Bound in WP-S1: speckle statistics
+
+```python
+co, cross = sb.polarized_intensity(E, co_pol=[1, 0, 0])   # E on plane_grid(origin, u, v, nu, nv)
+I = co.reshape(nu, nv)                     # row i * nv + j -> I[i, j]; axis 0 = u, axis 1 = v
+sb.speckle_contrast(I)                     # std(I) / <I>, any shape (flattened); 1 = fully developed
+sb.correlation_coefficient(I1, I2)         # Pearson <dI1 dI2> / sqrt(<dI1^2><dI2^2>) (gamma_12)
+centers, density = sb.intensity_pdf(I, bins=64)   # histogram of x = I / <I> on [0, max x]
+sb.intensity_pdf_rms_error(centers, density)      # rms(density - exp(-x)) at the centres (diagnostic)
+r = sb.ks_test_exponential(I_independent)  # sb.KsResult: r.statistic, r.p_value, r.n; unpacks
+r.modified_statistic; r.rejects(alpha=0.05)   # Stephens: level-correct decision (docs/05 gate)
+sb.stephens_exponential_critical_value(alpha) # 1.094 at 0.05; alpha in [0.01, 0.15]
+sb.kolmogorov_survival(lam)                # Q_KS(lam) = 2 sum (-1)^(k-1) exp(-2 k^2 lam^2)
+G  = sb.intensity_autocorrelation(I)       # Gamma_I(d) = <I(r) I(r+d)> / <I>^2, shape of I
+mu = sb.field_correlation_from_intensity(I)   # |mu_A| = sqrt(max(Gamma_I - 1, 0)) (Siegert)
+sb.speckle_size(mu, pixel_size, axis=0)    # FWHM of |mu_A|^2 through zero lag [m]
+sb.speckle_size_expected(wavelength, z, aperture, shape="square")  # c lambda z / D [m]
+sb.speckle_size_constant(shape)            # c: square 0.885893, circular 1.028994, gaussian 1.060041
+sb.ApertureShape.Square / .Circular / .Gaussian   # or "square" / "circular" / "gaussian"
+
+from specklebem import speckle             # NumPy harness over the bound statistics (speckle.py)
+st = speckle.ensemble_statistics([I_seed1, I_seed2], pixel_size, wavelength, z, aperture,
+                                 shape="gaussian", ks_stride=None, ks_spacing=2.0)
+speckle.monotone_decreasing(values, tolerance=0.0)
+speckle.observation_plane_size(wavelength, z, aperture, shape="gaussian", n_speckles=20)
+speckle.independent_stride(size, pixel_size, factor=2.0); speckle.decimate(I, stride)
+```
+
+- Conventions (C++ `postprocessing/speckle_statistics.hpp`, the reference): intensities are
+  non-negative and finite, only ratios enter. Grid functions take 2-D arrays `(nu, nv)`; their
+  output has the same shape with zero lag at `[nu // 2, nv // 2]` (the `numpy.fft.fftshift`
+  layout), entry `[i, j]` = lag `(i - nu // 2, j - nv // 2)` pixels. `intensity_autocorrelation`
+  is the linear (zero-padded FFT) autocorrelation averaged over the overlapping pixel pairs of
+  each lag and divided by the squared mean of the whole pattern; every lag keeps at least half of
+  the pixels along each axis (one quarter at a corner lag). `field_correlation_from_intensity` inverts the Siegert relation
+  `Gamma_I = 1 + |mu_A|^2` (fully developed polarised speckle), so `|mu_A(0)|` is the contrast.
+- `speckle_size`: FWHM of `|mu_A|^2` along axis 0 (u) or 1 (v) through zero lag, relative to the
+  zero-lag value; the crossing is interpolated with `log |mu_A|^2` linear in `d^2` (exact for a
+  Gaussian peak; on sinc^2 at most 0.76 % over 4-8 pixels per FWHM, 1.9 % at 3).
+  `RuntimeError` if the pattern is smaller than about one speckle.
+- `speckle_size_expected(wavelength, z, aperture, shape)` is the same convention for a
+  random-phase aperture in the Fraunhofer zone, paraxial observation: `|mu_A(d)|^2` is
+  `|FT{|P|^2}|^2` at `d / (lambda z)` (van Cittert-Zernike), so FWHM = c lambda z / D with c from
+  the half-maximum point: square of side D (sinc^2: c = 2 x 0.442946 = 0.885893), disc of
+  diameter D (Airy `[2 J1(v) / v]^2`: c = 2 x 1.616340 / pi = 1.028994), Gaussian spot
+  `|P|^2 ~ exp(-2 r^2 / w0^2)` with D = 2 w0 (c = 4 sqrt(ln 2) / pi = 1.060041, the beam case).
+  `wavelength` is the wavelength in the observation medium.
+- `ks_test_exponential`: one-sample Kolmogorov-Smirnov test of `x = I / <I>` against
+  `1 - exp(-x)` with two decisions. `p_value = Q_KS(sqrt(n) D_n)` (asymptotic Kolmogorov
+  distribution) assumes a fully specified CDF; the mean is estimated from the sample, which makes
+  it strongly conservative (Lilliefors: about 0.5 % false rejections at nominal 5 %, measured
+  0.35 % over 2000 iid samples of n = 200; p-values of true exponential samples cluster towards
+  1) and weak against mildly partially developed speckle (a coherent background of half the mean
+  intensity, C = 0.943, is rejected in 26 % of 400 samples of n = 2000).
+  `KsResult.modified_statistic` = `(D_n - 0.2 / n)(sqrt(n) +
+  0.26 + 0.5 / sqrt(n))` and `KsResult.rejects(alpha=0.05)` (= `modified_statistic >
+  stephens_exponential_critical_value(alpha)`) are the level-correct test for the exponential
+  with estimated mean (Stephens 1974; D'Agostino and Stephens, "Goodness-of-Fit Techniques",
+  1986, chapter 4): measured 4.6 % false rejections at 5 % and 57 % power in the same cases.
+  `stephens_exponential_critical_value(alpha)`: 0.926, 0.990, 1.094, 1.190, 1.308 at alpha =
+  0.15, 0.10, 0.05, 0.025, 0.01, log-linear in alpha between them; `ValueError` outside
+  [0.01, 0.15]. The docs/05 gate uses `rejects(0.05)`; `KsResult` still unpacks as
+  `(statistic, p_value, n)`. The samples must be independent: decimate a pattern to about two
+  speckle sizes per sample (`ensemble_statistics` does this). `ValueError` for n < 50.
+- `ensemble_statistics` returns a dict: `n_patterns`; `contrast` (per pattern), `mean_contrast`,
+  `std_contrast`; `ks` (`KsResult` of the pooled decimated `I / <I>_pattern`), `ks_rejects_5pct`
+  (bool, `ks.rejects(0.05)`), `ks_stride`
+  (`(s_u, s_v)`, default `ceil(ks_spacing * speckle_size_expected / pixel)` per axis),
+  `ks_per_pattern` (`None` below 50 samples); `correlation` (`(n, n)` correlation coefficients,
+  diagonal 1); `speckle_size` (`(n, 2)` [m], axes u and v), `speckle_size_mean`,
+  `speckle_size_expected`, `speckle_size_rel_error`. Patterns must share one grid. `pixel_size`
+  is a float or `(du, dv)`. `monotone_decreasing(values, tolerance)` is True if
+  `values[i + 1] <= values[i] + tolerance` (absolute) for all i, for the sigma sweep of the
+  contrast and gamma_12 (docs/05).
+- Example: `examples/python/02_rough_surface_speckle.py` (Si, L = 2.5 um, 2N = 26 880, MLFMM,
+  about 1.5-3 min on a 12-core desktop) runs the harness end to end; its patch is far too small
+  for the docs/05 gates (see its docstring).
+
 ## HDF5 (WP23)
 
 HDF5 result files are written and read on the Python side with h5py (lead decision

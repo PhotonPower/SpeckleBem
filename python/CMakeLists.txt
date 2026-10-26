@@ -3,6 +3,7 @@ set(SPECKLEBEM_PYTHON_SOURCES
     src/bind_excitation.cpp
     src/bind_geometry.cpp
     src/bind_io.cpp
+    src/bind_postprocessing.cpp
     src/bind_simulation.cpp)
 pybind11_add_module(_specklebem MODULE ${SPECKLEBEM_PYTHON_SOURCES})
 target_link_libraries(_specklebem PRIVATE SpeckleBem::specklebem SpeckleBem::warnings)
@@ -22,7 +23,8 @@ set_target_properties(_specklebem PROPERTIES
 set(SPECKLEBEM_PYTHON_FILES
     specklebem/__init__.py
     specklebem/io.py
-    specklebem/rough_surface.py)
+    specklebem/rough_surface.py
+    specklebem/speckle.py)
 foreach(_py IN LISTS SPECKLEBEM_PYTHON_FILES)
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/${_py} ${CMAKE_CURRENT_BINARY_DIR}/${_py} COPYONLY)
 endforeach()

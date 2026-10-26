@@ -5,6 +5,27 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- post / python (WP-S1, Phase 6 part 1): speckle-statistics module `post/speckle_statistics` implemented and bound —
+  `speckle_contrast`, `correlation_coefficient`, `intensity_pdf` (+ `intensity_pdf_rms_error`), `ks_test_exponential`
+  (one-sample KS against 1 − e^(−I/⟨I⟩) with ⟨I⟩ from the sample, asymptotic Kolmogorov p via `kolmogorov_survival`,
+  n ≥ 50; conservative because the mean is estimated: ≈ 0.5 % actual level at nominal 5 % — plus the level-correct
+  Stephens-modified statistic `KsResult::modified_statistic` / `rejects(alpha)` with the Lilliefors-type table in
+  `stephens_exponential_critical_value`, review fix W1), `intensity_autocorrelation` (linear FFT,
+  overlap-normalised), `field_correlation_from_intensity` (Siegert), `speckle_size` (FWHM of |μ_A|², per axis,
+  log-quadratic half-maximum interpolation) and the convention FWHM(|μ_A|²) = c·λz/D with c = 0.885893 (square),
+  1.028994 (disc), 1.060041 (Gaussian spot, D = 2w₀) in `speckle_size_expected` / `speckle_size_constant`
+  (`ApertureShape`). Python: all bound (`sb.KsResult`, `sb.ApertureShape`), pure-NumPy harness
+  `specklebem.speckle.ensemble_statistics` (per-pattern contrast, pooled decimated KS, correlation matrix, speckle
+  size per axis vs prediction), `monotone_decreasing`, `observation_plane_size`; example
+  `examples/python/02_rough_surface_speckle.py` (Si, L = 2.5 µm, ≈ 90 s; gates not asserted, reasons given).
+  Synthetic reference speckle in `tests/support/speckle_support.hpp` (portable mt19937_64 + Box–Muller, identical
+  on libstdc++ and libc++). Measured: KS p = 0.51–0.98 on ten seeds of fully developed speckle, p ≤ 5e-7 with a
+  coherent background ≥ ⟨I⟩ (ratio 0.5 is not rejected at n = 2000 — power limit, documented); contrast 0.995 at
+  n = 1e5 and 0.977 / 0.864 / 0.599 vs analytic 0.980 / 0.866 / 0.600 with backgrounds; ρ within 0.005; Siegert
+  residual ≤ 0.05; speckle size within 2.7 % of λz/D on 12 checks (square / disc / Gaussian × 2 cases × 2 axes).
+  docs/05 rows 42–44 made testable, docs/10 section "speckle statistics". Unit tests `[speckle]` (18 cases; measured level of the plain p 0.35 % and of the Stephens
+  decision 4.6 % at nominal 5 %, power 26 % vs 57 % against a background of half the mean at n = 2000),
+  pytest `test_speckle.py`.
 - solver / mlfmm / simulation / python (WP-PC1, ADR 0011): near-field block-diagonal preconditioner
   `solver::BlockDiagonalPreconditioner` — one block per octree box (leaf or one level up) over the J and M unknowns
   of the box (`mlfmm::level_unknown_blocks`), entries extracted exactly once from the near parts

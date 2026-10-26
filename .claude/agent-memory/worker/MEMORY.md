@@ -40,3 +40,4 @@
 - [PML ring findings (WP-PML5a/5b/5c/5d)](pml_ring_findings.md) — 5d pair memo 16 MiB -30 % evals, bitwise; 5a exact ring design/costs; 5b ACA row clusters, eta 2, kappa bound, 2N 3e5; 5c exact translation classes; plan shares far partition
 - [PML Huygens far field (WP-PML6)](pml_huygens_findings.md) — 7f met / 7g not (plane window Delta = lambda), wide-gap Delta study: plane converges theta<=30, 7d ~2.3 % stays; 7f needs window >= 2.5 w0 (CI 2N 7 632)
 - [Wide-gap rule (WP-PML6b)](pml_wide_gap_findings.md) — gap 6 lambda cone theta<=30: window sens 4e-4/8.7e-4 per seed, 7d 2.3/1.6 %, flank scaling, costs
+- [Speckle statistics (WP-S1)](speckle_statistics_findings.md) — KS conservative p, Stephens gate (level 4.6 %, power 57 %), size constants, decimation, Si example cost (walls)
