@@ -184,9 +184,16 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   driver needs a build-only (no solve) smoke test of its case construction.
 - **Next (user, by hand):** the server runs per the recipe — (i) Lc = 0.5 µm at L = 8 µm, 16 cases; (ii) θ = 30°
   pair, 5 cases; (iii) optional L = 25 µm — then WP-S3 (γ₁₂ far-field analysis + DoD evaluation on the server
-  data). Open lead items unchanged: idle-machine timing rerun of 5b/5c/5d/PC1, dense-PML-route block measurement,
-  Phase 8 Schur/Calderón, WP-PML6c optional, WP-T3 optional.
-- **In flight (2026-10-30):** none.
+  data). Open lead items: idle-machine timing rerun of 5b/5c/5d/PC1, dense-PML-route block measurement,
+  WP-PML6c optional, WP-T3 optional.
+- **Decision (user, 2026-10-30):** Phase 8 opened with the preconditioner item. ADR 0012: measure the ceiling of
+  every near-field-based preconditioner (exact near-field LU, grandparent blocks) on the rough-Ag PML sizes
+  before building the Schur-complement approximation (WP-SC2, conditional on gate 2 of the ADR); Calderón
+  deferred (not the lever for the electrical-size growth). Gate numbers in the ADR; no default changes.
+- **In flight (2026-10-30):** WP-SC1 (`wp/sc1-near-lu-ceiling`): `SparseLuPreconditioner`, near-field LU
+  factory with a memory guard, `block_levels_above_leaf = 2`, driver variants `grandparent` / `nearlu`,
+  measurement at U / 16 µm (24 µm grandparent) + Si control, record section. The machine must stay otherwise
+  idle during its runs (timings).
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
   (1 - R_beam - away) P_inc" failed once in the full `-j 6` ctest of main 97694d1 (512 s, while a 1.4 GB backup
   archive was packed in parallel) and passed alone (348 s); no C++ change in that commit. If it fails again, look
