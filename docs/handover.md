@@ -171,10 +171,13 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   a σ-pooled pass at the defaults is fragile), γ₁₂ not testable at normal incidence. Raw data local in
   `<main checkout>/results/local_runs/wp_s2` (git-ignored). The machine reset on 2026-10-26 03:47 during
   σ = 200 nm seed 1; the queue was restarted and finished.
-- **Waiting for the user:** WP-S2b depends on the decisions in the record's "Open decisions for the lead"
-  ((a) statistics / speckle count: accept L = 8 µm, more seeds, Lc = 0.5 µm or a server run; (b) γ₁₂ definition,
-  recommended 0°/30° incidence pair, 4 solves; (c) σ pooling / σ = 100 nm classification).
-- **In flight (2026-10-26):** none.
+- **Decision (user, 2026-10-30):** cheap variant for Phase 6 — no further desktop solves; the long runs (Lc = 0.5 µm
+  with 4 seeds, or L = 25 µm, and the 0°/30° γ₁₂ pair) are run by hand on the user's 1 TB server later. docs/05
+  row 42 stays per σ (pooled over seeds, n ≥ 50 at 2 speckle sizes, Stephens 5 %); the fully-developed rule
+  exp(−(2kσ)²) < 1e-2 stays; on the L = 8 µm / Lc = 1 µm data the PDF item is recorded as not met — physical
+  (≈ 1.8 correlation areas in the spot) — and the γ₁₂ item as not testable; rows 43–44 asserted where met.
+- **In flight (2026-10-30):** WP-S2b (`wp/s2b-speckle-dod-test`): DoD test on the saved WP-S2 patterns (pytest,
+  skipped without the local data) + a server recipe section in the record + docs/05 rows 42–44 with the numbers.
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
   (1 - R_beam - away) P_inc" failed once in the full `-j 6` ctest of main 97694d1 (512 s, while a 1.4 GB backup
   archive was packed in parallel) and passed alone (348 s); no C++ change in that commit. If it fails again, look
