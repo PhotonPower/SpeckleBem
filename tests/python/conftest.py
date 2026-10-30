@@ -8,6 +8,9 @@ the imported ``specklebem`` package (``<build>/python/specklebem`` -> ``<build>/
 using it are skipped if the variable is unset and the build-tree helper does not exist (e.g. an
 installed package or a build with SPECKLEBEM_BUILD_TESTS=OFF); they fail if the variable is set
 but names no file (CI sets it, so the round trip cannot be skipped silently).
+
+Marker ``validation_large``: validation on large saved run data (test_speckle_dod.py), skipped
+when the data are absent.
 """
 
 import os
@@ -18,6 +21,14 @@ from pathlib import Path
 import pytest
 
 import specklebem as sb
+
+
+def pytest_configure(config):
+    # Large validation on saved run data (the Python counterpart of the ctest label
+    # "validation-large"); such tests skip when their data are absent (CI).
+    config.addinivalue_line(
+        "markers", "validation_large: validation on large saved run data (skipped without data)"
+    )
 
 
 def _fixture_executable() -> Path | None:

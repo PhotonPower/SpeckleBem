@@ -6,22 +6,30 @@ Reads the case directories written by ``benchmarks/speckle_sweep.py`` (``E.npy``
 direction cosines, leave-one-out envelope normalisation, centred window, then
 ``specklebem.speckle.ensemble_statistics``). Which number gates which row:
 
-- row 42 (PDF): ``ks_test_exponential`` on the decimated (2 speckle sizes) I / <I> of the
-  windows, pooled over both seeds and over all fully developed sigma (coherent fraction
-  exp(-(2 k sigma)^2) < 1e-2, WP-S2b lead rule): decision ``KsResult.rejects(0.05)``
-  (Stephens), plain Kolmogorov p alongside. Per-sigma KS values are reported, not gated.
+- row 42 (PDF; docs/05, decision c of 2026-10-30): per fully developed sigma (coherent fraction
+  exp(-(2 k sigma)^2) < 1e-2, WP-S2b lead rule), ``ks_test_exponential`` on the decimated
+  (``--ks-spacing``, default 2 speckle sizes) I / <I> of the windows pooled over the seeds,
+  evaluable when n >= 50, decision ``KsResult.rejects(0.05)`` (Stephens), plain Kolmogorov p
+  alongside: JSON ``sigmas[i].ks_spacing2`` / ``ks_spacing2_n``, summarised under
+  ``row42_per_sigma`` and printed as the "docs/05 row 42 per sigma" lines (``--markdown``:
+  stdout; otherwise stderr, so that the JSON on stdout stays valid). The same samples pooled
+  over all fully developed sigma as well (``sigma_pooled_ks``) are supplementary, not the
+  docs/05 gate (the maps are the same at every sigma); so is the 1-speckle pool
+  (``pooled_ks_one``).
 - row 43 (contrast vs sigma): ``speckle_contrast`` of the raw co-polarised plane pattern (whole
   4 x 4 mm plane), seed mean per sigma, ``speckle.monotone_decreasing``. gamma_12: see the
   record (open definition); the seed-to-seed and sigma-step ``correlation_coefficient`` values
   are printed.
 - row 44 (speckle size): ``field_correlation_from_intensity`` + ``speckle_size`` on the
   normalised windows (pixel du |z|, plane units on axis), mean over u, v and seeds, against
-  ``speckle_size_expected(lambda, |z|, 2 w0, "gaussian")``.
+  ``speckle_size_expected(lambda, |z|, 2 w0, "gaussian")``; judged (``size_within_10pct``) for
+  the fully developed sigma only, the others are reported.
 
-``--sensitivity`` adds the row-42 sensitivity study: the sigma-pooled gate recomputed with one
-analysis parameter changed at a time (``SENSITIVITY_VARIANTS``: envelope radius, window threshold,
-(u, v) samples per speckle, decimation offset, KS spacing, the smallest fully developed sigma left
-out, u_max), as a Markdown table and under the JSON key ``sensitivity``.
+``--sensitivity`` adds the row-42 sensitivity study: the sigma-pooled pool (supplementary, not the
+docs/05 gate) recomputed with one analysis parameter changed at a time (``SENSITIVITY_VARIANTS``:
+envelope radius, window threshold, (u, v) samples per speckle, decimation offset, KS spacing, the
+smallest fully developed sigma left out, u_max), as a Markdown table and under the JSON key
+``sensitivity``.
 
 Usage::
 
@@ -51,7 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ks-spacing", type=float, default=2.0, help="KS decimation [speckle sizes]")
     ap.add_argument("--markdown", action="store_true", help="print Markdown tables")
     ap.add_argument("--sensitivity", action="store_true",
-                    help="row-42 gate under one-at-a-time changes of the analysis parameters")
+                    help="sigma-pooled row-42 pool (supplementary, not the docs/05 gate) under "
+                    "one-at-a-time changes of the analysis parameters")
     ap.add_argument("--json", default=None, help="write a JSON summary to this file")
     return ap
 
@@ -159,13 +168,20 @@ def analyse(cases_dir: Path, args, cases: list[dict] | None = None) -> dict:
                     rho_plane=float(sb.correlation_coefficient(c1["I"].ravel(), c2["I"].ravel())),
                     rho_env=float(sb.correlation_coefficient(a.ravel(), b.ravel())),
                     expected=math.exp(-((2 * k * (s2 - s1) * 1e-9) ** 2))))
-    # row 42 gate: pooled over the fully developed sigma at the requested spacing
+    # docs/05 row 42 (the gate): per fully developed sigma, pooled over the seeds, evaluable when
+    # n >= 50 (``ks_spacing2`` above); summarised here, nothing recomputed
+    out["row42_per_sigma"] = dict(spacing=args.ks_spacing, sigmas=[dict(
+        sigma_nm=s["sigma_nm"], fully_developed=s["fully_developed"], n=s["ks_spacing2_n"],
+        evaluable=s["fully_developed"] and s["ks_spacing2"] is not None,
+        result=s["ks_spacing2"]) for s in out["sigmas"]])
+    # supplementary, not the docs/05 gate: the same samples pooled over the fully developed
+    # sigma as well (the maps are the same at every sigma: not independent)
     fd = [sg for sg in sigmas if ss.fully_developed(sg * 1e-9, wl)]
     samples = [s for sg in fd for s in per_sigma[sg][1]["ks_samples"]]
-    gate = None
+    pooled = None
     if samples and sum(s.size for s in samples) >= 50:
-        gate = _ks_dict(ss.pooled_ks(samples))
-    out["gate_ks"] = dict(sigmas=fd, spacing=args.ks_spacing, result=gate)
+        pooled = _ks_dict(ss.pooled_ks(samples))
+    out["sigma_pooled_ks"] = dict(sigmas=fd, spacing=args.ks_spacing, result=pooled)
     # supplementary (not the gate): the same pool at one speckle size (neighbour |mu_A|^2 =
     # 1/16; level 5-6 % on synthetic speckle, benchmarks/speckle_sweep_calibration.py)
     samples1 = [s for sg in fd for s in per_sigma[sg][1]["ks_samples_one"]]
@@ -178,9 +194,9 @@ def analyse(cases_dir: Path, args, cases: list[dict] | None = None) -> dict:
         means=means, strict=speckle.monotone_decreasing(means),
         within_spread=speckle.monotone_decreasing(means, spread), spread=spread,
         complete=all(s["n_seeds"] >= 2 for s in out["sigmas"]))
-    # row 44: per fully developed sigma within 10 %
+    # row 44: per fully developed sigma within 10 % (the others are reported, not judged)
     out["size_within_10pct"] = {s["sigma_nm"]: abs(s["size_rel_error"]) < 0.10
-                                for s in out["sigmas"]}
+                                for s in out["sigmas"] if s["fully_developed"]}
     return out
 
 
@@ -215,9 +231,9 @@ SENSITIVITY_VARIANTS = (
 
 
 def sensitivity(cases: list[dict], args, variants=None) -> dict:
-    """The row-42 gate (pooled over the seeds and the fully developed sigma, decimated at
-    ``ks_spacing`` speckle sizes) for each variant of ``variants`` (default:
-    SENSITIVITY_VARIANTS).
+    """The sigma-pooled row-42 pool (supplementary, not the docs/05 gate: pooled over the seeds
+    and the fully developed sigma, decimated at ``ks_spacing`` speckle sizes) for each variant of
+    ``variants`` (default: SENSITIVITY_VARIANTS).
 
     Returns dict(rows=[dict(label, change, sigmas, n, statistic, p, modified, rejects)],
     n_variants, n_rejecting); the counts are over the rows other than "baseline" with n >= 50
@@ -283,6 +299,26 @@ def _f(v, fmt):
     return "–" if v is None else format(v, fmt)
 
 
+def row42_per_sigma_lines(out: dict) -> list[str]:
+    """The docs/05 row-42 gate per sigma as text: a header line, then one line per sigma with n,
+    the modified statistic, the plain p and the decision where evaluable (fully developed,
+    n >= 50), else why it is not evaluated."""
+    g = out["row42_per_sigma"]
+    lines = [f"docs/05 row 42 per σ (fully developed σ, pooled over the seeds, spacing "
+             f"{g['spacing']:g} speckle sizes, n ≥ 50, Stephens rejects(0.05)):"]
+    for s in g["sigmas"]:
+        r = s["result"]
+        if not s["fully_developed"]:
+            verdict = "partially developed, not gated"
+        elif r is None:
+            verdict = "not evaluable (n < 50)"
+        else:
+            verdict = (f"modified = {r['modified']:.3f} (crit. 1.094), plain p = {r['p']:.3f}, "
+                       + ("rejects" if r["rejects"] else "does not reject"))
+        lines.append(f"σ = {s['sigma_nm']:g} nm: n = {s['n']}, {verdict}")
+    return lines
+
+
 def print_markdown(out: dict) -> None:
     print("| σ [nm] | seed | 2N | it | setup [s] | solve [s] | plane [s] | far [s] | peak [GB] "
           "| R | C total | C co-pol | C env | size u / v [µm] | KS D / p / mod (n) |")
@@ -321,16 +357,21 @@ def print_markdown(out: dict) -> None:
     for c in out["corr_step"]:
         print(f"| {c['sigma_nm'][0]:g} → {c['sigma_nm'][1]:g} | {c['seed']} "
               f"| {c['rho_plane']:.3f} | {c['rho_env']:.3f} | {c['expected']:.3f} |")
-    g = out["gate_ks"]
     print()
+    head, *rows = row42_per_sigma_lines(out)
+    print(head)
+    for line in rows:
+        print(f"- {line}")
+    print()
+    g = out["sigma_pooled_ks"]
+    label = (f"σ-pooled (supplementary, not the docs/05 gate; σ = "
+             f"{', '.join(f'{s:g}' for s in g['sigmas'])} nm, spacing {g['spacing']:g})")
     if g["result"]:
         r = g["result"]
-        print(f"Row 42 gate (σ = {', '.join(f'{s:g}' for s in g['sigmas'])} nm pooled, spacing "
-              f"{g['spacing']:g}): n = {r['n']}, D = {r['statistic']:.4f}, plain p = "
-              f"{r['p']:.3f}, modified = {r['modified']:.3f} (crit. 1.094), rejects = "
-              f"{r['rejects']}")
+        print(f"{label}: n = {r['n']}, D = {r['statistic']:.4f}, plain p = {r['p']:.3f}, "
+              f"modified = {r['modified']:.3f} (crit. 1.094), rejects = {r['rejects']}")
     else:
-        print("Row 42 gate: fewer than 50 samples")
+        print(f"{label}: fewer than 50 samples")
     r1 = out["pooled_ks_one"]
     if r1:
         print(f"Supplementary, same pool at 1 speckle size: n = {r1['n']}, D = "
@@ -340,14 +381,18 @@ def print_markdown(out: dict) -> None:
     print(f"Row 43 contrast seed means {', '.join(f'{v:.3f}' for v in m['means'])}: monotone "
           f"{m['strict']}, within spread {m['spread']:.2f}: {m['within_spread']}, all sigma "
           f"with two seeds: {m['complete']}")
-    print("Row 44 within 10 %: " + ", ".join(f"{k:g}: {v}" for k, v in
-                                             out["size_within_10pct"].items()))
+    not_judged = [s["sigma_nm"] for s in out["sigmas"] if not s["fully_developed"]]
+    print("Row 44 within 10 % (fully developed σ): "
+          + (", ".join(f"{k:g}: {v}" for k, v in out["size_within_10pct"].items()) or "none")
+          + (f"; reported, not judged (partially developed): "
+             f"{', '.join(f'{v:g}' for v in not_judged)}" if not_judged else ""))
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")  # Markdown tables use sigma, mu (cp1252 consoles)
+    for stream in (sys.stdout, sys.stderr):  # sigma, mu in the tables and lines (cp1252 consoles)
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     if args.pythonpath:
         sys.path.insert(0, str(Path(args.pythonpath).resolve()))
     cases = load_cases(Path(args.cases))
@@ -362,6 +407,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         Path(args.json).write_text(json.dumps(out, indent=1, default=float) + "\n",
                                    encoding="utf-8")
+    if not args.markdown:
+        # the gate lines go to stderr so that the JSON on stdout stays valid
+        for line in row42_per_sigma_lines(out):
+            print(line, file=sys.stderr)
     if not args.markdown and not args.json:
         print(json.dumps(out, indent=1, default=float))
     return 0

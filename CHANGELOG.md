@@ -5,6 +5,18 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- tests / docs (WP-S2b, Phase 6 close-out, user decision 2026-10-30): Phase 6 DoD test `tests/python/test_speckle_dod.py`
+  on the saved WP-S2 patterns (`SBEM_SPECKLE_SWEEP_DIR`, skipped without data; marker `validation_large`): row 43
+  contrast monotone in σ asserted (seed means 10.72 → 5.65 → 3.67 → 2.66 → 2.15), row 44 speckle size within 10 %
+  of 1.06 λz/D asserted for σ = 100 / 150 / 250 nm (+2.8 / +4.4 / +0.4 %; σ = 200 nm +11.4 % pinned, xfail strict),
+  row 42 recorded as **not met with this configuration — physical** (per-σ n = 8 / 18 / 32 / 32 < 50, gate not
+  evaluable; 1-speckle pool rejects, C_env > 1.1; ≈ 1.8 correlation areas in the spot) and guarded as a negative
+  result, never asserted as a pass; generic gate tests for other data directories (server runs). docs/05 rows
+  42–44 + footnote ⁵ (row 42 per σ, pooled over seeds, n ≥ 50 at 2 speckle sizes, Stephens 5 %; γ₁₂ not testable
+  at normal incidence, deferred). Record: decisions, corrected per-σ n, **server recipe** for the deferred runs
+  (Lc = 0.5 µm × 16 cases, 0°/30° pair × 5, optional L = 25 µm; estimates). Fix: the committed sweep driver called
+  `float()` on the complex vacuum impedance (broken since the WP-S2 review fixes; the runs used a frozen older
+  package) — fixed, with a build-only case test; queue `LC` override.
 - python / benchmarks (WP-S2, Phase 6 part 2): speckle sweep on rough Si — driver `benchmarks/speckle_sweep.py`
   (+ queue, `--theta-deg`), module `specklebem.speckle_sweep` (case construction, plane sampling, direction-cosine
   resampling, leave-one-out envelope normalisation, decimation, pooled KS with the WP-S1 harness, synthetic and
@@ -710,6 +722,9 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `has_hdf5()` (C++ and Python); HDF5 is written by the Python package only, the C++ library keeps its `.npy` writer.
 
 ### Fixed
+- python (WP-S2b): `specklebem.speckle_sweep.build_simulation` raised `TypeError` (`float()` on the complex
+  vacuum impedance) since the WP-S2 review fixes; the recorded WP-S2 runs used a frozen older package
+  (η₀ differs by 3e-12 relative, R values unchanged). Fixed with a build-only case test.
 - operator (WP22a-f, WP22a review follow-ups): `SparseOperator(Matrix&& Z)` takes the near-field
   matrix by rvalue reference and swaps it in; the former by-value parameter still copied it
   (Eigen 3.4.0). Peak working set of the Ag sphere d = 2 um, octa n = 6 (2N = 98 304, near

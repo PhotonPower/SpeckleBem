@@ -327,6 +327,18 @@ def _material(name: str) -> Any:
     raise ValueError(f"material must be 'si' or 'ag', got {name!r}")
 
 
+def vacuum_wave_impedance(vac: Any, omega: float) -> float:
+    """``vac.wave_impedance(omega)`` (the binding returns a complex number) as a float.
+
+    Raises ValueError when the value has a non-zero imaginary part: the background (R1) of the
+    sweep is vacuum, lossless, and its impedance enters the power normalisation as a real
+    number."""
+    z = complex(vac.wave_impedance(omega))
+    if z.imag != 0:
+        raise ValueError(f"vacuum wave impedance must be real, got {z!r}")
+    return z.real
+
+
 def build_simulation(p: CaseParams) -> tuple[Any, dict[str, Any]]:
     """Box-route Simulation of one case (ADR 0006 defaults, MLFMM, rigorous beam at 0 deg).
 
@@ -361,7 +373,7 @@ def build_simulation(p: CaseParams) -> tuple[Any, dict[str, Any]]:
         box_depth=box.box_depth, box_mesh_size=box.box_mesh_size,
         box_fine_depth=box.box_fine_depth, beam_waist_fraction=box.beam_waist_fraction,
         waist=waist, region_radius=region, num_plane_waves=beam.num_plane_waves,
-        omega=float(beam.omega), eta0=float(vac.wave_impedance(beam.omega)),
+        omega=float(beam.omega), eta0=vacuum_wave_impedance(vac, float(beam.omega)),
         triangles=mesh.num_triangles, rmax=max_support_radius(verts, mesh.triangles),
         height_rms=float(surf.heights.rms()), mesh_s=mesh_s,
     )

@@ -164,7 +164,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   (square 0.886, disc 1.029, Gaussian D = 2w₀ 1.060), NumPy harness `specklebem.speckle.ensemble_statistics`;
   synthetic checks all met (KS p 0.51–0.98, contrast 0.995, size within 2.7 %). Lead decisions for the DoD test
   (WP-S2b): the negative-exponential gate applies to fully developed cases only (coherent fraction
-  exp(−(2kσ)²) < 1e-2, i.e. σ ≥ 150 nm at 633 nm; no specular masking; σ = 50 / 100 nm report contrast < 1 as
+  exp(−(2kσ)²) < 1e-2, i.e. σ ≥ 100 nm at the sweep's λ = 500 nm; no specular masking; σ = 50 / 100 nm report contrast < 1 as
   the physical expectation), gate with the level-correct Stephens-modified KS statistic at 5 %, plain p reported.
 - **Merged:** WP-S2 (Phase 6 part 2): 10 Si solves (L = 8 µm, 2N = 741 120) with the WP-S1 harness — contrast
   monotone in σ, speckle size mostly within 10 %, negative-exponential PDF not met (spot ≈ 1.8 correlation areas;
@@ -176,8 +176,17 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   row 42 stays per σ (pooled over seeds, n ≥ 50 at 2 speckle sizes, Stephens 5 %); the fully-developed rule
   exp(−(2kσ)²) < 1e-2 stays; on the L = 8 µm / Lc = 1 µm data the PDF item is recorded as not met — physical
   (≈ 1.8 correlation areas in the spot) — and the γ₁₂ item as not testable; rows 43–44 asserted where met.
-- **In flight (2026-10-30):** WP-S2b (`wp/s2b-speckle-dod-test`): DoD test on the saved WP-S2 patterns (pytest,
-  skipped without the local data) + a server recipe section in the record + docs/05 rows 42–44 with the numbers.
+- **Merged:** WP-S2b: Phase 6 closed on the desktop data — row 43 met, row 44 met for 3 of 4 fully developed σ,
+  row 42 not met with this configuration (physical, guarded as a negative result, never asserted as a pass), γ₁₂
+  deferred; server recipe in `benchmarks/results/speckle_sweep.md` ("Server recipe (to be run by hand)").
+- **Lesson (2026-10-30):** a review-fix round replaced a constant in the sweep driver by a bound complex value and
+  broke `build_simulation` (`float()` on a complex); the gate stayed green because no test built a case. Every
+  driver needs a build-only (no solve) smoke test of its case construction.
+- **Next (user, by hand):** the server runs per the recipe — (i) Lc = 0.5 µm at L = 8 µm, 16 cases; (ii) θ = 30°
+  pair, 5 cases; (iii) optional L = 25 µm — then WP-S3 (γ₁₂ far-field analysis + DoD evaluation on the server
+  data). Open lead items unchanged: idle-machine timing rerun of 5b/5c/5d/PC1, dense-PML-route block measurement,
+  Phase 8 Schur/Calderón, WP-PML6c optional, WP-T3 optional.
+- **In flight (2026-10-30):** none.
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
   (1 - R_beam - away) P_inc" failed once in the full `-j 6` ctest of main 97694d1 (512 s, while a 1.4 GB backup
   archive was packed in parallel) and passed alone (348 s); no C++ change in that commit. If it fails again, look
@@ -209,7 +218,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 641 ctest (`-LE "validation-large|slow"`), 170 pytest; labels `slow`, `validation`
+- Test counts on `main`: 641 ctest (`-LE "validation-large|slow"`), 174 pytest (184 with the local speckle data); labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

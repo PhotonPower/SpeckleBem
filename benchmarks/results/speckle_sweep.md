@@ -5,8 +5,9 @@ z = −1 mm from Gaussian rough Si, σ = 50 … 250 nm, two seeds each. Driver
 `benchmarks/speckle_sweep.py` (one case per process, `specklebem.speckle_sweep.run_case`), queue
 `benchmarks/speckle_sweep_queue.sh`, statistics `benchmarks/speckle_sweep_stats.py` (WP-S1
 harness, section "Analysis"), calibration on synthetic speckle
-`benchmarks/speckle_sweep_calibration.py`; ROW lines in `speckle_sweep_rows.txt`. The DoD ctest
-asserting rows 42–44 is WP-S2b.
+`benchmarks/speckle_sweep_calibration.py`; ROW lines in `speckle_sweep_rows.txt`. The DoD test
+on the saved patterns is `tests/python/test_speckle_dod.py` (WP-S2b; marker `validation_large`,
+data via `SBEM_SPECKLE_SWEEP_DIR`, skipped without data).
 
 Hardware: 12-core desktop, 128 GB, win-release (UCRT64 GCC, OpenBLAS), all logical threads,
 shared with one other worker for most cases (timings are upper bounds for an idle machine).
@@ -38,9 +39,13 @@ evaluated with the WP-S1 harness.** Verdicts against docs/05 (details in "Phase 
   250 nm), **σ = 200 nm +11.4 %**; mean over the four +4.8 %. The method's own two-seed scatter on
   ideal speckle is 8–15 % per σ, so the per-σ 10 % criterion is at the statistical limit of two
   seeds. The scaling with λz/D is not tested (one D, one z).
-- **Open decisions for the lead**: speckle count (a), the definition of γ₁₂ (b) and the
-  classification of σ = 100 nm and pooling over σ for row 42 (c), with options and costs; a
-  4-solve oblique-incidence queue for γ₁₂ is prepared, not started.
+- **Decisions for the lead**: speckle count (a), the definition of γ₁₂ (b) and the
+  classification of σ = 100 nm and pooling over σ for row 42 (c), with options and costs.
+  **Decided 2026-10-30** (section "Decided (2026-10-30)"): these data are the Phase 6 record, no
+  further desktop solves; row 42 **not met with this configuration — physical**, open until a
+  run on the 1 TB server; rows 43 (contrast) and 44 asserted where met
+  (`tests/python/test_speckle_dod.py`); γ₁₂ deferred to the same server run. The commands are in
+  "Server recipe (to be run by hand)".
 
 ## Configuration
 
@@ -282,7 +287,8 @@ E_z is the oblique-propagation component).
 | 250 | 7.2·10⁻¹⁸ | yes | 0.656 (6.7) | 2.15 (0.84) | 1.158 | 1, 98, 0.120, 0.12, 1.21, **yes** | 32 | 199.6 (+0.004) | 0.329 / −0.108 |
 
 **Row 42 as defined** (pooled over the seeds per σ, ≥ 50 samples at 2 speckle sizes): not
-testable, n = 8, 8, 18, 32 for σ = 100, 150, 200, 250 nm (column "KS at 2 speckle sizes").
+testable, n = 8, 18, 32, 32 for σ = 100, 150, 200, 250 nm (column "KS at 2 speckle sizes"; 8 at
+50 nm).
 
 **σ-pooled variant** (σ = 100, 150, 200, 250 nm, both seeds, 2 speckle sizes = stride 17 px):
 **n = 90, D = 0.1131, plain Kolmogorov p = 0.200, Stephens-modified 1.086 (critical 1.094): not
@@ -373,19 +379,58 @@ gate only where exp(−(2kσ)²) < 1e-2, no specular masking):
 
 | DoD item | docs/05 | Verdict | Numbers |
 |---|---|---|---|
-| Fully developed speckle at z = −1 mm shows a negative-exponential PDF (KS p > 0.05) | 42 | **not met as defined** | per σ (the docs/05 pooling over seeds) n = 8, 8, 18, 32 < 50 at 2 speckle sizes (σ = 100–250 nm; decision c). A σ-pooled variant (n = 90, samples not independent: correlated-null level 5.7–6.0 %) passes by 0.7 % at the default analysis parameters (modified 1.086 < 1.094, plain p 0.20) and rejects under 12 of 20 neighbouring one-at-a-time choices (section "Row-42 sensitivity"), and without σ = 100 nm (1.298). With the 1-speckle rejection (1.73, p = 0.006, n = 278, null level 6.7 %), the per-σ harness rejections at 150/200/250 nm and C env 1.04–1.29 (null 0.95–1.01) the patterns are measurably not negative-exponential — physically consistent with the few correlation areas in the spot ((w₀/Lc)² = 1.8 with the area π w₀²; surrogate C env 1.18–1.32, σ-pooled gate rejection 64 %). |
+| Fully developed speckle at z = −1 mm shows a negative-exponential PDF (KS p > 0.05) | 42 | **not met with this configuration — physical** (decided 2026-10-30; open until the server run) | per σ (the docs/05 pooling over seeds) n = 8, 18, 32, 32 < 50 at 2 speckle sizes (σ = 100–250 nm; decision c). A σ-pooled variant (n = 90, samples not independent: correlated-null level 5.7–6.0 %) passes by 0.7 % at the default analysis parameters (modified 1.086 < 1.094, plain p 0.20) and rejects under 12 of 20 neighbouring one-at-a-time choices (section "Row-42 sensitivity"), and without σ = 100 nm (1.298). With the 1-speckle rejection (1.73, p = 0.006, n = 278, null level 6.7 %), the per-σ harness rejections at 150/200/250 nm and C env 1.04–1.29 (null 0.95–1.01) the patterns are measurably not negative-exponential — physically consistent with the few correlation areas in the spot ((w₀/Lc)² = 1.8 with the area π w₀²; surrogate C env 1.18–1.32, σ-pooled gate rejection 64 %). |
 | Contrast decreases monotonically with σ over 50–250 nm (two seeds each) | 43 | **met** | 10.72 → 5.65 → 3.67 → 2.66 → 2.15 (seed means, co-polarised plane contrast); each seed monotone on its own; the raw plane contrast largely tracks the halo width (pure speckle through the pipeline: 6.7 → 2.2 over the null's halo widths) |
-| Angular correlation decreases monotonically with σ | 43 | **not testable with this configuration** | normal incidence only: the incidence-angle decorrelation is second order in Δθ; the σ-step correlation has no σ trend by construction (0.05–0.54, mean 0.38); the seed-to-seed correlation is monotone (0.88 → −0.11) but measures the coherent part, not an angular correlation. Open decision (b). |
-| Speckle size from μ_A scales as λz/D within 10 % | 44 | **partly met** | +2.8 / +4.4 / **+11.4** / +0.4 % at σ = 100/150/200/250 nm, mean +4.8 %; statistical scatter of two seeds 8–15 %; only one (λ, z, D): the magnitude is tested, the scaling is not |
-| σ = 50 / 100 nm partially developed (lead rule: report contrast < 1 as the expectation) | 42 | reported | C env 0.86 (σ = 50 nm, coherent fraction 0.21) and 1.04 (σ = 100 nm, 1.8·10⁻³); by the exp(−(2kσ)²) < 1e-2 rule σ = 100 nm counts as fully developed and is in the σ-pooled variant, whose pass depends on it (the WP-S2b row text lists it among the partially developed ones — open decision c) |
+| Angular correlation decreases monotonically with σ | 43 | **not testable at normal incidence, deferred (server)** (decided 2026-10-30) | normal incidence only: the incidence-angle decorrelation is second order in Δθ; the σ-step correlation has no σ trend by construction (0.05–0.54, mean 0.38); the seed-to-seed correlation is monotone (0.88 → −0.11) but measures the coherent part, not an angular correlation. Decision (b): the seed-to-seed correlation is supplementary only; the 0°/30° pair runs on the server. |
+| Speckle size from μ_A scales as λz/D within 10 % | 44 | **met for 3 of 4 fully developed σ** (σ = 200 nm +11.4 %) | +2.8 / +4.4 / **+11.4** / +0.4 % at σ = 100/150/200/250 nm, mean +4.8 %; statistical scatter of two seeds 8–15 %; only one (λ, z, D): the magnitude is tested, the scaling is not |
+| σ = 50 / 100 nm partially developed (lead rule: report contrast < 1 as the expectation) | 42 | reported | C env 0.86 (σ = 50 nm, coherent fraction 0.21) and 1.04 (σ = 100 nm, 1.8·10⁻³); by the exp(−(2kσ)²) < 1e-2 rule σ = 100 nm counts as fully developed and is in the σ-pooled variant, whose pass depends on it (the WP-S2b row text lists it among the partially developed ones; decided 2026-10-30: σ = 100 nm counts as fully developed, decision c) |
 
 Not met in the backlog configuration: "≥ 30 speckles per axis" (3.9–6.7 per axis inside the
 windows, ≤ 10.7 possible at L = 8 µm; decision a).
 
 ## Open decisions for the lead
 
-Prepared by the worker; not decided. Costs per solve of this size on the desktop: 27–50 min wall
-(σ = 100: 28, 150: 37, 200: 34, 250: 49 min), peak 46–56 GB, one at a time.
+Prepared by the worker; decided by the lead on 2026-10-30 (next subsection; the options below
+are kept as the basis of the decision). Costs per solve of this size on the desktop: 27–50 min
+wall (σ = 100: 28, 150: 37, 200: 34, 250: 49 min), peak 46–56 GB, one at a time.
+
+### Decided (2026-10-30)
+
+Lead decisions (user, 2026-10-30), implemented by WP-S2b:
+
+- **(a) Decided: no further desktop solves.** The L = 8 µm / Lc = 1 µm / 10-case data of this
+  record are the Phase 6 record. **Row 42 (negative-exponential PDF) is not met with this
+  configuration — physical**: the spot covers ≈ 1.8 correlation areas ((w₀/Lc)², spot area
+  π w₀²; 0.9 with the effective area π w₀²/2), the speckle is over-dispersed (C_env 1.16–1.29 at
+  σ ≥ 150 nm, 1-speckle pool rejected), consistent with the phase-screen surrogate. Row 42 stays
+  open until a run on the lead's 1 TB server (by hand, section "Server recipe (to be run by
+  hand)"). Rows 43 (contrast monotone) and 44 (speckle size) are asserted where met.
+- **(b) Decided: γ₁₂ is not testable at normal incidence**; the 0°/30° incidence pair (option b1)
+  is deferred to the same server run. The seed-to-seed correlation (raw plane 0.976 → 0.329,
+  monotone) is reported as supplementary only.
+- **(c) Decided: docs/05 row 42 stays per σ, pooled over the seeds**, n ≥ 50 independent samples
+  decimated at 2 speckle sizes, decision `KsResult.rejects(0.05)` (Stephens), plain p reported
+  alongside (option c3). The fully-developed rule exp(−(2kσ)²) < 1e-2 stays (σ = 100 nm counts as
+  fully developed). σ-pooled numbers are supplementary and are never asserted as a pass.
+
+The DoD test `tests/python/test_speckle_dod.py` (marker `validation_large`; data from
+`SBEM_SPECKLE_SWEEP_DIR`, default `<repo>/results/local_runs/wp_s2/cases`, skipped without
+data in the default directory, failing if the variable is set to a directory without finished
+cases; ≈ 1 s on these data) runs `speckle_sweep_stats.analyse` with the defaults of this record and
+asserts on the record configuration: row 43 (seed means 10.72 → 5.65 → 3.67 → 2.66 → 2.15
+strictly decreasing, each seed monotone), row 44 (+2.8 / +4.4 / +0.4 % at σ = 100 / 150 / 250 nm
+within 10 %; σ = 200 nm pinned at +11.4 ± 1 % and a strict xfail against 10 %, "two-seed scatter
+±8–15 %"), the row-42 classification (σ = 50 nm partially, σ ≥ 100 nm fully developed) and the
+recorded *negative* row-42 result as a regression guard (per-σ n = 8 / 18 / 32 / 32 < 50 at 2
+speckle sizes for σ = 100 / 150 / 200 / 250 nm: not evaluable; 1-speckle pool n = 278, modified
+1.73, rejects; C_env > 1.1 at σ ≥ 150 nm), the σ-pooled gate only as a regression value (n = 90,
+modified 1.086; no pass asserted) and the supplementary seed-to-seed correlation. On any other
+sweep directory (the server runs) it applies the docs/05 gates as defined: row 42 per fully
+developed σ where n ≥ 50 (σ with n < 50 are listed in a warning, skipped if none is evaluable),
+row 43 strictly monotone, row 44 within 10 % per fully developed σ. Note for the server
+evaluation: the per-σ gate is a 5 % test at every evaluable σ, so on exact speckle at least one of
+k evaluable σ rejects with probability ≈ 1 − 0.95ᵏ (14 % for k = 3; a synthetic four-seed
+directory used to exercise the code path rejected once, at 1.098).
 
 ### (a) Speckle count ("≥ 30 speckles per axis")
 
@@ -451,12 +496,13 @@ PKG="$PKG30" THETA=30 nohup sh "$PKG30/speckle_sweep_queue.sh" "$OUT" \
 ```
 
 (cases `si_L8um_s<σ>nm_Lc1um_seed1_t30`, waist L cos 30°/6 by default; the 30° case construction
-was smoke-tested on a 2 µm patch, no 8 µm oblique solve has been run.)
+was smoke-tested on a 2 µm patch, no 8 µm oblique solve has been run.) Decided 2026-10-30: not run
+on the desktop; replaced by series (ii) of "Server recipe (to be run by hand)".
 
 ### (c) Classification of σ = 100 nm and pooling over σ (row 42)
 
 Facts. docs/05 row 42 pools I/⟨I⟩ over the seeds, i.e. per σ; with two seeds at L = 8 µm that
-gives n = 8, 8, 18, 32 decimated samples at 2 speckle sizes for σ = 100, 150, 200, 250 nm, below
+gives n = 8, 18, 32, 32 decimated samples at 2 speckle sizes for σ = 100, 150, 200, 250 nm, below
 n ≥ 50 for every σ. The record's gate pooled over σ as well (n = 90). That pool reuses the same
 two maps, scaled by σ, at every σ: its samples are not independent (σ-step ρ_env 0.05–0.54,
 mean 0.38); on exact speckle with that dependence the pooled test's level is 5.7–6.0 % instead
@@ -481,6 +527,176 @@ correlation, not in the PDF test, which cannot be done per σ here). Under every
 measured patterns are not negative-exponential at the 1-speckle level and in C env, as expected
 for 1.8 correlation areas in the spot.
 
+## Server recipe (to be run by hand)
+
+The runs deferred by the decisions of 2026-10-30, for a Linux server with ≥ 1 TB RAM, run by hand.
+They use the existing tools: the WP-S2 driver `benchmarks/speckle_sweep.py` through the queue
+`benchmarks/speckle_sweep_queue.sh` (one process per case, a frozen package per series, finished
+cases skipped, `OUT/STOP` stops before the next case), with the build and machine settings of the
+server run kit (`scripts/server_run_kit/README.md`, sections 1–2). The kit's `run_large_area.sh`
+drives the C++ scaling benchmark, which writes no plane field, so it is not used for these cases.
+The queue gained one override for series (i), `LC` (correlation length, default 1 µm, so the
+commands above are unchanged). **Nothing below has been run; all times and memory figures are
+estimates** scaled from this record (desktop: 12 cores, win-release) and from the measured Si
+server / desktop factor 1.9–2.5 of `si_large_area.md` ("Server results", 2 × 8-core EPYC 9015;
+scale with the actual server's factor).
+
+| Series | Cases | Purpose | 2N per case | Peak per case (est.) | Per case on the reference server (est.) | Series total (est.) |
+|---|---|---|---:|---|---|---|
+| (i) Lc = 0.5 µm, L = 8 µm | 16: σ = 150, 200, 250 nm × seeds 1–4, σ = 50, 100 nm × seeds 1–2 | row 42 per σ at (w₀/Lc)² = 7 | 741 120 | 50–100 GB | 1–4 h | 16–60 h |
+| (ii) θ = 30°, L = 8 µm, Lc = 1 µm | 5: σ = 50 … 250 nm, seed 1 | γ₁₂ (0°/30° pair with this record's seed-1 cases) | 741 120 | ≤ 56 GB | 1.1–2.3 h | 6–12 h |
+| (iii) optional: L = 25 µm, Lc = 1 µm | 10: σ = 50 … 250 nm × seeds 1–2 | (w₀/Lc)² = 17, 12–21 speckles per axis (option C) | 4 356 000 | 400–480 GB | 15–45 h | 6–19 days |
+
+Basis of the estimates. (i): the mesh is that of this record (2N = 741 120; uniform box,
+T = 4n² + 8nm); a mesh-only check of the 16 L = 8 µm meshes (no solve) gives r_0.99 = 60–68 nm
+at σ = 50 and 100 nm (125 nm leaves, as here) but 72.6–98.5 nm at σ ≥ 150 nm (r_max 98–173 nm;
+2 369–23 057 functions above 75 nm), i.e. a leaf floor r_0.99/0.6 of 121–164 nm and **250 nm
+leaves** for most of those cases: the near field grows (≈ 4× the pairs per function on a surface
+mesh) and the far field loses a level — peak ≤ 100 GB is a guess with margin over the measured
+46–56 GB; the rms slope √2σ/Lc doubles (0.14–0.71), so more iterations than the 100–180 here are
+likely (unmeasured): 0.5–1.5 h desktop-equivalent per case. (ii): the same meshes as the 0° cases
+(125 nm leaves); oblique iterations unmeasured: 35–55 min desktop. (iii): option C of decision
+(a): memory 366–437 GB at σ = 100 nm plus ≈ 10 %; solve 1.3–5.2 h desktop (× 1.9–2.5); setup
+15–30 min desktop (× 2–4); the direct evaluation of the 641² plane (4 mm at 6.25 µm = 9.6
+samples per λz/D = 60 µm, as in the calibration) ≈ 6 h desktop (this sweep's plane time × 15.9
+points × 5.9 triangles), × 1.9–4.6 on the server (far-field-type evaluation, `si_large_area.md`
+item 4) ≈ 11–28 h per case, which dominates. Run one case of (iii) first and rescale.
+
+**0. Build (once; Python bindings on, they are by default).**
+
+```sh
+git checkout <commit given by the coordinator>
+# packages: scripts/server_run_kit/README.md section 1, plus the Python headers, NumPy, pytest
+#   Debian/Ubuntu: python3-dev python3-numpy python3-pytest; EL: python3-devel python3-numpy python3-pytest
+#   (pybind11 is fetched by CMake if it is not installed)
+cmake --preset release
+cmake --build --preset release -j
+ctest --preset release -LE "validation|slow" -j 16
+PYTHONPATH=build/release/python:python python3 -m pytest tests/python -q -rs
+```
+
+**1. Settings (every shell that starts a queue; README section 2).**
+
+```sh
+export OMP_NUM_THREADS=16                 # the physical core count (lscpu: cores per socket x sockets)
+export OMP_PLACES=cores OMP_PROC_BIND=spread
+NUMA="numactl --interleave=all"           # more than one NUMA node; NUMA="" on a single node
+RUNS=$PWD/server_runs/wp_s2b              # in the repository root, git-ignored; one OUT per series
+```
+
+**2. Series (i): Lc = 0.5 µm at L = 8 µm** (16 cases; σ ≥ 150 nm first, they carry row 42):
+
+```sh
+OUT=$RUNS/lc05_L8
+mkdir -p "$OUT/pkg" && cp -r build/release/python/specklebem "$OUT/pkg/" \
+    && cp benchmarks/speckle_sweep.py benchmarks/speckle_sweep_queue.sh "$OUT/pkg/"
+LC=0.5e-6 nohup $NUMA sh "$OUT/pkg/speckle_sweep_queue.sh" "$OUT" python3 \
+    150e-9:1 150e-9:2 200e-9:1 200e-9:2 250e-9:1 250e-9:2 \
+    150e-9:3 150e-9:4 200e-9:3 200e-9:4 250e-9:3 250e-9:4 \
+    100e-9:1 100e-9:2 50e-9:1 50e-9:2 > "$OUT/queue.out" 2>&1 &
+```
+
+Cases `si_L8um_s<σ>nm_Lc0.5um_seed<k>`, w₀ = L/6 = 1.333 µm ((w₀/Lc)² = 7.1), the plane of this
+record. Expected from the surrogate ("Calibration"): the halo fills the |u| ≤ 0.66 plane at every
+σ, 16 decimated samples per pattern at 2 speckle sizes, so n = 64 with four seeds (row 42
+evaluable at σ = 150–250 nm) and 32 with two (σ = 100 nm not evaluable; add `100e-9:3 100e-9:4`
+to the list, 18 cases, to make it evaluable); C env ≈ 1.00–1.03, size within 4.4 %, but the plane
+contrast saturates (surrogate 2.00, 1.47, 1.32, 1.28; monotone in 56 %), so row 43 rests on the
+Lc = 1 µm record.
+
+**3. Series (ii): the 0°/30° pair for γ₁₂** (5 cases at θ = 30°; the 0° partners are this
+record's seed-1 cases):
+
+```sh
+OUT=$RUNS/t30_L8
+mkdir -p "$OUT/pkg" && cp -r build/release/python/specklebem "$OUT/pkg/" \
+    && cp benchmarks/speckle_sweep.py benchmarks/speckle_sweep_queue.sh "$OUT/pkg/"
+THETA=30 nohup $NUMA sh "$OUT/pkg/speckle_sweep_queue.sh" "$OUT" python3 \
+    100e-9:1 150e-9:1 200e-9:1 250e-9:1 50e-9:1 > "$OUT/queue.out" 2>&1 &
+```
+
+Cases `si_L8um_s<σ>nm_Lc1um_seed1_t30`, w₀ = L cos 30°/6 = 1.155 µm (the driver's default,
+option b1's footprint rule; `WAIST=<m>` would override it), Lc = 1 µm, the same height maps as the
+0° cases. The γ₁₂ evaluation (memory-effect-aligned correlation from `far_F.npy`, option b1)
+needs a far-field resampling function that does not exist yet: a follow-up WP.
+
+**4. Series (iii), optional: L = 25 µm** (10 cases; first start the queue with `100e-9:1` alone and
+rescale the estimates from its `row.txt`, then rerun the full list: finished cases are skipped):
+
+```sh
+OUT=$RUNS/L25
+mkdir -p "$OUT/pkg" && cp -r build/release/python/specklebem "$OUT/pkg/" \
+    && cp benchmarks/speckle_sweep.py benchmarks/speckle_sweep_queue.sh "$OUT/pkg/"
+L=25e-6 PLANE_N=641 nohup $NUMA sh "$OUT/pkg/speckle_sweep_queue.sh" "$OUT" python3 \
+    100e-9:1 100e-9:2 150e-9:1 150e-9:2 200e-9:1 200e-9:2 250e-9:1 250e-9:2 \
+    50e-9:1 50e-9:2 > "$OUT/queue.out" 2>&1 &
+```
+
+Cases `si_L25um_s<σ>nm_Lc1um_seed<k>`, w₀ = 4.17 µm ((w₀/Lc)² = 17.4). Caveat from the
+calibration: at n ≈ 850 the leave-one-out envelope from two seeds is itself detected (matched null
+17 %), so the 2-speckle gate at L = 25 µm needs more seeds or a smoother envelope estimate before
+it decides row 42.
+
+**Monitoring, stopping, output.** `cat "$OUT/progress.txt"` (start / end and exit code per case),
+`tail "$OUT"/log_sigma*`; `touch "$OUT/STOP"` stops before the next case; the same command
+restarts the queue (cases with `row.txt` are skipped; an interrupted case has none and is
+repeated). Layout per series:
+
+```
+server_runs/wp_s2b/<series>/
+  pkg/                               frozen package, driver and queue (not needed back)
+  cases/<tag>/                       E.npy ((n², 3) complex scattered E on the plane), intensity.npy,
+                                     far_F.npy, far_dirs.npy, far_weights.npy (1° hemisphere),
+                                     currents.npy, residual_history.npy,
+                                     incident_paraxial_intensity.npy, meta.json, row.txt
+  rows.txt                           one ROW line per finished case
+  progress.txt, queue.out            queue log
+  log_sigma<σ>_seed<k>[_t30].txt     one log per case
+```
+
+Size per case ≈ 15 MB at L = 8 µm, ≈ 100 MB at L = 25 µm (currents 70 MB, plane E 20 MB). Send
+back without the package: `tar czf wp_s2b_<series>.tar.gz -C server_runs/wp_s2b --exclude=pkg
+<series>`, unpacked on the desktop into `<main checkout>/results/local_runs/wp_s2b/` (git-ignored),
+with a note on the server (CPU, cores, memory, NUMA, `OMP_*`) and anything unusual.
+
+**5. Analysis afterwards** (seconds per series; on the desktop replace `python3` by
+`/c/msys64/ucrt64/bin/python` and `build/release` by `build/win-release`, and give pytest
+`-o "pythonpath=build/win-release/python python"` instead of `PYTHONPATH`):
+
+```sh
+D=<main checkout>/results/local_runs/wp_s2b/lc05_L8/cases       # likewise L25/cases
+python3 benchmarks/speckle_sweep_stats.py "$D" --pythonpath build/release/python \
+    --markdown --sensitivity --json "$D/../summary.json"
+SBEM_SPECKLE_SWEEP_DIR="$D" PYTHONPATH=build/release/python:python \
+    python3 -m pytest tests/python/test_speckle_dod.py -v -rsx
+```
+
+On these directories the record tests of `test_speckle_dod.py` skip (other configuration) and its
+gate tests decide rows 42 (per σ where n ≥ 50), 43 and 44 as defined in docs/05. The statistics
+script prints the docs/05 row-42 gate as the "docs/05 row 42 per σ" lines (n, modified statistic,
+plain p, rejects, or not evaluable for n < 50); its "σ-pooled" line is supplementary, not the
+docs/05 gate. Expected or inconclusive outcomes, not regressions (the assertions stay as they
+are; the verdict is the lead's): (1) a row-43 failure on series (i), whose plane contrast is
+expected to saturate (surrogate 2.00, 1.47, 1.32, 1.28, monotone in 56 %; row 43 rests on the
+Lc = 1 µm record); (2) a single per-σ row-42 rejection on series (iii) with two seeds, where the
+leave-one-out envelope from two seeds is itself detectable (matched null 17 %, measured on the
+σ-pooled sample of n ≈ 820; "Calibration"); (3) in general, each evaluable σ is a 5 % test, so on
+exact speckle at least one of k evaluable σ rejects with the family-wise probability 1 − 0.95ᵏ
+(14 % for k = 3, 19 % for k = 4; note in "Decided"). Series (ii) has only θ = 30° cases: the DoD
+test skips them; its analysis is the follow-up above.
+
+**Smoke test of this recipe (2026-10-30, desktop, no assembly and no solve).** The queue was run
+with `echo` as the Python interpreter for each series (`LC=0.5e-6`; `THETA=30`;
+`L=25e-6 PLANE_N=641`); the printed driver arguments (`--Lc 0.5e-6`, `--theta-deg 30`,
+`--L 25e-6 ... --plane-n 641`) were parsed by the driver's own parser and turned into the case
+parameters and plane exactly as the driver does: tags as above, w₀ 1.3333 / 1.1547 / 4.1667 µm,
+7.50 / 8.66 / 9.60 samples per λz/D, 2N model 741 120 / 741 120 / 4 356 000. With L = 2 µm and
+otherwise the same arguments each built its mesh and `Simulation` (2N = 127 680). This found a
+bug in the committed driver: `build_simulation` converted the vacuum impedance, which the
+binding returns as a complex number, with `float()` and raised `TypeError` before any solve (the
+WP-S2 cases ran with an earlier frozen package that used a constant); fixed and covered by
+`tests/python/test_speckle_sweep.py::test_build_simulation_of_a_small_case_without_solve`.
+
 ## Reproduction
 
 ```bash
@@ -491,6 +707,9 @@ sh benchmarks/speckle_sweep_queue.sh "$OUT" /c/msys64/ucrt64/bin/python 50e-9:1 
 # statistics (seconds) and calibration (minutes)
 /c/msys64/ucrt64/bin/python benchmarks/speckle_sweep_stats.py "$OUT/cases" \
     --pythonpath build/win-release/python --markdown --sensitivity --json "$OUT/summary.json"
+# Phase 6 DoD test on the saved patterns (WP-S2b; ~1 s, skipped without data)
+SBEM_SPECKLE_SWEEP_DIR="$OUT/cases" /c/msys64/ucrt64/bin/python -m pytest \
+    -o "pythonpath=build/win-release/python python" tests/python/test_speckle_dod.py -v -rsx
 CAL="/c/msys64/ucrt64/bin/python benchmarks/speckle_sweep_calibration.py --pythonpath build/win-release/python"
 $CAL --model gaussian --reps 300
 for mu in 0.224 0.616 0.735 1; do $CAL --model gaussian --reps 300 --map-correlation $mu; done

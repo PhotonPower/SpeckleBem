@@ -158,6 +158,21 @@ def test_driver_parser():
         ["--sigma", "1e-7", "--seed", "1", "--out", "o", "--theta-deg", "30"]).theta_deg == 30.0
 
 
+@pytest.mark.parametrize("theta_deg, Lc", [(0.0, 0.5e-6), (30.0, 1e-6)])
+def test_build_simulation_of_a_small_case_without_solve(theta_deg, Lc):
+    # Case construction of the driver (mesh, beam, Simulation object; no assemble, no solve) on
+    # a tiny patch, for the server recipe's variants (Lc = 0.5 um; 30 deg incidence).
+    p = ss.CaseParams(L=1e-6, sigma=100e-9, seed=1, h=100e-9, Lc=Lc, theta_deg=theta_deg)
+    sim, info = ss.build_simulation(p)
+    assert isinstance(info["eta0"], float)
+    assert info["eta0"] == pytest.approx(376.730313668, rel=1e-9)  # vacuum (R1)
+    assert info["waist"] == pytest.approx(1e-6 * math.cos(math.radians(theta_deg)) / 6,
+                                          rel=1e-12)
+    assert sim.num_unknowns > 0 and info["triangles"] > 0 and info["rmax"] > 0
+    assert p.tag() == ("si_L1um_s100nm_Lc0.5um_seed1" if theta_deg == 0.0
+                       else "si_L1um_s100nm_Lc1um_seed1_t30")
+
+
 def test_report_parser_reads_leaf_and_levels():
     rep = ("  operator:       MlfmmOperator: 2N = 51840, d0 = 3, octree 5 levels, 610 leaves of "
            "edge 0.724812 lambda1 (lambda1 = 5e-07 m), built in 0.0034908 s; leaf floor 0.455605\n")
@@ -379,6 +394,26 @@ def test_phase_screen_surrogate():
     assert weak[80, 80] / c0 == pytest.approx(ss.coherent_fraction(20e-9, WL), abs=0.1)
 
 
+def test_vacuum_wave_impedance_requires_a_real_value():
+    # The binding returns the impedance as a complex number; the driver keeps its real part only
+    # when the imaginary part is exactly zero (vacuum) and raises otherwise (no silent drop).
+    class Medium:
+        def __init__(self, z):
+            self.z = z
+
+        def wave_impedance(self, omega):
+            assert omega == 3.0
+            return self.z
+
+    assert ss.vacuum_wave_impedance(Medium(complex(376.73, 0.0)), 3.0) == 376.73
+    assert isinstance(ss.vacuum_wave_impedance(Medium(complex(376.73, 0.0)), 3.0), float)
+    with pytest.raises(ValueError, match="vacuum wave impedance must be real"):
+        ss.vacuum_wave_impedance(Medium(complex(376.73, -1e-9)), 3.0)
+    vac = sb.vacuum()
+    omega = 2 * math.pi * 299792458.0 / WL
+    assert ss.vacuum_wave_impedance(vac, omega) == pytest.approx(376.730313668, rel=1e-9)
+
+
 def _write_case(root, sigma_nm, seed, E, plane):
     d = root / f"si_L8um_s{sigma_nm:g}nm_Lc1um_seed{seed}"
     d.mkdir()
@@ -412,13 +447,24 @@ def test_stats_script_on_synthetic_case_directories(tmp_path, capsys):
     out_json = tmp_path / "summary.json"
     assert module.main([str(tmp_path), "--markdown", "--json", str(out_json)]) == 0
     text = capsys.readouterr().out
-    assert "Row 42 gate" in text and "Row 43" in text and "Row 44" in text
+    assert "docs/05 row 42 per σ" in text and "Row 43" in text and "Row 44" in text
+    assert "σ-pooled (supplementary, not the docs/05 gate" in text
+    assert "Row 42 gate" not in text
     out = json.loads(out_json.read_text(encoding="utf-8"))
     assert [s["sigma_nm"] for s in out["sigmas"]] == [100, 150, 200, 250]
     assert len(out["cases"]) == 8 and len(out["corr_step"]) == 6
     assert all(s["fully_developed"] for s in out["sigmas"])
-    gate = out["gate_ks"]["result"]
+    gate = out["sigma_pooled_ks"]["result"]  # supplementary pool (not the docs/05 gate)
     assert gate["n"] >= 50 and not gate["rejects"]
+    # the docs/05 gate per sigma: the summary repeats the per-sigma values, nothing recomputed
+    per = out["row42_per_sigma"]
+    assert per["spacing"] == 2.0
+    assert [r["sigma_nm"] for r in per["sigmas"]] == [100, 150, 200, 250]
+    for r, s in zip(per["sigmas"], out["sigmas"]):
+        assert r["n"] == s["ks_spacing2_n"] and r["result"] == s["ks_spacing2"]
+        assert r["evaluable"] == (s["ks_spacing2"] is not None)
+        assert f"σ = {s['sigma_nm']:g} nm: n = {s['ks_spacing2_n']}, " in text
+    assert len(out["size_within_10pct"]) == 4  # all four fully developed
     assert out["contrast_monotone"]["strict"] and out["contrast_monotone"]["complete"]
     # two seeds per entry: the size error scatters by 8-15 % (calibration), so only plumbing
     # is checked per entry; the mean over the entries is tighter
@@ -429,7 +475,8 @@ def test_stats_script_on_synthetic_case_directories(tmp_path, capsys):
         sb.speckle_contrast(np.abs(E0[:, 0]) ** 2), rel=1e-12)
     assert out["pooled_ks_one"]["n"] > gate["n"]
 
-    # Row-42 sensitivity: the baseline row is the gate; one change at a time (short list).
+    # Row-42 sensitivity: the baseline row is the sigma-pooled pool; one change at a time (short
+    # list).
     args = module.build_parser().parse_args([str(tmp_path)])
     cases = module.load_cases(tmp_path)
     variants = (("baseline", {}), ("offset 3", dict(offset=3)),
@@ -454,6 +501,31 @@ def test_stats_script_on_synthetic_case_directories(tmp_path, capsys):
     assert "| offset 3 |" in text and "Variants rejecting:" in text
     sens2 = json.loads(out_json2.read_text(encoding="utf-8"))["sensitivity"]
     assert [r["label"] for r in sens2["rows"]] == ["baseline", "offset 3"]
+    # JSON output (no --markdown): the per-sigma gate lines go to stderr, stdout stays JSON
+    module.SENSITIVITY_VARIANTS = variants[:1]
+    assert module.main([str(tmp_path)]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["row42_per_sigma"]["spacing"] == 2.0
+    assert captured.err.startswith("docs/05 row 42 per σ")
+    assert captured.err.count(" nm: n = ") == 4
+
+    # A partially developed sigma (the 100 nm patterns relabelled 50 nm, exp(-(2 k sigma)^2) =
+    # 0.21): listed in the per-sigma gate lines as not gated, row 44 reports it but does not
+    # judge it, and it stays out of the sigma-pooled pool.
+    relabelled = [dict(c, rec=dict(c["rec"], sigma_nm=50.0) if c["rec"]["sigma_nm"] == 100
+                       else c["rec"]) for c in cases]
+    out50 = module.analyse(tmp_path, args, relabelled)
+    assert [s["fully_developed"] for s in out50["sigmas"]] == [False, True, True, True]
+    assert 50.0 not in out50["size_within_10pct"] and len(out50["size_within_10pct"]) == 3
+    assert out50["sigma_pooled_ks"]["sigmas"] == [150, 200, 250]
+    first = out50["row42_per_sigma"]["sigmas"][0]
+    assert first["sigma_nm"] == 50.0 and not first["evaluable"]
+    lines = module.row42_per_sigma_lines(out50)
+    assert len(lines) == 5 and lines[1].endswith("partially developed, not gated")
+    module.print_markdown(out50)
+    text = capsys.readouterr().out
+    assert "reported, not judged (partially developed): 50" in text
+    assert "- σ = 50 nm: n = " in text
 
 
 def test_calibration_script_runs(capsys):
