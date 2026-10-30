@@ -41,3 +41,4 @@
 - [PML Huygens far field (WP-PML6)](pml_huygens_findings.md) — 7f met / 7g not (plane window Delta = lambda), wide-gap Delta study: plane converges theta<=30, 7d ~2.3 % stays; 7f needs window >= 2.5 w0 (CI 2N 7 632)
 - [Wide-gap rule (WP-PML6b)](pml_wide_gap_findings.md) — gap 6 lambda cone theta<=30: window sens 4e-4/8.7e-4 per seed, 7d 2.3/1.6 %, flank scaling, costs
 - [Speckle statistics (WP-S1)](speckle_statistics_findings.md) — KS conservative p, Stephens gate (level 4.6 %, power 57 %), size constants, decimation, Si example cost (walls)
+- [Speckle sweep (WP-S2)](speckle_sweep_findings.md) — Si L = 8 um costs, 2D/lambda limit, (w0/Lc)^2 = 1.8 trap, row 42 not met (fragile pooled pass), box 2N model, gamma12

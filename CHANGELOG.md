@@ -5,6 +5,20 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- python / benchmarks (WP-S2, Phase 6 part 2): speckle sweep on rough Si — driver `benchmarks/speckle_sweep.py`
+  (+ queue, `--theta-deg`), module `specklebem.speckle_sweep` (case construction, plane sampling, direction-cosine
+  resampling, leave-one-out envelope normalisation, decimation, pooled KS with the WP-S1 harness, synthetic and
+  phase-screen reference speckle), statistics / sensitivity script `benchmarks/speckle_sweep_stats.py`, null
+  calibration `benchmarks/speckle_sweep_calibration.py` (incl. correlated maps). 10 solves: Si box route,
+  L = 8 µm (L = 10 µm over the 60 GB budget), h = 50 nm, Lc = 1 µm, w0 = L/6, σ = 50–250 nm × 2 seeds, 2N = 741 120,
+  tol 1e-4, 27–50 min and ≤ 56 GB each; data local only. Phase 6 DoD on these data: contrast monotone in σ (met:
+  10.7 → 5.7 → 3.7 → 2.7 → 2.15); speckle size within 10 % of 1.06 λz/D for 3 of 4 fully developed σ (σ = 200 nm
+  +11.4 %); negative-exponential PDF **not met** (per-σ samples 8–32; a σ-pooled variant passes by 0.7 % at the
+  defaults but rejects in 12 of 20 neighbouring analysis variants, 1-speckle pool rejects, C_env 1.04–1.29 —
+  physically: (w0/Lc)² ≈ 1.8 correlation areas in the spot); γ₁₂ not testable at normal incidence; at most
+  2D/λ ≈ 10.7 speckles per axis possible. Record `benchmarks/results/speckle_sweep.md` with the lead decision
+  memo (speckle count / statistics, γ₁₂ definition, σ pooling and the σ = 100 nm classification). Review fixes
+  (verdict restated, sensitivity table, memory and cost estimates) on `wp/s2-review-fixes`.
 - post / python (WP-S1, Phase 6 part 1): speckle-statistics module `post/speckle_statistics` implemented and bound —
   `speckle_contrast`, `correlation_coefficient`, `intensity_pdf` (+ `intensity_pdf_rms_error`), `ks_test_exponential`
   (one-sample KS against 1 − e^(−I/⟨I⟩) with ⟨I⟩ from the sample, asymptotic Kolmogorov p via `kolmogorov_survival`,

@@ -24,7 +24,8 @@ set(SPECKLEBEM_PYTHON_FILES
     specklebem/__init__.py
     specklebem/io.py
     specklebem/rough_surface.py
-    specklebem/speckle.py)
+    specklebem/speckle.py
+    specklebem/speckle_sweep.py)
 foreach(_py IN LISTS SPECKLEBEM_PYTHON_FILES)
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/${_py} ${CMAKE_CURRENT_BINARY_DIR}/${_py} COPYONLY)
 endforeach()

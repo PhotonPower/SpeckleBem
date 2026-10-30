@@ -166,7 +166,15 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   (WP-S2b): the negative-exponential gate applies to fully developed cases only (coherent fraction
   exp(−(2kσ)²) < 1e-2, i.e. σ ≥ 150 nm at 633 nm; no specular masking; σ = 50 / 100 nm report contrast < 1 as
   the physical expectation), gate with the level-correct Stephens-modified KS statistic at 5 %, plain p reported.
-- **In flight (2026-10-25):** WP-S2 (`wp/s2-speckle-sweep`, started in parallel to WP-S1: driver `benchmarks/speckle_sweep.py` and the 10 solves, Si box route, L ~ 10 um, h = 50 nm, 5 sigma x 2 seeds, z = -1 mm; intensities saved locally; the DoD ctest = WP-S2b after WP-S1).
+- **Merged:** WP-S2 (Phase 6 part 2): 10 Si solves (L = 8 µm, 2N = 741 120) with the WP-S1 harness — contrast
+  monotone in σ, speckle size mostly within 10 %, negative-exponential PDF not met (spot ≈ 1.8 correlation areas;
+  a σ-pooled pass at the defaults is fragile), γ₁₂ not testable at normal incidence. Raw data local in
+  `<main checkout>/results/local_runs/wp_s2` (git-ignored). The machine reset on 2026-10-26 03:47 during
+  σ = 200 nm seed 1; the queue was restarted and finished.
+- **Waiting for the user:** WP-S2b depends on the decisions in the record's "Open decisions for the lead"
+  ((a) statistics / speckle count: accept L = 8 µm, more seeds, Lc = 0.5 µm or a server run; (b) γ₁₂ definition,
+  recommended 0°/30° incidence pair, 4 solves; (c) σ pooling / σ = 100 nm classification).
+- **In flight (2026-10-26):** none.
 - **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
   continuation `wp/pml6-huygens-far-field-2` at f5bd897 in worker worktree agent-a40c1f6891657e9af: 7g reported as
   unmet with regression guards, docs/10 finished, wide-gap diagnostics; still to do there: record
@@ -194,7 +202,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 641 ctest (`-LE "validation-large|slow"`), 141 pytest; labels `slow`, `validation`
+- Test counts on `main`: 641 ctest (`-LE "validation-large|slow"`), 170 pytest; labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
