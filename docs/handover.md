@@ -175,6 +175,10 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   ((a) statistics / speckle count: accept L = 8 µm, more seeds, Lc = 0.5 µm or a server run; (b) γ₁₂ definition,
   recommended 0°/30° incidence pair, 4 solves; (c) σ pooling / σ = 100 nm classification).
 - **In flight (2026-10-26):** none.
+- **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
+  (1 - R_beam - away) P_inc" failed once in the full `-j 6` ctest of main 97694d1 (512 s, while a 1.4 GB backup
+  archive was packed in parallel) and passed alone (348 s); no C++ change in that commit. If it fails again, look
+  for a load- or thread-count-dependent tolerance (result_writer temp-dir collisions are the other known flake).
 - **Earlier state (sleep 2026-10-20 09:50):** WP-PML6 (`wp/pml6-huygens-far-field`, implementation complete at 0e02fd7;
   continuation `wp/pml6-huygens-far-field-2` at f5bd897 in worker worktree agent-a40c1f6891657e9af: 7g reported as
   unmet with regression guards, docs/10 finished, wide-gap diagnostics; still to do there: record
