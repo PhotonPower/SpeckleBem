@@ -15,6 +15,7 @@
 #include "specklebem/simulation.hpp"
 #include "specklebem/solver/direct.hpp"
 #include "specklebem/solver/gmres.hpp"
+#include "specklebem/solver/incomplete_lu_preconditioner.hpp"
 #include "specklebem/solver/preconditioner.hpp"
 
 #include <catch2/catch_message.hpp>
@@ -917,9 +918,10 @@ private:
     spdlog::level::level_enum saved_level_;
 };
 
-/// The warning of the automatic block default on a coarse tree (simulation.cpp, ensure_block).
-constexpr const char* kCoarseBlockWarning =
-    "automatic block-diagonal preconditioner's largest block";
+/// The warning of the former automatic block default on a coarse tree (WP-PC1 to WP-SC4; removed
+/// with the default switch to the ILUT, an explicit BlockDiagonal never warned).
+/// The count == 0 checks below are regression guards: no library message matches it any more.
+constexpr const char* kCoarseBlockWarning = "block-diagonal preconditioner's largest block";
 
 /// Tiny flat PML case of the default tests: n = 1.5 object, cheap kernels, GMRES 1e-9.
 struct TinyPml {
@@ -948,14 +950,15 @@ struct TinyPml {
 
 }  // namespace
 
-TEST_CASE("block_preconditioner: the PML route defaults (mlfmm: blocks, dense: recommendation)",
+TEST_CASE("block_preconditioner: the PML route defaults (mlfmm: ILUT, dense: recommendation)",
           "[block_preconditioner]") {
-    // ADR 0011 decision 3 was met on the "mlfmm" PML route (benchmarks/results/preconditioner.md),
-    // and the automatic block default is limited to that measured route (WP-PC1 review): with
-    // the GMRES solver and no explicit choice "mlfmm" uses the blocks one level above the
-    // leaves; the dense PML route keeps the recommendation (Jacobi for metals, none for
-    // dielectrics), as do the direct solver, explicit settings and the box route. Tiny flat
-    // surface (2N = 352).
+    // ADR 0011 decision 3 made the blocks one level above the leaves the default of the "mlfmm"
+    // PML route (WP-PC1); ADR 0012 decision 9 replaced it by the ILUT of the near blocks A and D
+    // with the default IlutParams (fill 2, drop 1e-2; WP-SC4). The automatic choice stays
+    // limited to that measured route (WP-PC1 review): the dense PML route keeps the
+    // recommendation (Jacobi for metals, none for dielectrics), as do the direct solver, explicit
+    // settings and the box route. The former default stays reachable explicitly (BlockDiagonal
+    // with block_levels_above_leaf = 1). Tiny flat surface (2N = 352).
     const TinyPml t;
     SimulationConfig dense_ag = t.cfg;
     dense_ag.object = material::silver_500nm();
@@ -971,10 +974,20 @@ TEST_CASE("block_preconditioner: the PML route defaults (mlfmm: blocks, dense: r
         fast.object = object;
         fast.compression = "mlfmm";
         const auto f = t.make(fast);
-        CHECK(f->preconditioner_kind() == PreconditionerKind::BlockDiagonal);
-        CHECK(f->config().block_levels_above_leaf == 1);
+        CHECK(f->preconditioner_kind() == PreconditionerKind::IncompleteLu);
+        CHECK(f->config().ilut.fill_factor == 2.0);
+        CHECK(f->config().ilut.drop_tol == 1e-2);
         CHECK(contains(f->report(),
-                       "block-diagonal (near field) (automatic), blocks: one level "
+                       "ILUT of the near-field blocks A, D (automatic), fill 2, drop 0.01, "
+                       "ordering amd"));
+        // The former default, explicitly.
+        SimulationConfig former = fast;
+        former.preconditioner = PreconditionerKind::BlockDiagonal;
+        former.block_levels_above_leaf = 1;
+        const auto fb = t.make(former);
+        CHECK(fb->preconditioner_kind() == PreconditionerKind::BlockDiagonal);
+        CHECK(contains(fb->report(),
+                       "block-diagonal (near field) (explicit), blocks: one level "
                        "above the leaves"));
     }
     // Explicit settings win (diagonal_preconditioner kept for compatibility); the direct solver.
@@ -1011,12 +1024,99 @@ TEST_CASE("block_preconditioner: the PML route defaults (mlfmm: blocks, dense: r
     CHECK(contains(dense_block->report(), "block-diagonal (near field) (explicit)"));
 }
 
-TEST_CASE("block_preconditioner: the automatic block default warns on a coarse tree",
+TEST_CASE("block_preconditioner: default preconditioner per route since WP-SC4 (ADR 0012 d9)",
+          "[block_preconditioner]") {
+    // The library defaults: solver::IlutParams fill 2 / drop 1e-2 (decision 9; fill 3 / drop
+    // 1e-4 before WP-SC4), pivot guard and ordering unchanged; SimulationConfig leaves the
+    // preconditioner empty (automatic) and carries these parameters.
+    const solver::IlutParams d;
+    CHECK(d.fill_factor == 2.0);
+    CHECK(d.drop_tol == 1e-2);
+    CHECK(d.min_pivot_rel == 1e-10);
+    CHECK(d.ordering == solver::IlutOrdering::Amd);
+    CHECK_FALSE(d.budget_bytes.has_value());
+    const SimulationConfig c0;
+    CHECK_FALSE(c0.preconditioner.has_value());
+    CHECK_FALSE(c0.diagonal_preconditioner.has_value());
+    CHECK(c0.ilut.fill_factor == d.fill_factor);
+    CHECK(c0.ilut.drop_tol == d.drop_tol);
+    CHECK(c0.block_levels_above_leaf == 1);
+
+    // Box route (sphere), also with compression "mlfmm": the recommendation, unchanged (Jacobi
+    // for metals, none for dielectrics); ILUT parameters ignored there (not validated).
+    for (const char* compression : {"dense", "mlfmm"}) {
+        SimulationConfig ag = sim_config(material::silver_500nm());
+        ag.compression = compression;
+        const Simulation a(sphere_1um(), wave_1um(), ag);
+        CHECK(a.preconditioner_kind() == PreconditionerKind::Diagonal);
+        CHECK(contains(a.report(), "preconditioner: diagonal (Jacobi) (automatic)"));
+        SimulationConfig si = sim_config(material::silicon_500nm());
+        si.compression = compression;
+        const Simulation s(sphere_1um(), wave_1um(), si);
+        CHECK(s.preconditioner_kind() == PreconditionerKind::None);
+        ag.ilut.drop_tol = -1.0;
+        CHECK_NOTHROW(Simulation(sphere_1um(), wave_1um(), ag));
+    }
+
+    // PML route with compression "mlfmm": the ILUT with the default parameters; the automatic
+    // solve is the explicit one with the same parameters (same factory, same GMRES; compared to
+    // rounding, as the threaded GMRES reductions need not be bitwise reproducible).
+    const TinyPml t;
+    SimulationConfig fast = t.cfg;
+    fast.compression = "mlfmm";
+    const auto au = t.make(fast);
+    REQUIRE(au->preconditioner_kind() == PreconditionerKind::IncompleteLu);
+    CHECK(au->config().ilut.fill_factor == 2.0);
+    CHECK(au->config().ilut.drop_tol == 1e-2);
+    const solver::GmresResult ra = au->solve();
+    REQUIRE(ra.converged);
+    REQUIRE(au->incomplete_lu_preconditioner() != nullptr);
+    CHECK(au->incomplete_lu_preconditioner()->params().fill_factor == 2.0);
+    CHECK(au->incomplete_lu_preconditioner()->params().drop_tol == 1e-2);
+    CHECK(contains(au->report(), "ILUT of the near-field blocks A, D (automatic)"));
+    SimulationConfig ex = fast;
+    ex.preconditioner = PreconditionerKind::IncompleteLu;
+    ex.ilut.fill_factor = 2.0;
+    ex.ilut.drop_tol = 1e-2;
+    const auto xe = t.make(ex);
+    const solver::GmresResult re = xe->solve();
+    INFO("automatic " << ra.iterations << " / explicit " << re.iterations << " iterations");
+    CHECK(std::abs(re.iterations - ra.iterations) <= 1);
+    const VectorXc& xa = au->solution().currents;
+    const VectorXc& xx = xe->solution().currents;
+    REQUIRE(xa.size() == xx.size());
+    CHECK((xa - xx).norm() <= 1e-10 * xx.norm());
+    CHECK(contains(xe->report(), "ILUT of the near-field blocks A, D (explicit)"));
+
+    // The automatic ILUT validates SimulationConfig::ilut at construction (as an explicit one);
+    // where it is not chosen (dense PML route, explicit other preconditioner) the parameters are
+    // ignored.
+    SimulationConfig bad = fast;
+    bad.ilut.fill_factor = 0.0;
+    CHECK_THROWS_WITH(t.make(bad), ContainsSubstring("fill_factor"));
+    CHECK_THROWS_AS(t.make(bad), std::invalid_argument);
+    SimulationConfig bad_dense = bad;
+    bad_dense.compression = "dense";
+    CHECK_NOTHROW(t.make(bad_dense));
+    SimulationConfig bad_block = bad;
+    bad_block.preconditioner = PreconditionerKind::BlockDiagonal;
+    CHECK_NOTHROW(t.make(bad_block));
+    SimulationConfig bad_jacobi = bad;
+    bad_jacobi.diagonal_preconditioner = true;
+    CHECK_NOTHROW(t.make(bad_jacobi));
+    SimulationConfig bad_direct = bad;
+    bad_direct.compression = "dense";
+    bad_direct.solver = SolverKind::Direct;
+    CHECK_NOTHROW(t.make(bad_direct));
+}
+
+TEST_CASE("block_preconditioner: the former block default on a coarse tree, explicitly",
           "[block_preconditioner]") {
     // The tiny PML surface (2N = 352) gives the default octree two levels: one level above the
-    // leaves is the root, so the automatic block preconditioner is one block = a dense LU and
-    // GMRES converges in one iteration. Kept (no fallback), with an SBEM_WARN on the automatic
-    // path only; an explicit BlockDiagonal does not warn.
+    // leaves is the root, so the blocks one level up (the automatic choice of the "mlfmm" PML
+    // route from WP-PC1 to WP-SC4, which warned here) are one block = a dense LU and GMRES
+    // converges in one iteration. Since WP-SC4 the automatic choice is the ILUT (no block, no
+    // warning) and the blocks are explicit, which never warn.
     const TinyPml t;
     SimulationConfig fast = t.cfg;
     fast.compression = "mlfmm";
@@ -1026,10 +1126,26 @@ TEST_CASE("block_preconditioner: the automatic block default warns on a coarse t
     direct->solve();
     const VectorXc& x_ref = direct->solution().currents;
     {
+        // Automatic: the ILUT, no coarse-tree warning; the solution is the direct one.
         LogCapture log(spdlog::level::warn);
         const auto sim = t.make(fast);
+        REQUIRE(sim->preconditioner_kind() == PreconditionerKind::IncompleteLu);
+        const solver::GmresResult r = sim->solve();
+        REQUIRE(sim->incomplete_lu_preconditioner() != nullptr);
+        CHECK(sim->block_preconditioner() == nullptr);
+        INFO("automatic ILUT: " << r.iterations << " iterations, "
+                                << sim->incomplete_lu_preconditioner()->describe());
+        CHECK(r.converged);
+        CHECK((sim->solution().currents - x_ref).norm() <= 1e-7 * x_ref.norm());
+        CHECK(log.count(kCoarseBlockWarning) == 0);
+    }
+    {
+        LogCapture log(spdlog::level::warn);
+        SimulationConfig former = fast;
+        former.preconditioner = PreconditionerKind::BlockDiagonal;
+        former.block_levels_above_leaf = 1;
+        const auto sim = t.make(former);
         REQUIRE(sim->preconditioner_kind() == PreconditionerKind::BlockDiagonal);
-        CHECK(log.count(kCoarseBlockWarning) == 0);  // at assembly, not at construction
         const solver::GmresResult r = sim->solve();
         const auto* Z = dynamic_cast<const mlfmm::MlfmmOperator*>(sim->system_operator().get());
         REQUIRE(Z != nullptr);
@@ -1042,20 +1158,11 @@ TEST_CASE("block_preconditioner: the automatic block default warns on a coarse t
         CHECK(P.max_block_size() == sim->num_unknowns());
         CHECK(r.converged);
         CHECK(r.iterations <= 1);
-        CHECK(log.count(kCoarseBlockWarning) == 1);
         // Every box pair of the two-level tree is near: the fast operator is the dense one.
         CHECK((sim->solution().currents - x_ref).norm() <= 1e-7 * x_ref.norm());
-        sim->assemble();  // idempotent: built (and warned) once
-        CHECK(log.count(kCoarseBlockWarning) == 1);
-    }
-    {
-        LogCapture log(spdlog::level::warn);
-        SimulationConfig fe = fast;
-        fe.preconditioner = PreconditionerKind::BlockDiagonal;
-        const auto sim = t.make(fe);
-        sim->assemble();
-        REQUIRE(sim->block_preconditioner() != nullptr);
         CHECK(2 * sim->block_preconditioner()->max_block_size() > sim->num_unknowns());
+        CHECK(log.count(kCoarseBlockWarning) == 0);  // explicit: never warned
+        sim->assemble();                             // idempotent
         CHECK(log.count(kCoarseBlockWarning) == 0);
     }
 }
@@ -1064,8 +1171,8 @@ TEST_CASE("block_preconditioner: the constructors validate the octree parameters
           "[block_preconditioner]") {
     // The dense route builds the block partition from mlfmm::make_octree(config.mlfmm): with an
     // explicit BlockDiagonal invalid octree parameters throw in the constructor, not in
-    // assemble(); the automatic block default exists only with compression "mlfmm", whose
-    // parameters are always validated.
+    // assemble(); the automatic near-field preconditioner (the ILUT since WP-SC4) exists only
+    // with compression "mlfmm", whose parameters are always validated.
     const TinyPml t;
     for (const bool explicit_block : {false, true}) {
         SimulationConfig dense = t.cfg;

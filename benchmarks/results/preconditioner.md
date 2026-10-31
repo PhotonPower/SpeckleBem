@@ -130,7 +130,7 @@ every explicit setting are unchanged; `diagonal_preconditioner = true` / `precon
 
 On the automatic path a `SBEM_WARN` is logged at assembly when the largest block holds more than half of the unknowns
 (a tiny or coarse tree whose block level is the root: the block solve is then a dense LU); explicit settings do not
-warn.
+warn (removed in WP-SC4: the automatic choice is no longer block-diagonal).
 
 ## Design notes
 
@@ -569,3 +569,81 @@ defined at 2N = 300 160, where all three sets pass everything.
   fill-3 set lost to parent at 16 µm); a faster elimination kernel (the inner update runs at ≈ 1.2·10⁸ complex
   multiply-adds per second) or a parallel A factorisation (level scheduling) would remove that risk; (2) the box route
   (Ag sphere: 63 vs Jacobi 210) is a second candidate, measured only at the validation size.
+
+## WP-SC4: ILUT default of the "mlfmm" PML route (ADR 0012 decision 9)
+
+ADR 0012 decision 9: the "mlfmm" PML route switches its default preconditioner from the blocks one level above the
+leaves to the ILUT of the near blocks A and D with **fill 2 / drop 10⁻²**, unless a candidate check finds that set
+needing more than 1.5× the iterations of fill 3 / drop 10⁻³ at rough Si U or on the Ag sphere validation case (then
+fill 2 / drop 10⁻³). Library code: `Simulation::Impl::setup` resolves an empty `SimulationConfig::preconditioner`
+(with `diagonal_preconditioner` empty, GMRES) on the PML route with compression "mlfmm" to
+`PreconditionerKind::IncompleteLu` with `SimulationConfig::ilut` (validated at construction); the defaults of
+`solver::IlutParams` become fill 2 / drop 10⁻² (before: fill 3 / drop 10⁻⁴); Python `preconditioner="auto"` follows,
+`sim.config["ilut"]` reports the defaults. The former default stays explicit (`PreconditionerKind::BlockDiagonal`
+with `block_levels_above_leaf = 1`, Python `preconditioner="block_diagonal", block_level=1`); the box and dense
+routes keep the recommendation (Jacobi for metals, none for dielectrics). Driver variant `default` (the preconditioner
+a Simulation of the same mesh and configuration chooses without an explicit setting, built with the same factory and
+parameters as `Simulation::assemble`); raw lines in `preconditioner_rows.txt` (section WP-SC4). Tests: the default
+cases of `tests/unit/test_block_preconditioner.cpp`, the automatic check of
+`tests/unit/test_incomplete_lu_preconditioner.cpp`, the two ILUT sets of
+`tests/validation/test_block_preconditioner_mie.cpp`, `tests/python/test_pml.py::test_with_pml_mlfmm_default_preconditioner`.
+
+### Setup
+
+| Item | Value |
+|---|---|
+| Machine | 12-core desktop, 128 GB RAM, win-release, idle machine (one study process at a time, no builds or tests during the runs; measured 2026-10-31). Load indicators as WP-SC3's idle rows: matvec 0.100 s (Ag U), 0.98–0.99 s (Si U), 0.743–0.757 s (16 µm); assembly 161.9 s / 622.9 s / 675.2 s |
+| Cases | as WP-SC3: rough Ag PML `u_case()` at U (2N = 22 816) and `--patch 16e-6 --map-patch 16e-6` (2N = 152 960); rough Si U (`--material si`); compression "mlfmm", d₀ = 3, ICTF, full GMRES (CGS2), left preconditioning, tolerance 10⁻⁷, one operator and right-hand side per process; `parent` rerun in the same process. 24 µm not rerun (WP-SC3 numbers stand: 140 iterations, 333.0 s) |
+| Candidate check | Si U: `parent,ilut:2:1e-2,ilut:3:1e-3,default` in one process (the check and the Si rerun of the default share the operator); Ag sphere d = 1 µm, icosphere n = 3 (2N = 3 840, box route, MLFMM, tolerance 10⁻⁶): `--case mie --subdiv 3 --precond default,ilut:2:1e-2,ilut:3:1e-3` (review round; `default` resolves to Jacobi on the box route; raw lines under `# WP-SC4 sphere check`), cross-checked by `tests/validation/test_block_preconditioner_mie.cpp` with the library default and fill 3 / drop 10⁻³ set explicitly (same iterations; its WARN lines are recorded as comments there) |
+
+### Candidate check (decision 9 rule)
+
+| case | fill 2 / drop 10⁻²: iterations (setup, memory) | fill 3 / drop 10⁻³: iterations (setup, memory) | ratio | limit |
+|---|---|---|---|---|
+| rough Si PML U (2N = 22 816) | **14** (1.82 s, 69.3 MB) | 14 (10.45 s, 231.2 MB) | 1.00 | 1.5 |
+| Ag sphere, box route (2N = 3 840) | **68** (1.11 s, 22.0 MB) | 63 (6.06 s, 69.2 MB) | 1.08 | 1.5 |
+
+**Rule applied: fill 2 / drop 10⁻²** (both ratios ≤ 1.5; fill 2 / drop 10⁻³ is not needed). Sphere results against
+Jacobi (210 iterations, the box-route default, driver variant `default`): RCS within 1.3·10⁻⁶ (fill 2 / 10⁻²) and
+5.1·10⁻⁷ (fill 3 / 10⁻³) of its maximum, ε_rr 3.481·10⁻³ / 2.560·10⁻³ unchanged to 3·10⁻⁷ (gate 10⁻⁵). Sphere setup and
+memory from the driver's ROW lines (review round); the validation test's log of the same day gives the same iterations,
+memory and RCS differences with setup 1.08 s / 6.01 s (the first version of this record quoted 1.08 s / 6.03 s from an
+earlier run of that test). Si U: R 0.38713580 (fill 2 / 10⁻²) and 0.38713579 (fill 3 /
+10⁻³) against parent's 0.38713581 (dR −2.2·10⁻⁸ / −4.5·10⁻⁸); parent 48 iterations, GMRES 48.2 s.
+
+### Rerun with the default configuration
+
+| case | variant | iterations | setup | GMRES | total (setup + GMRES) | P memory | R | WP-SC3 `ilut:2:1e-2` row |
+|---|---|---|---|---|---|---|---|---|
+| Ag U | parent | 184 | 0.10 s | 20.0 s | 20.1 s | 130.8 MB | 0.97833914 | — |
+| Ag U | **default** | **23** | 4.18 s | 2.7 s | **6.9 s** | 111.1 MB | **0.97833914** | 23 its, 4.92 + 11.8 = 16.7 s (loaded; ≈ 8 s indicative), 0.97833914 |
+| Ag 16 µm | parent | 520 | 1.66 s | 447.8 s | 449.5 s | 1 465 MB | 0.97780528 | — |
+| Ag 16 µm | **default** | **68** | 70.71 s | 58.2 s | **128.9 s** | 1 196 MB | **0.97780528** | 68 its, 70.22 + 58.3 = 128.5 s, 0.97780528 |
+| Si U | parent | 48 | 0.15 s | 48.2 s | 48.4 s | 130.8 MB | 0.38713581 | — |
+| Si U | **default** | **14** | 1.83 s | 14.7 s | **16.5 s** | 69.3 MB | **0.38713580** | not measured in WP-SC3 (fill 3 / 10⁻³ and fill 2 / 10⁻³: 14 its, loaded) |
+
+The default reproduces the explicit `ilut:2:1e-2` exactly (Si U, same process: identical factor sizes, iterations,
+true residual and R). Acceptance of WP-SC4: iterations equal to the WP-SC3 rows (23 / 68); total time 6.9 s against
+the loaded 16.7 s at U, 128.9 s against 128.5 s at 16 µm (+0.3 %, within the 5 % run-to-run noise: setup 70.71 s vs
+70.22 s, GMRES 58.2 s vs 58.3 s); R equal to the WP-SC3 record at all three cases to the printed 8 digits (Ag U
+0.97833914, 16 µm 0.97780528) or within 2.3·10⁻⁸ (acceptance 10⁻⁷; Si U 0.38713580 vs 0.38713579, dR vs the same
+parent −2.153·10⁻⁸ vs −4.467·10⁻⁸; the WP-SC3 Si value is that of fill 3 / 10⁻³, which this process reproduces as
+0.38713579). Against parent the default is 2.9× (U), 3.5× (16 µm) and 2.9×
+(Si U) faster in total, with 8.0× / 7.6× / 3.4× fewer iterations and less preconditioner memory.
+
+### Assessment
+
+- The candidate check confirms decision 9's set: on Si U the drop tolerance 10⁻² costs no iterations (14 = 14) at a
+  third of the memory and a sixth of the setup; on the Ag sphere (box route) it costs 8 % more iterations (68 vs 63)
+  at a third of the memory and setup — both far from the 1.5× limit.
+- The default switch changes no result: the tests run with the default pass unchanged (R within 10⁻⁷), and the
+  measured R values equal the WP-SC3 record. Tests run: the unit and validation labels in win-release and win-debug
+  (`ctest -LE "validation-large|slow"`), pytest, and once (review round) the validation-large case 7h ("7h: pml_ring
+  fast path vs dense", the route's reference per ADR 0011): passed in 1 106 s (machine loaded by a debug build and test
+  run), 23 iterations, matvec 2.1·10⁻⁵, dR −7.3·10⁻⁹, far-field L2 3.3·10⁻⁶ (docs/05 bounds 10⁻³ / 10⁻⁴ / 10⁻³; the
+  block default gave dR −4.0·10⁻⁹, L2 3.3·10⁻⁶ in 184 iterations); raw line `# validation-large 7h` in
+  `preconditioner_rows.txt`. The other validation-large cases (e.g. `test_pml_huygens_large.cpp`) were not rerun with
+  the default.
+- The box route keeps Jacobi as its default (decision 9: the Ag sphere was measured only at the validation size,
+  where the ILUT needs 68 against Jacobi's 210 iterations); a box-route switch would need its own measurement at
+  larger sizes.

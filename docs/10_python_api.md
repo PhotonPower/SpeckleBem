@@ -259,20 +259,23 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   exact; explicit only, never automatic, needs compression "mlfmm" (`ValueError` otherwise); the
   report says "Schur complement (near field)" and adds its setup split; "ilut": the incomplete LU
   (dual-threshold ILUT, own implementation) of the near-field blocks Z_n[J, J] and Z_n[M, M] of
-  WP-SC3, ADR 0012 decision 6, with the parameters of the `ilut` dict — `fill_factor` (3;
-  nnz(L + U) ≤ fill_factor × the entries of each block row), `drop_tol` (1e-4; relative to the
-  row's 2-norm), `min_pivot_rel` (1e-10; a smaller pivot raises `RuntimeError` at assembly, never
+  WP-SC3, ADR 0012 decision 6, with the parameters of the `ilut` dict — `fill_factor` (2 since
+  WP-SC4, 3 before; nnz(L + U) ≤ fill_factor × the entries of each block row), `drop_tol` (1e-2
+  since WP-SC4, 1e-4 before; relative to the row's 2-norm), `min_pivot_rel` (1e-10; a smaller
+  pivot raises `RuntimeError` at assembly, never
   replaced), `budget_bytes` (None = half of the available memory; the bound of the fill limit is
   checked before the factorisation) and `ordering` ("amd" default / "natural"); unknown keys and
-  invalid values raise `ValueError`, the dict is ignored for other preconditioners and echoed by
-  `sim.config["ilut"]` (`budget_bytes` only when set); explicit only, never automatic, needs
+  invalid values raise `ValueError` (also when "auto" chooses the ILUT), the dict is ignored for
+  other preconditioners and echoed by `sim.config["ilut"]` (`budget_bytes` only when set); needs
   compression "mlfmm"; the report says "ILUT of the near-field blocks A, D" with fill, drop and
   ordering and adds nnz(L + U), fill ratios, smallest pivot ratios, memory and the setup split;
-  "auto": block-diagonal on the PML route with compression
-  "mlfmm" since WP-PC1, the only measured case (`SBEM_WARN` at assembly when its largest block
-  holds more than half of the unknowns), otherwise, also on the dense PML route, the
-  recommendation: Jacobi for metals, none otherwise;
-  `diagonal_preconditioner` stays empty); `block_level` 0 / 1 (default) / 2 ->
+  "auto": since WP-SC4 (ADR 0012 decision 9) "ilut" with the `ilut` dict (default fill 2, drop
+  1e-2) on the PML route with compression "mlfmm", the only measured case (from WP-PC1 to WP-SC4
+  "block_diagonal" with `block_level=1` there, still available explicitly), otherwise, also on
+  the dense PML route and the box route, the recommendation: Jacobi for metals, none otherwise;
+  `diagonal_preconditioner` stays empty; the automatic ILUT can fail at `assemble()` with
+  `RuntimeError` (pivot guard or factor budget) and has no fallback, the previous default is
+  reachable with `preconditioner="block_diagonal", block_level=1`); `block_level` 0 / 1 (default) / 2 ->
   `block_levels_above_leaf`
   (block-diagonal and Schur complement only: LU-factorised near-field blocks of the octree leaves, of the level
   above or of the level two above, over the J and M unknowns of each box; WP-PC1, ADR 0011;

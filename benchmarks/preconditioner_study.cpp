@@ -31,6 +31,14 @@
 //           ordering O = amd (default) or nat (natural); several parameter sets in one process,
 //           e.g. --precond parent,ilut:2:1e-3,ilut:3:1e-4. Budget: half of the available memory.
 //           A breakdown (zero / tiny pivot) or a refused budget is reported as a ROW line.
+//   default  the preconditioner a Simulation with the case's configuration and no explicit
+//           preconditioner setting chooses (WP-SC4): resolved by a second Simulation of the same
+//           mesh and configuration with SimulationConfig::preconditioner and
+//           diagonal_preconditioner empty (constructed only, not assembled), then built on the
+//           assembled operator with the same factory and parameters as Simulation::assemble
+//           (since WP-SC4 the ILUT with the default IlutParams on the "mlfmm" PML route, Jacobi
+//           for the Ag sphere); the ROW line names it "default" and shows the resolved kind's
+//           details (for the ILUT its fill and drop).
 //   --near-norms  emits a NORMS line: Frobenius norms of A, B, C, D of Z_n split into the
 //           same-box and the inter-box entries of the --block-level boxes.
 // Cases:
@@ -49,7 +57,7 @@
 //
 // Usage: specklebem_preconditioner_study [--case pml|mie] [--tag NAME] [--material ag|si]
 //            [--patch L] [--map-patch L] [--d0 3] [--tol T] [--max-iter 5000]
-//            [--precond jacobi,leaf,parent,grandparent,nearlu,schur,ilut:3:1e-4]
+//            [--precond jacobi,leaf,parent,grandparent,nearlu,schur,ilut:3:1e-4,default]
 //            [--near-lu-budget 40]
 //            [--near-lu-fill 1] [--block-level 1] [--near-norms] [--diameter D] [--subdiv N]
 //            [--n-theta 90] [--n-phi 180] [--summary FILE]
@@ -160,6 +168,14 @@ bool is_ilut(const std::string& v) {
     return v.rfind("ilut:", 0) == 0;
 }
 
+/// The preconditioner the Simulation chooses without an explicit setting (variant "default"):
+/// its kind and configuration (ILUT parameters, block level), from a Simulation constructed
+/// with the case's configuration and both preconditioner settings empty.
+struct DefaultChoice {
+    PreconditionerKind kind = PreconditionerKind::None;
+    SimulationConfig config;
+};
+
 Options parse(int argc, char** argv) {
     Options o;
     for (int i = 1; i < argc; ++i) {
@@ -221,7 +237,7 @@ Options parse(int argc, char** argv) {
             continue;
         }
         if (v != "jacobi" && v != "none" && v != "leaf" && v != "parent" && v != "grandparent" &&
-            v != "nearlu" && v != "schur" && v != "nearlu_bc" && v != "nearlu_ad")
+            v != "nearlu" && v != "schur" && v != "nearlu_bc" && v != "nearlu_ad" && v != "default")
             throw std::invalid_argument("unknown --precond variant " + v);
     }
     if (o.variants.empty())
@@ -316,10 +332,49 @@ std::string near_norms_line(const mlfmm::MlfmmOperator& Z, int levels_above_leaf
 }
 
 Built build(const std::string& variant, const Simulation& sim, const mlfmm::MlfmmOperator& Z,
-            const Options& o) {
+            const Options& o, const std::optional<DefaultChoice>& def) {
     Built b;
     const auto t0 = std::chrono::steady_clock::now();
-    if (variant == "nearlu") {
+    if (variant == "default") {
+        if (!def)
+            throw std::logic_error("preconditioner_study: default variant without its choice");
+        // As Simulation::assemble builds the resolved kind (ensure_diagonal / ensure_block /
+        // ensure_schur / ensure_ilut).
+        const SimulationConfig& dc = def->config;
+        switch (def->kind) {
+            case PreconditionerKind::IncompleteLu: {
+                auto P = make_incomplete_lu_preconditioner(Z, sim.problem(), dc.ilut);
+                b.ilut = P.get();
+                b.bytes = P->memory_bytes();
+                b.M = std::move(P);
+                break;
+            }
+            case PreconditionerKind::BlockDiagonal: {
+                auto P = make_block_preconditioner(Z, sim.problem(), dc.mlfmm,
+                                                   dc.block_levels_above_leaf);
+                b.block = P.get();
+                b.bytes = P->memory_bytes();
+                b.M = std::move(P);
+                break;
+            }
+            case PreconditionerKind::Schur: {
+                auto P = make_schur_preconditioner(Z, sim.problem(), dc.block_levels_above_leaf);
+                b.schur = P.get();
+                b.bytes = P->memory_bytes();
+                b.M = std::move(P);
+                break;
+            }
+            case PreconditionerKind::Diagonal:
+                b.M = std::make_unique<solver::DiagonalPreconditioner>(Z.diagonal());
+                b.bytes = static_cast<std::size_t>(Z.rows()) * sizeof(Complex);
+                break;
+            case PreconditionerKind::None:
+                b.M = std::make_unique<solver::IdentityPreconditioner>();
+                break;
+        }
+        if (b.M == nullptr)
+            throw std::logic_error("preconditioner_study: unknown default PreconditionerKind");
+    } else if (variant == "nearlu") {
         auto P = make_near_field_lu_preconditioner(
             Z, static_cast<std::size_t>(o.near_lu_budget_gb * 1e9), o.near_lu_fill);
         b.lu = P.get();
@@ -456,11 +511,12 @@ std::string solve_segment(const std::string& variant, const Built& b, const solv
 /// build() of one variant; a refused nearlu (budget, singular) is reported, not fatal.
 std::optional<Built> try_build(const std::string& variant, const Simulation& sim,
                                const mlfmm::MlfmmOperator& Z, const Options& o,
-                               const std::string& row_head) {
+                               const std::string& row_head,
+                               const std::optional<DefaultChoice>& def) {
     try {
-        return build(variant, sim, Z, o);
+        return build(variant, sim, Z, o, def);
     } catch (const std::runtime_error& e) {
-        if (variant.rfind("nearlu", 0) != 0 && !is_ilut(variant))
+        if (variant.rfind("nearlu", 0) != 0 && !is_ilut(variant) && variant != "default")
             throw;
         emit(o.summary, row_head + "variant " + variant + " | refused: " + e.what());
         return std::nullopt;
@@ -476,7 +532,7 @@ std::optional<solver::GmresResult> try_gmres(const std::string& variant, const B
     try {
         return solver::gmres(Z, rhs, *b.M, params);
     } catch (const std::runtime_error& e) {
-        if (!is_ilut(variant))
+        if (!is_ilut(variant) && b.ilut == nullptr)
             throw;
         emit(o.summary,
              row_head +
@@ -502,11 +558,23 @@ void run_pml(const Options& o) {
     cfg.compression = "mlfmm";
     cfg.solver = SolverKind::Gmres;
     cfg.mlfmm.accuracy_digits = o.digits;
-    cfg.preconditioner = PreconditionerKind::None;  // built per variant below
     cfg.gmres.tolerance = o.tolerance.value_or(1e-7);
     cfg.gmres.max_iter = o.max_iter;
     cfg.gmres.restart = 0;
-    Simulation sim(pml_rough_ag::make_open_mesh(c), pml_rough_ag::make_termination(c), beam, cfg);
+    const geometry::OpenSurfaceMesh open = pml_rough_ag::make_open_mesh(c);
+    // Variant "default": the choice of a Simulation without an explicit preconditioner setting
+    // (constructed, never assembled).
+    std::optional<DefaultChoice> def;
+    if (std::find(o.variants.begin(), o.variants.end(), "default") != o.variants.end()) {
+        SimulationConfig dc = cfg;
+        dc.preconditioner.reset();
+        dc.diagonal_preconditioner.reset();
+        const Simulation resolve(open, pml_rough_ag::make_termination(c), beam, dc);
+        def = DefaultChoice{resolve.preconditioner_kind(), resolve.config()};
+        std::printf("default preconditioner: %s\n", to_string(def->kind));
+    }
+    cfg.preconditioner = PreconditionerKind::None;  // built per variant below
+    Simulation sim(open, pml_rough_ag::make_termination(c), beam, cfg);
     const auto t0 = std::chrono::steady_clock::now();
     sim.assemble();
     const Real assemble_s = seconds_since(t0);
@@ -535,7 +603,7 @@ void run_pml(const Options& o) {
     const std::string row_head = "ROW | preconditioner | " + c.tag + " | " + c.material + " | 2N " +
                                  std::to_string(n2) + " | ";
     for (const std::string& v : o.variants) {
-        const std::optional<Built> built = try_build(v, sim, *Z, o, row_head);
+        const std::optional<Built> built = try_build(v, sim, *Z, o, row_head, def);
         if (!built)
             continue;
         const Built& b = *built;
@@ -579,9 +647,18 @@ void run_mie(const Options& o) {
     c.tolerance = o.tolerance.value_or(1e-6);
     c.max_iter = o.max_iter;
     SimulationConfig cfg = ag_sphere_mlfmm::make_config(c);
-    cfg.preconditioner = PreconditionerKind::None;
     const geometry::TriangleMesh mesh =
         ag_sphere_mlfmm::make_mesh(c.mesh, c.diameter, c.subdivisions);
+    std::optional<DefaultChoice> def;
+    if (std::find(o.variants.begin(), o.variants.end(), "default") != o.variants.end()) {
+        SimulationConfig dc = cfg;
+        dc.preconditioner.reset();
+        dc.diagonal_preconditioner.reset();
+        const Simulation resolve(mesh, ag_sphere_mlfmm::make_wave(), dc);
+        def = DefaultChoice{resolve.preconditioner_kind(), resolve.config()};
+        std::printf("default preconditioner: %s\n", to_string(def->kind));
+    }
+    cfg.preconditioner = PreconditionerKind::None;
     Simulation sim(mesh, ag_sphere_mlfmm::make_wave(), cfg);
     const auto t0 = std::chrono::steady_clock::now();
     sim.assemble();
@@ -608,7 +685,7 @@ void run_mie(const Options& o) {
     const std::string row_head =
         "ROW | preconditioner | " + tag + " | ag | 2N " + std::to_string(n2) + " | ";
     for (const std::string& v : o.variants) {
-        const std::optional<Built> built = try_build(v, sim, *Z, o, row_head);
+        const std::optional<Built> built = try_build(v, sim, *Z, o, row_head, def);
         if (!built)
             continue;
         const Built& b = *built;

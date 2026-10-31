@@ -253,16 +253,22 @@ enum class SolverKind {
 
 /// Preconditioner of the GMRES solve (SimulationConfig::preconditioner; WP-PC1, ADR 0011).
 enum class PreconditionerKind {
-    None,           ///< solver::IdentityPreconditioner
-    Diagonal,       ///< Jacobi, solver::DiagonalPreconditioner (the diagonal of Z)
-    BlockDiagonal,  ///< near-field blocks of the octree boxes, make_block_preconditioner()
+    None,      ///< solver::IdentityPreconditioner
+    Diagonal,  ///< Jacobi, solver::DiagonalPreconditioner (the diagonal of Z)
+    /// Near-field blocks of the octree boxes, make_block_preconditioner() with
+    /// SimulationConfig::block_levels_above_leaf. The default of the "mlfmm" PML route from
+    /// WP-PC1 to WP-SC4 (with block_levels_above_leaf = 1, the blocks one level above the
+    /// leaves); since WP-SC4 an explicit option (set it with block_levels_above_leaf = 1 to
+    /// reproduce the earlier default).
+    BlockDiagonal,
     /// Near-field Schur complement over the J and M blocks of the octree boxes,
     /// make_schur_preconditioner() (WP-SC2, ADR 0012 decision 2): explicit option only, never
     /// automatic; needs compression "mlfmm" (the near-field matrix of the operator).
     Schur,
     /// Incomplete LU (ILUT) of the near-field blocks A = Z_n[J, J] and D = Z_n[M, M],
     /// make_incomplete_lu_preconditioner() with SimulationConfig::ilut (WP-SC3, ADR 0012
-    /// decision 6): explicit option only, never automatic; needs compression "mlfmm".
+    /// decision 6); needs compression "mlfmm". The automatic choice of the "mlfmm" PML route
+    /// since WP-SC4 (ADR 0012 decision 9), an explicit option everywhere else.
     IncompleteLu
 };
 
@@ -283,46 +289,53 @@ struct SimulationConfig {
     /// (also when the formulation is set explicitly). Ignored by the direct solver. Kept for
     /// compatibility; `preconditioner` below is the general option.
     std::optional<bool> diagonal_preconditioner;
-    /// Preconditioner of the GMRES solve (WP-PC1, ADR 0011): None, Diagonal (Jacobi) or
+    /// Preconditioner of the GMRES solve (WP-PC1, ADR 0011): None, Diagonal (Jacobi),
     /// BlockDiagonal (one LU-factorised block per octree box over the J and M unknowns of its
-    /// basis functions, from the near-field entries; make_block_preconditioner()). Empty: from
-    /// diagonal_preconditioner (true -> Diagonal, false -> None), or, if that is empty too, the
-    /// automatic choice: BlockDiagonal on the PML route with compression "mlfmm" (the GMRES
-    /// solver; WP-PC1, ADR 0011 decision 3: 3.2x fewer iterations than Jacobi on rough Ag up to
-    /// 3e5 unknowns and 2.5x fewer than none on rough Si; benchmarks/results/preconditioner.md),
-    /// otherwise the recommendation (Diagonal for metals, None for dielectrics, as before WP-PC1),
-    /// also on the dense PML route (not measured) and the box route (on the Ag sphere the blocks
-    /// need more iterations than Jacobi). The automatic BlockDiagonal logs an SBEM_WARN at
-    /// assembly when its largest block holds more than half of the unknowns (a tiny or coarse
-    /// tree whose block level is the root: a dense LU); an explicit BlockDiagonal does not. Both
-    /// set: they must agree (Diagonal with true, None with false; BlockDiagonal with an empty
-    /// diagonal_preconditioner only), otherwise the constructors throw std::invalid_argument.
-    /// Ignored by the direct solver. An explicit BlockDiagonal is allowed on every route.
+    /// basis functions, from the near-field entries; make_block_preconditioner()), Schur or
+    /// IncompleteLu (below). Empty: from diagonal_preconditioner (true -> Diagonal, false ->
+    /// None), or, if that is empty too, the automatic choice: IncompleteLu with the parameters
+    /// `ilut` (default fill 2, drop 1e-2) on the PML route with compression "mlfmm" (the GMRES
+    /// solver; since WP-SC4, ADR 0012 decision 9: on rough Ag 23 / 68 / 140 iterations at 2N =
+    /// 22 816 / 152 960 / 300 160 against 184 / 520 / 844 with the blocks one level above the
+    /// leaves, 3.6x / 4.3x less total time at the two large sizes;
+    /// benchmarks/results/preconditioner.md), otherwise the recommendation (Diagonal for metals,
+    /// None for dielectrics, as before WP-PC1), also on the dense PML route (no near-field
+    /// matrix) and the box route (measured on the Ag sphere only at the validation size). From
+    /// WP-PC1 to WP-SC4 the automatic choice of the "mlfmm" PML route was BlockDiagonal with
+    /// block_levels_above_leaf = 1 (ADR 0011 decision 3), now reachable explicitly. Both set:
+    /// they must agree (Diagonal with true, None with false; BlockDiagonal, Schur and
+    /// IncompleteLu with an empty diagonal_preconditioner only), otherwise the constructors throw
+    /// std::invalid_argument. Ignored by the direct solver. An explicit BlockDiagonal is allowed
+    /// on every route.
     /// Schur (WP-SC2, ADR 0012 decision 2; make_schur_preconditioner()) is an explicit option
     /// only (never automatic), with an empty diagonal_preconditioner, and needs compression
     /// "mlfmm" (otherwise the constructors throw std::invalid_argument); its J and M blocks are
     /// the boxes of block_levels_above_leaf. IncompleteLu (WP-SC3, ADR 0012 decision 6;
-    /// make_incomplete_lu_preconditioner(), parameters `ilut` below) has the same rules as Schur
-    /// (explicit only, empty diagonal_preconditioner, compression "mlfmm"); it does not use
+    /// make_incomplete_lu_preconditioner(), parameters `ilut` below) needs an empty
+    /// diagonal_preconditioner and compression "mlfmm" as Schur when set explicitly, and is the
+    /// automatic choice of the "mlfmm" PML route (WP-SC4); it does not use
     /// block_levels_above_leaf.
     std::optional<PreconditionerKind> preconditioner;
-    /// IncompleteLu only: the ILUT parameters (solver::IlutParams: drop tolerance relative to
-    /// the row norm, default 1e-4; fill factor, nnz(L + U) <= fill_factor x nnz of each block
-    /// row, default 3; pivot guard min_pivot_rel, default 1e-10; factor memory budget, default
-    /// half of the available memory; ordering, default AMD). Validated by the constructors when
-    /// IncompleteLu is set (solver::validate_ilut_params), ignored otherwise.
+    /// IncompleteLu only (explicit or automatic): the ILUT parameters (solver::IlutParams: drop
+    /// tolerance relative to the row norm, default 1e-2; fill factor, nnz(L + U) <= fill_factor x
+    /// nnz of each block row, default 2; pivot guard min_pivot_rel, default 1e-10; factor memory
+    /// budget, default half of the available memory; ordering, default AMD). The defaults are
+    /// the set of ADR 0012 decision 9 since WP-SC4 (before: fill 3, drop 1e-4). Validated by the
+    /// constructors when IncompleteLu is set or chosen automatically
+    /// (solver::validate_ilut_params), ignored otherwise.
     solver::IlutParams ilut;
     /// BlockDiagonal and Schur only: the block level, 0 = the octree leaves, 1 = one level above
     /// them (the two levels of ADR 0011), 2 = two levels above them (WP-SC1, ADR 0012: a
     /// measurement point between one level up and the exact near-field inverse; with compression
     /// "mlfmm" these blocks are those of the near-field matrix, same-box far pairs are zero, see
     /// make_block_preconditioner); other values are rejected. Default 1, the faster of the two
-    /// ADR 0011 levels at every measured PML size (it also needs the fewer iterations). On the
-    /// dense route the octree is mlfmm::make_octree with the `mlfmm` parameters below (the tree
-    /// "mlfmm" would build, so they are validated by the constructors whenever BlockDiagonal is
-    /// set); on a tree of two levels (e.g. the tiny PML meshes of the tests) one level up is the
-    /// root, i.e. one block = the dense LU of Z and GMRES converges in one iteration: use 0 to
-    /// exercise the block path.
+    /// ADR 0011 levels at every measured PML size (it also needs the fewer iterations; with
+    /// BlockDiagonal the automatic preconditioner of the "mlfmm" PML route from WP-PC1 to
+    /// WP-SC4). On the dense route the octree is mlfmm::make_octree with the `mlfmm` parameters
+    /// below (the tree "mlfmm" would build, so they are validated by the constructors whenever
+    /// BlockDiagonal is set); on a tree of two levels (e.g. the tiny PML meshes of the tests) one
+    /// level up is the root, i.e. one block = the dense LU of Z and GMRES converges in one
+    /// iteration: use 0 to exercise the block path.
     int block_levels_above_leaf = 1;
     /// "dense" (default) or "mlfmm" (mlfmm::MlfmmOperator with the `mlfmm` parameters; GMRES
     /// only, the Jacobi diagonal is read from the operator's near parts,
@@ -382,8 +395,9 @@ struct SimulationConfig {
 /// Incomplete LU of the near-field blocks of an MLFMM operator Z (WP-SC3, ADR 0012 decision 6):
 /// solver::IncompleteLuPreconditioner of A = Z_n[J, J] and D = Z_n[M, M], Z_n = near_operator()
 /// plus, on the PML route, the near ring (the entries of A and D are read from the two sparse
-/// parts directly, without forming Z_n; nothing is borrowed after the constructor). An explicit
-/// option, never a default. Logs the describe() line (SBEM_INFO).
+/// parts directly, without forming Z_n; nothing is borrowed after the constructor). Simulation
+/// uses it for PreconditionerKind::IncompleteLu (explicit, or automatic on the "mlfmm" PML route
+/// since WP-SC4). Logs the describe() line (SBEM_INFO).
 /// @throws std::invalid_argument for an operator that is not an mlfmm::MlfmmOperator (the dense
 ///         route has no near-field matrix), an operator whose size is not 2N of problem.space,
 ///         and as solver::IncompleteLuPreconditioner (invalid params); std::runtime_error for an
@@ -484,7 +498,8 @@ public:
     ///         parameters (tolerance not finite or <= 0, max_iter < 1, restart < 0),
     ///         preconditioner and diagonal_preconditioner set inconsistently, an invalid
     ///         PreconditionerKind, PreconditionerKind::Schur or IncompleteLu without compression
-    ///         "mlfmm", invalid ILUT parameters (SimulationConfig::ilut) with IncompleteLu,
+    ///         "mlfmm", invalid ILUT parameters (SimulationConfig::ilut) with IncompleteLu
+    ///         (explicit; on the PML route also the automatic choice),
     ///         block_levels_above_leaf not 0, 1 or 2, invalid MLFMM
     ///         parameters (SimulationConfig::mlfmm) with compression "mlfmm" or with an explicit
     ///         BlockDiagonal on the dense route (its octree), and everything op::validate
@@ -494,8 +509,9 @@ public:
     /// Open rough surface terminated by a complex-coordinate-stretching PML (ADR 0009, WP-PML3a):
     /// the PML route, dense (prototype, validated by 7a-7e) or with compression "mlfmm" (fast
     /// path, WP-PML5a / 5b: MLFMM on the real functions plus the PML ring, near exact, far ACA,
-    /// mlfmm::MlfmmOperator; GMRES with the near-field block-diagonal preconditioner by default
-    /// since WP-PC1 (the "mlfmm" route only, the dense route keeps the recommendation;
+    /// mlfmm::MlfmmOperator; GMRES with the ILUT of the near-field blocks A and D by default
+    /// since WP-SC4 (the near-field block-diagonal preconditioner from WP-PC1 to WP-SC4; the
+    /// "mlfmm" route only, the dense route keeps the recommendation;
     /// SimulationConfig::preconditioner), the masked test rows stay in the system with
     /// right-hand side 0). Cheap (no assembly), like the box constructor.
     ///

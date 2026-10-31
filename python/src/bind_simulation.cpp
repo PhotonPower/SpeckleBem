@@ -1115,16 +1115,18 @@ formulation : str or Formulation
     "auto" (formulation.recommend(object.eps_r)), "PMCHWT", "ICTF" or "MCTF" (any case).
 preconditioner : str
     "auto" (the recommendation's choice: "diagonal" for metals, "none" otherwise; on the PML
-    route (Simulation.with_pml) with compression "mlfmm" "block_diagonal", with a warning at
-    assembly if its largest block holds more than half of the unknowns), "none", "diagonal"
-    (Jacobi) or
+    route (Simulation.with_pml) with compression "mlfmm" "ilut" with the ``ilut`` parameters,
+    default fill 2 / drop 1e-2, since WP-SC4, ADR 0012 decision 9; "block_diagonal" with
+    block_level=1 before), "none", "diagonal" (Jacobi) or
     "block_diagonal" (LU-factorised near-field blocks, one per octree box over the J and M
-    unknowns of its basis functions; WP-PC1, ADR 0011) or "schur" (near-field Schur complement:
+    unknowns of its basis functions; WP-PC1, ADR 0011; the earlier "auto" of the "mlfmm" PML
+    route with block_level=1) or "schur" (near-field Schur complement:
     block LU of the J-J part over the J unknowns of each box, the Schur complement on the
     pattern of the M-M part, LU-factorised over the M unknowns of each box, exact J-M / M-J
     near coupling; WP-SC2, ADR 0012; explicit only, needs compression "mlfmm", ValueError
     otherwise) or "ilut" (incomplete LU of the near-field blocks J-J and M-M with the ``ilut``
-    parameters; WP-SC3, ADR 0012; explicit only, needs compression "mlfmm"); GMRES only.
+    parameters; WP-SC3, ADR 0012; needs compression "mlfmm"; the "auto" choice of the "mlfmm"
+    PML route since WP-SC4); GMRES only.
 block_level : int
     "block_diagonal" and "schur" only: 0 = blocks of the octree leaves, 1 (default) = one level up, 2 = two
     levels up (WP-SC1, ADR 0012, a measurement option: with compression "mlfmm" the blocks of
@@ -1169,12 +1171,14 @@ mlfmm : dict, optional
     pml_ring_* keys of the PML ring (use_aca, aca_epsilon, eta, max_rank, row_clusters,
     max_far_bytes; docs/10; ValueError for Simulation()).
 ilut : dict, optional
-    preconditioner="ilut" only (ignored otherwise): ``fill_factor`` (3; nnz(L + U) <= fill_factor
-    x the entries of each block row), ``drop_tol`` (1e-4; entries below drop_tol x the row's
+    preconditioner="ilut", or "auto" on the "mlfmm" PML route (ignored otherwise):
+    ``fill_factor`` (2; nnz(L + U) <= fill_factor
+    x the entries of each block row), ``drop_tol`` (1e-2; entries below drop_tol x the row's
     2-norm are dropped), ``min_pivot_rel`` (1e-10; a pivot |u_ii| <= min_pivot_rel x the row
     norm raises RuntimeError at assembly, never replaced), ``budget_bytes`` (None = half of the
     available memory; the factor memory bound is checked before the factorisation) and
-    ``ordering`` ("amd" or "natural").
+    ``ordering`` ("amd" or "natural"). The defaults fill 2 / drop 1e-2 since WP-SC4 (ADR 0012
+    decision 9; fill 3 / drop 1e-4 before).
 
 Raises
 ------

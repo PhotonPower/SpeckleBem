@@ -1140,6 +1140,24 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - Documentation: project plan, architecture, SIE and MLFMM theory, validation, conventions, coding guidelines, GPU strategy, compression survey, Python API, ADRs.
 
 ### Changed
+- solver / python / tooling (WP-SC4, ADR 0012 decision 9): **the default preconditioner of the "mlfmm" PML route is
+  the ILUT of the near-field blocks A and D with fill 2 / drop 10⁻²** (`SimulationConfig::preconditioner` empty and
+  `diagonal_preconditioner` empty, GMRES: `PreconditionerKind::IncompleteLu` with `SimulationConfig::ilut`, validated
+  at construction; Python `preconditioner="auto"` → "ilut"), replacing the blocks one level above the leaves, which
+  stay available explicitly (`PreconditionerKind::BlockDiagonal` with `block_levels_above_leaf = 1`, Python
+  `preconditioner="block_diagonal", block_level=1`); the library defaults of `solver::IlutParams` change from fill 3 /
+  drop 10⁻⁴ to fill 2 / drop 10⁻²; box and dense routes unchanged (Jacobi for metals, none for dielectrics). The
+  coarse-tree warning of the former automatic block default is gone with it. Candidate check of decision 9: fill 2 /
+  drop 10⁻² needs 14 iterations at rough Si U (fill 3 / drop 10⁻³: 14) and 68 on the Ag sphere validation case (63),
+  ratios 1.00 / 1.08 ≤ 1.5, so the set stays. Reruns with the default (idle desktop, tolerance 10⁻⁷, parent in the
+  same process): rough Ag U 23 iterations, 6.9 s total (parent 184, 20.1 s), R 0.97833914; 16 µm 68 iterations,
+  128.9 s (parent 520, 449.5 s; WP-SC3 128.5 s), R 0.97780528; Si U 14 iterations, 16.5 s (parent 48, 48.4 s), R
+  0.38713580 — Ag equal to the WP-SC3 record to the printed 8 digits, Si within 2.3·10⁻⁸ (acceptance 10⁻⁷). Driver
+  variant `default` of `specklebem_preconditioner_study`; the Mie validation runs the default set and fill 3 / drop
+  10⁻³. The automatic ILUT can fail at `assemble()` with `std::runtime_error` (Python `RuntimeError`: pivot guard or
+  factor budget) without a fallback; the previous default stays reachable with `preconditioner="block_diagonal",
+  block_level=1` (C++ `PreconditionerKind::BlockDiagonal`, `block_levels_above_leaf = 1`). Record:
+  `benchmarks/results/preconditioner.md` (section WP-SC4).
 - solver (WP-LU1): `solve_direct` raises `std::invalid_argument` (Python `ValueError`) for a matrix with non-finite
   entries instead of `std::runtime_error`; singular matrices still raise `std::runtime_error`.
 - core / python / tests (WP-B3, ADR 0006 amendment 2026-10-12b): **uniform closing box by

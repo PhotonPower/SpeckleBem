@@ -149,9 +149,10 @@ def test_ilut_preconditioner():
     rep = sim.report()
     assert "ILUT of the near-field blocks A, D (explicit), fill 2.5, drop 0.001" in rep
     assert "preconditioner setup:" in rep and "ILUT (fill 2.5, drop 1.0e-03" in rep
-    # Defaults (budget_bytes absent = half of the available memory) and an explicit budget.
+    # Defaults (fill 2 / drop 1e-2 since WP-SC4, ADR 0012 decision 9; budget_bytes absent =
+    # half of the available memory) and an explicit budget.
     d = make_sim(**kw).config["ilut"]
-    assert d == dict(fill_factor=3.0, drop_tol=1e-4, min_pivot_rel=1e-10, ordering="amd")
+    assert d == dict(fill_factor=2.0, drop_tol=1e-2, min_pivot_rel=1e-10, ordering="amd")
     b = make_sim(preconditioner="ilut", ilut=dict(budget_bytes=2**33), **kw).config["ilut"]
     assert b["budget_bytes"] == 2**33
     for bad in (

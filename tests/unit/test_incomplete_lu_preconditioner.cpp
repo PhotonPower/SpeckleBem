@@ -850,8 +850,8 @@ TEST_CASE("ilut_preconditioner: Simulation option, PML solve reproduces the bloc
     ilu->assemble();  // idempotent
     CHECK(ilu->incomplete_lu_preconditioner() == p);
 
-    // Validation: explicit only, compression "mlfmm", consistent with diagonal_preconditioner,
-    // valid ILUT parameters (checked by the constructor, before any assembly).
+    // Validation: compression "mlfmm", consistent with diagonal_preconditioner, valid ILUT
+    // parameters (checked by the constructor, before any assembly).
     SimulationConfig dense = ci;
     dense.compression = "dense";
     CHECK_THROWS_WITH(t.make(dense), ContainsSubstring("\"ilut\" needs compression \"mlfmm\""));
@@ -868,8 +868,12 @@ TEST_CASE("ilut_preconditioner: Simulation option, PML solve reproduces the bloc
     other.preconditioner = PreconditionerKind::BlockDiagonal;
     other.ilut.drop_tol = -1.0;  // ignored unless IncompleteLu
     CHECK_NOTHROW(t.make(other));
-    // Never automatic: the "mlfmm" PML default stays the block preconditioner.
-    CHECK(t.make(t.cfg)->preconditioner_kind() == PreconditionerKind::BlockDiagonal);
+    // Automatic on the "mlfmm" PML route since WP-SC4 (ADR 0012 decision 9; the block
+    // preconditioner one level up before), with the default parameters fill 2 / drop 1e-2.
+    const auto au = t.make(t.cfg);
+    CHECK(au->preconditioner_kind() == PreconditionerKind::IncompleteLu);
+    CHECK(au->config().ilut.fill_factor == 2.0);
+    CHECK(au->config().ilut.drop_tol == 1e-2);
     CHECK(std::string(to_string(PreconditionerKind::IncompleteLu)) == "ilut");
 }
 

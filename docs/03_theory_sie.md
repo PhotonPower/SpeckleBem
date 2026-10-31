@@ -71,7 +71,7 @@ b_{N+m}     =  b1 η1  ∫ f_m · H_inc dS
 
 ## Preconditioning
 
-Left Jacobi preconditioner `M^{-1} = diag(Z)^{-1}` (the paper's "preconditioned formulation"). Near-field block-diagonal preconditioner (octree boxes, J and M of a box in one block): ADR 0011, the default of the fast PML route. Phase 8: ADR 0012 measures the ceiling of every near-field-based preconditioner (exact near-field inverse) before a Schur-complement approximation is built; Calderón preconditioning is deferred there.
+Left Jacobi preconditioner `M^{-1} = diag(Z)^{-1}` (the paper's "preconditioned formulation"). Near-field block-diagonal preconditioner (octree boxes, J and M of a box in one block): ADR 0011, the default of the fast PML route until WP-SC4. Phase 8: ADR 0012 measures the ceiling of every near-field-based preconditioner (exact near-field inverse) before a Schur-complement approximation is built; Calderón preconditioning is deferred there. Since WP-SC4 (ADR 0012 decision 9) the default of the fast PML route is the incomplete LU (ILUT, fill 2, drop 10⁻²) of the near-field blocks A = Z_n[J, J] and D = Z_n[M, M].
 
 ## What "rigorous" means here
 

@@ -1,9 +1,10 @@
 #pragma once
 /// @file incomplete_lu_preconditioner.hpp
 /// Incomplete LU (ILUT) of the near-field blocks A = Z_n[J, J] and D = Z_n[M, M] as a
-/// preconditioner M^{-1} = diag(Ã^{-1}, D̃^{-1}) (WP-SC3, ADR 0012 decision 6). An explicit
-/// option, never a default (make_incomplete_lu_preconditioner in simulation.hpp builds it from the
-/// near parts of an MLFMM operator).
+/// preconditioner M^{-1} = diag(Ã^{-1}, D̃^{-1}) (WP-SC3, ADR 0012 decision 6). Since WP-SC4
+/// (ADR 0012 decision 9) the default preconditioner of the "mlfmm" PML route of Simulation, with
+/// the default IlutParams below; make_incomplete_lu_preconditioner in simulation.hpp builds it
+/// from the near parts of an MLFMM operator.
 ///
 /// Own implementation, not Eigen::IncompleteLUT. Eigen's class (identical in the fetched 3.4.0
 /// and the MSYS2 5.0.1-dev sources) was checked and rejected: (1) it replaces an exactly zero
@@ -39,20 +40,27 @@ enum class IlutOrdering {
 /// "amd" or "natural".
 [[nodiscard]] const char* to_string(IlutOrdering ordering);
 
-/// Parameters of IncompleteLuPreconditioner (dual-threshold ILUT, Saad 1994).
+/// Parameters of IncompleteLuPreconditioner (dual-threshold ILUT, Saad 1994). The defaults (fill
+/// 2, drop 1e-2, AMD) are the set of ADR 0012 decision 9 (WP-SC4), the default of the "mlfmm"
+/// PML route: the lowest total time (setup + GMRES) of the measured sets on rough Ag at 2N =
+/// 152 960 and 300 160, < 10 % of the operator's memory, at most 1.36x the iterations of fill 3 /
+/// drop 1e-3 (benchmarks/results/preconditioner.md, sections WP-SC3 and WP-SC4). Until WP-SC4
+/// the defaults were fill 3 / drop 1e-4 (set them explicitly to reproduce WP-SC3 runs); fill 3 /
+/// drop 1e-3 needs the fewest iterations (worth it for many right-hand sides per operator).
 struct IlutParams {
     /// Drop tolerance tau (finite, >= 0): in row i an entry w_j of the work row (an L entry
     /// before its division by the pivot, i.e. |l_ij| |u_jj|, or a U entry) is dropped when
     /// |w_j| <= tau ||b_i||_2, the 2-norm of the row of the block (relative to the row norm, so
     /// the factorisation is invariant under a scaling of the block by a constant). 0: drop only
-    /// exact zeros.
-    Real drop_tol = 1e-4;
+    /// exact zeros. Default 1e-2 (ADR 0012 decision 9; 1e-4 before WP-SC4).
+    Real drop_tol = 1e-2;
     /// Fill limit (finite, > 0): row i of L + U keeps at most max(1, round(fill_factor x nnz_i))
     /// entries, nnz_i = the stored entries of the block's row i; the diagonal is always kept and
     /// the off-diagonal L and U entries compete for the remaining places by |w_j| (the
     /// pre-division magnitude above; ties by the smaller column). Hence nnz(L + U) <=
     /// fill_factor x nnz(B) + n per block: fill_ratio() <= fill_factor up to the rounding.
-    Real fill_factor = 3.0;
+    /// Default 2 (ADR 0012 decision 9; 3 before WP-SC4).
+    Real fill_factor = 2.0;
     /// Pivot guard (finite, >= 0): a pivot with |u_ii| <= min_pivot_rel x ||b_i||_2 (also an
     /// exactly zero or non-finite one) stops the setup with std::runtime_error naming the block
     /// and the row; never replaced. Default 1e-10: the triangular solves would amplify by more

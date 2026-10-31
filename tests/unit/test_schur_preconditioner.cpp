@@ -836,8 +836,9 @@ TEST_CASE("schur_preconditioner: Simulation option, PML solve reproduces the blo
         c.block_levels_above_leaf = bad;
         CHECK_THROWS_WITH(t.make(c), ContainsSubstring("block_levels_above_leaf"));
     }
-    // Never automatic: the "mlfmm" PML default stays the block preconditioner.
+    // Never automatic: the "mlfmm" PML default is the ILUT since WP-SC4 (ADR 0012 decision 9; the
+    // block preconditioner one level up before).
     SimulationConfig a = t.cfg;
-    CHECK(t.make(a)->preconditioner_kind() == PreconditionerKind::BlockDiagonal);
+    CHECK(t.make(a)->preconditioner_kind() == PreconditionerKind::IncompleteLu);
     CHECK(std::string(to_string(PreconditionerKind::Schur)) == "schur");
 }

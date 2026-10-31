@@ -76,8 +76,8 @@ then applies the gates of rows 42–44 to those directories (`SBEM_SPECKLE_SWEEP
 
 Preconditioners change iteration counts, not the solution, so they have no row of their own: a new
 preconditioner must reproduce the existing solves to the solver tolerance. For the near-field
-block-diagonal preconditioner (WP-PC1, ADR 0011; the default of the "mlfmm" PML route since then,
-the only measured case) this is gated by
+block-diagonal preconditioner (WP-PC1, ADR 0011; the default of the "mlfmm" PML route from WP-PC1
+to WP-SC4, since then an explicit option) this is gated by
 `tests/validation/test_block_preconditioner_mie.cpp` (Ag sphere d = 1 µm, MLFMM: bistatic RCS within
 10⁻⁵ of the Jacobi solve at GMRES tolerance 10⁻⁶, ε_rr unchanged to 10⁻⁵) and by the PML-route rows,
 which now run with it (7h fast path vs dense); the rough Ag / Si PML sizes up to 2N = 3·10⁵ reproduce
@@ -93,7 +93,15 @@ incomplete LU of the near-field blocks A and D (`solver::IncompleteLuPreconditio
 WP-SC3, explicit option) reproduces the solves to the same tolerances (Ag sphere case of
 `tests/validation/test_block_preconditioner_mie.cpp`; rough Ag PML R up to 2N = 3·10⁵ within 4·10⁻⁹ of the
 block-preconditioned solves where measured in the same process as the reference, otherwise equal to the 8 printed
-digits, Si within 4.5·10⁻⁸, `benchmarks/results/preconditioner.md`, section WP-SC3).
+digits, Si within 4.5·10⁻⁸, `benchmarks/results/preconditioner.md`, section WP-SC3). **Since WP-SC4 (ADR 0012
+decision 9) the ILUT with fill 2 / drop 10⁻² is the default preconditioner of the "mlfmm" PML route** (box and dense
+routes unchanged: Jacobi for metals, none for dielectrics), so the PML-route rows and tests run with it; they pass
+unchanged (R within 10⁻⁷: unit and validation labels in win-release and win-debug, pytest, and the validation-large
+case 7h, rerun once with the default: dR −7.3·10⁻⁹, L2 3.3·10⁻⁶, 23 iterations; the other validation-large cases were
+not rerun), and the reruns with the default reproduce the WP-SC3 record (rough Ag U 0.97833914, 16 µm
+0.97780528, Si U 0.38713580 vs 0.38713579, within 2.3·10⁻⁸; section WP-SC4). The Ag sphere case of
+`tests/validation/test_block_preconditioner_mie.cpp` gates the default set and fill 3 / drop 10⁻³ with the same
+tolerances.
 
 ## Rough-surface specific checks
 

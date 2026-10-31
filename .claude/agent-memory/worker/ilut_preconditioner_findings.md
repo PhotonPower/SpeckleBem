@@ -1,6 +1,6 @@
 ---
 name: ilut-preconditioner-findings
-description: WP-SC3 own ILUT of near blocks A, D - its vs fill/drop on rough Ag/Si PML, setup cost (sequential A dominates, ~120 M complex MAC/s), memory rule, benchmarks OFF by default, load signs
+description: WP-SC3 own ILUT (and WP-SC4 default check) of near blocks A, D - its vs fill/drop on rough Ag/Si PML, setup cost (sequential A dominates, ~120 M complex MAC/s), memory rule, benchmarks OFF by default, load signs
 metadata:
   type: project
 ---
@@ -45,3 +45,15 @@ Pitfalls:
 **Why:** the next preconditioner WP (default switch, faster setup, SPAI fallback) needs these.
 **How to apply:** compare against these numbers; rerun the parent in the same process.
 See [[schur-preconditioner-findings]], [[near-lu-ceiling-findings]].
+
+WP-SC4 (2026-10-31, default switch, branch wp/sc4-ilut-default): decision-9 candidate check
+kept fill 2 / drop 1e-2 (Si U 14 vs 14 its for 3/1e-3; Ag sphere ico3 68 vs 63, setup 1.1 vs
+6.0 s). Idle reruns of the default: Ag U 23 its, setup 4.18 s + GMRES 2.7 s, R 0.97833914; Si U
+assembly 623 s idle, default setup 1.8 s + GMRES 14.7 s (parent 48.2 s), R 0.38713580. The
+driver variant "default" resolves via a constructed-only second Simulation (no assembly).
+Pitfall: python3 is not on PATH (Windows Store alias): use /c/msys64/ucrt64/bin/python.
+WP-SC4 review round: validation-large 7h with the ILUT default passes in 1 106 s (loaded; block
+default 1 901 s): 23 its, dR -7.3e-9, L2 3.3e-6, ILUT setup 5.4 s. The driver's mie "default"
+resolves to Jacobi (box route): sphere check = --precond default,ilut:2:1e-2,ilut:3:1e-3, 10 s.
+Review lesson: every figure in a record needs a raw line (driver ROW or test WARN copied as a
+comment); quote dR differences from the ROW lines, not from the 8 printed R digits.

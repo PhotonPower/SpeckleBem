@@ -294,3 +294,53 @@ def test_with_pml_mlfmm_ring_keys():
         sb.Simulation.with_pml(open_mesh(), beam(), mlfmm=dict(pml_ring_eta=0.0), **common)
     with pytest.raises(ValueError, match="unknown key"):
         sb.Simulation.with_pml(open_mesh(), beam(), mlfmm=dict(pml_ring_bogus=1), **common)
+
+
+def test_with_pml_mlfmm_default_preconditioner():
+    """WP-SC4 (ADR 0012 decision 9): on a rough surface with compression="mlfmm" the automatic
+    preconditioner is the ILUT of the near-field blocks with the default ilut dict (fill 2,
+    drop 1e-2); the dense PML route keeps the recommendation; the former default
+    ("block_diagonal", block_level=1) stays available explicitly and gives the same currents."""
+    params = sb.OpenSurfaceParams(
+        patch_size=0.4e-6, taper_width=0.2e-6, gap_width=0.2e-6, pml_width=0.2e-6
+    )
+    hm = sb.generate_gaussian_height_map(L=0.8e-6, sigma=20e-9, Lc=200e-9, mesh_size=H, seed=29)
+    rough = sb.make_open_surface_mesh(hm, params)
+    assert np.ptp(rough.mesh.vertices[:, 2]) > 0.0
+    cheap = dict(
+        outer_grading_levels=0, target_accuracy=0.0, quad_degree_near=5, stretched_touching_points=4
+    )
+    common = dict(
+        pml=sb.PmlTermination(sigma_max=1.0, correlation_length=200e-9, **RELAXED),
+        object=sb.Material(eps_r=2.25),
+        kernels=cheap,
+        gmres=dict(tol=1e-8, max_iter=2000),
+    )
+    auto = sb.Simulation.with_pml(rough, beam(), compression="mlfmm", **common)
+    assert auto.preconditioner == "ilut"
+    cfg = auto.config
+    assert cfg["preconditioner"] == "ilut" and cfg["preconditioner_automatic"] is True
+    assert cfg["ilut"] == dict(fill_factor=2.0, drop_tol=1e-2, min_pivot_rel=1e-10, ordering="amd")
+    assert auto.solve().converged
+    assert "ILUT of the near-field blocks A, D (automatic), fill 2, drop 0.01" in auto.report()
+    # The ilut dict is used by the automatic choice.
+    tuned = sb.Simulation.with_pml(
+        rough, beam(), compression="mlfmm", ilut=dict(fill_factor=3.0, drop_tol=1e-3), **common
+    )
+    assert tuned.preconditioner == "ilut" and tuned.config["ilut"]["fill_factor"] == 3.0
+    with pytest.raises(ValueError, match="fill_factor"):
+        sb.Simulation.with_pml(
+            rough, beam(), compression="mlfmm", ilut=dict(fill_factor=0.0), **common
+        )
+    # The former default, explicitly.
+    block = sb.Simulation.with_pml(
+        rough, beam(), compression="mlfmm", preconditioner="block_diagonal", block_level=1, **common
+    )
+    assert block.preconditioner == "block_diagonal"
+    assert block.config["preconditioner_automatic"] is False and block.config["block_level"] == 1
+    assert block.solve().converged
+    x, xb = auto.currents, block.currents
+    assert np.linalg.norm(x - xb) < 1e-6 * np.linalg.norm(xb)
+    # Dense PML route: the recommendation (none for a dielectric), unchanged.
+    dense = sb.Simulation.with_pml(rough, beam(), **common)
+    assert dense.preconditioner == "none" and dense.config["preconditioner_automatic"] is True

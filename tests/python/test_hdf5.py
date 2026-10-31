@@ -288,7 +288,7 @@ def test_ilut_budget_round_trip(h5py, tmp_path):
     """ilut["budget_bytes"] (a size_t) is stored as uint64 like the mlfmm byte budgets and comes
     back equal; absent when not set (the default: half of the available memory)."""
     budget = 123_456_789  # small, non-default
-    sim = make_sim(ilut=dict(budget_bytes=budget, fill_factor=2.0))
+    sim = make_sim(ilut=dict(budget_bytes=budget, fill_factor=2.5))
     assert sim.config["ilut"]["budget_bytes"] == budget
     r = sio.load_hdf5(sim.save(tmp_path / "ilut_budget.h5"))
     assert r.config["ilut"] == sim.config["ilut"]
@@ -296,7 +296,7 @@ def test_ilut_budget_round_trip(h5py, tmp_path):
     with h5py.File(tmp_path / "ilut_budget.h5", "r") as f:
         stored = f["config/ilut"].attrs["budget_bytes"]
         assert stored.dtype == np.uint64 and stored == budget
-        assert f["config/ilut"].attrs["fill_factor"] == 2.0
+        assert f["config/ilut"].attrs["fill_factor"] == 2.5
     r = sio.load_hdf5(make_sim().save(tmp_path / "ilut_default.h5"))
     assert "budget_bytes" not in r.config["ilut"]
 

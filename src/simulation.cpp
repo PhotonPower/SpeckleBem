@@ -172,8 +172,8 @@ void check_preconditioner_config(const SimulationConfig& c) {
             "Simulation: block_levels_above_leaf must be 0 (octree leaves), 1 (one level up) or 2 "
             "(two levels up)");
     }
-    // Unset: the automatic BlockDiagonal arises only with compression "mlfmm" (Impl::setup),
-    // whose parameters check_operator_config validates anyway.
+    // Unset: the automatic IncompleteLu arises only on the PML route with compression "mlfmm"
+    // (Impl::setup validates its ILUT parameters there).
     if (!c.preconditioner)
         return;
     const PreconditionerKind k = *c.preconditioner;
@@ -567,11 +567,14 @@ void Simulation::Impl::setup(const formulation::Recommendation& rec, formulation
         pre = *config.preconditioner;
     } else if (!config.diagonal_preconditioner && pml && config.compression == "mlfmm" &&
                config.solver == SolverKind::Gmres) {
-        // Default of the fast PML route since WP-PC1 (ADR 0011 decision 3, benchmarks/results/
-        // preconditioner.md): rough Ag 2.3e4 / 1.5e5 / 3.0e5 unknowns 602 / 1715 / 2679 Jacobi
-        // iterations against 184 / 520 / 844 with the blocks one level above the leaves. Only
-        // the "mlfmm" PML route was measured; the dense PML route keeps the recommendation.
-        pre = PreconditionerKind::BlockDiagonal;
+        // Default of the fast PML route since WP-SC4 (ADR 0012 decision 9, benchmarks/results/
+        // preconditioner.md): the ILUT of the near blocks A and D with config.ilut (default fill
+        // 2, drop 1e-2) needs 23 / 68 / 140 iterations on rough Ag at 2.3e4 / 1.5e5 / 3.0e5
+        // unknowns against 184 / 520 / 844 with the blocks one level above the leaves (the
+        // default from WP-PC1 to WP-SC4, ADR 0011 decision 3; now explicit only). Only the
+        // "mlfmm" PML route was measured; the dense PML route keeps the recommendation.
+        pre = PreconditionerKind::IncompleteLu;
+        solver::validate_ilut_params(config.ilut);
     } else {
         pre = config.diagonal_preconditioner.value_or(rec.diagonal_preconditioner)
                   ? PreconditionerKind::Diagonal
@@ -970,18 +973,10 @@ void Simulation::Impl::ensure_block() {
     block = make_block_preconditioner(*op, problem, config.mlfmm, config.block_levels_above_leaf);
     block_s = t.elapsed_seconds();
     SBEM_INFO("Simulation: {}", block->describe());
-    // Automatic default only (explicit settings are the caller's choice): on a tiny or coarse
-    // octree the chosen level can be (close to) the root, and a block solve is then (close to)
-    // a dense LU of Z. Kept (no fallback), but said.
-    if (pre_auto && 2 * block->max_block_size() > block->size()) {
-        SBEM_WARN(
-            "Simulation: the automatic block-diagonal preconditioner's largest block holds {} of "
-            "the {} unknowns ({} blocks, {}): on this coarse tree a block solve is close to a "
-            "dense LU of the system; set block_levels_above_leaf = 0 or an explicit "
-            "preconditioner",
-            block->max_block_size(), block->size(), block->num_blocks(),
-            block_level_name(config.block_levels_above_leaf));
-    }
+    // BlockDiagonal is an explicit choice since WP-SC4 (the automatic one of the "mlfmm" PML
+    // route is IncompleteLu): the coarse-tree warning of the former automatic block default
+    // (largest block > half of the unknowns) no longer applies; explicit settings are the
+    // caller's choice.
 }
 
 bool Simulation::Impl::uses_schur() const {
