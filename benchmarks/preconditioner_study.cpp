@@ -6,7 +6,15 @@
 //   none    no preconditioner,
 //   leaf    make_block_preconditioner(levels_above_leaf = 0): LU of the near-field block of
 //           every octree leaf over its J and M unknowns,
-//   parent  make_block_preconditioner(levels_above_leaf = 1): the same one level up.
+//   parent  make_block_preconditioner(levels_above_leaf = 1): the same one level up,
+//   grandparent  make_block_preconditioner(levels_above_leaf = 2): two levels up, the blocks of
+//           the near-field matrix Z_n (same-box far pairs zero; WP-SC1, ADR 0012),
+//   nearlu  make_near_field_lu_preconditioner: the exact sparse LU of Z_n = Z_rr's near part +
+//           the near ring (WP-SC1, ADR 0012: the ceiling of near-field preconditioners), with the
+//           budget --near-lu-budget GB (default 40) and the expected fill --near-lu-fill F
+//           (default 1; pass the fill factor measured on a smaller case); a refusal (estimate or
+//           factor memory above the budget, singular Z_n) is reported as a ROW line and the
+//           remaining variants still run.
 // Cases:
 //   --case pml  the rough PML route of WP-PML5b (pml_rough_ag::u_case(): rough Ag, sigma 50 nm,
 //               Lc 500 nm, seed 1, h = lambda/4, W_pml = 2 lambda, w0 = lambda; --patch L
@@ -23,8 +31,9 @@
 //
 // Usage: specklebem_preconditioner_study [--case pml|mie] [--tag NAME] [--material ag|si]
 //            [--patch L] [--map-patch L] [--d0 3] [--tol T] [--max-iter 5000]
-//            [--precond jacobi,leaf,parent] [--diameter D] [--subdiv N] [--n-theta 90]
-//            [--n-phi 180] [--summary FILE]
+//            [--precond jacobi,leaf,parent,grandparent,nearlu] [--near-lu-budget 40]
+//            [--near-lu-fill 1] [--diameter D] [--subdiv N] [--n-theta 90] [--n-phi 180]
+//            [--summary FILE]
 // --case must come first (it resets the case).
 #include "specklebem/compression/mlfmm/mlfmm_operator.hpp"
 #include "specklebem/compression/mlfmm/pml_ring.hpp"
@@ -33,8 +42,10 @@
 #include "specklebem/simulation.hpp"
 #include "specklebem/solver/gmres.hpp"
 #include "specklebem/solver/preconditioner.hpp"
+#include "specklebem/solver/sparse_lu_preconditioner.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <exception>
 #include <fstream>
@@ -62,6 +73,8 @@ struct Options {
     std::vector<std::string> variants = {"jacobi", "leaf", "parent"};
     Real diameter = 1e-6;
     int subdivisions = 4;
+    Real near_lu_budget_gb = 40.0;
+    Real near_lu_fill = 1.0;
     std::string summary;
 };
 
@@ -116,6 +129,10 @@ Options parse(int argc, char** argv) {
             o.c.n_theta = std::stoi(value());
         } else if (a == "--n-phi") {
             o.c.n_phi = std::stoi(value());
+        } else if (a == "--near-lu-budget") {
+            o.near_lu_budget_gb = real();
+        } else if (a == "--near-lu-fill") {
+            o.near_lu_fill = real();
         } else if (a == "--summary") {
             o.summary = value();
         } else {
@@ -123,11 +140,14 @@ Options parse(int argc, char** argv) {
         }
     }
     for (const std::string& v : o.variants) {
-        if (v != "jacobi" && v != "none" && v != "leaf" && v != "parent")
+        if (v != "jacobi" && v != "none" && v != "leaf" && v != "parent" && v != "grandparent" &&
+            v != "nearlu")
             throw std::invalid_argument("unknown --precond variant " + v);
     }
     if (o.variants.empty())
         throw std::invalid_argument("--precond: no variant");
+    if (!(o.near_lu_budget_gb > 0.0) || !(o.near_lu_fill > 0.0))
+        throw std::invalid_argument("--near-lu-budget and --near-lu-fill must be > 0");
     return o;
 }
 
@@ -150,21 +170,29 @@ Real seconds_since(std::chrono::steady_clock::time_point t0) {
 struct Built {
     std::unique_ptr<solver::Preconditioner> M;
     const solver::BlockDiagonalPreconditioner* block = nullptr;
+    const solver::SparseLuPreconditioner* lu = nullptr;
     Real setup_s = 0;
     std::size_t bytes = 0;
 };
 
-Built build(const std::string& variant, const Simulation& sim, const mlfmm::MlfmmOperator& Z) {
+Built build(const std::string& variant, const Simulation& sim, const mlfmm::MlfmmOperator& Z,
+            const Options& o) {
     Built b;
     const auto t0 = std::chrono::steady_clock::now();
-    if (variant == "jacobi") {
+    if (variant == "nearlu") {
+        auto P = make_near_field_lu_preconditioner(
+            Z, static_cast<std::size_t>(o.near_lu_budget_gb * 1e9), o.near_lu_fill);
+        b.lu = P.get();
+        b.bytes = P->memory_bytes();
+        b.M = std::move(P);
+    } else if (variant == "jacobi") {
         b.M = std::make_unique<solver::DiagonalPreconditioner>(Z.diagonal());
         b.bytes = static_cast<std::size_t>(Z.rows()) * sizeof(Complex);
     } else if (variant == "none") {
         b.M = std::make_unique<solver::IdentityPreconditioner>();
     } else {
-        auto P = make_block_preconditioner(Z, sim.problem(), sim.config().mlfmm,
-                                           variant == "leaf" ? 0 : 1);
+        const int up = variant == "leaf" ? 0 : variant == "parent" ? 1 : 2;
+        auto P = make_block_preconditioner(Z, sim.problem(), sim.config().mlfmm, up);
         b.block = P.get();
         b.bytes = P->memory_bytes();
         b.M = std::move(P);
@@ -173,25 +201,65 @@ Built build(const std::string& variant, const Simulation& sim, const mlfmm::Mlfm
     return b;
 }
 
-/// Common part of a ROW line: the variant, its preconditioner and the GMRES result.
+/// Common part of a ROW line: the variant, its preconditioner and the GMRES result. Block
+/// variants: blocks (unknowns min / mean / max; with entries outside the near field, two levels
+/// up, their share "far-zero"), extraction / LU times and the smallest block rcond; nearlu:
+/// nnz(Z_n), nnz(L + U), the fill factor, analysis / factorisation times.
 std::string solve_segment(const std::string& variant, const Built& b, const solver::GmresResult& g,
                           Index n2, Real matvec_s) {
-    char buf[700];
+    char head[400];
     const solver::BlockDiagonalPreconditioner* P = b.block;
-    std::snprintf(
-        buf, sizeof(buf),
-        "variant %s | blocks %lld (n %lld / %.1f / %lld) | P %.1f MB | setup %.2f s (extract "
-        "%.2f, LU %.2f) | rcond %.2e | its %d | converged %s | true res %.2e | GMRES %.1f s "
-        "(orth %.1f s) | matvec %.3f s | basis %.2f GB",
-        variant.c_str(), static_cast<long long>(P ? P->num_blocks() : 0),
-        static_cast<long long>(P ? P->min_block_size() : 0),
-        P ? static_cast<Real>(n2) / static_cast<Real>(P->num_blocks()) : 0.0,
-        static_cast<long long>(P ? P->max_block_size() : 0), static_cast<Real>(b.bytes) / 1e6,
-        b.setup_s, P ? P->extraction_seconds() : 0.0, P ? P->factorization_seconds() : 0.0,
-        P ? P->min_reciprocal_condition() : 0.0, g.iterations, g.converged ? "yes" : "NO",
-        g.true_relative_residual, g.wall_seconds, g.orthogonalization_seconds, matvec_s,
-        16.0 * static_cast<Real>(g.iterations + 1) * static_cast<Real>(n2) / 1e9);
+    if (b.lu != nullptr) {
+        const solver::SparseLuPreconditioner& L = *b.lu;
+        std::snprintf(
+            head, sizeof(head),
+            "variant %s | nnz Zn %lld | nnz LU %lld (L %lld, U %lld) | fill %.2f | P "
+            "%.1f MB (estimate %.1f MB) | setup %.2f s (analysis %.2f, LU %.2f) | rcond -",
+            variant.c_str(), static_cast<long long>(L.input_nonzeros()),
+            static_cast<long long>(L.factor_nonzeros()), static_cast<long long>(L.nonzeros_l()),
+            static_cast<long long>(L.nonzeros_u()), L.fill_factor(),
+            static_cast<Real>(b.bytes) / 1e6, static_cast<Real>(L.estimated_bytes()) / 1e6,
+            b.setup_s, L.analysis_seconds(), L.factorization_seconds());
+    } else {
+        char zero[64] = "";
+        if (P != nullptr && P->missing_entries() > 0) {
+            std::snprintf(zero, sizeof(zero), " far-zero %.1f %%",
+                          100.0 * static_cast<Real>(P->missing_entries()) /
+                              static_cast<Real>(P->block_entries()));
+        }
+        std::snprintf(
+            head, sizeof(head),
+            "variant %s | blocks %lld (n %lld / %.1f / %lld)%s | P %.1f MB | setup %.2f s (extract "
+            "%.2f, LU %.2f) | rcond %.2e",
+            variant.c_str(), static_cast<long long>(P ? P->num_blocks() : 0),
+            static_cast<long long>(P ? P->min_block_size() : 0),
+            P ? static_cast<Real>(n2) / static_cast<Real>(P->num_blocks()) : 0.0,
+            static_cast<long long>(P ? P->max_block_size() : 0), zero,
+            static_cast<Real>(b.bytes) / 1e6, b.setup_s, P ? P->extraction_seconds() : 0.0,
+            P ? P->factorization_seconds() : 0.0, P ? P->min_reciprocal_condition() : 0.0);
+    }
+    char buf[700];
+    std::snprintf(buf, sizeof(buf),
+                  "%s | its %d | converged %s | true res %.2e | GMRES %.1f s (orth %.1f s) | "
+                  "matvec %.3f s | basis %.2f GB",
+                  head, g.iterations, g.converged ? "yes" : "NO", g.true_relative_residual,
+                  g.wall_seconds, g.orthogonalization_seconds, matvec_s,
+                  16.0 * static_cast<Real>(g.iterations + 1) * static_cast<Real>(n2) / 1e9);
     return buf;
+}
+
+/// build() of one variant; a refused nearlu (budget, singular) is reported, not fatal.
+std::optional<Built> try_build(const std::string& variant, const Simulation& sim,
+                               const mlfmm::MlfmmOperator& Z, const Options& o,
+                               const std::string& row_head) {
+    try {
+        return build(variant, sim, Z, o);
+    } catch (const std::runtime_error& e) {
+        if (variant != "nearlu")
+            throw;
+        emit(o.summary, row_head + "variant nearlu | refused: " + e.what());
+        return std::nullopt;
+    }
 }
 
 /// Mean time of two operator applications (a load indicator next to the record's matvec).
@@ -238,10 +306,17 @@ void run_pml(const Options& o) {
                   static_cast<Real>(Z->ring_operator()->far_bytes()) / 1e6, assemble_s);
     emit(o.summary, setup);
     std::optional<pml_rough_ag::FarField> first;
+    const std::string row_head = "ROW | preconditioner | " + c.tag + " | " + c.material + " | 2N " +
+                                 std::to_string(n2) + " | ";
     for (const std::string& v : o.variants) {
-        const Built b = build(v, sim, *Z);
+        const std::optional<Built> built = try_build(v, sim, *Z, o, row_head);
+        if (!built)
+            continue;
+        const Built& b = *built;
         if (b.block != nullptr)
             std::printf("%s\n", b.block->describe().c_str());
+        if (b.lu != nullptr)
+            std::printf("%s\n", b.lu->describe().c_str());
         const solver::GmresResult g = solver::gmres(*Z, sim.rhs(), *b.M, cfg.gmres);
         const Real mv = matvec_seconds(*Z);
         const post::SurfaceSolution s{&sim.problem(), g.x};
@@ -256,8 +331,7 @@ void run_pml(const Options& o) {
         std::snprintf(tail, sizeof(tail), " | R %.8f | dR vs %s %+.3e | l2 %.3e | peak %.2f GB",
                       far.reflectance(), o.variants.front().c_str(), m.dR, m.l2,
                       system_memory::peak_rss_bytes() / 1e9);
-        emit(o.summary, "ROW | preconditioner | " + c.tag + " | " + c.material + " | 2N " +
-                            std::to_string(n2) + " | " + solve_segment(v, b, g, n2, mv) + tail);
+        emit(o.summary, row_head + solve_segment(v, b, g, n2, mv) + tail);
     }
     std::printf("%s\n", sim.report().c_str());
 }
@@ -297,10 +371,17 @@ void run_mie(const Options& o) {
                              material::vacuum(), 0});
     const VectorXr theta = VectorXr::LinSpaced(ag_sphere_mlfmm::kRcsAngles, 0.0, constants::pi);
     std::optional<VectorXr> first;
+    const std::string row_head =
+        "ROW | preconditioner | " + tag + " | ag | 2N " + std::to_string(n2) + " | ";
     for (const std::string& v : o.variants) {
-        const Built b = build(v, sim, *Z);
+        const std::optional<Built> built = try_build(v, sim, *Z, o, row_head);
+        if (!built)
+            continue;
+        const Built& b = *built;
         if (b.block != nullptr)
             std::printf("%s\n", b.block->describe().c_str());
+        if (b.lu != nullptr)
+            std::printf("%s\n", b.lu->describe().c_str());
         const solver::GmresResult g = solver::gmres(*Z, sim.rhs(), *b.M, cfg.gmres);
         const Real mv = matvec_seconds(*Z);
         const post::SurfaceSolution s{&sim.problem(), g.x};
@@ -318,8 +399,7 @@ void run_mie(const Options& o) {
         std::snprintf(tail, sizeof(tail),
                       " | eps_rr xz %.4e yz %.4e | rcs diff vs %s %.3e | peak %.2f GB", exz, eyz,
                       o.variants.front().c_str(), drcs, system_memory::peak_rss_bytes() / 1e9);
-        emit(o.summary, "ROW | preconditioner | " + tag + " | ag | 2N " + std::to_string(n2) +
-                            " | " + solve_segment(v, b, g, n2, mv) + tail);
+        emit(o.summary, row_head + solve_segment(v, b, g, n2, mv) + tail);
     }
     std::printf("%s\n", sim.report().c_str());
 }

@@ -5,6 +5,21 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver / tooling (WP-SC1, ADR 0012 decision 1, Phase 8): near-field-inverse ceiling. `solver::SparseLuPreconditioner`
+  (exact `Eigen::SparseLU`, COLAMD, budget pre-check `expected_fill × nnz × 24 B` and post-check of the factor memory,
+  errors for non-square / empty / non-finite / singular input and size mismatch, factorisation and solve on one
+  OpenMP thread: bitwise thread-count independent), `near_field_matrix` / `make_near_field_lu_preconditioner`
+  (Z_rr near + near ring) in `simulation.hpp`, `block_levels_above_leaf = 2` (blocks two levels above the leaves; with
+  "mlfmm" the blocks of Z_n, same-box far pairs zero via `solver::MissingBlockEntries::Zero`) in `SimulationConfig`,
+  `make_block_preconditioner` and Python `block_level=2`; driver variants `grandparent` / `nearlu`
+  (`--near-lu-budget`, `--near-lu-fill`). Measured on rough Ag PML (idle desktop, tolerance 10⁻⁷): parent / grandparent
+  / exact near LU **184 / 99 / 20** iterations at 2N = 22 816, **520 / 335 / 44** at 2N = 152 960 (the 44 from an extra
+  run with a 75 GB budget: factors 66.3 GB, fill 13.93, sequential factorisation 4 921 s; the planned 40 GB budget
+  refused it after the factorisation), **844 / 518 / —** at 2N = 300 160 (estimate 65 GB > 40 GB); Si U 48 / 41 / 13.
+  `nearlu` exponent ≈ 0.41 (two sizes) against 0.58 for the blocks; grandparent 1.6–1.9× over parent at 4× the
+  memory. ADR 0012 gate 2 met (0.085× parent at 16 µm, exponent < 0.5) → points to WP-SC2; grandparent not a default
+  candidate. R unchanged within 10⁻⁷. Record: `benchmarks/results/preconditioner.md` (section WP-SC1); tests
+  `tests/unit/test_sparse_lu_preconditioner.cpp` (7 cases), level-2 updates of the block tests and the Python test.
 - tests / docs (WP-S2b, Phase 6 close-out, user decision 2026-10-30): Phase 6 DoD test `tests/python/test_speckle_dod.py`
   on the saved WP-S2 patterns (`SBEM_SPECKLE_SWEEP_DIR`, skipped without data; marker `validation_large`): row 43
   contrast monotone in σ asserted (seed means 10.72 → 5.65 → 3.67 → 2.66 → 2.15), row 44 speckle size within 10 %

@@ -81,7 +81,11 @@ the only measured case) this is gated by
 `tests/validation/test_block_preconditioner_mie.cpp` (Ag sphere d = 1 µm, MLFMM: bistatic RCS within
 10⁻⁵ of the Jacobi solve at GMRES tolerance 10⁻⁶, ε_rr unchanged to 10⁻⁵) and by the PML-route rows,
 which now run with it (7h fast path vs dense); the rough Ag / Si PML sizes up to 2N = 3·10⁵ reproduce
-the Jacobi reflectance to 5·10⁻⁸ / 4·10⁻⁷ (`benchmarks/results/preconditioner.md`).
+the Jacobi reflectance to 5·10⁻⁸ / 4·10⁻⁷ (`benchmarks/results/preconditioner.md`). The exact
+near-field LU (`solver::SparseLuPreconditioner`, `make_near_field_lu_preconditioner`) and the blocks
+two levels above the leaves (`block_levels_above_leaf = 2`) are measurement tools of WP-SC1 (ADR 0012,
+no default); they reproduce the solves to the same tolerance (rough Ag / Si R within 10⁻⁷ of the
+WP-PML5b / WP-PC1 values, `benchmarks/results/preconditioner.md`, section WP-SC1).
 
 ## Rough-surface specific checks
 

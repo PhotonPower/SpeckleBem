@@ -65,6 +65,26 @@ struct BlockPartition {
 ///         the block id and the global row and column).
 [[nodiscard]] std::vector<MatrixXc> extract_diagonal_blocks(
     const BlockPartition& partition, const std::vector<const op::SparseOperator::Matrix*>& sources);
+/// Treatment of a same-block entry that no source stores (extract_diagonal_blocks with sparse
+/// sources).
+enum class MissingBlockEntries {
+    /// std::invalid_argument (the completeness check of ADR 0011: on the leaf level and one level
+    /// above it the near parts hold every same-box entry). The default.
+    Throw,
+    /// Kept as zero: the blocks of the sum of the sources, i.e. of the near-field matrix Z_n.
+    /// Two levels above the leaves same-box pairs can be far pairs of the MLFMM, which no sparse
+    /// source stores (WP-SC1, ADR 0012: the "grandparent" blocks of Z_n).
+    Zero
+};
+
+/// As above, with the treatment of missing entries chosen (Throw = the overload above).
+/// @param missing_count if not null, receives the number of same-block entries stored in no
+///        source (left zero with MissingBlockEntries::Zero; 0 if none is missing).
+/// @throws as the overload above; with MissingBlockEntries::Zero a missing entry is not an
+///         error (an entry stored in two sources still is).
+[[nodiscard]] std::vector<MatrixXc> extract_diagonal_blocks(
+    const BlockPartition& partition, const std::vector<const op::SparseOperator::Matrix*>& sources,
+    MissingBlockEntries missing, Index* missing_count = nullptr);
 /// The diagonal blocks D_k = A(I_k, I_k) of a dense n x n matrix (tests, the dense route).
 /// @throws std::invalid_argument for an invalid partition or a non-square A.
 [[nodiscard]] std::vector<MatrixXc> extract_diagonal_blocks(const BlockPartition& partition,
@@ -105,6 +125,14 @@ public:
     BlockDiagonalPreconditioner(BlockPartition partition,
                                 const std::vector<const op::SparseOperator::Matrix*>& sources,
                                 Real min_rcond = kDefaultMinReciprocalCondition);
+    /// extract_diagonal_blocks(partition, sources, missing), then factorised (both timed); with
+    /// MissingBlockEntries::Zero the blocks are those of the sum of the sources (same-block
+    /// entries stored in no source are zero; missing_entries() counts them).
+    /// @throws as extract_diagonal_blocks and the first constructor.
+    BlockDiagonalPreconditioner(BlockPartition partition,
+                                const std::vector<const op::SparseOperator::Matrix*>& sources,
+                                MissingBlockEntries missing,
+                                Real min_rcond = kDefaultMinReciprocalCondition);
     /// extract_diagonal_blocks(partition, A), then factorised (both timed).
     /// @throws as extract_diagonal_blocks and the first constructor.
     BlockDiagonalPreconditioner(BlockPartition partition, const MatrixXc& A,
@@ -131,8 +159,14 @@ public:
     [[nodiscard]] double factorization_seconds() const { return factor_s_; }
     /// Extraction + factorisation [s].
     [[nodiscard]] double setup_seconds() const { return extract_s_ + factor_s_; }
+    /// Same-block entries that no sparse source stored (zero in the blocks); 0 unless built with
+    /// MissingBlockEntries::Zero.
+    [[nodiscard]] Index missing_entries() const { return missing_; }
+    /// Number of block entries, sum_k n_k^2.
+    [[nodiscard]] Index block_entries() const;
     /// "block-diagonal: K blocks of n_min / mean / n_max unknowns, M MB, setup t s (extraction
-    /// a s, LU b s), min rcond r (block id)" (MB = 10^6 bytes).
+    /// a s, LU b s), min rcond r (block id)" (MB = 10^6 bytes), followed by ", E of the T block
+    /// entries in no source (zero)" when missing_entries() > 0.
     [[nodiscard]] std::string describe() const;
 
 private:
@@ -147,7 +181,11 @@ private:
     Index worst_id_ = -1;
     double extract_s_ = 0;
     double factor_s_ = 0;
+    Index missing_ = 0;
 };
+
+// The exact sparse LU of a sparse matrix (WP-SC1, ADR 0012): solver::SparseLuPreconditioner in
+// solver/sparse_lu_preconditioner.hpp.
 
 /// Schur-complement preconditioner (Ergül, Malas & Gürel 2011) for metals
 /// (planned; Phase 8).

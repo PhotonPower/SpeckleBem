@@ -67,9 +67,10 @@ def test_gmres_equals_direct(direct):
 
 
 def test_block_diagonal_preconditioner(direct):
-    # WP-PC1: preconditioner="block_diagonal" with block_level 0 (octree leaves) or 1 (one
-    # level up); the dense route takes the octree of the mlfmm keys (default leaf rule).
-    for level in (0, 1):
+    # WP-PC1: preconditioner="block_diagonal" with block_level 0 (octree leaves), 1 (one
+    # level up) or 2 (two levels up, WP-SC1); the dense route takes the octree of the mlfmm keys
+    # (default leaf rule).
+    for level in (0, 1, 2):
         sim = make_sim(formulation="PMCHWT", preconditioner="block_diagonal", block_level=level)
         assert sim.preconditioner == "block_diagonal"
         cfg = sim.config
@@ -81,9 +82,10 @@ def test_block_diagonal_preconditioner(direct):
         rep = sim.report()
         assert "block-diagonal (near field) (explicit)" in rep
         assert "preconditioner setup:" in rep
+        assert ("blocks: two levels above the leaves" in rep) == (level == 2)
     assert make_sim().config["block_level"] == 1
     assert make_sim(sb.silver_500nm()).config["preconditioner_automatic"] is True
-    for bad in (dict(block_level=2), dict(block_level=-1), dict(preconditioner="block")):
+    for bad in (dict(block_level=3), dict(block_level=-1), dict(preconditioner="block")):
         with pytest.raises(ValueError):
             make_sim(preconditioner=bad.pop("preconditioner", "block_diagonal"), **bad)
 

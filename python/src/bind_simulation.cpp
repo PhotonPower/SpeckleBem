@@ -317,9 +317,10 @@ SimulationConfig make_config(const std::shared_ptr<excitation::Excitation>& exc,
         throw py::value_error(
             "preconditioner: expected \"auto\", \"none\", \"diagonal\" or \"block_diagonal\"");
     }
-    if (block_level != 0 && block_level != 1) {
+    if (block_level < 0 || block_level > 2) {
         throw py::value_error(
-            "block_level: expected 0 (octree leaves) or 1 (one level above the leaves)");
+            "block_level: expected 0 (octree leaves), 1 (one level above the leaves) or 2 (two "
+            "levels above the leaves)");
     }
     c.block_levels_above_leaf = block_level;
     const std::string sol = to_lower(solver_name);
@@ -1074,7 +1075,9 @@ preconditioner : str
     "block_diagonal" (LU-factorised near-field blocks, one per octree box over the J and M
     unknowns of its basis functions; WP-PC1, ADR 0011); GMRES only.
 block_level : int
-    "block_diagonal" only: 0 = blocks of the octree leaves, 1 (default) = one level up. On the
+    "block_diagonal" only: 0 = blocks of the octree leaves, 1 (default) = one level up, 2 = two
+    levels up (WP-SC1, ADR 0012, a measurement option: with compression "mlfmm" the blocks of
+    the near-field matrix, same-box far pairs zero; on the dense route the exact blocks). On the
     dense route the octree is the one compression "mlfmm" would build from the ``mlfmm`` keys.
     On a two-level tree (tiny meshes) level 1 is the root: one block = a dense LU, GMRES
     converges in one iteration; use 0 to exercise the block path.
@@ -1283,9 +1286,9 @@ SolveResult
         .def_property_readonly("config", &config_dict, R"doc(
 Resolved configuration (a new dict): wavelength [m], formulation (name), formulation_automatic,
 preconditioner ("none" / "diagonal" / "block_diagonal"), preconditioner_automatic, block_level
-(0 = octree leaves, 1 = one level up; used by "block_diagonal" only), solver, compression, and the
-dicts gmres, kernels and mlfmm with every key of the constructor keywords (restart 0 = full
-GMRES). Used by specklebem.io.save_hdf5.
+(0 = octree leaves, 1 = one level up, 2 = two levels up; used by "block_diagonal" only), solver,
+compression, and the dicts gmres, kernels and mlfmm with every key of the constructor keywords
+(restart 0 = full GMRES). Used by specklebem.io.save_hdf5.
 )doc")
         .def_property_readonly(
             "last_result",

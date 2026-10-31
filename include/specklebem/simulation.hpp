@@ -15,8 +15,10 @@
 #include "specklebem/postprocessing/huygens.hpp"
 #include "specklebem/postprocessing/scattering.hpp"
 #include "specklebem/solver/gmres.hpp"
+#include "specklebem/solver/sparse_lu_preconditioner.hpp"
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -288,12 +290,16 @@ struct SimulationConfig {
     /// Ignored by the direct solver. An explicit BlockDiagonal is allowed on every route.
     std::optional<PreconditionerKind> preconditioner;
     /// BlockDiagonal only: the block level, 0 = the octree leaves, 1 = one level above them (the
-    /// two levels of ADR 0011; other values are rejected). Default 1, the faster level at every
-    /// measured PML size (it also needs the fewest iterations). On the dense route the octree is
-    /// mlfmm::make_octree with the `mlfmm` parameters below (the tree "mlfmm" would build, so they
-    /// are validated by the constructors whenever BlockDiagonal is set); on a tree of two levels
-    /// (e.g. the tiny PML meshes of the tests) one level up is the root, i.e. one block = the
-    /// dense LU of Z and GMRES converges in one iteration: use 0 to exercise the block path.
+    /// two levels of ADR 0011), 2 = two levels above them (WP-SC1, ADR 0012: a measurement
+    /// point between one level up and the exact near-field inverse; with compression "mlfmm"
+    /// these blocks are those of the near-field matrix, same-box far pairs are zero, see
+    /// make_block_preconditioner); other values are rejected. Default 1, the faster of the two
+    /// ADR 0011 levels at every measured PML size (it also needs the fewer iterations). On the
+    /// dense route the octree is mlfmm::make_octree with the `mlfmm` parameters below (the tree
+    /// "mlfmm" would build, so they are validated by the constructors whenever BlockDiagonal is
+    /// set); on a tree of two levels (e.g. the tiny PML meshes of the tests) one level up is the
+    /// root, i.e. one block = the dense LU of Z and GMRES converges in one iteration: use 0 to
+    /// exercise the block path.
     int block_levels_above_leaf = 1;
     /// "dense" (default) or "mlfmm" (mlfmm::MlfmmOperator with the `mlfmm` parameters; GMRES
     /// only, the Jacobi diagonal is read from the operator's near parts,
@@ -314,19 +320,55 @@ struct SimulationConfig {
 /// and M unknowns of the box's basis functions (mlfmm::level_unknown_blocks; box index as the
 /// block id), entries taken exactly once from
 ///  * mlfmm::MlfmmOperator: its octree, near_operator() plus, on the PML route, the near ring
-///    (PmlRingOperator::near_operator(); the two partition the near pattern, and every same-box
-///    pair on these two levels is near, so the blocks equal those of the dense matrix);
+///    (PmlRingOperator::near_operator(); the two partition the near pattern). Levels 0 and 1:
+///    every same-box pair is near, so the blocks equal those of the dense matrix (checked:
+///    solver::MissingBlockEntries::Throw). Level 2 (WP-SC1, ADR 0012): same-box pairs can be far
+///    pairs, which the operator does not store; the blocks are those of the near-field matrix
+///    Z_n (far pairs zero, solver::MissingBlockEntries::Zero; their number is
+///    BlockDiagonalPreconditioner::missing_entries()), i.e. a coarser block Jacobi of Z_n between
+///    the blocks one level up and Z_n^{-1} (make_near_field_lu_preconditioner);
 ///  * op::DenseOperator: the octree mlfmm::make_octree(*problem.space, lambda_1, mlfmm)
-///    (lambda_1 = 2 pi / Re k_1, the reference of the MLFMM operator), blocks of the matrix.
+///    (lambda_1 = 2 pi / Re k_1, the reference of the MLFMM operator), blocks of the matrix (on
+///    every level the exact blocks of Z, far pairs included).
 /// Simulation uses it for PreconditionerKind::BlockDiagonal; drivers can use it to compare
 /// preconditioners on one assembled operator.
-/// @throws std::invalid_argument for levels_above_leaf not 0 or 1, another operator type, an
+/// @throws std::invalid_argument for levels_above_leaf not 0, 1 or 2, another operator type, an
 ///         operator whose size is not 2N of problem.space, and as solver::extract_diagonal_blocks
 ///         / mlfmm::make_octree; std::runtime_error for a singular or ill-conditioned block
 ///         (solver::BlockDiagonalPreconditioner, the message names the box).
 [[nodiscard]] std::unique_ptr<solver::BlockDiagonalPreconditioner> make_block_preconditioner(
     const op::LinearOperator& Z, const op::Problem& problem, const mlfmm::MlfmmParams& mlfmm,
     int levels_above_leaf);
+
+/// The near-field matrix Z_n of an MLFMM operator (WP-SC1, ADR 0012): near_operator() plus, on
+/// the PML route, the near ring (PmlRingOperator::near_operator()), summed; the two hold every
+/// near entry exactly once (ADR 0011), so the sum has nnz(Z_rr near) + nnz(ring near) entries.
+/// Without a stretch a copy of near_operator(). 2N x 2N, RowMajor, compressed.
+/// @throws std::logic_error if the two patterns overlap (an entry stored twice).
+[[nodiscard]] op::SparseOperator::Matrix near_field_matrix(const mlfmm::MlfmmOperator& op);
+
+/// Exact inverse of the near-field matrix as a preconditioner, M^{-1} = Z_n^{-1} (WP-SC1, ADR
+/// 0012 decision 1): solver::SparseLuPreconditioner of near_field_matrix(op), the ceiling of
+/// every near-field-based preconditioner (block-diagonal, Schur complement, SPAI / ILU of Z_n).
+/// A measurement tool, never a default. Logs (SBEM_INFO) nnz(Z_n), the memory estimate and the
+/// budget before the factorisation, and nnz(L + U), the fill factor nnz(L + U) / nnz(Z_n), the
+/// factor memory and the setup time after it. The summed Z_n is released before returning.
+/// @param budget_bytes, expected_fill as solver::SparseLuPreconditioner (empty: half of the
+///        available physical memory; expected_fill: nnz(L + U) / nnz(Z_n) measured on a smaller
+///        case of the same family, 1 = no fill).
+/// Memory: the budget bounds the used factor entries (nnz(L + U) x 24 B + permutations; the
+/// estimate counts the same), not the process peak. Eigen reserves about ceil(expected_fill) x
+/// nnz(Z_n) x 42 B up front, grows its factor arrays by 1.5x and never shrinks them (on Windows
+/// the reservation counts against the commit limit), and Z_n, its copies and the work arrays
+/// coexist with the factors during the factorisation: measured on the 16 um rough-Ag near field
+/// (factors 66.3 GB) a peak of about 1.3x the factors plus the input copies (84.7 GB working set
+/// under a 40 GB budget, 86.4 GB with 75 GB). The factorisation can exhaust the machine before
+/// the post-check fires; see solver::SparseLuPreconditioner.
+/// @throws as near_field_matrix and solver::SparseLuPreconditioner (std::runtime_error when the
+///         estimate or the factor memory exceeds the budget, or for a singular Z_n).
+[[nodiscard]] std::unique_ptr<solver::SparseLuPreconditioner> make_near_field_lu_preconditioner(
+    const mlfmm::MlfmmOperator& op, std::optional<std::size_t> budget_bytes = std::nullopt,
+    Real expected_fill = 1.0);
 
 /// Far-field source of the PML route (ADR 0010, WP-PML6).
 enum class FarFieldSource {
@@ -390,7 +432,7 @@ public:
     ///         implemented (formulation::Kind::JMCFIE), invalid kernel options or GMRES
     ///         parameters (tolerance not finite or <= 0, max_iter < 1, restart < 0),
     ///         preconditioner and diagonal_preconditioner set inconsistently, an invalid
-    ///         PreconditionerKind, block_levels_above_leaf not 0 or 1, invalid MLFMM
+    ///         PreconditionerKind, block_levels_above_leaf not 0, 1 or 2, invalid MLFMM
     ///         parameters (SimulationConfig::mlfmm) with compression "mlfmm" or with an explicit
     ///         BlockDiagonal on the dense route (its octree), and everything op::validate
     ///         rejects.

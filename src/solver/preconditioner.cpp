@@ -75,7 +75,16 @@ PartitionMap map_partition(const BlockPartition& p, Index n, const char* who) {
 std::vector<MatrixXc> extract_diagonal_blocks(
     const BlockPartition& partition,
     const std::vector<const op::SparseOperator::Matrix*>& sources) {
+    return extract_diagonal_blocks(partition, sources, MissingBlockEntries::Throw);
+}
+
+std::vector<MatrixXc> extract_diagonal_blocks(
+    const BlockPartition& partition, const std::vector<const op::SparseOperator::Matrix*>& sources,
+    MissingBlockEntries missing, Index* missing_count) {
     const char* who = "extract_diagonal_blocks";
+    if (missing != MissingBlockEntries::Throw && missing != MissingBlockEntries::Zero)
+        throw std::invalid_argument(std::string(who) + ": invalid MissingBlockEntries value");
+    const bool allow_missing = missing == MissingBlockEntries::Zero;
     if (sources.empty())
         throw std::invalid_argument(std::string(who) + ": no source matrix");
     for (const op::SparseOperator::Matrix* s : sources) {
@@ -95,6 +104,7 @@ std::vector<MatrixXc> extract_diagonal_blocks(
     // Errors inside the parallel loop are recorded per block and thrown afterwards for the
     // lowest failing block (deterministic message).
     std::vector<std::string> error(K);
+    std::vector<Index> absent(K, 0);
     const auto nk = static_cast<std::int64_t>(K);
 #pragma omp parallel for schedule(dynamic, 1)
     for (std::int64_t kk = 0; kk < nk; ++kk) {
@@ -127,6 +137,11 @@ std::vector<MatrixXc> extract_diagonal_blocks(
                 }
             }
         }
+        if (allow_missing && error[k].empty()) {
+            absent[k] = static_cast<Index>(std::count(seen.begin(), seen.end(), std::uint8_t{0}));
+            out[k] = std::move(D);
+            continue;
+        }
         for (Index b = 0; b < m && error[k].empty(); ++b) {
             for (Index a = 0; a < m; ++a) {
                 if (seen[static_cast<std::size_t>(b * m + a)] == 0) {
@@ -145,6 +160,11 @@ std::vector<MatrixXc> extract_diagonal_blocks(
     for (std::size_t k = 0; k < K; ++k) {
         if (!error[k].empty())
             throw std::invalid_argument(std::string(who) + ": " + error[k]);
+    }
+    if (missing_count != nullptr) {
+        Index total = 0;
+        for (const Index a : absent) total += a;
+        *missing_count = total;
     }
     return out;
 }
@@ -185,6 +205,16 @@ BlockDiagonalPreconditioner::BlockDiagonalPreconditioner(
     : partition_(std::move(partition)) {
     const auto t0 = std::chrono::steady_clock::now();
     std::vector<MatrixXc> blocks = extract_diagonal_blocks(partition_, sources);
+    extract_s_ = seconds_since(t0);
+    factorize(std::move(blocks), min_rcond);
+}
+
+BlockDiagonalPreconditioner::BlockDiagonalPreconditioner(
+    BlockPartition partition, const std::vector<const op::SparseOperator::Matrix*>& sources,
+    MissingBlockEntries missing, Real min_rcond)
+    : partition_(std::move(partition)) {
+    const auto t0 = std::chrono::steady_clock::now();
+    std::vector<MatrixXc> blocks = extract_diagonal_blocks(partition_, sources, missing, &missing_);
     extract_s_ = seconds_since(t0);
     factorize(std::move(blocks), min_rcond);
 }
@@ -348,7 +378,22 @@ std::string BlockDiagonalPreconditioner::describe() const {
                   static_cast<long long>(max_block_), static_cast<double>(memory_bytes()) / 1e6,
                   setup_seconds(), extract_s_, factor_s_, min_rcond_seen_,
                   static_cast<long long>(worst_id_));
-    return buf;
+    std::string s = buf;
+    if (missing_ > 0) {
+        std::snprintf(buf, sizeof(buf), ", %lld of the %lld block entries in no source (zero)",
+                      static_cast<long long>(missing_), static_cast<long long>(block_entries()));
+        s += buf;
+    }
+    return s;
+}
+
+Index BlockDiagonalPreconditioner::block_entries() const {
+    Index e = 0;
+    for (const std::vector<Index>& b : partition_.blocks) {
+        const auto m = static_cast<Index>(b.size());
+        e += m * m;
+    }
+    return e;
 }
 
 DiagonalPreconditioner::DiagonalPreconditioner(VectorXc diag) : inv_diag_(std::move(diag)) {

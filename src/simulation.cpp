@@ -142,6 +142,18 @@ void check_gmres_params(const solver::GmresParams& g) {
     }
 }
 
+/// Report name of a block level (SimulationConfig::block_levels_above_leaf).
+const char* block_level_name(int levels_above_leaf) {
+    switch (levels_above_leaf) {
+        case 0:
+            return "octree leaves";
+        case 1:
+            return "one level above the leaves";
+        default:
+            return "two levels above the leaves";
+    }
+}
+
 const char* side_name(solver::PreconditionerSide s) {
     return s == solver::PreconditionerSide::Left ? "left" : "right";
 }
@@ -150,9 +162,10 @@ const char* side_name(solver::PreconditionerSide s) {
 /// block level, and on the dense route with BlockDiagonal the MLFMM octree parameters (the
 /// partition uses mlfmm::make_octree).
 void check_preconditioner_config(const SimulationConfig& c) {
-    if (c.block_levels_above_leaf != 0 && c.block_levels_above_leaf != 1) {
+    if (c.block_levels_above_leaf < 0 || c.block_levels_above_leaf > 2) {
         throw std::invalid_argument(
-            "Simulation: block_levels_above_leaf must be 0 (octree leaves) or 1 (one level up)");
+            "Simulation: block_levels_above_leaf must be 0 (octree leaves), 1 (one level up) or 2 "
+            "(two levels up)");
     }
     // Unset: the automatic BlockDiagonal arises only with compression "mlfmm" (Impl::setup),
     // whose parameters check_operator_config validates anyway.
@@ -933,16 +946,16 @@ void Simulation::Impl::ensure_block() {
             "dense LU of the system; set block_levels_above_leaf = 0 or an explicit "
             "preconditioner",
             block->max_block_size(), block->size(), block->num_blocks(),
-            config.block_levels_above_leaf == 0 ? "octree leaves" : "one level above the leaves");
+            block_level_name(config.block_levels_above_leaf));
     }
 }
 
 std::unique_ptr<solver::BlockDiagonalPreconditioner> make_block_preconditioner(
     const op::LinearOperator& Z, const op::Problem& problem, const mlfmm::MlfmmParams& mlfmm,
     int levels_above_leaf) {
-    if (levels_above_leaf != 0 && levels_above_leaf != 1) {
+    if (levels_above_leaf < 0 || levels_above_leaf > 2) {
         throw std::invalid_argument(
-            "make_block_preconditioner: levels_above_leaf must be 0 (octree leaves) or 1");
+            "make_block_preconditioner: levels_above_leaf must be 0 (octree leaves), 1 or 2");
     }
     if (problem.space == nullptr)
         throw std::invalid_argument("make_block_preconditioner: the problem has no RWG space");
@@ -962,8 +975,13 @@ std::unique_ptr<solver::BlockDiagonalPreconditioner> make_block_preconditioner(
         std::vector<const op::SparseOperator::Matrix*> sources = {&fast->near_operator().matrix()};
         if (fast->ring_operator() != nullptr)
             sources.push_back(&fast->ring_operator()->near_operator().matrix());
+        // Levels 0 and 1 hold only near pairs (checked); two levels up the far same-box pairs
+        // are not stored: the blocks of the near-field matrix (WP-SC1, ADR 0012).
+        const solver::MissingBlockEntries missing = levels_above_leaf >= 2
+                                                        ? solver::MissingBlockEntries::Zero
+                                                        : solver::MissingBlockEntries::Throw;
         return std::make_unique<solver::BlockDiagonalPreconditioner>(partition(fast->octree()),
-                                                                     sources);
+                                                                     sources, missing);
     }
     if (const auto* dense = dynamic_cast<const op::DenseOperator*>(&Z)) {
         const mlfmm::Octree tree =
@@ -973,6 +991,61 @@ std::unique_ptr<solver::BlockDiagonalPreconditioner> make_block_preconditioner(
     }
     throw std::invalid_argument(
         "make_block_preconditioner: the operator is neither an MLFMM nor a dense operator");
+}
+
+op::SparseOperator::Matrix near_field_matrix(const mlfmm::MlfmmOperator& op) {
+    const op::SparseOperator::Matrix& rr = op.near_operator().matrix();
+    if (op.ring_operator() == nullptr) {
+        op::SparseOperator::Matrix copy = rr;
+        copy.makeCompressed();
+        return copy;
+    }
+    const op::SparseOperator::Matrix& ring = op.ring_operator()->near_operator().matrix();
+    op::SparseOperator::Matrix sum = rr + ring;
+    sum.makeCompressed();
+    // Eigen's sparse sum stores the union of the two patterns (no pruning of cancelling
+    // values), so a shared entry shows as a smaller count.
+    if (sum.nonZeros() != rr.nonZeros() + ring.nonZeros()) {
+        throw std::logic_error("near_field_matrix: Z_rr's near part and the near ring share " +
+                               std::to_string(rr.nonZeros() + ring.nonZeros() - sum.nonZeros()) +
+                               " entries (each near entry must be stored exactly once, ADR 0011)");
+    }
+    return sum;
+}
+
+std::unique_ptr<solver::SparseLuPreconditioner> make_near_field_lu_preconditioner(
+    const mlfmm::MlfmmOperator& op, std::optional<std::size_t> budget_bytes, Real expected_fill) {
+    const ScopedTimer t("near-field LU preconditioner");
+    std::unique_ptr<solver::SparseLuPreconditioner> lu;
+    {
+        const op::SparseOperator::Matrix Zn = near_field_matrix(op);
+        const Real per_row = static_cast<Real>(Zn.nonZeros()) / static_cast<Real>(Zn.rows());
+        const Real estimate_mb = expected_fill * static_cast<Real>(Zn.nonZeros()) *
+                                 static_cast<Real>(solver::SparseLuPreconditioner::kBytesPerEntry) /
+                                 1e6;
+        if (budget_bytes) {
+            SBEM_INFO(
+                "near-field LU: Z_n {} x {}, nnz {} ({:.1f} per row), expected fill {:.3g}, "
+                "estimate {:.1f} MB, budget {:.1f} MB",
+                Zn.rows(), Zn.cols(), Zn.nonZeros(), per_row, expected_fill, estimate_mb,
+                static_cast<double>(*budget_bytes) / 1e6);
+        } else {
+            SBEM_INFO(
+                "near-field LU: Z_n {} x {}, nnz {} ({:.1f} per row), expected fill {:.3g}, "
+                "estimate {:.1f} MB, budget half of the available memory",
+                Zn.rows(), Zn.cols(), Zn.nonZeros(), per_row, expected_fill, estimate_mb);
+        }
+        lu = std::make_unique<solver::SparseLuPreconditioner>(Zn, budget_bytes, expected_fill);
+    }
+    SBEM_INFO(
+        "near-field LU: nnz(Z_n) {}, nnz(L + U) {} (L {}, U {}), fill {:.3f}, factor memory "
+        "{:.1f} MB (estimate {:.1f} MB), setup {:.2f} s (analysis {:.2f} s, factorisation {:.2f} "
+        "s), {:.2f} s with the sum",
+        lu->input_nonzeros(), lu->factor_nonzeros(), lu->nonzeros_l(), lu->nonzeros_u(),
+        lu->fill_factor(), static_cast<double>(lu->memory_bytes()) / 1e6,
+        static_cast<double>(lu->estimated_bytes()) / 1e6, lu->setup_seconds(),
+        lu->analysis_seconds(), lu->factorization_seconds(), t.elapsed_seconds());
+    return lu;
 }
 
 void Simulation::Impl::ensure_diagonal() {
@@ -1141,9 +1214,7 @@ std::string Simulation::report() const {
                                                        : "none")
       << (s.pre_auto ? " (automatic)" : " (explicit)");
     if (s.pre == PreconditionerKind::BlockDiagonal)
-        o << ", blocks: "
-          << (s.config.block_levels_above_leaf == 0 ? "octree leaves"
-                                                    : "one level above the leaves");
+        o << ", blocks: " << block_level_name(s.config.block_levels_above_leaf);
     if (direct)
         o << ", unused by the direct solver";
     else if (s.pre != PreconditionerKind::None)

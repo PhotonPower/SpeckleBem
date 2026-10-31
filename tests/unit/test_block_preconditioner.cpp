@@ -537,12 +537,14 @@ TEST_CASE("block_preconditioner: MLFMM near-field blocks equal the dense blocks 
         Pd.apply(r, z2);
         CHECK(bitwise_equal(z1, z2));
     }
-    // Two levels above the leaf the box pairs are no longer all near: refused (no silent
-    // zeros), and make_block_preconditioner only offers the two levels.
+    // Two levels above the leaf the box pairs are no longer all near: refused by the default
+    // extraction (no silent zeros); make_block_preconditioner offers level 2 explicitly as the
+    // blocks of the near-field matrix (WP-SC1, test_sparse_lu_preconditioner.cpp) and refuses 3.
     const BlockPartition root = octree_partition(Z.octree(), 0);
     CHECK_THROWS_WITH(solver::extract_diagonal_blocks(root, Sources{&Z.near_operator().matrix()}),
                       ContainsSubstring("stored in no source"));
-    CHECK_THROWS_AS(make_block_preconditioner(Z, s.problem, tree_params(3), 2),
+    CHECK(make_block_preconditioner(Z, s.problem, tree_params(3), 2)->missing_entries() > 0);
+    CHECK_THROWS_AS(make_block_preconditioner(Z, s.problem, tree_params(3), 3),
                     std::invalid_argument);
     CHECK_THROWS_AS(make_block_preconditioner(Z, s.problem, tree_params(3), -1),
                     std::invalid_argument);
@@ -799,7 +801,7 @@ TEST_CASE("block_preconditioner: Simulation option, defaults and consistency",
     CHECK_THROWS_AS(
         Simulation(sphere_1um(), wave_1um(), with(static_cast<PreconditionerKind>(7), {})),
         std::invalid_argument);
-    for (const int levels : {-1, 2}) {
+    for (const int levels : {-1, 3}) {
         CHECK_THROWS_WITH(Simulation(sphere_1um(), wave_1um(),
                                      with(PreconditionerKind::BlockDiagonal, {}, levels)),
                           ContainsSubstring("block_levels_above_leaf"));

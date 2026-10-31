@@ -256,12 +256,16 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   "mlfmm" since WP-PC1, the only measured case (`SBEM_WARN` at assembly when its largest block
   holds more than half of the unknowns), otherwise, also on the dense PML route, the
   recommendation: Jacobi for metals, none otherwise;
-  `diagonal_preconditioner` stays empty); `block_level` 0 / 1 (default) ->
+  `diagonal_preconditioner` stays empty); `block_level` 0 / 1 (default) / 2 ->
   `block_levels_above_leaf`
-  (block-diagonal only: LU-factorised near-field blocks of the octree leaves or of the level
-  above, over the J and M unknowns of each box; WP-PC1, ADR 0011; other values raise
-  `ValueError`; on a two-level tree, as on the tiny PML test meshes, level 1 is the root, one
-  block is a dense LU and GMRES converges in one iteration, so tests of the block path use 0); `solver` "gmres" / "direct" -> `SolverKind`;
+  (block-diagonal only: LU-factorised near-field blocks of the octree leaves, of the level
+  above or of the level two above, over the J and M unknowns of each box; WP-PC1, ADR 0011;
+  level 2 since WP-SC1, ADR 0012, a measurement option: with compression "mlfmm" its blocks are
+  those of the near-field matrix, same-box far pairs zero, on the dense route the exact blocks;
+  the report says "blocks: two levels above the leaves"; other values raise `ValueError`; on a
+  two-level tree, as on the tiny PML test meshes, level 1 is the root, one block is a dense LU
+  and GMRES converges in one iteration, so tests of the block path use 0); `solver` "gmres" /
+  "direct" -> `SolverKind`;
   `compression` is passed through ("dense" or "mlfmm" (WP20b, GMRES only); "aca" / "hmatrix"
   raise `ValueError`); `mlfmm` keys (WP20b, WP21): `accuracy_digits` (d0, default 3; 5 is
   verified for leaves >= lambda/2 with r_max / a <= 0.3, ADR 0008), `max_elements_per_leaf`
