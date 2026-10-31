@@ -235,9 +235,15 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   532 s → 152 s (3.5×), default set 70.7 s → 20.3 s; factors bitwise identical (golden test, both presets);
   16 µm default total 128.9 s → 80.6 s. Record section WP-SC5. Lesson: check the asm of hot `std::complex` loops
   for stack round trips before blaming `__muldc3`; fill-ins must be written as −(l·u), not 0 − l·u.
-- **Next:** nothing in flight. Open lead items: idle-machine timing reruns, dense-PML-route block measurement,
-  WP-S3 (waits for the user's server runs), WP-T3 / WP-PML6c (optional); the parallel elimination of A
-  (WP-SC5 second part) only if the ILUT setup becomes the bottleneck again.
+- **Decision (user, 2026-10-31):** the server runs (WP-S3 input) must wait; everything else may start, the lead
+  chooses. Lead choice: WP-KR3 (operator reuse in the sweep driver, halves the server work of the 0° / 30°
+  pairs), WP-P1 (Phase 7 profile: the basis of the threads / GPU decision, replaces the lead's idle-machine
+  timing reruns), WP-T3 (FFT helper cleanup).
+- **In flight (2026-10-31):** WP-KR3 (`wp/kr3-sweep-operator-reuse`), WP-P1 (`wp/p1-phase7-profile`, timed
+  runs only on an idle machine — the worker waits for the other builds), WP-T3 (`wp/t3-core-fft-helper`).
+- Open lead items: dense-PML-route block measurement (low priority after ADR 0012), WP-S3 (waits for the
+  user's server runs), WP-PML6c (optional, not scheduled); the parallel elimination of A (WP-SC5 second part)
+  only if the ILUT setup becomes the bottleneck again.
 - **Watch (2026-10-31):** the non-Windows branch of the WP-SC5 golden test (exact nnz / pattern hash / macs
   against the Windows GCC table, values to 10⁻¹⁴) runs for the first time in the Linux CI after the merge; if the
   pattern ever differs there, record a per-platform pattern hash — do not loosen the check.
