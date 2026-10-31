@@ -219,9 +219,14 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   check Si U 14 = 14, sphere 68 vs 63); `IlutParams` defaults 2 / 10⁻²; previous default explicit as
   `BlockDiagonal` level 1; Python `"auto"` → `"ilut"`; driver variant `default`; validation-large 7h rerun; ADR 0011
   marked superseded as the default. Phase 8's preconditioner item is closed (near-field-inverse family at its ceiling).
-- **Next:** nothing in flight. Open options (lead proposes, user decides): WP-SC5 (ILUT kernel speed-up,
-  optional), the idle-machine timing reruns and the dense-PML-route block measurement (lead items), WP-S3 (waits
-  for the user's server runs), WP-T3 / WP-PML6c (optional).
+- **Decision (user, 2026-10-31, "mach 1 und 2"):** WP-SC5 (ILUT kernel speed-up, ≥ 3× at 16 µm with factors
+  unchanged) and the Krylov-recycling item → ADR 0013 (lead): operator reuse across excitations first
+  (WP-KR1, with the recycling measurement and a deflation probe), GCRO-DR (WP-KR2) only if the probe gains
+  ≥ 1.5× at 16 µm.
+- **In flight (2026-10-31):** WP-SC5 (`wp/sc5-ilut-kernel`) and WP-KR1 (`wp/kr1-operator-reuse`), in parallel;
+  both measure on the idle machine — one study process at a time (the workers check `ps` before timed runs).
+- Open lead items unchanged: idle-machine timing reruns, dense-PML-route block measurement, WP-S3 (waits for the
+  user's server runs), WP-T3 / WP-PML6c (optional).
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
   (1 - R_beam - away) P_inc" failed once in the full `-j 6` ctest of main 97694d1 (512 s, while a 1.4 GB backup
   archive was packed in parallel) and passed alone (348 s); no C++ change in that commit. If it fails again, look
