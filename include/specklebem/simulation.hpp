@@ -251,6 +251,23 @@ enum class SolverKind {
     Direct  ///< solver::solve_direct (dense LU) on the dense operator
 };
 
+/// Initial guess x0 of a GMRES solve (SolveOptions; WP-KR1, ADR 0013 decision 1). Never chosen
+/// automatically: Zero unless a caller asks for Previous.
+enum class InitialGuess {
+    Zero,  ///< x0 = 0 (the default)
+    /// The currents of the last solve() of this Simulation, also across set_excitation() (the
+    /// previous excitation's solution; useful for correlated excitations, e.g. nearby angles).
+    Previous
+};
+
+/// "zero" or "previous".
+[[nodiscard]] const char* to_string(InitialGuess guess);
+
+/// Per-call options of Simulation::solve() beyond the GMRES parameters (WP-KR1).
+struct SolveOptions {
+    InitialGuess initial_guess = InitialGuess::Zero;
+};
+
 /// Preconditioner of the GMRES solve (SimulationConfig::preconditioner; WP-PC1, ADR 0011).
 enum class PreconditionerKind {
     None,      ///< solver::IdentityPreconditioner
@@ -475,8 +492,9 @@ struct PmlTermination {
 };
 
 /// Owns everything a solve needs: the mesh, the RWG space, the formulation, the excitation
-/// (shared), the op::Problem (omega = 2 pi c0 / wavelength), the operator, the right-hand side,
-/// the Jacobi diagonal (if used) and the solution. solution().problem points into this object,
+/// (shared; replaceable with set_excitation(), which keeps the operator and the preconditioner),
+/// the op::Problem (omega = 2 pi c0 / wavelength), the operator, the right-hand side, the Jacobi
+/// diagonal (if used) and the solution. solution().problem points into this object,
 /// so a SurfaceSolution obtained from solution() is valid while the Simulation lives. Not
 /// copyable or movable (the RWG space and the Problem hold pointers into it).
 class Simulation {
@@ -593,13 +611,62 @@ public:
     ///         matrix or right-hand side, see solver::DenseLu).
     solver::GmresResult solve(const solver::GmresParams& params,
                               const solver::IterationCallback& cb = {});
+    /// Same with per-call options (WP-KR1, ADR 0013 decision 1): options.initial_guess =
+    /// InitialGuess::Previous starts GMRES from the currents of the last solve() of this
+    /// Simulation (solver::gmres with x0; the monitored residual starts at the residual of x0,
+    /// see there), also when set_excitation() came in between; Zero (the default) is the solve
+    /// above. Explicit only: nothing ever chooses Previous automatically.
+    /// @throws std::logic_error for Previous without a previous solve() (none yet) or with
+    ///         currents whose size differs from num_unknowns(); std::invalid_argument for
+    ///         Previous with SolverKind::Direct (the dense LU takes no initial guess), an invalid
+    ///         InitialGuess value and everything the solve above throws.
+    solver::GmresResult solve(const solver::GmresParams& params, const SolveOptions& options,
+                              const solver::IterationCallback& cb = {});
+
+    /// Replaces the excitation (WP-KR1, ADR 0013 decision 1: operator reuse across
+    /// excitations). Checks, as the constructors (each failure throws and leaves the Simulation
+    /// unchanged):
+    ///  * a non-null excitation whose wavelength equals config().wavelength (relative 1e-12) and
+    ///    whose background (eps_r, mu_r) equals config().exterior (relative 1e-12);
+    ///  * box route: every mesh vertex inside the excitation's controlled ball; PML route: every
+    ///    vertex of a triangle that carries an unmasked test function inside it, and the dark
+    ///    band (max |E_inc| on the PML-start square over its maximum on the patch <=
+    ///    PmlTermination::dark_band_tolerance); the PML configuration warnings of the
+    ///    constructor (oblique Si mesh size, beam waist rule) are logged again for the new
+    ///    excitation, and dark_band_ratio() returns the new ratio;
+    ///  * op::validate of the problem with the new excitation; after assemble() its omega must
+    ///    equal the operator's Problem::omega (relative 1e-12), which is kept.
+    /// Before assemble(): only replaces the excitation (problem().omega becomes its omega), as if
+    /// the Simulation had been constructed with it. After assemble(): re-assembles the
+    /// right-hand side only, with the same code as assemble() (op::assemble_rhs, masked in the
+    /// PML), and keeps the operator (the same system_operator() object), the Jacobi diagonal,
+    /// the near matrices and the preconditioner (block-diagonal, Schur or ILUT) unchanged, so a
+    /// following solve() costs the solve only. In both cases the solution state is reset:
+    /// solved() is false, solution() and every post-processing call that needs the currents
+    /// (far_field, drc, radiated / reflected / scattered power) throw std::logic_error until
+    /// the next solve(); the previous currents are kept only as the source of
+    /// InitialGuess::Previous (a SurfaceSolution reference taken from solution() before the
+    /// call is left with empty currents, so it cannot silently mix the old currents with the new
+    /// excitation). A SurfaceSolution *copied by value* before the call keeps the old currents,
+    /// but its `problem` pointer refers to this Simulation's problem(), which then carries the
+    /// new excitation (post::total_field adds the new incident field, post::bistatic_rcs
+    /// normalises by the new |E_inc|): such copies must not be used after set_excitation().
+    /// Post-processing reads the current excitation (incident_power(), drc normalisation,
+    /// problem().excitation for the fields); nothing per excitation is cached.
+    /// @throws std::invalid_argument for the failed checks above; whatever op::assemble_rhs
+    ///         throws.
+    void set_excitation(std::shared_ptr<excitation::Excitation> excitation);
+    /// The current excitation (shared with the caller; the constructor's or set_excitation()'s).
+    [[nodiscard]] std::shared_ptr<excitation::Excitation> excitation() const;
+
     /// @throws std::logic_error before the first solve().
     [[nodiscard]] const post::SurfaceSolution& solution() const;
     /// True once assemble() has completed (operator and right-hand side, committed together),
     /// i.e. system_operator() and rhs() do not throw. Never throws.
     [[nodiscard]] bool assembled() const;
     /// True once a solve() has completed (also a non-converged GMRES solve, whose solution is
-    /// stored), i.e. solution() does not throw. Never throws.
+    /// stored) and no set_excitation() came after it, i.e. solution() does not throw. Never
+    /// throws.
     [[nodiscard]] bool solved() const;
     /// Multi-line report: mesh size, formulation / preconditioner used (and whether automatic;
     /// block-diagonal and Schur complement: the block level, and after assembly the blocks,
@@ -671,9 +738,10 @@ public:
     /// scattered_power() is refused (std::logic_error: a valid call in the wrong state; the same
     /// rule as the Python binding's bistatic_rcs and field on that route).
     ///
-    /// Incident power P_inc [W] of the excitation: AngularSpectrumBeam::power() (through any
-    /// plane normal to the beam axis, the normalisation of the WP22c / PML reflectances) or
-    /// GaussianBeam::power() (paraxial, pi w0^2 / (4 eta_1)). Needs no solve.
+    /// Incident power P_inc [W] of the current excitation (excitation(), WP-KR1):
+    /// AngularSpectrumBeam::power() (through any plane normal to the beam axis, the
+    /// normalisation of the WP22c / PML reflectances) or GaussianBeam::power() (paraxial,
+    /// pi w0^2 / (4 eta_1)). Needs no solve.
     /// @throws std::logic_error for a plane wave (infinite power: normalise by the intensity
     ///         |E_0|^2 / (2 eta_1) instead, i.e. use cross sections) and for any other excitation
     ///         type without a known finite power.
@@ -711,7 +779,7 @@ public:
     [[nodiscard]] Real scattered_power(int n_theta, int n_phi, int quad_degree = 6) const;
 
     /// PML route only: the termination, the open mesh's zone tags and half widths (mesh moved
-    /// into mesh()), the stretch and the measured dark-band ratio.
+    /// into mesh()), the stretch and the measured dark-band ratio (of the current excitation).
     /// @throws std::logic_error for the box route.
     [[nodiscard]] const PmlTermination& pml_termination() const;
     [[nodiscard]] const std::vector<geometry::SurfaceZone>& zones() const;

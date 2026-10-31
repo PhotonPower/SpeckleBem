@@ -103,6 +103,16 @@ not rerun), and the reruns with the default reproduce the WP-SC3 record (rough A
 `tests/validation/test_block_preconditioner_mie.cpp` gates the default set and fill 3 / drop 10⁻³ with the same
 tolerances.
 
+Operator reuse across excitations (WP-KR1, ADR 0013 decision 1): a solve after `Simulation::set_excitation` (right-hand
+side re-assembled with the code of `assemble()`, operator and preconditioner kept) must reproduce the solve of a fresh
+`Simulation` built with the new excitation to the solver tolerance. Measured: **bitwise** — right-hand side, iteration
+count, currents and post-processing (incident power, far field, DRC, R, RCS) are identical at CI size
+(`tests/unit/test_operator_reuse.cpp`: the tiny rough PML case with the "mlfmm" ILUT default and a dense box sphere;
+`tests/python/test_operator_reuse.py`) and at study size (rough Ag U and Si U, 30° s and 0° p after 0° s: dR 0, L2 0;
+the reused 0° p solves equal the WP-SC4 records at U, 16 µm and Si U). Solves started from the previous excitation's
+currents and the deflation probe agree with the x0 = 0 solve within |ΔR| ≤ 6·10⁻⁹ and far-field L2 ≤ 3.8·10⁻⁸
+(`benchmarks/results/recycling.md`).
+
 ## Rough-surface specific checks
 
 - **Box-depth sensitivity**: scattered far field changes by < 0.1 % when the closing box depth is doubled (Si and Ag). Documents that the artificial boundary is inert.

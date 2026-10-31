@@ -262,7 +262,15 @@ def test_unsolved_simulation(h5py, tmp_path):
     sim = make_sim()
     assert not sim.assembled and not sim.solved
     snap = sim._save_snapshot()
-    assert snap == {"result": None, "params": None, "currents": None, "rhs": None}
+    exc = snap.pop("excitation")
+    assert exc is sim.excitation  # the shared object, not a copy
+    assert snap == {
+        "result": None,
+        "params": None,
+        "currents": None,
+        "rhs": None,
+        "dark_band_ratio": None,  # box route
+    }
     r = sio.load_hdf5(sim.save(tmp_path / "unsolved.h5"))
     assert r.currents is None and r.rhs is None and r.history == {}
     assert "iterations" not in r.solver and r.solver["formulation"] == sim.formulation.name

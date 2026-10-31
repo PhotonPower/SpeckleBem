@@ -219,7 +219,9 @@ sim = sb.Simulation(mesh, excitation, *, object, exterior=None, wavelength=None,
                     formulation="auto", preconditioner="auto", block_level=1, solver="gmres",
                     compression="dense", gmres=None, kernels=None, mlfmm=None)
 sim.assemble()                          # idempotent; GIL released
-res = sim.solve(tol=None, max_iter=None, restart=None, side=None, callback=None)  # SolveResult
+res = sim.solve(tol=None, max_iter=None, restart=None, side=None, callback=None,
+                *, initial_guess="zero")  # SolveResult; "previous" since WP-KR1
+sim.set_excitation(excitation)          # WP-KR1: rhs only, operator and preconditioner kept
 res.iterations, res.converged, res.residual_history, res.true_relative_residual,
 res.wall_seconds, res.x                 # residual_history: float64 copy; x: read-only view
 res.orthogonalization_seconds, res.reorthogonalizations  # GMRES Gram-Schmidt time / 2nd passes
@@ -596,6 +598,53 @@ speckle.independent_stride(size, pixel_size, factor=2.0); speckle.decimate(I, st
 - Example: `examples/python/02_rough_surface_speckle.py` (Si, L = 2.5 um, 2N = 26 880, MLFMM,
   about 1.5-3 min on a 12-core desktop) runs the harness end to end; its patch is far too small
   for the docs/05 gates (see its docstring).
+
+## Bound in WP-KR1: operator reuse across excitations (ADR 0013 decision 1)
+
+```python
+sim = sb.Simulation.with_pml(open_mesh, beam_0s, pml=term, object=sb.silver_500nm(),
+                             compression="mlfmm", gmres=dict(tol=1e-7))
+sim.solve()                                   # assembles Z, b and the ILUT, then solves
+R_0s = sim.reflectance(90, 180)
+sim.set_excitation(beam_30s)                  # right-hand side only; Z and the ILUT are kept
+res = sim.solve()                             # x0 = 0 (the default)
+res = sim.solve(initial_guess="previous")     # x0 = the currents of the last solve
+sim.excitation is beam_30s                    # True
+```
+
+- `set_excitation(excitation)` (C++ `Simulation::set_excitation`) applies the constructor's checks
+  to the new excitation: not None, wavelength equal to the Simulation's (relative 1e-12),
+  background equal to the exterior, the mesh (PML route: the vertices of the triangles with an
+  unmasked test function) inside the excitation's controlled ball, and on the PML route the dark
+  band (`dark_band_ratio` is then the new one) plus the configuration warnings. A failed check
+  raises `ValueError` and changes nothing. After `assemble()` (or a `solve()`) only the right-hand
+  side is re-assembled, with the code of `assemble()` (masked in the PML); the operator
+  (`sim.operator()` is the same object), the near matrices and the preconditioner are kept, so the
+  next `solve()` costs the solve only. Before `assemble()` the excitation is just replaced.
+- After `assemble()` the operator's angular frequency is kept and the new excitation's omega must
+  equal it to a relative 1e-12 (C++ `op::validate`; `ValueError`, nothing changed). This can
+  refuse an excitation that the constructor accepts: beams at `wavelength * (1 - 0.8e-12)` and
+  `wavelength * (1 + 0.8e-12)` each pass the constructor's check against `wavelength` but differ
+  from each other by 1.6e-12. Before `assemble()` the new omega simply replaces the old one.
+- The solution state is reset: `solved` is False, `last_result` / `last_solve_params` are None,
+  and `currents`, `far_field`, `drc`, `radiated_power`, `reflected_power`, `reflectance`,
+  `scattered_power`, `bistatic_rcs` and `field` raise `RuntimeError` until the next `solve()`.
+  `incident_power()` (no solve needed) and the DRC normalisation use the current excitation;
+  nothing per excitation is cached.
+- `solve(..., initial_guess="previous")` starts GMRES from the currents of the last `solve()` of
+  this Simulation, also across `set_excitation()` (C++ `SolveOptions{.initial_guess =
+  InitialGuess::Previous}`, `solver::gmres(A, b, x0, M, params)`). The monitored residual keeps
+  the reference of the x0 = 0 solve (`|M^-1 b|` left, `|b|` right), so `residual_history[0]` is
+  the relative residual of the guess and the tolerance means the same; a guess that already meets
+  it returns with 0 iterations. It helps only for correlated excitations (nearby angles), not for
+  s / p pairs; it is never chosen automatically. Without a previous solve it raises
+  `RuntimeError`, with `solver="direct"` `ValueError`; unknown strings raise `ValueError`.
+- `excitation`, `dark_band_ratio` and `incident_power()` take the Simulation's lock (they change
+  with `set_excitation`). `save_hdf5` / `sim.save` copy the excitation and the dark-band ratio
+  together with the currents and the right-hand side under one lock acquisition, so a
+  `set_excitation` in another thread cannot write one excitation's currents with another's
+  `/excitation` attributes. Measurement of the reuse and of the recycling potential:
+  `benchmarks/results/recycling.md`.
 
 ## HDF5 (WP23)
 

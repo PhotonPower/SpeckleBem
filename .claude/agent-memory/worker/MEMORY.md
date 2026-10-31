@@ -46,3 +46,4 @@
 - [Near-field LU ceiling (WP-SC1)](near_lu_ceiling_findings.md) — Eigen SparseLU traps (m_info, fill 20, threaded solve), Ag 184/99/20 -> 520/335/44, fill 7->14, 2 h bg limit
 - [Schur preconditioner (WP-SC2)](schur_preconditioner_findings.md) — Schur = parent its (184); gain is inter-box A/D, J-M coupling 6e-4; zero-pivot rcond trap, GEMM row order
 - [ILUT preconditioner (WP-SC3, SC4)](ilut_preconditioner_findings.md) — its vs fill/drop (Ag U 21-34, 16 um 50/59), setup = sequential A, SC4 default check (Si 14/14, sphere 68/63)
+- [Operator reuse (WP-KR1)](operator_reuse_findings.md) — set_excitation bitwise, gmres x0 overload trap, 30 deg dark band at U, ILUT spectrum no small theta

@@ -127,6 +127,13 @@ target_link_libraries(specklebem_pml_ring PRIVATE SpeckleBem::specklebem speckle
 add_executable(specklebem_preconditioner_study preconditioner_study.cpp)
 target_link_libraries(specklebem_preconditioner_study PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
 
+# Recycling study (WP-KR1, ADR 0013 decision 1): one rough PML operator, the excitation sequence
+# 0 deg s -> 30 deg s -> 0 deg p through Simulation::set_excitation; iterations with x0 = 0 /
+# previous, the harmonic Ritz spectrum of the ILUT-preconditioned operator and a deflation probe.
+# Run by hand, see benchmarks/results/recycling.md.
+add_executable(specklebem_recycling_study recycling_study.cpp)
+target_link_libraries(specklebem_recycling_study PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
 # Validations 7f / 7g of the PML route's Huygens-plane far field (WP-PML6, ADR 0010): flat Ag / Si
 # (7a geometry) and rough Ag (U, L x 1.2, wide gap; fast path), Huygens vs windowed currents and
 # the z_h / spacing / window sensitivities; run by hand, see benchmarks/results/pml_huygens.md.

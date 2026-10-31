@@ -317,7 +317,8 @@ def _excitation_attrs(exc: Any) -> dict[str, Any]:
     return a
 
 
-def _config_attrs(sim: Any) -> dict[str, Any]:
+def _config_attrs(sim: Any, dark_band_ratio: float | None) -> dict[str, Any]:
+    """dark_band_ratio: of the saved excitation (PML route), from the save snapshot."""
     cfg = dict(sim.config)
     nested = {k: cfg.pop(k) for k in ("gmres", "kernels", "mlfmm", "ilut")}
     a: dict[str, Any] = dict(cfg)
@@ -345,7 +346,7 @@ def _config_attrs(sim: Any) -> dict[str, Any]:
             "taper_end": float(half[1]),
             "pml_start": float(half[2]),
             "outer_half": float(half[3]),
-            "dark_band_ratio": float(sim.dark_band_ratio),
+            "dark_band_ratio": float(dark_band_ratio),
             "window_inner_half": float(w.inner_half),
             "window_outer_half": float(w.outer_half),
             "far_field_source": str(t.far_field_source),  # WP-PML6, ADR 0010
@@ -546,8 +547,9 @@ def save_hdf5(
         Source of ``/mesh`` (the mesh actually used, with its interior edges and, on the PML
         route, the zones), ``/currents`` (if solved), ``/rhs`` (if assembled), ``/config``,
         ``/excitation`` and the ``/solver`` attributes. The last solve, its parameters, the
-        currents and the right-hand side are copied under one lock acquisition, so a solve
-        running in another thread cannot mix two solves in one file (``save_hdf5`` waits for
+        currents, the right-hand side, the excitation and (PML route) its dark-band ratio are
+        copied under one lock acquisition, so a solve or ``set_excitation`` running in another
+        thread cannot mix two solves or two excitations in one file (``save_hdf5`` waits for
         it). Without ``sim`` only the explicitly passed parts are written.
     result : SolveResult, optional
         Solve whose statistics and residual history are stored; None = ``sim.last_result``
@@ -597,10 +599,16 @@ def save_hdf5(
         raise ValueError("save_hdf5: pass either sim or mesh, not both (sim provides the mesh)")
     params = None
     currents = rhs = None
+    excitation: Any = None
+    dark_band_ratio: float | None = None
     if sim is not None:
-        # One lock acquisition: last solve, its parameters, currents and rhs are consistent.
+        # One lock acquisition: last solve, its parameters, currents, rhs and the excitation
+        # are consistent.
         snap = sim._save_snapshot()
         currents, rhs = snap["currents"], snap["rhs"]
+        # The excitation and its dark-band ratio from the same snapshot: a set_excitation() in
+        # another thread cannot pair these currents with another excitation's attributes.
+        excitation, dark_band_ratio = snap["excitation"], snap["dark_band_ratio"]
         last = snap["result"]
         if result is None:
             result, params = last, snap["params"]
@@ -633,10 +641,10 @@ def save_hdf5(
                 if "time" in hist:
                     hg["time"].attrs["units"] = "s"
         if sim is not None:
-            _write_attrs(h5py, f.create_group("config", track_order=True), _config_attrs(sim))
-            exc = sim.excitation
+            config = _config_attrs(sim, dark_band_ratio)
+            _write_attrs(h5py, f.create_group("config", track_order=True), config)
             g = f.create_group("excitation", track_order=True)
-            _write_attrs(h5py, g, _excitation_attrs(exc))
+            _write_attrs(h5py, g, _excitation_attrs(excitation))
         if metadata:
             if not isinstance(metadata, Mapping):
                 raise TypeError("metadata: expected a mapping")

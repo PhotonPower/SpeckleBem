@@ -952,3 +952,139 @@ TEST_CASE("gmres: Hessenberg of the preconditioned operator, last cycle, Arnoldi
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Initial guess x0 (WP-KR1, ADR 0013 decision 1)
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// Jacobi of A (with the row scaling of the tests below it is far from the identity).
+solver::DiagonalPreconditioner jacobi_of(const MatrixXc& A) {
+    return solver::DiagonalPreconditioner(A.diagonal());
+}
+
+bool bitwise_equal(const VectorXc& a, const VectorXc& b) {
+    return a.size() == b.size() && (a.array() == b.array()).all();
+}
+
+}  // namespace
+
+TEST_CASE("gmres: an initial guess that solves the system needs no iteration", "[gmres]") {
+    const Index n = 60;
+    MatrixXc A = well_conditioned(n, 101);
+    A = wide_diagonal(n, 102).asDiagonal() * A;  // row scaling: Jacobi is not the identity
+    const op::DenseOperator Z(A);
+    const VectorXc b = random_vector(n, 103);
+    const VectorXc x_lu = solver::solve_direct(Z, b);
+    const solver::DiagonalPreconditioner M = jacobi_of(A);
+    const op::DenseOperator I(MatrixXc::Identity(n, n));
+    for (const PreconditionerSide side : {PreconditionerSide::Left, PreconditionerSide::Right}) {
+        INFO((side == PreconditionerSide::Left ? "left" : "right"));
+        GmresParams p = params(1e-10, 100, 0, side);
+        p.keep_hessenberg = true;
+        p.keep_basis = true;
+        // x0 = the LU solution: its residual (rounding; 5e-12 relative to |b| for the row-scaled
+        // matrix, ~1e-15 after the Jacobi scaling) is below the tolerance, so the solve returns
+        // x0 unchanged without an iteration.
+        const GmresResult r = solver::gmres(Z, b, x_lu, M, p);
+        CHECK(r.iterations == 0);
+        CHECK(r.converged);
+        REQUIRE(r.residual_history.size() == 1);
+        CHECK(r.residual_history[0] <= 1e-10);
+        CHECK(bitwise_equal(r.x, x_lu));
+        CHECK(r.true_relative_residual <= 1e-10);
+        CHECK(r.hessenberg.size() == 0);
+        CHECK(r.basis.cols() == 0);
+        // A residual that is exactly zero (I x0 = b).
+        const GmresResult e = solver::gmres(I, b, b, M, p);
+        CHECK(e.iterations == 0);
+        CHECK(e.converged);
+        CHECK(e.residual_history == std::vector<Real>{0.0});
+        CHECK(e.true_relative_residual == 0.0);
+        CHECK(bitwise_equal(e.x, b));
+    }
+}
+
+TEST_CASE("gmres: a random initial guess converges to the same solution", "[gmres]") {
+    // Well conditioned (no row scaling), so that the right-side solve (true residual 1e-10) also
+    // pins the error; Jacobi = diag(A) (~2 + noise) still differs from the identity.
+    const Index n = 120;
+    const MatrixXc A = well_conditioned(n, 111, 2.0);
+    const op::DenseOperator Z(A);
+    const VectorXc b = random_vector(n, 113);
+    const VectorXc x0 = random_vector(n, 114) * (b.norm() / std::sqrt(static_cast<Real>(n)));
+    const VectorXc x_lu = solver::solve_direct(Z, b);
+    const solver::DiagonalPreconditioner M = jacobi_of(A);
+    for (const int restart : {0, 7}) {
+        for (const PreconditionerSide side :
+             {PreconditionerSide::Left, PreconditionerSide::Right}) {
+            INFO((side == PreconditionerSide::Left ? "left" : "right") << ", restart " << restart);
+            const GmresParams p = params(1e-10, 2000, restart, side);
+            const GmresResult r0 = solver::gmres(Z, b, M, p);
+            std::vector<Real> seen;
+            const GmresResult r =
+                solver::gmres(Z, b, x0, M, p, [&](int, Real res) { seen.push_back(res); });
+            INFO("iterations x0 = 0: " << r0.iterations << ", random x0: " << r.iterations);
+            CHECK(r.converged);
+            CHECK(r.residual_history.size() == static_cast<std::size_t>(r.iterations) + 1);
+            CHECK(seen.size() == static_cast<std::size_t>(r.iterations));
+            CHECK(r.residual_history.back() <= 1e-10);
+            // The first entry: the residual of x0 relative to the x0 = 0 reference of the side,
+            // |M^-1 (b - Z x0)| / |M^-1 b| (left) or |b - Z x0| / |b| (right).
+            const VectorXc res0 = b - A * x0;
+            VectorXc mr;
+            VectorXc mb;
+            M.apply(res0, mr);
+            M.apply(b, mb);
+            const Real expected =
+                side == PreconditionerSide::Left ? mr.norm() / mb.norm() : res0.norm() / b.norm();
+            CHECK(std::abs(r.residual_history.front() - expected) <= 1e-12 * expected);
+            CHECK(r.residual_history.front() > 0.1);  // a poor guess: no free convergence
+            // The same solution as x0 = 0 and as the LU, to the tolerance's level.
+            CHECK(rel_diff(r.x, x_lu) <= 1e-7);
+            CHECK(rel_diff(r.x, r0.x) <= 1e-7);
+            CHECK(r.true_relative_residual <= 1e-8);
+        }
+    }
+}
+
+TEST_CASE("gmres: an explicit zero initial guess reproduces the x0 = 0 solve bitwise", "[gmres]") {
+    const Index n = 80;
+    MatrixXc A = well_conditioned(n, 121, 1.5);
+    A = wide_diagonal(n, 122).asDiagonal() * A;
+    const op::DenseOperator Z(A);
+    const VectorXc b = random_vector(n, 123);
+    const solver::DiagonalPreconditioner M = jacobi_of(A);
+    for (const PreconditionerSide side : {PreconditionerSide::Left, PreconditionerSide::Right}) {
+        GmresParams p = params(1e-9, 500, 0, side);
+        p.keep_hessenberg = true;
+        const GmresResult a = solver::gmres(Z, b, M, p);
+        const GmresResult z = solver::gmres(Z, b, VectorXc::Zero(n), M, p);
+        CHECK(a.iterations == z.iterations);
+        CHECK(a.residual_history == z.residual_history);
+        CHECK(z.residual_history.front() == 1.0);
+        CHECK(bitwise_equal(a.x, z.x));
+        CHECK((a.hessenberg.array() == z.hessenberg.array()).all());
+    }
+}
+
+TEST_CASE("gmres: initial guess argument errors and b = 0", "[gmres]") {
+    const Index n = 30;
+    const op::DenseOperator Z(well_conditioned(n, 131));
+    const VectorXc b = random_vector(n, 132);
+    CHECK_THROWS_AS(solver::gmres(Z, b, VectorXc::Zero(n + 1), kNone, params(1e-6)),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(solver::gmres(Z, b, VectorXc(), kNone, params(1e-6)), std::invalid_argument);
+    VectorXc bad = VectorXc::Zero(n);
+    bad(7) = Complex(std::numeric_limits<Real>::quiet_NaN(), 0.0);
+    CHECK_THROWS_AS(solver::gmres(Z, b, bad, kNone, params(1e-6)), std::invalid_argument);
+    bad(7) = Complex(0.0, std::numeric_limits<Real>::infinity());
+    CHECK_THROWS_AS(solver::gmres(Z, b, bad, kNone, params(1e-6)), std::invalid_argument);
+    // b = 0: the exact solution x = 0 whatever the guess.
+    const GmresResult z = solver::gmres(Z, VectorXc::Zero(n), b, kNone, params(1e-6));
+    CHECK(z.converged);
+    CHECK(z.iterations == 0);
+    CHECK(z.x.isZero(0.0));
+    CHECK(z.residual_history == std::vector<Real>{0.0});
+}

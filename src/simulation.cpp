@@ -20,6 +20,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace specklebem {
@@ -36,6 +37,16 @@ const char* to_string(PreconditionerKind kind) {
             return "schur";
         case PreconditionerKind::IncompleteLu:
             return "ilut";
+    }
+    return "invalid";
+}
+
+const char* to_string(InitialGuess guess) {
+    switch (guess) {
+        case InitialGuess::Zero:
+            return "zero";
+        case InitialGuess::Previous:
+            return "previous";
     }
     return "invalid";
 }
@@ -480,8 +491,15 @@ struct Simulation::Impl {
     /// Builds the ILUT preconditioner once if uses_ilut(); no-op otherwise.
     void ensure_ilut();
 
+    /// The right-hand side of p (op::assemble_rhs, masked in the PML through p.stretch), timed
+    /// into `seconds`: the single code path of assemble() and set_excitation().
+    [[nodiscard]] static VectorXc build_rhs(const op::Problem& p, double& seconds);
+
     bool solved = false;
     solver::GmresParams last_gmres;  ///< parameters of the last solve (for report())
+    /// Currents of the last solve() once set_excitation() has reset the solution state (the
+    /// source of InitialGuess::Previous; empty otherwise, solution.currents holds them then).
+    VectorXc previous_currents;
     post::SurfaceSolution solution;
     solver::GmresResult result;  ///< last result (x moved into solution.currents)
     solver::DirectSolveInfo direct_info;
@@ -492,7 +510,11 @@ struct Simulation::Impl {
         std::vector<geometry::SurfaceZone> zone;
         std::array<Real, 4> half{};  ///< patch_half, taper_end, pml_start, outer_half
         geometry::CoordinateStretch stretch;
-        Real dark_band_ratio = 0;
+        Real dark_band_ratio = 0;  ///< of the current excitation
+        /// One entry per vertex: 1 for the vertices of the triangles that carry an unmasked test
+        /// function (those the masked right-hand side integrates; the controlled-region check).
+        std::vector<std::uint8_t> rhs_vertices;
+        Real patch_mesh_size = 0;  ///< h of the Patch triangles (configuration warnings)
     };
     std::optional<Pml> pml;
     std::optional<post::CurrentWindow> window;
@@ -845,6 +867,29 @@ void warn_pml_configuration(const SimulationConfig& cfg, const excitation::Excit
     }
 }
 
+/// Excitation checks of the PML route (constructor and set_excitation): the controlled region
+/// over the vertices of the triangles the masked right-hand side integrates (rhs_vertices) and
+/// the dark band of ADR 0009 decision 4. Returns the dark-band ratio.
+Real check_pml_excitation(const geometry::TriangleMesh& mesh,
+                          const std::vector<std::uint8_t>& rhs_vertices,
+                          const std::array<Real, 4>& half, const PmlTermination& pml,
+                          const excitation::Excitation& exc, Real lambda1) {
+    check_controlled_region(mesh, exc, &rhs_vertices);
+    const Real ratio = measure_dark_band(mesh, half[0], half[2], exc, lambda1);
+    if (ratio > pml.dark_band_tolerance) {
+        std::ostringstream os;
+        os << "Simulation (PML): no dark band: max |E_inc| on the PML-start square "
+              "max(|x|, |y|) = "
+           << half[2] << " m is " << ratio
+           << " of its maximum on the patch, above PmlTermination::dark_band_tolerance = "
+           << pml.dark_band_tolerance
+           << " (ADR 0009 decision 4: the right-hand side is zero in the PML); use a smaller "
+              "beam waist or a wider gap";
+        throw std::invalid_argument(os.str());
+    }
+    return ratio;
+}
+
 }  // namespace
 
 Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
@@ -899,6 +944,8 @@ Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
                             std::move(open.zone),
                             {open.patch_half, open.taper_end, open.pml_start, open.outer_half},
                             stretch,
+                            0.0,
+                            {},
                             0.0});
 
     // Controlled region: the vertices of the triangles the masked right-hand side integrates
@@ -915,22 +962,12 @@ Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
         for (Index c = 0; c < 3; ++c)
             use_vertex[static_cast<std::size_t>(s.mesh.triangles()(t, c))] = 1;
     }
-    check_controlled_region(s.mesh, *s.excitation, &use_vertex);
+    s.pml->rhs_vertices = std::move(use_vertex);
+    s.pml->patch_mesh_size = patch_mesh_size(s.mesh, s.pml->zone);
 
     const Real ratio =
-        measure_dark_band(s.mesh, s.pml->half[0], s.pml->half[2], *s.excitation, lambda1);
+        check_pml_excitation(s.mesh, s.pml->rhs_vertices, s.pml->half, pml, *s.excitation, lambda1);
     s.pml->dark_band_ratio = ratio;
-    if (ratio > pml.dark_band_tolerance) {
-        std::ostringstream os;
-        os << "Simulation (PML): no dark band: max |E_inc| on the PML-start square "
-              "max(|x|, |y|) = "
-           << s.pml->half[2] << " m is " << ratio
-           << " of its maximum on the patch, above PmlTermination::dark_band_tolerance = "
-           << pml.dark_band_tolerance
-           << " (ADR 0009 decision 4: the right-hand side is zero in the PML); use a smaller "
-              "beam waist or a wider gap";
-        throw std::invalid_argument(os.str());
-    }
     check_operator_config(s.config, 2 * s.mesh.num_edges());
     if (s.config.compression == "mlfmm" && s.config.mlfmm.leaf_radius_quantile < 1.0) {
         // The PML ring defines near / far by leaf adjacency (every function on the leaf level).
@@ -939,8 +976,8 @@ Simulation::Simulation(geometry::OpenSurfaceMesh open, PmlTermination pml,
             "mlfmm.leaf_radius_quantile = 1 (the local leaf rule is not supported by the exact "
             "PML ring, WP-PML5a)");
     }
-    warn_pml_configuration(s.config, *s.excitation, lambda1, patch_mesh_size(s.mesh, s.pml->zone),
-                           s.pml->half[2], ratio, pml.dark_band_tolerance);
+    warn_pml_configuration(s.config, *s.excitation, lambda1, s.pml->patch_mesh_size, s.pml->half[2],
+                           ratio, pml.dark_band_tolerance);
 
     const formulation::Recommendation rec = formulation::recommend(s.config.object.eps_r);
     const formulation::Kind kind = s.config.formulation.value_or(rec.kind);
@@ -1193,6 +1230,13 @@ void Simulation::Impl::ensure_diagonal() {
     diagonal_s = t.elapsed_seconds();
 }
 
+VectorXc Simulation::Impl::build_rhs(const op::Problem& p, double& seconds) {
+    const ScopedTimer t("Simulation: right-hand side");
+    VectorXc b = op::assemble_rhs(p);
+    seconds = t.elapsed_seconds();
+    return b;
+}
+
 void Simulation::assemble() {
     Impl& s = *impl_;
     if (s.op == nullptr) {
@@ -1240,11 +1284,9 @@ void Simulation::assemble() {
             Z = op::DenseStrategy().build(s.problem);
             s.assembly_s = t.elapsed_seconds();
         }
-        {
-            const ScopedTimer t("Simulation: right-hand side");
-            b = op::assemble_rhs(s.problem);
-            s.rhs_s = t.elapsed_seconds();
-        }
+        double rhs_s = 0;
+        b = Impl::build_rhs(s.problem, rhs_s);
+        s.rhs_s = rhs_s;
         s.rhs = std::move(b);
         s.op = std::move(Z);
     }
@@ -1260,9 +1302,44 @@ solver::GmresResult Simulation::solve(const solver::IterationCallback& cb) {
 
 solver::GmresResult Simulation::solve(const solver::GmresParams& params,
                                       const solver::IterationCallback& cb) {
+    return solve(params, SolveOptions{}, cb);
+}
+
+solver::GmresResult Simulation::solve(const solver::GmresParams& params,
+                                      const SolveOptions& options,
+                                      const solver::IterationCallback& cb) {
     check_gmres_params(params);
-    assemble();  // whatever is missing: Z and b, and the diagonal if this solve uses it
     Impl& s = *impl_;
+    if (options.initial_guess != InitialGuess::Zero &&
+        options.initial_guess != InitialGuess::Previous) {
+        throw std::invalid_argument("Simulation::solve: invalid InitialGuess value");
+    }
+    const bool previous = options.initial_guess == InitialGuess::Previous;
+    if (previous) {
+        if (s.config.solver == SolverKind::Direct) {
+            throw std::invalid_argument(
+                "Simulation::solve: InitialGuess::Previous needs the GMRES solver (the direct LU "
+                "takes no initial guess)");
+        }
+        const VectorXc& prev = s.solved ? s.solution.currents : s.previous_currents;
+        if (prev.size() == 0) {
+            throw std::logic_error(
+                "Simulation::solve: InitialGuess::Previous without a previous solve()");
+        }
+        if (prev.size() != num_unknowns()) {
+            throw std::logic_error("Simulation::solve: the previous solution has " +
+                                   std::to_string(prev.size()) + " entries, the system " +
+                                   std::to_string(num_unknowns()));
+        }
+    }
+    assemble();  // whatever is missing: Z and b, and the diagonal if this solve uses it
+    // Copied: the solve replaces solution.currents.
+    const VectorXc x0 =
+        previous ? VectorXc(s.solved ? s.solution.currents : s.previous_currents) : VectorXc();
+    const auto run = [&](const solver::Preconditioner& M) {
+        return previous ? solver::gmres(*s.op, s.rhs, x0, M, params, cb)
+                        : solver::gmres(*s.op, s.rhs, M, params, cb);
+    };
     solver::GmresResult res;
     if (s.config.solver == SolverKind::Direct) {
         const auto* dense = dynamic_cast<const op::DenseOperator*>(s.op.get());
@@ -1280,19 +1357,20 @@ solver::GmresResult Simulation::solve(const solver::GmresParams& params,
         res.residual_history = {s.direct_info.residual};
     } else if (s.pre == PreconditionerKind::Diagonal) {
         const solver::DiagonalPreconditioner M(s.diagonal);
-        res = solver::gmres(*s.op, s.rhs, M, params, cb);
+        res = run(M);
     } else if (s.pre == PreconditionerKind::BlockDiagonal) {
-        res = solver::gmres(*s.op, s.rhs, *s.block, params, cb);
+        res = run(*s.block);
     } else if (s.pre == PreconditionerKind::Schur) {
-        res = solver::gmres(*s.op, s.rhs, *s.schur, params, cb);
+        res = run(*s.schur);
     } else if (s.pre == PreconditionerKind::IncompleteLu) {
-        res = solver::gmres(*s.op, s.rhs, *s.ilut, params, cb);
+        res = run(*s.ilut);
     } else {
-        res = solver::gmres(*s.op, s.rhs, solver::IdentityPreconditioner(), params, cb);
+        res = run(solver::IdentityPreconditioner());
     }
     s.solve_s = res.wall_seconds;
     s.solution.problem = &s.problem;
     s.solution.currents = res.x;
+    s.previous_currents = VectorXc();
     s.result = res;
     s.result.x = VectorXc();  // the currents are kept once, in s.solution
     s.last_gmres = params;
@@ -1306,7 +1384,7 @@ solver::GmresResult Simulation::solve(const solver::GmresParams& params,
     }
     SBEM_INFO(
         "Simulation: {} {}{}, 2N = {}: {} it, converged {}, true residual {:.3e}, "
-        "assembly {:.3f} s, solve {:.3f} s",
+        "assembly {:.3f} s, solve {:.3f} s{}",
         s.form->name(), s.config.solver == SolverKind::Direct ? "direct LU" : "GMRES",
         s.config.solver != SolverKind::Gmres         ? ""
         : s.pre == PreconditionerKind::Diagonal      ? " + Jacobi"
@@ -1315,8 +1393,84 @@ solver::GmresResult Simulation::solve(const solver::GmresParams& params,
         : s.pre == PreconditionerKind::IncompleteLu  ? " + ILUT"
                                                      : "",
         num_unknowns(), res.iterations, res.converged, res.true_relative_residual,
-        s.assembly_s + s.rhs_s + s.diagonal_s + s.block_s + s.schur_s + s.ilut_s, s.solve_s);
+        s.assembly_s + s.rhs_s + s.diagonal_s + s.block_s + s.schur_s + s.ilut_s, s.solve_s,
+        previous ? ", initial guess: previous solution" : "");
     return res;
+}
+
+void Simulation::set_excitation(std::shared_ptr<excitation::Excitation> excitation) {
+    Impl& s = *impl_;
+    // Checks first, into locals; nothing is changed until every check (and the right-hand side)
+    // has succeeded.
+    check_excitation(excitation, s.config);
+    Real ratio = 0;
+    // lambda_1 of the PML route only (exterior_wavelength refuses the metallic or active
+    // exteriors that the box route accepts).
+    const Real lambda1 = s.pml ? exterior_wavelength(s.config.exterior, s.config.wavelength) : 0.0;
+    if (s.pml) {
+        ratio = check_pml_excitation(s.mesh, s.pml->rhs_vertices, s.pml->half, s.pml->termination,
+                                     *excitation, lambda1);
+    } else {
+        check_controlled_region(s.mesh, *excitation);
+    }
+    op::Problem p = s.problem;
+    p.excitation = excitation.get();
+    // Before assembly the Problem takes the new excitation's omega (as a constructor would);
+    // afterwards the operator's omega is kept and op::validate requires the excitation's omega
+    // to equal it (relative 1e-12).
+    if (s.op == nullptr)
+        p.omega = excitation->omega();
+    op::validate(p);
+    VectorXc b;
+    double rhs_s = 0;
+    if (s.op != nullptr)
+        b = Impl::build_rhs(p, rhs_s);  // the code path of assemble(), masked in the PML
+    // Everything that can still throw (the configuration warnings and the formatting of the log
+    // message) runs before the commit, so a failure leaves the Simulation unchanged.
+    if (s.pml) {
+        warn_pml_configuration(s.config, *excitation, lambda1, s.pml->patch_mesh_size,
+                               s.pml->half[2], ratio, s.pml->termination.dark_band_tolerance);
+    }
+    std::ostringstream message;
+    message << "Simulation: excitation replaced";
+    if (s.op != nullptr) {
+        message.setf(std::ios::fixed, std::ios::floatfield);
+        message.precision(3);
+        message << ", right-hand side re-assembled in " << rhs_s
+                << " s (operator and preconditioner kept)";
+    } else {
+        message << " before assembly";
+    }
+    if (s.pml) {
+        message.setf(std::ios::scientific, std::ios::floatfield);
+        message.precision(3);
+        message << ", dark band ratio " << ratio;
+    }
+    const std::string text = message.str();
+
+    // Commit: non-throwing assignments and moves only (scalar stores, the Problem copy of
+    // pointers and scalars, shared_ptr and Eigen vector moves).
+    static_assert(std::is_nothrow_copy_assignable_v<op::Problem>);
+    static_assert(std::is_nothrow_move_assignable_v<VectorXc>);
+    if (s.pml)
+        s.pml->dark_band_ratio = ratio;
+    s.excitation = std::move(excitation);
+    s.problem = p;
+    if (s.op != nullptr) {
+        s.rhs = std::move(b);
+        s.rhs_s = rhs_s;
+    }
+    if (s.solved) {
+        // The currents belong to the previous excitation: kept for InitialGuess::Previous only.
+        s.previous_currents = std::move(s.solution.currents);
+        s.solution.currents = VectorXc();
+        s.solved = false;
+    }
+    SBEM_INFO("{}", text);
+}
+
+std::shared_ptr<excitation::Excitation> Simulation::excitation() const {
+    return impl_->excitation;
 }
 
 const post::SurfaceSolution& Simulation::solution() const {

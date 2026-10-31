@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -133,6 +134,12 @@ void check_finite_norm(Real norm, int iteration) {
 
 const char* side_name(PreconditionerSide side) {
     return side == PreconditionerSide::Left ? "left" : "right";
+}
+
+std::string fmt_initial_residual(Real rel0) {
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), ", initial guess (relative residual %.3e)", rel0);
+    return buf;
 }
 
 double seconds_since(std::chrono::steady_clock::time_point t) {
@@ -282,11 +289,19 @@ private:
     MatrixXc partial_;
 };
 
-}  // namespace
-
-GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Preconditioner& M,
-                  const GmresParams& p, const IterationCallback& cb) {
+/// GMRES with the initial guess x0 (nullptr: x0 = 0, the original algorithm unchanged).
+GmresResult run_gmres(const op::LinearOperator& A, const VectorXc& b, const Preconditioner& M,
+                      const GmresParams& p, const VectorXc* x0, const IterationCallback& cb) {
     check_arguments(A, b, p);
+    if (x0 != nullptr) {
+        if (x0->size() != b.size()) {
+            throw std::invalid_argument("gmres: initial guess size " + std::to_string(x0->size()) +
+                                        " != right-hand side size " + std::to_string(b.size()));
+        }
+        if (!all_finite(*x0)) {
+            throw std::invalid_argument("gmres: initial guess has non-finite entries");
+        }
+    }
     const auto t0 = std::chrono::steady_clock::now();
     const Index n = b.size();
 
@@ -308,18 +323,47 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
         r = b;
     }
     Real beta = r.norm();
+    // Reference of the monitored residual: |M^{-1} b| (left) or |b| (right), also with x0.
     const Real norm0 = beta;
     check_finite_norm(norm0, 0);
     if (!(norm0 > 0)) {
         throw std::runtime_error("gmres: the preconditioner maps the right-hand side to zero");
     }
+    Real rel0 = 1.0;
+    if (x0 != nullptr) {
+        // Residual of the GMRES system for x0; the iterate starts at x0.
+        op.residual(b, *x0, r);
+        beta = r.norm();
+        check_finite_norm(beta, 0);
+        res.x = *x0;
+        rel0 = beta / norm0;
+    }
 
     const int m = p.restart > 0 ? std::min(p.restart, p.max_iter) : p.max_iter;
     if (p.verbose) {
-        SBEM_INFO("gmres: n = {}, {} preconditioner '{}', tol = {:.1e}, max_iter = {}, {}", n,
+        SBEM_INFO("gmres: n = {}, {} preconditioner '{}', tol = {:.1e}, max_iter = {}, {}{}", n,
                   side_name(p.side), M.name(), p.tolerance, p.max_iter,
                   p.restart > 0 ? "restart = " + std::to_string(p.restart)
-                                : std::string("full (no restart)"));
+                                : std::string("full (no restart)"),
+                  x0 != nullptr ? fmt_initial_residual(rel0) : std::string());
+    }
+    if (x0 != nullptr && rel0 <= p.tolerance) {
+        // The initial guess already meets the tolerance (also r0 = 0 exactly): no iteration.
+        res.residual_history = {rel0};
+        res.converged = true;
+        VectorXc ax;
+        A.apply(res.x, ax);
+        res.true_relative_residual = (b - ax).norm() / b_norm;
+        if (p.keep_basis)
+            res.basis = MatrixXc(n, 0);
+        res.wall_seconds = seconds_since(t0);
+        if (p.verbose) {
+            SBEM_INFO(
+                "gmres: the initial guess meets the tolerance (relative residual {:.3e}), 0 "
+                "iterations, true residual {:.3e}",
+                rel0, res.true_relative_residual);
+        }
+        return res;
     }
 
     // Krylov basis V (grows on demand), Hessenberg columns H[k] (rotated in place, size k + 2),
@@ -333,7 +377,7 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
     VectorXc h1;  // CGS2 projections of the two passes
     VectorXc h2;
     VectorXc v;
-    res.residual_history.push_back(1.0);
+    res.residual_history.push_back(rel0);
     int total = 0;
     bool stop = false;
     const bool cgs = p.orthogonalization == Orthogonalization::CGS2;
@@ -503,6 +547,18 @@ GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Precondi
             res.true_relative_residual);
     }
     return res;
+}
+
+}  // namespace
+
+GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Preconditioner& M,
+                  const GmresParams& p, const IterationCallback& cb) {
+    return run_gmres(A, b, M, p, nullptr, cb);
+}
+
+GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const VectorXc& x0,
+                  const Preconditioner& M, const GmresParams& p, const IterationCallback& cb) {
+    return run_gmres(A, b, M, p, &x0, cb);
 }
 
 }  // namespace specklebem::solver

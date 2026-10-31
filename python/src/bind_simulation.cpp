@@ -62,12 +62,9 @@ class PySimulation final : public Simulation {
 public:
     using Simulation::Simulation;
 
-    /// The excitation passed to the constructor (Simulation keeps it alive but exposes only a
-    /// raw pointer through problem()); returned by the Python property `excitation`.
-    std::shared_ptr<excitation::Excitation> excitation_ref;
-
     /// Parameters (after the per-call overrides) and result of the last successful solve();
-    /// written and read with the mutex held (properties last_result / last_solve_params).
+    /// written and read with the mutex held (properties last_result / last_solve_params); reset
+    /// by set_excitation() (the result belongs to the previous excitation).
     struct LastSolve {
         solver::GmresParams params;
         solver::GmresResult result;
@@ -400,11 +397,8 @@ std::unique_ptr<PySimulation> make_simulation(
         make_config(exc, object, exterior, wavelength, form, preconditioner, block_level,
                     solver_name, compression, gmres, kernel_opts, mlfmm_opts, ilut_opts);
     geometry::TriangleMesh copy = mesh;
-    std::shared_ptr<excitation::Excitation> keep = exc;
     py::gil_scoped_release release;
-    auto sim = std::make_unique<PySimulation>(std::move(copy), std::move(exc), std::move(c));
-    sim->excitation_ref = std::move(keep);
-    return sim;
+    return std::make_unique<PySimulation>(std::move(copy), std::move(exc), std::move(c));
 }
 
 /// PML route (ADR 0009): open surface + PmlTermination.
@@ -421,16 +415,37 @@ std::unique_ptr<PySimulation> make_pml_simulation(
                     solver_name, compression, gmres, kernel_opts, mlfmm_opts, ilut_opts);
     geometry::OpenSurfaceMesh copy = open;
     const PmlTermination term = pml.value_or(PmlTermination{});
-    std::shared_ptr<excitation::Excitation> keep = exc;
     py::gil_scoped_release release;
-    auto sim = std::make_unique<PySimulation>(std::move(copy), term, std::move(exc), std::move(c));
-    sim->excitation_ref = std::move(keep);
-    return sim;
+    return std::make_unique<PySimulation>(std::move(copy), term, std::move(exc), std::move(c));
+}
+
+/// "zero" / "previous" (case-insensitive) -> InitialGuess (ValueError otherwise).
+InitialGuess parse_initial_guess(const std::string& name) {
+    const std::string s = to_lower(name);
+    if (s == "zero")
+        return InitialGuess::Zero;
+    if (s == "previous")
+        return InitialGuess::Previous;
+    throw py::value_error("initial_guess: expected \"zero\" or \"previous\", got \"" + name + "\"");
+}
+
+/// Simulation.set_excitation (WP-KR1): the C++ checks (ValueError), then the solve state of
+/// the binding (last_solve) is reset with the C++ one.
+void set_excitation(PySimulation& sim, std::shared_ptr<excitation::Excitation> exc) {
+    if (exc == nullptr) {
+        throw py::value_error("excitation: must not be None");
+    }
+    sim.locked([&] {
+        sim.set_excitation(std::move(exc));
+        sim.last_solve.reset();
+    });
 }
 
 GmresResult solve(PySimulation& sim, std::optional<Real> tol, std::optional<int> max_iter,
                   std::optional<int> restart, const std::optional<std::string>& side,
-                  const py::object& callback) {
+                  const py::object& callback, const std::string& initial_guess) {
+    SolveOptions options;
+    options.initial_guess = parse_initial_guess(initial_guess);
     GmresParams p = sim.config().gmres;
     p.tolerance = tol.value_or(p.tolerance);
     p.max_iter = max_iter.value_or(p.max_iter);
@@ -472,7 +487,7 @@ GmresResult solve(PySimulation& sim, std::optional<Real> tol, std::optional<int>
         };
     }
     return sim.locked([&] {
-        GmresResult r = sim.solve(p, cb);
+        GmresResult r = sim.solve(p, options, cb);
         sim.last_solve = PySimulation::LastSolve{p, r};
         return r;
     });
@@ -705,16 +720,21 @@ py::dict config_dict(const PySimulation& s) {
 }
 
 /// Copy of the state that specklebem.io.save_hdf5 stores, taken under one lock acquisition so
-/// that a concurrent solve() cannot mix two solves in one file.
+/// that a concurrent solve() or set_excitation() cannot mix two solves (or the currents of one
+/// excitation with the attributes of another) in one file.
 struct SaveSnapshot {
     std::optional<PySimulation::LastSolve> last_solve;
     std::optional<VectorXc> currents;  ///< if solved()
     std::optional<VectorXc> rhs;       ///< if assembled()
+    std::shared_ptr<excitation::Excitation> excitation;
+    std::optional<Real> dark_band_ratio;  ///< PML route only (the box route has none)
 };
 
 /// dict(result=SolveResult | None, params=dict | None, currents=ndarray | None,
-/// rhs=ndarray | None): the last successful solve (result and its effective GMRES parameters),
-/// the currents if a solution exists and the right-hand side if assembled, all from one lock.
+/// rhs=ndarray | None, excitation=Excitation, dark_band_ratio=float | None): the last
+/// successful solve (result and its effective GMRES parameters), the currents if a solution
+/// exists, the right-hand side if assembled, the current excitation and (PML route) its
+/// dark-band ratio, all from one lock.
 py::dict save_snapshot(PySimulation& s) {
     SaveSnapshot snap = s.locked([&] {
         SaveSnapshot out;
@@ -723,6 +743,9 @@ py::dict save_snapshot(PySimulation& s) {
             out.currents = s.solution().currents;
         if (s.assembled())
             out.rhs = s.rhs();
+        out.excitation = s.excitation();
+        if (s.has_pml())
+            out.dark_band_ratio = s.dark_band_ratio();
         return out;
     });
     py::dict d;
@@ -730,6 +753,8 @@ py::dict save_snapshot(PySimulation& s) {
     d["params"] = snap.last_solve ? py::object(gmres_dict(snap.last_solve->params)) : py::none();
     d["currents"] = snap.currents ? py::cast(std::move(*snap.currents)) : py::none();
     d["rhs"] = snap.rhs ? py::cast(std::move(*snap.rhs)) : py::none();
+    d["excitation"] = py::cast(std::move(snap.excitation));
+    d["dark_band_ratio"] = snap.dark_band_ratio ? py::cast(*snap.dark_band_ratio) : py::none();
     return d;
 }
 
@@ -1104,7 +1129,8 @@ Parameters
 mesh : TriangleMesh
     Closed surface, normals out of the object R2 into R1 (copied).
 excitation : Excitation
-    Incident field in R1 (shared with the caller).
+    Incident field in R1 (shared with the caller); replaceable with set_excitation(), which
+    keeps the assembled operator and preconditioner (WP-KR1).
 object : Material
     Material of R2 (keyword-only, as all following parameters).
 exterior : Material, optional
@@ -1191,8 +1217,10 @@ Notes
 Thread-safe, with limits: calls on one Simulation from several threads are serialised by a
 per-object lock (taken with the GIL released), so they run one after another, not in
 parallel (use one Simulation per thread for parallel work). The methods that take the lock
-are assemble, solve, report, currents, operator, rhs, field, far_field, bistatic_rcs, drc,
-radiated_power, reflected_power, reflectance and scattered_power.
+are assemble, set_excitation, solve, report, currents, operator, rhs, field, far_field,
+bistatic_rcs, drc, radiated_power, reflected_power, reflectance, scattered_power,
+incident_power and the properties excitation and dark_band_ratio (both change with
+set_excitation).
 From inside a solve() callback they raise RuntimeError instead of waiting: always on the
 Simulation being solved, and on another Simulation while that one is busy (an idle one
 works). A main thread waiting for the lock stays interruptible with Ctrl-C
@@ -1244,9 +1272,33 @@ ValueError
         .def(
             "assemble", [](PySimulation& s) { s.locked([&] { s.assemble(); }); },
             "Assemble Z, the right-hand side and (Jacobi GMRES) the diagonal; idempotent.")
+        .def("set_excitation", &set_excitation, py::arg("excitation"), R"doc(
+Replace the excitation, keeping the assembled operator and preconditioner (WP-KR1, ADR 0013).
+
+Checks as the constructor (same wavelength to 1e-12, background equal to the exterior, mesh in
+the excitation's controlled region; PML route: dark band and the configuration warnings). After
+assemble() only the right-hand side is re-assembled (masked in the PML as by assemble()); the
+operator, the near matrices and the preconditioner are kept, so the next solve() costs the solve
+only. Before assemble() the excitation is just replaced. Either way the solution state is reset:
+solved is False, last_result is None, and currents, far_field, drc, reflected_power, ... raise
+RuntimeError until the next solve(). solve(initial_guess="previous") can start from the previous
+excitation's currents. A failed check raises ValueError and changes nothing.
+
+After assemble() the operator's angular frequency is kept, and the new excitation's omega must
+equal it to a relative 1e-12 (ValueError otherwise). This can refuse an excitation that the
+constructor would accept: two beams at wavelength * (1 - 0.8e-12) and * (1 + 0.8e-12) each pass
+the constructor's check against ``wavelength`` (relative 1e-12) but differ from each other by
+1.6e-12. Before assemble() the new excitation's omega simply replaces the old one.
+
+Parameters
+----------
+excitation : Excitation
+    The new incident field (shared with the caller; returned by the ``excitation`` property).
+)doc")
         .def("solve", &solve, py::arg("tol") = py::none(), py::arg("max_iter") = py::none(),
              py::arg("restart") = py::none(), py::arg("side") = py::none(),
-             py::arg("callback") = py::none(), R"doc(
+             py::arg("callback") = py::none(), py::kw_only(), py::arg("initial_guess") = "zero",
+             R"doc(
 Assemble if needed and solve; the solution replaces any previous one.
 
 Parameters
@@ -1258,6 +1310,11 @@ callback : callable, optional
     called with the GIL held; an exception it raises aborts the solve and propagates. Calls
     from it into locking methods of this Simulation, or of another busy one, raise
     RuntimeError (see the class notes).
+initial_guess : str
+    "zero" (default) or "previous": start GMRES from the currents of the last solve() of this
+    Simulation, also across set_excitation() (WP-KR1; explicit only). The monitored residual
+    then starts at the residual of that guess. "previous" raises RuntimeError without a
+    previous solve and ValueError with solver="direct".
 
 Notes
 -----
@@ -1300,9 +1357,11 @@ SolveResult
             },
             "Default CurrentWindow of far_field (PML route: (taper_end, pml_start)); None for "
             "the box route.")
-        .def_property_readonly("dark_band_ratio", &Simulation::dark_band_ratio,
-                               "PML route: measured max |E_inc| on the PML-start square over its "
-                               "maximum on the patch; RuntimeError for the box route.")
+        .def_property_readonly(
+            "dark_band_ratio",
+            [](PySimulation& s) { return s.locked([&] { return s.dark_band_ratio(); }); },
+            "PML route: measured max |E_inc| on the PML-start square over its maximum on the "
+            "patch (of the current excitation); RuntimeError for the box route.")
         .def_property_readonly(
             "zone_half_widths",
             [](const PySimulation& s) {
@@ -1316,8 +1375,9 @@ SolveResult
             "The mesh actually used (TriangleMesh copy; triangles as re-oriented by the "
             "constructor, interior edges = RWG functions in the order of the currents).")
         .def_property_readonly(
-            "excitation", [](const PySimulation& s) { return s.excitation_ref; },
-            "The excitation (shared with the caller).")
+            "excitation", [](PySimulation& s) { return s.locked([&] { return s.excitation(); }); },
+            "The current excitation (shared with the caller; the constructor's or the last "
+            "set_excitation()'s).")
         .def_property_readonly(
             "object", [](const PySimulation& s) { return s.config().object; },
             "Material of R2 (copy).")
@@ -1406,8 +1466,9 @@ specklebem.io.save_hdf5.
             "does not raise).")
         .def("_save_snapshot", &save_snapshot,
              "Private (specklebem.io.save_hdf5): dict with result (last_result), params "
-             "(last_solve_params), currents (None before solve()) and rhs (None before "
-             "assemble()), copied under one lock acquisition.")
+             "(last_solve_params), currents (None before solve()), rhs (None before "
+             "assemble()), excitation and dark_band_ratio (None for the box route), copied "
+             "under one lock acquisition.")
         .def("field", &field, py::arg("points"), py::arg("kind") = "scattered",
              py::arg("quad_degree") = 6, py::arg("min_distance_factor") = 1e-3, R"doc(
 E [V/m] and H [A/m] at points [m] from the solved currents.
@@ -1470,9 +1531,12 @@ Raises
 RuntimeError
     Before solve() and on the PML route (use far_field or drc there).
 )doc")
-        // Unlocked: depends only on the excitation, fixed at construction.
-        .def("incident_power", &Simulation::incident_power, R"doc(
-Incident power P_inc [W] of the excitation (no solve needed).
+        // Locked: the excitation can be replaced by set_excitation().
+        .def(
+            "incident_power",
+            [](PySimulation& s) { return s.locked([&] { return s.incident_power(); }); },
+            R"doc(
+Incident power P_inc [W] of the current excitation (no solve needed).
 
 AngularSpectrumBeam: its power (through any plane normal to the beam axis); GaussianBeam:
 pi w0^2 / (4 eta_1) (paraxial). The normalisation of drc and of the reflectance

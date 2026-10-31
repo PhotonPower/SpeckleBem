@@ -5,6 +5,23 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver / python / tooling (WP-KR1, ADR 0013 decision 1, Phase 8): operator reuse across excitations and the
+  recycling measurement. `Simulation::set_excitation` (constructor checks: wavelength, background, controlled region,
+  PML dark band and configuration warnings; after `assemble()` only the right-hand side is re-assembled with the code
+  of `assemble()`, masked in the PML; operator, near matrices and preconditioner kept; solution state reset, so
+  post-processing throws until the next solve; a failed check changes nothing), `Simulation::excitation()`, the
+  GMRES initial guess `solver::gmres(A, b, x0, M, params, cb)` (monitored residual relative to the x0 = 0 reference; a
+  guess that meets the tolerance returns with 0 iterations) and `SolveOptions{.initial_guess = InitialGuess::Previous}`
+  (explicit only); Python `sim.set_excitation(beam)`, `sim.solve(initial_guess="previous")`; `excitation`,
+  `dark_band_ratio` and `incident_power()` now take the Simulation's lock. Driver `benchmarks/recycling_study.cpp`
+  (sequence 0° s → 30° s → 0° p on one operator; x0 = 0 / previous, harmonic Ritz spectrum of the ILUT-preconditioned
+  operator, deflation probe). Measured: `set_excitation` 0.2 s vs 179 s (Ag U) / 728 s (Si U) / 792 s (16 µm, 11 s
+  there) for a fresh assembly + ILUT setup; reused solves bitwise equal to fresh ones; the ILUT spectrum has no
+  harmonic Ritz value with |θ| < 0.3 (smallest 0.65 / 0.43 / 0.86), x0 = previous does not help for s/p and 0°/30°
+  pairs (residual 1.2–1.35×), and the deflation probe with k = 40 gives 69 vs 71 iterations at 16 µm (1.03×): **the
+  ADR 0013 gate for WP-KR2 (≥ 1.5×) is not met**. Record `benchmarks/results/recycling.md`; tests
+  `tests/unit/test_operator_reuse.cpp` (5 cases), 4 x0 cases in `tests/unit/test_gmres.cpp`,
+  `tests/python/test_operator_reuse.py` (3).
 - solver / python / tooling (WP-SC3, ADR 0012 decisions 6 and 8, Phase 8): incomplete LU of the near-field blocks.
   `solver::IncompleteLuPreconditioner` (own dual-threshold ILUT of A = Z_n[J, J] and D = Z_n[M, M], B and C unused:
   drop rule relative to the row 2-norm (scale-free, ADR 0011 invariance tested), fill limit per row

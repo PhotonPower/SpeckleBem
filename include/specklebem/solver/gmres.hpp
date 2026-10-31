@@ -61,8 +61,9 @@ struct GmresParams {
 
 struct GmresResult {
     VectorXc x;
-    /// Monitored relative residual: entry 0 is the initial one (1 for x0 = 0, b != 0), entry k
-    /// the value after k iterations; size iterations + 1. For b = 0 it is {0}.
+    /// Monitored relative residual: entry 0 is the initial one (1 for x0 = 0, b != 0; with an
+    /// initial guess the residual of x0 relative to the x0 = 0 reference, see the x0 overload of
+    /// gmres), entry k the value after k iterations; size iterations + 1. For b = 0 it is {0}.
     std::vector<Real> residual_history;
     int iterations = 0;
     bool converged = false;  ///< residual_history.back() <= tolerance
@@ -132,5 +133,28 @@ using IterationCallback = std::function<void(int iter, Real residual)>;
 ///         stops at the first such iteration instead of returning NaN).
 GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const Preconditioner& M,
                   const GmresParams& p, const IterationCallback& cb = {});
+
+/// Same with an explicit initial guess x0 (WP-KR1, ADR 0013 decision 1; never chosen
+/// automatically: x0 = 0 is the default of the overload above).
+///
+/// - The Arnoldi process starts from the residual of the GMRES system for x0, r0 = M^{-1}(b -
+///   A x0) (left) or b - A x0 (right), and the iterate is x = x0 + V y (left) or x0 + M^{-1} V y
+///   (right). The monitored residual keeps the reference of the x0 = 0 solve, |M^{-1} b| (left) or
+///   |b| (right), so the tolerance means the same: residual_history[0] = |r0| / |M^{-1} b| (left)
+///   or |b - A x0| / |b| (right), 1 for x0 = 0. Cost: one extra A application (and, left, one
+///   extra M^{-1} application for the reference norm).
+/// - Initial residual already <= tolerance (e.g. x0 the solution, also r0 = 0 exactly): no
+///   iteration; x = x0, iterations 0, residual_history = {that value}, converged true, no
+///   Hessenberg (keep_hessenberg: 0 x 0) and keep_basis an empty matrix.
+/// - b = 0: x = 0 whatever x0 (the exact solution), as the x0 = 0 overload.
+/// - x0 = 0 passed explicitly gives the same x as the overload above up to the one extra
+///   matvec (the arithmetic b - A 0 = b is exact), so the iterates are bitwise equal.
+/// - x0 is the third argument (not the fifth) because an Eigen expression such as
+///   VectorXc::Zero(n) converts to both VectorXc and IterationCallback (it is callable with two
+///   indices), which would make a fifth-position overload ambiguous.
+/// @throws std::invalid_argument as the overload above and for x0.size() != b.size() or
+///         non-finite entries of x0; std::runtime_error as the overload above.
+GmresResult gmres(const op::LinearOperator& A, const VectorXc& b, const VectorXc& x0,
+                  const Preconditioner& M, const GmresParams& p, const IterationCallback& cb = {});
 
 }  // namespace specklebem::solver
