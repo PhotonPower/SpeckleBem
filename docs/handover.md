@@ -223,8 +223,14 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   unchanged) and the Krylov-recycling item → ADR 0013 (lead): operator reuse across excitations first
   (WP-KR1, with the recycling measurement and a deflation probe), GCRO-DR (WP-KR2) only if the probe gains
   ≥ 1.5× at 16 µm.
-- **In flight (2026-10-31):** WP-SC5 (`wp/sc5-ilut-kernel`) and WP-KR1 (`wp/kr1-operator-reuse`), in parallel;
-  both measure on the idle machine — one study process at a time (the workers check `ps` before timed runs).
+- **Merged:** WP-KR1 (93f27ba): `Simulation::set_excitation` (RHS re-assembled only, operator / near matrices /
+  preconditioner kept, solution state reset, same checks as the constructors), `Simulation::excitation()`,
+  `SolveOptions::initial_guess = Previous` (explicit), `solver::gmres(A, b, x0, M, p, cb)` overload (x₀ third
+  argument), Python `sim.set_excitation` / `solve(initial_guess=...)`, driver `recycling_study`, record
+  `benchmarks/results/recycling.md`. Reuse bitwise exact; `set_excitation` 0.2 s (U) / 11–22 s (16 µm) vs
+  179 s / 792 s fresh. **ADR 0013 gate not met** (probe 1.03× at k = 40; no |θ| < 0.3 in the ILUT spectrum) →
+  WP-KR2 (GCRO-DR) closed without implementation; x₀ = previous gains nothing for s / p and 0° / 30° pairs.
+- **In flight (2026-10-31):** WP-SC5 (`wp/sc5-ilut-kernel`), measuring on the idle machine.
 - Open lead items unchanged: idle-machine timing reruns, dense-PML-route block measurement, WP-S3 (waits for the
   user's server runs), WP-T3 / WP-PML6c (optional).
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
@@ -258,7 +264,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 666 ctest (`-LE "validation-large|slow"`), 178 pytest (184 with the local speckle data); labels `slow`, `validation`
+- Test counts on `main`: 676 ctest (`-LE "validation-large|slow"`), 182 pytest (184 with the local speckle data); labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

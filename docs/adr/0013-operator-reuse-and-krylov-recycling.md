@@ -1,7 +1,7 @@
 # ADR 0013: Operator reuse across excitations and Krylov recycling for many-solve studies
 
 - **Status**: accepted 2026-10-31 (user decision: "mach 1 und 2" — WP-SC5 kernel speed-up and the Krylov-recycling
-  item proposed in ADR 0012 decision 3; lead design)
+  item proposed in ADR 0012 decision 3; lead design). **Decision 1 landed 2026-10-31 (WP-KR1, 93f27ba); the gate of decision 2 is not met — WP-KR2 closed without implementation** (see Result).
 - **Date**: 2026-10-31
 - **Phase**: 8 (preconditioning / solver cost), serves Phase 6 (speckle statistics) and the server studies
 
@@ -87,6 +87,35 @@ right-hand sides, a different solver); solving the adjoint / reciprocity tricks 
 4. **Conventions:** no new dependencies; `solver/` stays below `simulation.hpp`; results of every reused solve
    within the solver tolerance of a fresh solve (tests at CI size, records at study size); no silent default change
    (reuse is an explicit call, the initial guess and the recycling explicit options).
+
+## Result (WP-KR1, 2026-10-31)
+
+Record `benchmarks/results/recycling.md` (rough Ag PML U and 16 µm, Si U; ILUT default; sequence 0° s → 30° s →
+0° p; raw lines `recycling_rows.txt`).
+
+- **Operator reuse** is exact: a reused solve reproduces a fresh `Simulation` of the same excitation bitwise (RHS,
+  iterations, currents, R, far field: dR 0 / L2 0 at U and Si U); the reused 0° p solves equal the WP-SC4 records.
+  `set_excitation` costs 0.2 s at U / Si U and 11–22 s at 16 µm against 179 s / 728 s / 792 s for construct +
+  assemble + ILUT setup of a fresh `Simulation`: per additional excitation ≈ 70 s instead of ≈ 850 s at 16 µm.
+- **Gate of decision 1 not met (1.03×):** the deflation probe with k = 40 harmonic Ritz vectors of the first
+  solve needs 69 iterations for the second solve at 16 µm against 71 with x₀ = 0 (k = 10 / 20: 71 / 70; third
+  solve 66 vs 68); at U and Si U at most one iteration even with the whole Krylov space. Reason: the ILUT already
+  compresses the spectrum — no harmonic Ritz value with |θ| < 0.3 at any size (smallest |θ| 0.65 / 0.43 / 0.86;
+  σ_max/σ_min 3.5 / 10.9 / 2.1), whereas the parent blocks leave one at 0.298 (σ_max/σ_min 29.9). The band that
+  WP-A2 E3 found for Jacobi on the box route does not survive the ILUT on the PML route; the iterations are
+  spent on a compact cluster around 1, not on outliers.
+- **x₀ = previous** does not help for the s / p and 0° / 30° pairs (its residual is 1.22–1.35× that of x₀ = 0,
+  same or up to 4 more iterations); it stays the explicit option `SolveOptions::initial_guess = Previous`.
+- **WP-KR2 is not started** (decision 2's condition fails). The item closes with operator reuse and the
+  initial-guess option; the remaining per-solve lever is the matvec itself (Phase 7).
+- **Amendment to decision 1 (x₀ residual reference):** the residual history of a solve with an initial guess
+  starts at |M⁻¹(b − A x₀)| / |M⁻¹b| for left preconditioning (|b − A x₀| / |b| for right), i.e. the same
+  reference as for x₀ = 0, so the tolerance keeps its meaning — not |b − A x₀| / |b| as written above.
+  Interface: a separate overload `solver::gmres(A, b, x0, M, p, cb)` (x₀ third: a fifth-position optional was
+  ambiguous with the callback for Eigen expressions).
+- Study caveats stated in the record: the 30° beams at U run with a dark-band tolerance 2·10⁻⁴ (ratio 1.44·10⁻⁴,
+  w₀ cos θ < λ₁) — a setting for an iteration / reuse measurement, not a validated PML configuration; the 16 µm
+  seconds after the 30° swap were measured while another worktree built (iterations and R are load-independent).
 
 ## Consequences
 
