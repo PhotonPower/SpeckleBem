@@ -202,10 +202,13 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   (184 = 184 at U); the near-inverse gain sits in the inter-box coupling inside A and D (ADR 0012 amendment).
   WP-SC3 (incomplete LU of A and D, ADR 0012 decision 6) follows the WP-SC2 merge; fallback block SPAI
   (decision 7).
-- **In flight (2026-10-31):** WP-SC2 (`wp/sc2-schur-preconditioner`, finishing: Si control, record, tests): `solver::SchurComplementPreconditioner`
-  (block LU of A over the J boxes, S̃ = D − C Ã⁻¹ B on the pattern of D, block LU of S̃ over the M boxes), factory,
-  `PreconditionerKind::Schur`, Python, driver variant `schur`; stage 1 at U with an early gate (≤ 92 iterations on
-  Ag), stage 2 at 16 / 24 µm; the machine must stay otherwise idle during its runs.
+- **Merged:** WP-SC2 (4214c90): `solver::SchurComplementPreconditioner` + `PreconditionerKind::Schur`
+  (explicit option) and the driver diagnostics `nearlu_bc` / `nearlu_ad` / `--near-norms`; gate not met
+  (184 = 184 at U), negative result recorded; zero-pivot guard for the Schur blocks.
+- **In flight (2026-10-31):** WP-SC3 (`wp/sc3-ilut-near-blocks`, branched from the WP-SC2 tip): ILUT of A and D
+  (`solver::IncompleteLuPreconditioner`, `PreconditionerKind::IncompleteLu`, Python `"ilut"`, driver variant
+  with parameter sets), decision-8 zero-pivot guard for `BlockDiagonalPreconditioner`; stage 1 = sweep at U
+  (fill 2 / 3 / 5 × drop 1e-3 / 1e-4), stage 2 = 16 / 24 µm. The machine must stay otherwise idle during its runs.
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
   (1 - R_beam - away) P_inc" failed once in the full `-j 6` ctest of main 97694d1 (512 s, while a 1.4 GB backup
   archive was packed in parallel) and passed alone (348 s); no C++ change in that commit. If it fails again, look
@@ -237,7 +240,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 648 ctest (`-LE "validation-large|slow"`), 174 pytest (184 with the local speckle data); labels `slow`, `validation`
+- Test counts on `main`: 655 ctest (`-LE "validation-large|slow"`), 175 pytest (184 with the local speckle data); labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
