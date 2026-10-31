@@ -45,3 +45,4 @@
 - [Speckle sweep (WP-S2, S2b)](speckle_sweep_findings.md) — Si L = 8 um costs, 2D/lambda limit, (w0/Lc)^2 = 1.8, row 42 decided not met (physical), server recipe, DoD test
 - [Near-field LU ceiling (WP-SC1)](near_lu_ceiling_findings.md) — Eigen SparseLU traps (m_info, fill 20, threaded solve), Ag 184/99/20 -> 520/335/44, fill 7->14, 2 h bg limit
 - [Schur preconditioner (WP-SC2)](schur_preconditioner_findings.md) — Schur = parent its (184); gain is inter-box A/D, J-M coupling 6e-4; zero-pivot rcond trap, GEMM row order
+- [ILUT preconditioner (WP-SC3)](ilut_preconditioner_findings.md) — its vs fill/drop (Ag U 21-34, 16 um 50/59), setup = sequential A block, benchmarks OFF trap

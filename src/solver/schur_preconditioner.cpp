@@ -134,6 +134,7 @@ void factorize_blocks(std::vector<MatrixXc>& blocks, const BlockPartition& p, Re
     lu.resize(K);
     std::vector<Real> rcond(K, 0.0);
     std::vector<std::uint8_t> finite(K, 1);
+    std::vector<std::uint8_t> zero(K, 0);  // an exactly zero pivot on the U diagonal
     const auto nk = static_cast<std::int64_t>(K);
     // As BlockDiagonalPreconditioner::factorize: the BLAS calls of the blocked LU nested in this
     // parallel region run single-threaded with an OpenMP-built OpenBLAS (bitwise thread-count
@@ -151,6 +152,7 @@ void factorize_blocks(std::vector<MatrixXc>& blocks, const BlockPartition& p, Re
         // return a finite value): such a block is singular.
         const auto d = lu[k].matrixLU().diagonal();
         const bool zero_pivot = (d.array() == Complex(0.0, 0.0)).any();
+        zero[k] = zero_pivot ? 1 : 0;
         rcond[k] = zero_pivot ? 0.0 : lu[k].rcond();
     }
     min_seen = std::numeric_limits<Real>::infinity();
@@ -161,6 +163,13 @@ void factorize_blocks(std::vector<MatrixXc>& blocks, const BlockPartition& p, Re
                                  std::to_string(p.blocks[k].size()) + " unknowns)";
         if (finite[k] == 0)
             throw std::runtime_error(head + " has non-finite entries");
+        if (zero[k] != 0) {
+            throw std::runtime_error(
+                head +
+                " is singular or ill-conditioned: exactly zero pivot on the U diagonal of its LU "
+                "(estimated reciprocal condition number taken as 0: Eigen's estimate is "
+                "meaningless for a zero pivot; ADR 0012 decision 8)");
+        }
         if (!(rcond[k] >= min_rcond) || rcond[k] == 0.0) {
             char buf[64];
             std::snprintf(buf, sizeof(buf), "%.3e", rcond[k]);

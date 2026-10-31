@@ -15,6 +15,7 @@
 #include "specklebem/postprocessing/huygens.hpp"
 #include "specklebem/postprocessing/scattering.hpp"
 #include "specklebem/solver/gmres.hpp"
+#include "specklebem/solver/incomplete_lu_preconditioner.hpp"
 #include "specklebem/solver/schur_preconditioner.hpp"
 #include "specklebem/solver/sparse_lu_preconditioner.hpp"
 
@@ -258,10 +259,14 @@ enum class PreconditionerKind {
     /// Near-field Schur complement over the J and M blocks of the octree boxes,
     /// make_schur_preconditioner() (WP-SC2, ADR 0012 decision 2): explicit option only, never
     /// automatic; needs compression "mlfmm" (the near-field matrix of the operator).
-    Schur
+    Schur,
+    /// Incomplete LU (ILUT) of the near-field blocks A = Z_n[J, J] and D = Z_n[M, M],
+    /// make_incomplete_lu_preconditioner() with SimulationConfig::ilut (WP-SC3, ADR 0012
+    /// decision 6): explicit option only, never automatic; needs compression "mlfmm".
+    IncompleteLu
 };
 
-/// "none", "diagonal", "block_diagonal" or "schur".
+/// "none", "diagonal", "block_diagonal", "schur" or "ilut".
 [[nodiscard]] const char* to_string(PreconditionerKind kind);
 
 struct SimulationConfig {
@@ -296,8 +301,17 @@ struct SimulationConfig {
     /// Schur (WP-SC2, ADR 0012 decision 2; make_schur_preconditioner()) is an explicit option
     /// only (never automatic), with an empty diagonal_preconditioner, and needs compression
     /// "mlfmm" (otherwise the constructors throw std::invalid_argument); its J and M blocks are
-    /// the boxes of block_levels_above_leaf.
+    /// the boxes of block_levels_above_leaf. IncompleteLu (WP-SC3, ADR 0012 decision 6;
+    /// make_incomplete_lu_preconditioner(), parameters `ilut` below) has the same rules as Schur
+    /// (explicit only, empty diagonal_preconditioner, compression "mlfmm"); it does not use
+    /// block_levels_above_leaf.
     std::optional<PreconditionerKind> preconditioner;
+    /// IncompleteLu only: the ILUT parameters (solver::IlutParams: drop tolerance relative to
+    /// the row norm, default 1e-4; fill factor, nnz(L + U) <= fill_factor x nnz of each block
+    /// row, default 3; pivot guard min_pivot_rel, default 1e-10; factor memory budget, default
+    /// half of the available memory; ordering, default AMD). Validated by the constructors when
+    /// IncompleteLu is set (solver::validate_ilut_params), ignored otherwise.
+    solver::IlutParams ilut;
     /// BlockDiagonal and Schur only: the block level, 0 = the octree leaves, 1 = one level above
     /// them (the two levels of ADR 0011), 2 = two levels above them (WP-SC1, ADR 0012: a
     /// measurement point between one level up and the exact near-field inverse; with compression
@@ -364,6 +378,18 @@ struct SimulationConfig {
 [[nodiscard]] std::unique_ptr<solver::SchurComplementPreconditioner> make_schur_preconditioner(
     const op::LinearOperator& Z, const op::Problem& problem, int levels_above_leaf,
     const solver::SchurParams& params = {});
+
+/// Incomplete LU of the near-field blocks of an MLFMM operator Z (WP-SC3, ADR 0012 decision 6):
+/// solver::IncompleteLuPreconditioner of A = Z_n[J, J] and D = Z_n[M, M], Z_n = near_operator()
+/// plus, on the PML route, the near ring (the entries of A and D are read from the two sparse
+/// parts directly, without forming Z_n; nothing is borrowed after the constructor). An explicit
+/// option, never a default. Logs the describe() line (SBEM_INFO).
+/// @throws std::invalid_argument for an operator that is not an mlfmm::MlfmmOperator (the dense
+///         route has no near-field matrix), an operator whose size is not 2N of problem.space,
+///         and as solver::IncompleteLuPreconditioner (invalid params); std::runtime_error for an
+///         ILUT breakdown (zero row, zero or tiny pivot) or the factor memory above the budget.
+[[nodiscard]] std::unique_ptr<solver::IncompleteLuPreconditioner> make_incomplete_lu_preconditioner(
+    const op::LinearOperator& Z, const op::Problem& problem, const solver::IlutParams& params = {});
 
 /// The near-field matrix Z_n of an MLFMM operator (WP-SC1, ADR 0012): near_operator() plus, on
 /// the PML route, the near ring (PmlRingOperator::near_operator()), summed; the two hold every
@@ -457,7 +483,8 @@ public:
     ///         implemented (formulation::Kind::JMCFIE), invalid kernel options or GMRES
     ///         parameters (tolerance not finite or <= 0, max_iter < 1, restart < 0),
     ///         preconditioner and diagonal_preconditioner set inconsistently, an invalid
-    ///         PreconditionerKind, PreconditionerKind::Schur without compression "mlfmm",
+    ///         PreconditionerKind, PreconditionerKind::Schur or IncompleteLu without compression
+    ///         "mlfmm", invalid ILUT parameters (SimulationConfig::ilut) with IncompleteLu,
     ///         block_levels_above_leaf not 0, 1 or 2, invalid MLFMM
     ///         parameters (SimulationConfig::mlfmm) with compression "mlfmm" or with an explicit
     ///         BlockDiagonal on the dense route (its octree), and everything op::validate
@@ -520,14 +547,16 @@ public:
 
     /// Assembles the operator, the right-hand side and (GMRES only) the preconditioner's data:
     /// the Jacobi diagonal, the block-diagonal preconditioner (make_block_preconditioner) or the
-    /// Schur-complement preconditioner (make_schur_preconditioner), and times them. Idempotent:
+    /// Schur-complement preconditioner (make_schur_preconditioner) or the ILUT preconditioner
+    /// (make_incomplete_lu_preconditioner), and times them. Idempotent:
     /// what is already assembled is kept, so later calls do nothing (after an exception a later
     /// call retries the missing parts).
     /// @throws std::invalid_argument / std::runtime_error from the operator construction; for
     ///         "mlfmm" a std::runtime_error when no expansion order meets 10^-d0 (lossy
     ///         interior such as Ag: the ADR 0008 §6 policy is WP21), with the remedies;
     ///         std::runtime_error for a singular block of the block-diagonal or the
-    ///         Schur-complement preconditioner.
+    ///         Schur-complement preconditioner, an ILUT breakdown (zero or tiny pivot) or its
+    ///         factor memory above SimulationConfig::ilut.budget_bytes.
     void assemble();
     /// Same as solve(config().gmres, cb).
     solver::GmresResult solve(const solver::IterationCallback& cb = {});
@@ -580,6 +609,9 @@ public:
     /// The Schur-complement preconditioner once built (assemble() with PreconditionerKind::Schur
     /// and the GMRES solver), nullptr otherwise.
     [[nodiscard]] const solver::SchurComplementPreconditioner* schur_preconditioner() const;
+    /// The ILUT preconditioner once built (assemble() with PreconditionerKind::IncompleteLu and
+    /// the GMRES solver), nullptr otherwise.
+    [[nodiscard]] const solver::IncompleteLuPreconditioner* incomplete_lu_preconditioner() const;
     /// Number of unknowns 2N.
     [[nodiscard]] Index num_unknowns() const;
     /// System operator and right-hand side. @throws std::logic_error before assemble().

@@ -29,7 +29,7 @@ beam = sb.AngularSpectrumBeam(wavelength=500e-9, waist=5e-6, polarization="p",
 # --- simulation ------------------------------------------------------------
 sim = sb.Simulation(mesh, beam, object=si, exterior=sb.vacuum(),
                     formulation="ICTF",           # "PMCHWT" | "ICTF" | "MCTF" | "auto"
-                    preconditioner="none",        # "none" | "diagonal" | "block_diagonal" | "schur" | "hlu"
+                    preconditioner="none",        # "none" | "diagonal" | "block_diagonal" | "schur" | "ilut" | "hlu"
                     compression="mlfmm",          # "dense" | "mlfmm" | "aca" | "hmatrix"
                     mlfmm=dict(accuracy_digits=3, max_elements_per_leaf=100),
                     backend="cpu")                # "cpu" | "cuda"
@@ -225,7 +225,7 @@ res.wall_seconds, res.x                 # residual_history: float64 copy; x: rea
 res.orthogonalization_seconds, res.reorthogonalizations  # GMRES Gram-Schmidt time / 2nd passes
 res.hessenberg                          # (k + 1, k) Arnoldi Hessenberg with gmres keep_hessenberg
 sim.report()                            # str
-sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "none" | "diagonal" | "block_diagonal" | "schur"
+sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "none" | "diagonal" | "block_diagonal" | "schur" | "ilut"
 sim.solver, sim.wavelength, sim.num_unknowns
 sim.currents                            # [J; M] copy; RuntimeError before solve()
 Z = sim.operator()                      # sb.LinearOperator: .shape, .dtype, .matvec(x), Z @ x,
@@ -251,13 +251,24 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   (None = `excitation.wavelength`); `formulation` "auto" leaves `formulation` empty (the
   recommendation), "PMCHWT" / "ICTF" / "MCTF" (any case) or an `sb.Formulation` set it ("JMCFIE"
   raises `ValueError`, not implemented); `preconditioner` "auto" / "none" / "diagonal" /
-  "block_diagonal" / "schur" -> `SimulationConfig::preconditioner` empty /
-  `PreconditionerKind::None` / `Diagonal` / `BlockDiagonal` / `Schur` (any case; "schur": the
+  "block_diagonal" / "schur" / "ilut" -> `SimulationConfig::preconditioner` empty /
+  `PreconditionerKind::None` / `Diagonal` / `BlockDiagonal` / `Schur` / `IncompleteLu` (any case; "schur": the
   near-field Schur complement of WP-SC2, ADR 0012 decision 2 — block LU of Z_n[J, J] over the J
   unknowns of each box, the Schur complement Z_n[M, M] − Z_n[M, J] Ã⁻¹ Z_n[J, M] on the pattern
   of Z_n[M, M], LU-factorised over the M unknowns of each box, the J–M / M–J near coupling
   exact; explicit only, never automatic, needs compression "mlfmm" (`ValueError` otherwise); the
-  report says "Schur complement (near field)" and adds its setup split; "auto": block-diagonal on the PML route with compression
+  report says "Schur complement (near field)" and adds its setup split; "ilut": the incomplete LU
+  (dual-threshold ILUT, own implementation) of the near-field blocks Z_n[J, J] and Z_n[M, M] of
+  WP-SC3, ADR 0012 decision 6, with the parameters of the `ilut` dict — `fill_factor` (3;
+  nnz(L + U) ≤ fill_factor × the entries of each block row), `drop_tol` (1e-4; relative to the
+  row's 2-norm), `min_pivot_rel` (1e-10; a smaller pivot raises `RuntimeError` at assembly, never
+  replaced), `budget_bytes` (None = half of the available memory; the bound of the fill limit is
+  checked before the factorisation) and `ordering` ("amd" default / "natural"); unknown keys and
+  invalid values raise `ValueError`, the dict is ignored for other preconditioners and echoed by
+  `sim.config["ilut"]` (`budget_bytes` only when set); explicit only, never automatic, needs
+  compression "mlfmm"; the report says "ILUT of the near-field blocks A, D" with fill, drop and
+  ordering and adds nnz(L + U), fill ratios, smallest pivot ratios, memory and the setup split;
+  "auto": block-diagonal on the PML route with compression
   "mlfmm" since WP-PC1, the only measured case (`SBEM_WARN` at assembly when its largest block
   holds more than half of the unknowns), otherwise, also on the dense PML route, the
   recommendation: Jacobi for metals, none otherwise;

@@ -25,6 +25,12 @@
 //           removed (nearlu_bc: A and D box-diagonal, B and C full: the ceiling of the Schur
 //           variant, whose Ã and S̃ blocks are box-diagonal too), or with those of B and C
 //           removed (nearlu_ad: A and D full, B and C box-diagonal).
+//   ilut:F:T[:O]  make_incomplete_lu_preconditioner (WP-SC3, ADR 0012 decision 6): ILUT of the
+//           near-field blocks A = Z_n[J, J] and D = Z_n[M, M] with fill factor F (nnz(L + U) <= F
+//           x nnz of each block row), drop tolerance T (relative to the row norm) and the
+//           ordering O = amd (default) or nat (natural); several parameter sets in one process,
+//           e.g. --precond parent,ilut:2:1e-3,ilut:3:1e-4. Budget: half of the available memory.
+//           A breakdown (zero / tiny pivot) or a refused budget is reported as a ROW line.
 //   --near-norms  emits a NORMS line: Frobenius norms of A, B, C, D of Z_n split into the
 //           same-box and the inter-box entries of the --block-level boxes.
 // Cases:
@@ -43,7 +49,8 @@
 //
 // Usage: specklebem_preconditioner_study [--case pml|mie] [--tag NAME] [--material ag|si]
 //            [--patch L] [--map-patch L] [--d0 3] [--tol T] [--max-iter 5000]
-//            [--precond jacobi,leaf,parent,grandparent,nearlu,schur] [--near-lu-budget 40]
+//            [--precond jacobi,leaf,parent,grandparent,nearlu,schur,ilut:3:1e-4]
+//            [--near-lu-budget 40]
 //            [--near-lu-fill 1] [--block-level 1] [--near-norms] [--diameter D] [--subdiv N]
 //            [--n-theta 90] [--n-phi 180] [--summary FILE]
 // --case must come first (it resets the case).
@@ -54,6 +61,7 @@
 #include "specklebem/reference/mie.hpp"
 #include "specklebem/simulation.hpp"
 #include "specklebem/solver/gmres.hpp"
+#include "specklebem/solver/incomplete_lu_preconditioner.hpp"
 #include "specklebem/solver/preconditioner.hpp"
 #include "specklebem/solver/schur_preconditioner.hpp"
 #include "specklebem/solver/sparse_lu_preconditioner.hpp"
@@ -105,6 +113,51 @@ std::vector<std::string> split(const std::string& s) {
         if (!item.empty())
             out.push_back(item);
     return out;
+}
+
+/// The whole of `field` (a field of the variant token v) as a number.
+/// @throws std::invalid_argument naming the field and the token when std::stod does not consume
+///         the whole field (empty, not a number, trailing characters such as "3x") or the value
+///         is out of range.
+double parse_number(const std::string& field, const std::string& v) {
+    std::size_t pos = 0;
+    double x = 0.0;
+    try {
+        x = std::stod(field, &pos);
+    } catch (const std::exception&) {
+        pos = 0;
+    }
+    if (field.empty() || pos != field.size())
+        throw std::invalid_argument("variant " + v + ": \"" + field + "\" is not a number");
+    return x;
+}
+
+/// The ILUT parameters of a variant token "ilut:F:T[:amd|nat]".
+/// @throws std::invalid_argument for a malformed token.
+solver::IlutParams ilut_params(const std::string& v) {
+    std::vector<std::string> f;
+    std::stringstream ss(v);
+    std::string item;
+    while (std::getline(ss, item, ':')) f.push_back(item);
+    if (f.size() < 3 || f.size() > 4 || f[0] != "ilut")
+        throw std::invalid_argument("variant " + v + ": expected ilut:FILL:DROP[:amd|nat]");
+    solver::IlutParams p;
+    p.fill_factor = parse_number(f[1], v);
+    p.drop_tol = parse_number(f[2], v);
+    if (f.size() == 4) {
+        if (f[3] == "amd")
+            p.ordering = solver::IlutOrdering::Amd;
+        else if (f[3] == "nat")
+            p.ordering = solver::IlutOrdering::Natural;
+        else
+            throw std::invalid_argument("variant " + v + ": ordering must be amd or nat");
+    }
+    solver::validate_ilut_params(p);
+    return p;
+}
+
+bool is_ilut(const std::string& v) {
+    return v.rfind("ilut:", 0) == 0;
 }
 
 Options parse(int argc, char** argv) {
@@ -163,6 +216,10 @@ Options parse(int argc, char** argv) {
         }
     }
     for (const std::string& v : o.variants) {
+        if (is_ilut(v)) {
+            (void)ilut_params(v);
+            continue;
+        }
         if (v != "jacobi" && v != "none" && v != "leaf" && v != "parent" && v != "grandparent" &&
             v != "nearlu" && v != "schur" && v != "nearlu_bc" && v != "nearlu_ad")
             throw std::invalid_argument("unknown --precond variant " + v);
@@ -197,6 +254,7 @@ struct Built {
     const solver::BlockDiagonalPreconditioner* block = nullptr;
     const solver::SparseLuPreconditioner* lu = nullptr;
     const solver::SchurComplementPreconditioner* schur = nullptr;
+    const solver::IncompleteLuPreconditioner* ilut = nullptr;
     Real setup_s = 0;
     std::size_t bytes = 0;
 };
@@ -275,6 +333,11 @@ Built build(const std::string& variant, const Simulation& sim, const mlfmm::Mlfm
         b.lu = P.get();
         b.bytes = P->memory_bytes();
         b.M = std::move(P);
+    } else if (is_ilut(variant)) {
+        auto P = make_incomplete_lu_preconditioner(Z, sim.problem(), ilut_params(variant));
+        b.ilut = P.get();
+        b.bytes = P->memory_bytes();
+        b.M = std::move(P);
     } else if (variant == "schur") {
         auto P = make_schur_preconditioner(Z, sim.problem(), o.schur_level);
         b.schur = P.get();
@@ -305,9 +368,29 @@ Built build(const std::string& variant, const Simulation& sim, const mlfmm::Mlfm
 /// split (A LU, S formation, S LU) and the smallest rcond of A's and S's blocks.
 std::string solve_segment(const std::string& variant, const Built& b, const solver::GmresResult& g,
                           Index n2, Real matvec_s, int schur_level) {
-    char head[700];
+    char head[900];
     const solver::BlockDiagonalPreconditioner* P = b.block;
-    if (b.schur != nullptr) {
+    if (b.ilut != nullptr) {
+        const solver::IncompleteLuPreconditioner& I = *b.ilut;
+        const solver::IlutParams& q = I.params();
+        // ADR 0012 decision 6 memory rule of stage 1: factor memory <= 4 x nnz(A + D) x 16 B.
+        const Real rule =
+            4.0 * static_cast<Real>(I.input_nonzeros_a() + I.input_nonzeros_d()) * 16.0;
+        std::snprintf(
+            head, sizeof(head),
+            "variant %s | fill %.3g drop %.1e order %s | nnz A %lld LU %lld (fill %.2f) | nnz D "
+            "%lld LU %lld (fill %.2f) | min pivot %.2e / %.2e | condest %.2e / %.2e | P %.1f MB "
+            "(bound %.1f MB, rule %.2f) | setup %.2f s (A %.2f incl. order %.2f, D %.2f incl. "
+            "order %.2f) | macs A %.3g D %.3g",
+            variant.c_str(), q.fill_factor, q.drop_tol, solver::to_string(q.ordering),
+            static_cast<long long>(I.input_nonzeros_a()), static_cast<long long>(I.nonzeros_a()),
+            I.fill_ratio_a(), static_cast<long long>(I.input_nonzeros_d()),
+            static_cast<long long>(I.nonzeros_d()), I.fill_ratio_d(), I.min_pivot_ratio_a(),
+            I.min_pivot_ratio_d(), I.condest_a(), I.condest_d(), static_cast<Real>(b.bytes) / 1e6,
+            static_cast<Real>(I.bound_bytes()) / 1e6, static_cast<Real>(b.bytes) / rule, b.setup_s,
+            I.setup_seconds_a(), I.ordering_seconds_a(), I.setup_seconds_d(),
+            I.ordering_seconds_d(), I.factorization_macs_a(), I.factorization_macs_d());
+    } else if (b.schur != nullptr) {
         const solver::SchurComplementPreconditioner& S = *b.schur;
         char masked[64] = "";
         if (S.masked_entries_s() > 0) {
@@ -360,7 +443,7 @@ std::string solve_segment(const std::string& variant, const Built& b, const solv
             static_cast<Real>(b.bytes) / 1e6, b.setup_s, P ? P->extraction_seconds() : 0.0,
             P ? P->factorization_seconds() : 0.0, P ? P->min_reciprocal_condition() : 0.0);
     }
-    char buf[1000];
+    char buf[1200];
     std::snprintf(buf, sizeof(buf),
                   "%s | its %d | converged %s | true res %.2e | GMRES %.1f s (orth %.1f s) | "
                   "matvec %.3f s | basis %.2f GB",
@@ -377,9 +460,28 @@ std::optional<Built> try_build(const std::string& variant, const Simulation& sim
     try {
         return build(variant, sim, Z, o);
     } catch (const std::runtime_error& e) {
-        if (variant.rfind("nearlu", 0) != 0)
+        if (variant.rfind("nearlu", 0) != 0 && !is_ilut(variant))
             throw;
         emit(o.summary, row_head + "variant " + variant + " | refused: " + e.what());
+        return std::nullopt;
+    }
+}
+
+/// GMRES of one variant; an ILUT whose apply() fails (non-finite values from unstable factors)
+/// is reported as a ROW line (std::nullopt), every other failure propagates.
+std::optional<solver::GmresResult> try_gmres(const std::string& variant, const Built& b,
+                                             const op::LinearOperator& Z, const VectorXc& rhs,
+                                             const solver::GmresParams& params, const Options& o,
+                                             const std::string& row_head) {
+    try {
+        return solver::gmres(Z, rhs, *b.M, params);
+    } catch (const std::runtime_error& e) {
+        if (!is_ilut(variant))
+            throw;
+        emit(o.summary,
+             row_head +
+                 solve_segment(variant, b, solver::GmresResult{}, Z.rows(), 0.0, o.schur_level) +
+                 " | GMRES failed: " + e.what());
         return std::nullopt;
     }
 }
@@ -443,7 +545,13 @@ void run_pml(const Options& o) {
             std::printf("%s\n", b.lu->describe().c_str());
         if (b.schur != nullptr)
             std::printf("%s\n", b.schur->describe().c_str());
-        const solver::GmresResult g = solver::gmres(*Z, sim.rhs(), *b.M, cfg.gmres);
+        if (b.ilut != nullptr)
+            std::printf("%s\n", b.ilut->describe().c_str());
+        const std::optional<solver::GmresResult> gg =
+            try_gmres(v, b, *Z, sim.rhs(), cfg.gmres, o, row_head);
+        if (!gg)
+            continue;
+        const solver::GmresResult& g = *gg;
         const Real mv = matvec_seconds(*Z);
         const post::SurfaceSolution s{&sim.problem(), g.x};
         const pml_rough_ag::FarField far =
@@ -510,7 +618,13 @@ void run_mie(const Options& o) {
             std::printf("%s\n", b.lu->describe().c_str());
         if (b.schur != nullptr)
             std::printf("%s\n", b.schur->describe().c_str());
-        const solver::GmresResult g = solver::gmres(*Z, sim.rhs(), *b.M, cfg.gmres);
+        if (b.ilut != nullptr)
+            std::printf("%s\n", b.ilut->describe().c_str());
+        const std::optional<solver::GmresResult> gg =
+            try_gmres(v, b, *Z, sim.rhs(), cfg.gmres, o, row_head);
+        if (!gg)
+            continue;
+        const solver::GmresResult& g = *gg;
         const Real mv = matvec_seconds(*Z);
         const post::SurfaceSolution s{&sim.problem(), g.x};
         const Real exz =

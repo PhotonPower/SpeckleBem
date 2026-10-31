@@ -266,6 +266,37 @@ void apply_mlfmm(mlfmm::MlfmmParams& p, const py::dict& d) {
     }
 }
 
+/// ILUT parameters (WP-SC3) from the ``ilut`` dict: fill_factor, drop_tol, min_pivot_rel,
+/// budget_bytes (int > 0 or None = half of the available memory), ordering ("amd" / "natural").
+void apply_ilut(solver::IlutParams& p, const py::dict& d) {
+    for (const auto& [k, v] : d) {
+        const auto key = dict_key(k, "ilut");
+        if (key == "fill_factor") {
+            p.fill_factor = dict_value<Real>(v, key, "ilut");
+        } else if (key == "drop_tol") {
+            p.drop_tol = dict_value<Real>(v, key, "ilut");
+        } else if (key == "min_pivot_rel") {
+            p.min_pivot_rel = dict_value<Real>(v, key, "ilut");
+        } else if (key == "budget_bytes") {
+            // Python int > 0 or None (a negative value fails the unsigned cast -> ValueError).
+            if (v.is_none())
+                p.budget_bytes.reset();
+            else
+                p.budget_bytes = dict_value<std::size_t>(v, key, "ilut");
+        } else if (key == "ordering") {
+            const std::string o = to_lower(dict_value<std::string>(v, key, "ilut"));
+            if (o == "amd")
+                p.ordering = solver::IlutOrdering::Amd;
+            else if (o == "natural")
+                p.ordering = solver::IlutOrdering::Natural;
+            else
+                throw py::value_error("ilut['ordering']: expected \"amd\" or \"natural\"");
+        } else {
+            throw py::value_error("ilut: unknown key '" + key + "'");
+        }
+    }
+}
+
 std::optional<Kind> parse_formulation(const py::object& f) {
     if (py::isinstance<Kind>(f)) {
         return f.cast<Kind>();
@@ -289,15 +320,13 @@ std::optional<Kind> parse_formulation(const py::object& f) {
 }
 
 /// SimulationConfig from the keyword arguments shared by both Simulation constructors.
-SimulationConfig make_config(const std::shared_ptr<excitation::Excitation>& exc,
-                             const material::Material& object,
-                             const std::optional<material::Material>& exterior,
-                             std::optional<Real> wavelength, const py::object& form,
-                             const std::string& preconditioner, int block_level,
-                             const std::string& solver_name, const std::string& compression,
-                             const std::optional<py::dict>& gmres,
-                             const std::optional<py::dict>& kernel_opts,
-                             const std::optional<py::dict>& mlfmm_opts) {
+SimulationConfig make_config(
+    const std::shared_ptr<excitation::Excitation>& exc, const material::Material& object,
+    const std::optional<material::Material>& exterior, std::optional<Real> wavelength,
+    const py::object& form, const std::string& preconditioner, int block_level,
+    const std::string& solver_name, const std::string& compression,
+    const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
+    const std::optional<py::dict>& mlfmm_opts, const std::optional<py::dict>& ilut_opts) {
     if (!exc) {
         throw py::value_error("excitation: must not be None");
     }
@@ -315,10 +344,12 @@ SimulationConfig make_config(const std::shared_ptr<excitation::Excitation>& exc,
         c.preconditioner = PreconditionerKind::BlockDiagonal;
     } else if (pre == "schur") {
         c.preconditioner = PreconditionerKind::Schur;
+    } else if (pre == "ilut") {
+        c.preconditioner = PreconditionerKind::IncompleteLu;
     } else if (pre != "auto") {
         throw py::value_error(
-            "preconditioner: expected \"auto\", \"none\", \"diagonal\", \"block_diagonal\" or "
-            "\"schur\"");
+            "preconditioner: expected \"auto\", \"none\", \"diagonal\", \"block_diagonal\", "
+            "\"schur\" or \"ilut\"");
     }
     if (block_level < 0 || block_level > 2) {
         throw py::value_error(
@@ -341,6 +372,9 @@ SimulationConfig make_config(const std::shared_ptr<excitation::Excitation>& exc,
     if (mlfmm_opts) {
         apply_mlfmm(c.mlfmm, *mlfmm_opts);
     }
+    if (ilut_opts) {
+        apply_ilut(c.ilut, *ilut_opts);
+    }
     return c;
 }
 
@@ -350,7 +384,7 @@ std::unique_ptr<PySimulation> make_simulation(
     std::optional<Real> wavelength, const py::object& form, const std::string& preconditioner,
     int block_level, const std::string& solver_name, const std::string& compression,
     const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
-    const std::optional<py::dict>& mlfmm_opts) {
+    const std::optional<py::dict>& mlfmm_opts, const std::optional<py::dict>& ilut_opts) {
     if (mlfmm_opts) {  // the PML ring exists on the PML route only
         for (const auto& [k, v] : *mlfmm_opts) {
             (void)v;
@@ -364,7 +398,7 @@ std::unique_ptr<PySimulation> make_simulation(
     }
     SimulationConfig c =
         make_config(exc, object, exterior, wavelength, form, preconditioner, block_level,
-                    solver_name, compression, gmres, kernel_opts, mlfmm_opts);
+                    solver_name, compression, gmres, kernel_opts, mlfmm_opts, ilut_opts);
     geometry::TriangleMesh copy = mesh;
     std::shared_ptr<excitation::Excitation> keep = exc;
     py::gil_scoped_release release;
@@ -381,10 +415,10 @@ std::unique_ptr<PySimulation> make_pml_simulation(
     const py::object& form, const std::string& preconditioner, int block_level,
     const std::string& solver_name, const std::string& compression,
     const std::optional<py::dict>& gmres, const std::optional<py::dict>& kernel_opts,
-    const std::optional<py::dict>& mlfmm_opts) {
+    const std::optional<py::dict>& mlfmm_opts, const std::optional<py::dict>& ilut_opts) {
     SimulationConfig c =
         make_config(exc, object, exterior, wavelength, form, preconditioner, block_level,
-                    solver_name, compression, gmres, kernel_opts, mlfmm_opts);
+                    solver_name, compression, gmres, kernel_opts, mlfmm_opts, ilut_opts);
     geometry::OpenSurfaceMesh copy = open;
     const PmlTermination term = pml.value_or(PmlTermination{});
     std::shared_ptr<excitation::Excitation> keep = exc;
@@ -658,6 +692,15 @@ py::dict config_dict(const PySimulation& s) {
     f["pml_ring_row_clusters"] = p.pml_ring.row_clusters;
     f["pml_ring_max_far_bytes"] = p.pml_ring.max_far_bytes;
     d["mlfmm"] = f;
+    const solver::IlutParams& q = c.ilut;
+    py::dict u;
+    u["fill_factor"] = q.fill_factor;
+    u["drop_tol"] = q.drop_tol;
+    u["min_pivot_rel"] = q.min_pivot_rel;
+    u["ordering"] = solver::to_string(q.ordering);
+    if (q.budget_bytes)
+        u["budget_bytes"] = *q.budget_bytes;  // absent: half of the available memory
+    d["ilut"] = u;
     return d;
 }
 
@@ -1080,7 +1123,8 @@ preconditioner : str
     block LU of the J-J part over the J unknowns of each box, the Schur complement on the
     pattern of the M-M part, LU-factorised over the M unknowns of each box, exact J-M / M-J
     near coupling; WP-SC2, ADR 0012; explicit only, needs compression "mlfmm", ValueError
-    otherwise); GMRES only.
+    otherwise) or "ilut" (incomplete LU of the near-field blocks J-J and M-M with the ``ilut``
+    parameters; WP-SC3, ADR 0012; explicit only, needs compression "mlfmm"); GMRES only.
 block_level : int
     "block_diagonal" and "schur" only: 0 = blocks of the octree leaves, 1 (default) = one level up, 2 = two
     levels up (WP-SC1, ADR 0012, a measurement option: with compression "mlfmm" the blocks of
@@ -1124,6 +1168,13 @@ mlfmm : dict, optional
     lossy regions, checked before allocation); PML route only (Simulation.with_pml): the
     pml_ring_* keys of the PML ring (use_aca, aca_epsilon, eta, max_rank, row_clusters,
     max_far_bytes; docs/10; ValueError for Simulation()).
+ilut : dict, optional
+    preconditioner="ilut" only (ignored otherwise): ``fill_factor`` (3; nnz(L + U) <= fill_factor
+    x the entries of each block row), ``drop_tol`` (1e-4; entries below drop_tol x the row's
+    2-norm are dropped), ``min_pivot_rel`` (1e-10; a pivot |u_ii| <= min_pivot_rel x the row
+    norm raises RuntimeError at assembly, never replaced), ``budget_bytes`` (None = half of the
+    available memory; the factor memory bound is checked before the factorisation) and
+    ``ordering`` ("amd" or "natural").
 
 Raises
 ------
@@ -1149,14 +1200,15 @@ works). A main thread waiting for the lock stays interruptible with Ctrl-C
              py::arg("preconditioner") = "auto", py::arg("block_level") = 1,
              py::arg("solver") = "gmres", py::arg("compression") = "dense",
              py::arg("gmres") = py::none(), py::arg("kernels") = py::none(),
-             py::arg("mlfmm") = py::none())
+             py::arg("mlfmm") = py::none(), py::arg("ilut") = py::none())
         .def_static("with_pml", &make_pml_simulation, py::arg("open_mesh"), py::arg("excitation"),
                     py::kw_only(), py::arg("pml") = py::none(), py::arg("object"),
                     py::arg("exterior") = py::none(), py::arg("wavelength") = py::none(),
                     py::arg("formulation") = "auto", py::arg("preconditioner") = "auto",
                     py::arg("block_level") = 1, py::arg("solver") = "gmres",
                     py::arg("compression") = "dense", py::arg("gmres") = py::none(),
-                    py::arg("kernels") = py::none(), py::arg("mlfmm") = py::none(), R"doc(
+                    py::arg("kernels") = py::none(), py::arg("mlfmm") = py::none(),
+                    py::arg("ilut") = py::none(), R"doc(
 Simulation of an open surface terminated by a PML (ADR 0009; dense, or "mlfmm" since WP-PML5a).
 
 Parameters
@@ -1168,7 +1220,7 @@ excitation : Excitation
     waist <~ pml_start / 3.5 whose region_radius covers the gap corners).
 pml : PmlTermination, optional
     None = PmlTermination() (sigma_max 4, order 2, flat patch, dark band 1e-4).
-object, exterior, wavelength, formulation, preconditioner, block_level, solver, gmres, kernels, mlfmm :
+object, exterior, wavelength, formulation, preconditioner, block_level, solver, gmres, kernels, mlfmm, ilut :
     As for Simulation(); compression "dense" or "mlfmm" (GMRES only: MLFMM on the functions
     outside the PML plus the PML ring: near pairs exact, far pairs by ACA since WP-PML5b). The
     mlfmm keys pml_ring_use_aca (True; False: the exact far ring of WP-PML5a),
@@ -1223,7 +1275,7 @@ SolveResult
             "preconditioner",
             [](const PySimulation& s) { return std::string(to_string(s.preconditioner_kind())); },
             "Preconditioner of the GMRES solve (resolved): \"none\", \"diagonal\", "
-            "\"block_diagonal\" or \"schur\".")
+            "\"block_diagonal\", \"schur\" or \"ilut\".")
         .def_property_readonly(
             "solver",
             [](const PySimulation& s) {
@@ -1292,11 +1344,12 @@ SolveResult
             "PML route: the PmlTermination (copy); None for the box route.")
         .def_property_readonly("config", &config_dict, R"doc(
 Resolved configuration (a new dict): wavelength [m], formulation (name), formulation_automatic,
-preconditioner ("none" / "diagonal" / "block_diagonal" / "schur"), preconditioner_automatic,
+preconditioner ("none" / "diagonal" / "block_diagonal" / "schur" / "ilut"), preconditioner_automatic,
 block_level (0 = octree leaves, 1 = one level up, 2 = two levels up; used by "block_diagonal" and
 "schur" only), solver,
-compression, and the dicts gmres, kernels and mlfmm with every key of the constructor keywords
-(restart 0 = full GMRES). Used by specklebem.io.save_hdf5.
+compression, and the dicts gmres, kernels, mlfmm and ilut with every key of the constructor
+keywords (restart 0 = full GMRES; ilut's budget_bytes only when set). Used by
+specklebem.io.save_hdf5.
 )doc")
         .def_property_readonly(
             "last_result",

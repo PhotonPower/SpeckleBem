@@ -256,6 +256,7 @@ void BlockDiagonalPreconditioner::factorize(std::vector<MatrixXc> blocks, Real m
     lu_.resize(K);
     std::vector<Real> rcond(K, 0.0);
     std::vector<std::uint8_t> finite(K, 1);
+    std::vector<Index> zero_pivot(K, -1);  // first exactly zero U diagonal entry, -1 if none
     const auto nk = static_cast<std::int64_t>(K);
     // Largest blocks first would balance better, but the dynamic schedule of single blocks is
     // enough for the near-field partitions (blocks of similar size). With EIGEN_USE_BLAS (the
@@ -273,7 +274,17 @@ void BlockDiagonalPreconditioner::factorize(std::vector<MatrixXc> blocks, Real m
         }
         lu_[k].compute(blocks[k]);
         MatrixXc().swap(blocks[k]);  // release the copy early
-        rcond[k] = lu_[k].rcond();
+        // ADR 0012 decision 8: an exactly zero pivot makes Eigen's rcond() estimate meaningless
+        // (it divides by zero and can return a finite value), so the U diagonal is checked
+        // directly and such a block is refused whatever the estimate says.
+        const auto d = lu_[k].matrixLU().diagonal();
+        for (Index i = 0; i < d.size(); ++i) {
+            if (d(i) == Complex(0.0, 0.0)) {
+                zero_pivot[k] = i;
+                break;
+            }
+        }
+        rcond[k] = zero_pivot[k] >= 0 ? 0.0 : lu_[k].rcond();
     }
     factor_s_ = seconds_since(t0);
     min_block_ = std::numeric_limits<Index>::max();
@@ -287,6 +298,14 @@ void BlockDiagonalPreconditioner::factorize(std::vector<MatrixXc> blocks, Real m
             throw std::runtime_error(std::string(who) + ": block " +
                                      std::to_string(block_id(partition_, k)) + " (" +
                                      std::to_string(m) + " unknowns) has non-finite entries");
+        }
+        if (zero_pivot[k] >= 0) {
+            throw std::runtime_error(std::string(who) + ": block " +
+                                     std::to_string(block_id(partition_, k)) + " (" +
+                                     std::to_string(m) +
+                                     " unknowns) is singular or ill-conditioned: exactly zero "
+                                     "pivot on the U diagonal of its LU (position " +
+                                     std::to_string(zero_pivot[k]) + ")");
         }
         // !(rcond >= min) also catches a NaN estimate.
         if (!(rcond[k] >= min_rcond) || rcond[k] == 0.0) {

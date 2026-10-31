@@ -86,7 +86,7 @@ public:
     ///         S̃ with non-finite entries or an estimated reciprocal condition number below
     ///         params.min_rcond or exactly singular (a zero pivot on the U diagonal, refused
     ///         independently of the estimate; the message names the block id, its size and the
-    ///         estimate). No fallback.
+    ///         estimate, taken as 0 for a zero pivot). No fallback.
     SchurComplementPreconditioner(Matrix Zn, Index N, BlockPartition j_blocks,
                                   BlockPartition m_blocks, SchurParams params = {});
     /// Borrowing constructor: Z_n = the sum of the sparse `sources` (each 2N x 2N, RowMajor,

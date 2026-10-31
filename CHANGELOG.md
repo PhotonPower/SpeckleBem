@@ -5,6 +5,28 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver / python / tooling (WP-SC3, ADR 0012 decisions 6 and 8, Phase 8): incomplete LU of the near-field blocks.
+  `solver::IncompleteLuPreconditioner` (own dual-threshold ILUT of A = Z_n[J, J] and D = Z_n[M, M], B and C unused:
+  drop rule relative to the row 2-norm (scale-free, ADR 0011 invariance tested), fill limit per row
+  (nnz(L + U) ≤ fill_factor × nnz(block row)), AMD ordering, pivot guard that throws and never replaces a pivot,
+  budget pre-/post-check, A and D factorised in parallel and each sequentially: bitwise thread-count independent;
+  `Eigen::IncompleteLUT` rejected for its silent zero-pivot replacement), `make_incomplete_lu_preconditioner`,
+  `PreconditionerKind::IncompleteLu` and `SimulationConfig::ilut` (explicit only, compression "mlfmm") in
+  `simulation.hpp`, Python `preconditioner="ilut"` with the `ilut` dict (also in `sim.config` and the HDF5 config);
+  driver variant `ilut:F:T[:amd|nat]`. `BlockDiagonalPreconditioner` and the Schur blocks now refuse an exactly zero
+  pivot whatever `rcond()` estimates (decision 8). Measured on rough Ag PML (idle desktop, tolerance 10⁻⁷): at U
+  (2N = 22 816) every measured set (fill 2 / 3 / 5 × drop 10⁻³ / 10⁻⁴, plus 1:10⁻³, 1:10⁻², 2:10⁻²) needs 21–34
+  iterations against parent's 184 (fill 3 / drop 10⁻³: 21, as many as `nearlu_ad`, the exact LU with full A, D and
+  box-diagonal B, C; 287 MB = 0.53 of the 4 × nnz(A + D) × 16 B rule); at 2N = 300 160 (24 µm) fill 3 / drop 10⁻³
+  needs **111 iterations vs 844 (7.6×)**, 519 s vs 1 426 s total, 4.0 GB = 20 % of the operator, and fill 2 / drop
+  10⁻² 140 iterations, **333 s (4.3× faster)**, 1.9 GB (9.6 %); at 16 µm 50 / 68 vs 520 (fill 2 / drop 10⁻²: 129 s
+  vs 457 s). **Both gates of ADR 0012 decision 6 are met**; exponent of the iterations
+  0.60 (parent 0.58: a constant factor 6–10×, distorted by the leaf rule's near pattern). Si U 14 vs 48 iterations.
+  R unchanged within 4.5·10⁻⁸; Mie validation (box route) 63 iterations vs Jacobi's 210, RCS within 4.7·10⁻⁷. No
+  default changed (recommended default set for the lead: fill 2, drop 10⁻²). Record:
+  `benchmarks/results/preconditioner.md` (section WP-SC3); tests `tests/unit/test_incomplete_lu_preconditioner.cpp`
+  (10 cases), the ILUT case of `tests/validation/test_block_preconditioner_mie.cpp`, `test_ilut_preconditioner`
+  (Python).
 - solver / python / tooling (WP-SC2, ADR 0012 decision 2, Phase 8): near-field Schur-complement preconditioner.
   `solver::SchurComplementPreconditioner` (block LU of A = Z_n[J, J] over the J unknowns of each box, the M diagonal
   blocks of S̃ = D − C Ã⁻¹ B on the pattern of D, block LU over the M unknowns of each box, B and C exact and read in

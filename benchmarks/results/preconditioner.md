@@ -393,3 +393,179 @@ a single iteration over the box blocks on Ag or on Si, at either box level.
 - **Recommendation of this package.** Keep the block-diagonal default; keep `Schur` as an explicit option (it is
   correct, tested and cheap, but brings nothing on the rough PML systems). Option (e) of ADR 0012 (Krylov recycling)
   remains the independent lever for the many-solve studies.
+
+## WP-SC3: incomplete LU of the near blocks A and D (ADR 0012 decision 6)
+
+ADR 0012 decision 6 (after the WP-SC2 amendment): M⁻¹ = diag(Ã⁻¹, D̃⁻¹) with Ã, D̃ incomplete LU factorisations of the
+N × N near-field blocks A = Z_n[J, J] and D = Z_n[M, M]; B and C are not used. Library code
+`solver::IncompleteLuPreconditioner` (`solver/incomplete_lu_preconditioner.hpp`), `make_incomplete_lu_preconditioner`,
+`PreconditionerKind::IncompleteLu` and `SimulationConfig::ilut` (`simulation.hpp`; explicit only, compression "mlfmm"),
+Python `preconditioner="ilut"` with the `ilut` dict; the zero-pivot guard of decision 8 in
+`BlockDiagonalPreconditioner` and the Schur blocks; tests `tests/unit/test_incomplete_lu_preconditioner.cpp`, the ILUT
+case of `tests/validation/test_block_preconditioner_mie.cpp`, `tests/python/test_simulation.py::test_ilut_preconditioner`;
+driver variant `ilut:F:T[:amd|nat]` of `benchmarks/preconditioner_study.cpp` (built with
+`-DSPECKLEBEM_BUILD_BENCHMARKS=ON`); raw lines in `preconditioner_rows.txt` (section WP-SC3). **Stage 1 and stage 2
+gates are met.** No default was changed.
+
+### Setup
+
+| Item | Value |
+|---|---|
+| Machine | 12-core desktop, 128 GB RAM, win-release, idle machine (one study process at a time, no builds or tests during the runs; measured 2026-10-31). Two processes saw foreign load (the second U process and the Si U process: matvec 0.13–0.30 s instead of 0.097 s at Ag U, 1.2–3.8 s instead of 1.0 s at Si U, assembly 222 s / 830 s instead of 161 s / 620 s); their times are marked, their iterations, memory and R are load-independent |
+| Cases | as WP-SC1 / WP-SC2: rough Ag PML `u_case()` at L = 3.75 µm (U, 2N = 22 816), `--patch L --map-patch L` with L = 16 / 24 µm (2N = 152 960 / 300 160); rough Si U (`--material si`) as the control; compression "mlfmm", d₀ = 3, ICTF, full GMRES (CGS2), left preconditioning, tolerance 10⁻⁷, one operator and right-hand side per process for all variants |
+| Which ILUT | **own implementation** (dual-threshold ILUT, Saad 1994; row-wise IKJ elimination, no numerical pivoting). `Eigen::IncompleteLUT` was checked and rejected: it replaces an exactly zero pivot by √droptol × the row norm without telling (a silent fallback), never checks tiny pivots, drops L entries by an absolute dimensionless threshold, and finds the next pivot column by a linear search (O(len²) per row) |
+| Ordering | AMD on the pattern of B + Bᵀ (`Eigen::AMDOrdering`, sequential, pattern-only), applied symmetrically per block; `nat` = the RWG order |
+| Drop rule | in row i an entry w_j of the work row is dropped when \|w_j\| ≤ τ ‖b_i‖₂ (the 2-norm of the block's row i); for L entries the magnitude before the division by the pivot, \|l_ij\| \|u_jj\|. Scale-free: a row scaling of the block by a constant (PMCHWT → ICTF / MCTF) leaves the drop decisions unchanged |
+| Fill limit `F` | row i of L + U keeps at most max(1, round(F × nnz_i)) entries (nnz_i = the stored entries of the block's row i, diagonal always kept; L and U entries compete by the magnitude above, ties by the smaller column): nnz(L + U) ≤ F × nnz(block) + N |
+| Pivot guard | \|u_ii\| ≤ 10⁻¹⁰ ‖b_i‖₂ (also exactly zero or non-finite) and a zero row throw `std::runtime_error` naming the block and the row; a pivot is **never replaced**. A non-finite stability estimate ‖(LU)⁻¹ e‖_∞ (Chow & Saad) also throws |
+| Determinism, memory | A and D are factorised in parallel (two OpenMP threads), each sequentially; `apply` = forward / back substitution per block (two threads), explicit loops: bitwise thread-count independent (tested). Memory from the capacities of the factor arrays (24 B per off-diagonal entry + 40 B per row), reserved at the bound of the fill limit and shrunk at the end; budget pre-check against the bound (default: half the available memory) and post-check |
+| Variants | `parent` (blocks one level above the leaves, the PML-route default) rerun in the same process as the reference; Jacobi, `nearlu` (exact near LU) and `nearlu_ad` (exact LU with A, D full and B, C box-diagonal) from the WP-SC1 / WP-SC2 records |
+| Memory rules | stage 1: factor memory ≤ 4 × nnz(A + D) × 16 B (543 MB at U, 6 346 MB at 16 µm, 6 235 MB at 24 µm; column `rule` = memory / this bound); stage 2: ≤ 25 % of the operator (op 1 525 / 13 334 / 20 070 MB) |
+
+### Rough Ag, PML route, U (2N = 22 816): parameter sweep
+
+nnz(A) = nnz(D) = 4 242 192 (372 per row). `ilut:F:T` = fill F, drop T, AMD.
+
+| variant | nnz(L + U) A / D (fill) | P memory (rule) | setup (A / D; AMD) | iterations | ratio to parent | ratio to Jacobi | ratio to nearlu_ad | GMRES | total (setup + GMRES) | R |
+|---|---|---|---|---|---|---|---|---|---|---|
+| parent | 64 blocks (322 / 357 / 384) | 130.8 MB | 0.10 s | 184 | 1 | 0.306 | 8.8 | 19.9 s | 20.0 s | 0.97833914 |
+| ilut:1:1e-3 ¹ | 3.89·10⁶ / 3.66·10⁶ (0.92 / 0.86) | 181.7 MB (0.33) | 10.38 s (10.37 / 5.42; 0.30) | 34 | 0.185 | 0.056 | 1.62 | 4.7 s ¹ | 15.1 s ¹ | 0.97833914 |
+| ilut:1:1e-2 ¹ | 3.08·10⁶ / 0.81·10⁶ (0.73 / 0.19) | 93.7 MB (0.17) | 10.32 s ¹ | 33 | 0.179 | 0.055 | 1.57 | 49.1 s ¹ | — ¹ | 0.97833914 |
+| ilut:2:1e-2 ¹ | 3.80·10⁶ / 0.81·10⁶ (0.90 / 0.19) | 111.1 MB (0.20) | 4.92 s (4.90 / 0.70; 0.26) | 23 | 0.125 | 0.038 | 1.10 | 11.8 s ¹ | ≈ 8 s ² | 0.97833914 |
+| ilut:2:1e-3 | 6.02·10⁶ / 4.48·10⁶ (1.42 / 1.06) | 252.4 MB (0.46) | 13.29 s (13.27 / 5.23; 0.22) | 24 | 0.130 | 0.040 | 1.14 | 3.0 s | 16.3 s | 0.97833914 |
+| ilut:2:1e-4 | 6.42·10⁶ / 6.21·10⁶ (1.51 / 1.46) | 303.3 MB (0.56) | 15.56 s (15.55 / 11.06) | 24 | 0.130 | 0.040 | 1.14 | 3.0 s | 18.6 s | 0.97833914 |
+| **ilut:3:1e-3** | 7.45·10⁶ / 4.48·10⁶ (1.76 / 1.06) | 286.7 MB (0.53) | 17.22 s (17.21 / 5.24; 0.23) | **21** | **0.114** | 0.035 | 1.00 | 2.6 s | 19.8 s | 0.97833914 |
+| ilut:3:1e-4 | 8.04·10⁶ / 7.35·10⁶ (1.89 / 1.73) | 369.6 MB (0.68) | 20.63 s (20.61 / 13.23) | 21 | 0.114 | 0.035 | 1.00 | 2.7 s | 23.3 s | 0.97833914 |
+| ilut:5:1e-3 | 8.89·10⁶ / 4.48·10⁶ (2.10 / 1.06) | 321.4 MB (0.59) | 20.42 s (20.40 / 5.23) | 21 | 0.114 | 0.035 | 1.00 | 2.7 s | 23.1 s | 0.97833914 |
+| ilut:5:1e-4 | 10.02·10⁶ / 7.59·10⁶ (2.36 / 1.79) | 423.0 MB (0.78) | 26.81 s (26.79 / 13.57) | 21 | 0.114 | 0.035 | 1.00 | 2.8 s | 29.6 s | 0.97833914 |
+| ilut:3:1e-3:nat ¹ | 11.06·10⁶ / 3.55·10⁶ (2.61 / 0.84) | 350.9 MB (0.65) | 67.72 s ¹ (67.65 / 4.65) | 24 | 0.130 | 0.040 | 1.14 | 15.4 s ¹ | — ¹ | 0.97833914 |
+
+¹ Second U process, foreign load (assembly 222 s instead of 161 s; matvec 0.13–0.30 s instead of 0.097 s; `ilut:1:1e-2`
+also orth 28.5 s for 33 iterations): times not comparable, iterations / memory / R are. ² The 4.92 s setup measured
+in the loaded process ¹ plus 23 iterations at the idle cost of the neighbouring rows (≈ 0.13 s per iteration); the
+setup part is load-affected, so the total is indicative only. Smallest pivot ratios |u_ii| / ‖b_i‖₂ 0.10 (A) / 0.22 (D) in
+every AMD set, condest 79–118 (A) / 33–35 (D): no breakdown, no pivot near the guard. Jacobi 602, `nearlu` 20,
+`nearlu_ad` 21 iterations (WP-SC1 / WP-SC2).
+
+**Every measured set passes the stage-1 gate** (≤ 92 iterations and memory ≤ 1 × the rule): 21–34 iterations at 0.17–0.78 of
+the memory rule. Fill 3 or more with drop ≤ 10⁻³ matches `nearlu_ad`'s 21 (the exact LU with A and D full and B, C
+box-diagonal; a reference, not a bound on the ILUT) at 13 % of its memory (287 MB vs 2 146 MB). The drop tolerance
+mostly thins D (fill 0.19 at 10⁻², 1.06 at 10⁻³) at almost no iteration cost; the fill limit decides A. AMD beats the
+natural order at fill 3 / drop 10⁻³: 21 instead of 24 iterations with less fill in A (1.76 instead of 2.61) and half
+the elimination work (multiply-adds of the A block, `macs` in the ROW lines: 2.04·10⁹ with AMD vs 4.22·10⁹ natural);
+the setup times are not comparable (load ¹).
+
+### Rough Si, PML route (U, 2N = 22 816; control)
+
+| variant | nnz(L + U) A / D (fill) | P memory | setup | iterations | ratio to parent | GMRES ¹ | R | dR vs parent |
+|---|---|---|---|---|---|---|---|---|
+| parent | 64 blocks | 130.8 MB | 0.14 s | 48 | 1 | 64.5 s | 0.38713581 | 0 |
+| **ilut:3:1e-3** | 6.43·10⁶ / 3.19·10⁶ (1.51 / 0.75) | 231.2 MB | 22.98 s ¹ | **14** | 0.292 | 66.3 s | 0.38713579 | −4.5·10⁻⁸ |
+| ilut:2:1e-3 | 5.79·10⁶ / 3.19·10⁶ (1.36 / 0.75) | 215.9 MB | 50.76 s ¹ | 14 | 0.292 | 84.7 s | 0.38713579 | −4.4·10⁻⁸ |
+
+¹ Foreign load throughout this process (assembly 830 s instead of 620 s, matvec 1.17–3.83 s instead of 1.0 s): times
+not comparable. `nearlu_ad` 14, `nearlu` 13 (WP-SC1 / WP-SC2): the ILUT matches `nearlu_ad`'s 14.
+
+### Rough Ag, PML route, L = 16 µm (2N = 152 960)
+
+nnz(A) = nnz(D) = 4.96·10⁷ (648 per row; the leaf rule gives 1.25 λ leaves at this size). Assembly 689 s, process peak
+22.5 GB, matvec 0.740–0.755 s (idle; WP-SC1 0.755–0.766 s).
+
+| variant | nnz(L + U) A / D (fill) | P memory (rule; % of op) | setup (A / D; AMD) | iterations | ratio to parent | ratio to Jacobi | ratio to nearlu | GMRES (orth) | total | R |
+|---|---|---|---|---|---|---|---|---|---|---|
+| parent | 256 blocks (560 / 598 / 640) | 1 465 MB (—; 11.0 %) | 1.98 s | 520 | 1 | 0.303 | 11.8 | 454.6 s (31.8) | 456.6 s | 0.97780528 |
+| **ilut:3:1e-3** | 1.014·10⁸ / 5.91·10⁷ (2.05 / 1.19) | 3 856 MB (0.61; 28.9 %) | 532.2 s (532.0 / 122.5; 4.2) | **50** | **0.096** | 0.029 | 1.14 | 47.7 s (0.3) | 579.9 s | 0.97780528 |
+| ilut:2:1e-3 | 7.87·10⁷ / 5.91·10⁷ (1.59 / 1.19) | 3 309 MB (0.52; 24.8 %) | 386.5 s (386.3 / 121.2; 3.0) | 59 | 0.113 | 0.034 | 1.34 | 54.7 s (0.5) | 441.2 s | 0.97780528 |
+| ilut:2:1e-2 ³ | 4.35·10⁷ / 6.26·10⁶ (0.88 / 0.13) | 1 196 MB (0.19; 9.0 %) | 70.2 s (70.1 / 6.2; 3.0) | 68 | 0.131 | 0.040 | 1.55 | 58.3 s (0.6) | **128.5 s** | 0.97780528 |
+
+³ Extra process after the planned runs (the cheapest U set), same options (assembly 675 s, matvec 0.744 s, peak
+21.8 GB).
+
+### Rough Ag, PML route, L = 24 µm (2N = 300 160)
+
+nnz(A) = nnz(D) = 4.87·10⁷ (324 per row; 0.875 λ leaves). Assembly 1 227 s (1 241 s in the extra process), process
+peak 29.3 GB, matvec 1.448–1.470 s (idle; WP-SC1 1.525 s).
+
+| variant | nnz(L + U) A / D (fill) | P memory (rule; % of op) | setup (A / D; AMD) | iterations | ratio to parent | ratio to Jacobi | GMRES (orth) | Krylov basis | total | R |
+|---|---|---|---|---|---|---|---|---|---|---|
+| parent | 1 024 blocks (266 / 293 / 322) | 1 413 MB (—; 7.0 %) | 1.36 s | 844 | 1 | 0.315 | 1 424.8 s (168.7) | 4.06 GB | 1 426.2 s | 0.97948552 |
+| **ilut:3:1e-3** | 1.030·10⁸ / 6.46·10⁷ (2.11 / 1.33) | 4 026 MB (0.65; 20.1 %) | 328.8 s (328.5 / 76.0; 3.9) | **111** | **0.132** | 0.041 | 190.6 s (3.5) | 0.54 GB | 519.4 s | 0.97948552 |
+| ilut:2:1e-3 | 7.95·10⁷ / 6.45·10⁷ (1.63 / 1.32) | 3 460 MB (0.55; 17.2 %) | 229.8 s (229.6 / 75.0; 2.8) | 137 | 0.162 | 0.051 | 231.1 s (5.1) | 0.66 GB | 460.9 s | 0.97948552 |
+| ilut:2:1e-2 ³ | 6.77·10⁷ / 1.20·10⁷ (1.39 / 0.25) | 1 918 MB (0.31; 9.6 %) | 99.8 s (99.6 / 7.3; 2.9) | 140 | 0.166 | 0.052 | 233.2 s (5.5) | 0.68 GB | 333.0 s | 0.97948552 |
+
+Smallest pivot ratios 0.084–0.094 (A) / 0.22 (D) at 16 and 24 µm, condest 93–178 (A) / 32–36 (D): stable at every size.
+The setup is the A block alone (the D block, factorised in parallel, takes 23–40 % of A's time at drop 10⁻³ and
+7–14 % at 10⁻²); the AMD ordering is ≈ 1 % of it. The elimination runs at ≈ 1.2·10⁸ complex multiply-adds per second
+(`macs` in the ROW lines: 6.3·10¹⁰ for A at 16 µm in 532 s), single-threaded.
+
+Setup transient (not in the P memory column, which holds only the stored factors): during the setup each block
+reserves its fill bound up front (the ROW lines' `bound`: 7 018.6 MB for A and D together at 24 µm, fill 3; 7 141.3 MB
+at 16 µm), the final `shrink_to_fit` briefly holds the old and the new buffer of an array, and each block is copied
+at 24 B per entry (2 × 4.87·10⁷ × 24 B ≈ 2.3 GB at 24 µm, ≈ 2.4 GB at 16 µm); before the reservation the AMD work
+(≈ 3 × 16 B per entry of B + Bᵀ) coexists with the copies. The peak during the setup is therefore ≈ 2–2.5× the stored
+memory ((7.0 + 2.3) GB against 4.03 GB at 24 µm, (7.1 + 2.4) GB against 3.86 GB at 16 µm). The budget pre-check
+covers only the bound, not the copies.
+
+### Results unchanged (R against WP-PML5b / WP-PC1 / WP-SC1)
+
+Ag U: every ILUT set 0.97833914, as parent here and in WP-SC1 (|dR| ≤ 3.7·10⁻⁹, far-field L2 ≤ 1.3·10⁻⁷). Ag 16 µm:
+0.97780528 for all variants (dR ≤ 2.0·10⁻⁹; WP-SC1 0.97780528). Ag 24 µm: 0.97948552 for all variants (dR ≤
+3.9·10⁻¹⁰; WP-SC1 0.97948552). Si U: 0.38713579 against parent 0.38713581 (dR −4.5·10⁻⁸; `nearlu` in WP-SC1
+0.38713579). All within 10⁻⁷ (true residuals 3.1–7.1·10⁻⁸). The validation case (Ag sphere, box route, d = 1 µm,
+2N = 3 840, tolerance 10⁻⁶) passes with the default set (fill 3, drop 10⁻⁴): **63 iterations** against Jacobi's 210
+(parent 266, Schur 261), RCS within 4.7·10⁻⁷ of Jacobi, ε_rr 3.481·10⁻³ / 2.560·10⁻³ unchanged; setup 8.2 s, 88 MB —
+the first of the measured near-field preconditioners (leaf, parent, Schur) that beats Jacobi on the box route.
+
+### Growth
+
+Least-squares exponents of ln its over ln 2N (three Ag sizes): `ilut:3:1e-3` **0.60** (21 / 50 / 111), `ilut:2:1e-3`
+0.63 (24 / 59 / 137), `ilut:2:1e-2` 0.67 (23 / 68 / 140), parent 0.58, Jacobi 0.57; WP-SC1 `nearlu` 0.41 (U and
+16 µm only). Over U → 16 µm alone the fill-3 ILUT grows like N^0.46 (parent 0.55, nearlu 0.41), over 16 → 24 µm like
+N^1.18 (parent 0.72). The near pattern is not
+the same operator at the three sizes: the MLFMM leaf rule gives 0.97 / 1.25 / 0.875 λ leaves, i.e. 372 / 648 / 324
+near entries per row of A, so the 16 µm point carries a wider near field than the 24 µm point and the fitted exponent
+mixes the preconditioner's growth with the leaf rule (the same caveat as WP-SC1's `nearlu`). The advantage over parent
+is 8.8× / 10.4× / 7.6× (fill 3) — a large constant factor, not a smaller exponent.
+
+### ADR 0012 decision 6 gates (WP-SC3)
+
+| Criterion | Measured | Met? |
+|---|---|---|
+| Stage 1: ≤ 92 iterations at Ag U with factor memory ≤ 4 × nnz(A + D) × 16 B (543 MB) | every measured set: 21–34 iterations at 94–423 MB (0.17–0.78 of the rule); best `ilut:3:1e-3` 21 iterations, 287 MB (0.53) | **yes** |
+| Stage 2: ≥ 2× fewer iterations than parent at 2N = 300 160 (≤ 422) | `ilut:3:1e-3` **111** (7.6×), `ilut:2:1e-3` 137 (6.2×), `ilut:2:1e-2` 140 (6.0×) vs 844 | **yes** |
+| Stage 2: lower total time (setup + GMRES) at 2N = 300 160 | 519.4 s / 460.9 s / **333.0 s** vs 1 426.2 s (0.36× / 0.32× / 0.23×) | **yes** |
+| Stage 2: preconditioner memory ≤ 25 % of the operator (≤ 5 GB at 24 µm; op 20 070 MB) | 4 026 MB (20.1 %) / 3 460 MB (17.2 %) / 1 918 MB (9.6 %) | **yes** |
+
+At 16 µm (not a gate size) the fill-3 set is slower in total than parent (579.9 s vs 456.6 s: the sequential A
+factorisation of the wide 1.25 λ near pattern, 532 s, outweighs the 407 s saved in GMRES) at 28.9 % of the operator,
+`ilut:2:1e-3` is about equal (441.2 s, 24.8 %), and `ilut:2:1e-2` is 3.6× faster (128.5 s, 9.0 %). The gates are
+defined at 2N = 300 160, where all three sets pass everything.
+
+### Assessment
+
+- **The ILUT recovers the A / D near-field-inverse gain where it was measured.** At U it matches `nearlu_ad`'s
+  iterations (Ag 21 = 21, Si 14 = 14); at 16 µm it needs 50 against `nearlu`'s 44 (`nearlu_ad` not measured there),
+  with 10 % (U) to 6 % (16 µm) of the exact near LU's memory and 26 % (U) to 11 % (16 µm) of its setup. The WP-SC2
+  diagnosis (the gain lives in the inter-box T-operator coupling inside A and D) is confirmed constructively: dropping
+  B and C and approximating A and D separately costs no iterations at U against `nearlu_ad`.
+- **Cost structure.** GMRES time falls 7.5× at 24 µm (1 425 → 191 s) and the Krylov basis 7.5× (4.06 → 0.54 GB); the
+  setup (329 s for fill 3) becomes the larger part. It is the sequential elimination of the A block; D is 3–14× cheaper
+  because most of its entries fall below the drop threshold (fill 0.13–0.25 at drop 10⁻²). At fill 2, the drop tolerance
+  10⁻² instead of 10⁻³ cuts the setup 2.3× (24 µm) / 5.5× (16 µm) and the memory 1.8× / 2.8× for 1.02× / 1.15× the
+  iterations (U: 0.96×):
+  `ilut:2:1e-2` gives the best total at both large sizes (128.5 s vs 456.6 s at 16 µm, 333.0 s vs 1 426.2 s at 24 µm:
+  3.6× / 4.3× faster than parent) with 1.2 / 1.9 GB (9.0 % / 9.6 % of the operator).
+- **Growth is not changed.** The exponent stays ≈ 0.6–0.7 (constant factor 6–10× over parent); the remaining growth
+  is consistent with the long-range coupling outside the near field (ADR 0011 / 0012), and the 16 → 24 µm step is
+  distorted by the leaf rule's narrower near pattern at 24 µm.
+- **Robustness.** No breakdown in 18 ILUT setups (36 block factorisations) of indefinite complex blocks (smallest pivot ratio 0.084 against the
+  10⁻¹⁰ guard, condest ≤ 178); the guard never fired, the fallback of decision 7 (block SPAI) is not needed.
+- **Recommendation (no default changed; the lead decides).** The stage-1 and stage-2 gates of ADR 0012 decision 6 are
+  met, which by the ADR switches the "mlfmm" PML-route default. Recommended set for that default: **drop 10⁻², fill 2**
+  (fastest total at 16 and 24 µm, < 10 % of the operator, at most 1.36× the iterations of fill 3 / drop 10⁻³ at every
+  size: 23 / 68 / 140 vs 21 / 50 / 111); drop 10⁻³, fill 3 when the iteration count matters more than the setup (many
+  right-hand sides per operator). The current library default (fill 3, drop 10⁻⁴) is safe but not the cheapest and
+  should follow the choice. Caveats: (1) the setup is sequential per block and grows with the near row length (the
+  fill-3 set lost to parent at 16 µm); a faster elimination kernel (the inner update runs at ≈ 1.2·10⁸ complex
+  multiply-adds per second) or a parallel A factorisation (level scheduling) would remove that risk; (2) the box route
+  (Ag sphere: 63 vs Jacobi 210) is a second candidate, measured only at the validation size.

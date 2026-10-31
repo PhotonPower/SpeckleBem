@@ -115,7 +115,9 @@ public:
     /// Factorises blocks[k] (the matrix of partition.blocks[k]); extraction_seconds() = 0.
     /// @throws std::invalid_argument for an invalid partition, blocks.size() != the number of
     ///         blocks, a block of the wrong size or min_rcond not finite and >= 0.
-    /// @throws std::runtime_error for a block with non-finite entries or an estimated
+    /// @throws std::runtime_error for a block with non-finite entries, an exactly zero pivot on
+    ///         the U diagonal of its LU (checked directly, whatever rcond() estimates: Eigen's
+    ///         estimate can be finite for a zero pivot; ADR 0012 decision 8) or an estimated
     ///         reciprocal condition number below min_rcond (singular or ill-conditioned; the
     ///         message names the block id, its size and the estimate). No fallback.
     BlockDiagonalPreconditioner(BlockPartition partition, std::vector<MatrixXc> blocks,
@@ -187,6 +189,8 @@ private:
 // The exact sparse LU of a sparse matrix (WP-SC1, ADR 0012): solver::SparseLuPreconditioner in
 // solver/sparse_lu_preconditioner.hpp. The near-field Schur-complement preconditioner (Ergül,
 // Malas & Gürel 2011; WP-SC2, ADR 0012 decision 2): solver::SchurComplementPreconditioner in
-// solver/schur_preconditioner.hpp.
+// solver/schur_preconditioner.hpp. The incomplete LU (ILUT) of the near-field blocks A and D
+// (WP-SC3, ADR 0012 decision 6): solver::IncompleteLuPreconditioner in
+// solver/incomplete_lu_preconditioner.hpp.
 
 }  // namespace specklebem::solver

@@ -57,6 +57,7 @@ add_executable(specklebem_unit_tests
     unit/test_block_preconditioner.cpp
     unit/test_sparse_lu_preconditioner.cpp
     unit/test_schur_preconditioner.cpp
+    unit/test_incomplete_lu_preconditioner.cpp
     unit/test_speckle_statistics.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)

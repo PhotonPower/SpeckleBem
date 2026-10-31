@@ -32,7 +32,7 @@ File layout (format ``specklebem-hdf5``, ``format_version`` 1; SI units, exp(+jw
                                       solver, compression, termination ("box" / "pml"),
                                       num_unknowns;
                                       ``object`` / ``exterior`` (eps_r, mu_r complex),
-                                      ``gmres``, ``kernels``, ``mlfmm``, ``pml`` (PML route)
+                                      ``gmres``, ``kernels``, ``mlfmm``, ``ilut``, ``pml`` (PML)
 ``/excitation`` attrs                 type, wavelength, omega, background eps_r / mu_r and the
                                       type's parameters (direction, polarization, waist, ...)
 ``/metadata`` attrs and sub-groups    user metadata (``metadata=``; ``attributes.json`` of a
@@ -319,7 +319,7 @@ def _excitation_attrs(exc: Any) -> dict[str, Any]:
 
 def _config_attrs(sim: Any) -> dict[str, Any]:
     cfg = dict(sim.config)
-    nested = {k: cfg.pop(k) for k in ("gmres", "kernels", "mlfmm")}
+    nested = {k: cfg.pop(k) for k in ("gmres", "kernels", "mlfmm", "ilut")}
     a: dict[str, Any] = dict(cfg)
     a["termination"] = "pml" if sim.has_pml else "box"
     a["num_unknowns"] = int(sim.num_unknowns)
@@ -329,6 +329,9 @@ def _config_attrs(sim: Any) -> dict[str, Any]:
     a["mlfmm"] = dict(a["mlfmm"])
     for key in ("max_exact_far_bytes", "pml_ring_max_far_bytes"):  # size_t
         a["mlfmm"][key] = np.uint64(a["mlfmm"][key])
+    a["ilut"] = dict(a["ilut"])
+    if "budget_bytes" in a["ilut"]:  # size_t; absent = half of the available memory
+        a["ilut"]["budget_bytes"] = np.uint64(a["ilut"]["budget_bytes"])
     if sim.has_pml:
         t = sim.pml_termination
         half = sim.zone_half_widths

@@ -88,7 +88,12 @@ no default); they reproduce the solves to the same tolerance (rough Ag / Si R wi
 WP-PML5b / WP-PC1 values, `benchmarks/results/preconditioner.md`, section WP-SC1). The near-field Schur-complement
 preconditioner (`solver::SchurComplementPreconditioner`, `PreconditionerKind::Schur`; WP-SC2, explicit option) reproduces
 the solves to the same tolerances (Ag sphere case of `tests/validation/test_block_preconditioner_mie.cpp`; rough Ag / Si
-PML R within 1.1·10⁻⁸ of the block-preconditioned solves, `benchmarks/results/preconditioner.md`, section WP-SC2).
+PML R within 1.1·10⁻⁸ of the block-preconditioned solves, `benchmarks/results/preconditioner.md`, section WP-SC2). The
+incomplete LU of the near-field blocks A and D (`solver::IncompleteLuPreconditioner`, `PreconditionerKind::IncompleteLu`;
+WP-SC3, explicit option) reproduces the solves to the same tolerances (Ag sphere case of
+`tests/validation/test_block_preconditioner_mie.cpp`; rough Ag PML R up to 2N = 3·10⁵ within 4·10⁻⁹ of the
+block-preconditioned solves where measured in the same process as the reference, otherwise equal to the 8 printed
+digits, Si within 4.5·10⁻⁸, `benchmarks/results/preconditioner.md`, section WP-SC3).
 
 ## Rough-surface specific checks
 

@@ -123,6 +123,51 @@ def test_schur_preconditioner():
             make_sim(preconditioner=bad.pop("preconditioner", "schur"), **bad)
 
 
+def test_ilut_preconditioner():
+    # WP-SC3: preconditioner="ilut" (incomplete LU of the near-field blocks A and D, explicit
+    # only) needs compression "mlfmm"; the ilut dict sets its parameters (round trip through
+    # sim.config). Icosphere n = 2 (2N = 960); the solution equals the Jacobi one.
+    kw = dict(
+        formulation="PMCHWT",
+        subdivisions=2,
+        compression="mlfmm",
+        mlfmm=dict(accuracy_digits=3, max_elements_per_leaf=1, min_box_size_lambda=0.25),
+    )
+    ref = make_sim(preconditioner="diagonal", **kw)
+    params = dict(fill_factor=2.5, drop_tol=1e-3, min_pivot_rel=1e-12, ordering="NATURAL")
+    sim = make_sim(preconditioner="ILUT", ilut=params, **kw)
+    assert sim.preconditioner == "ilut"
+    cfg = sim.config
+    assert cfg["preconditioner"] == "ilut" and cfg["preconditioner_automatic"] is False
+    assert cfg["ilut"] == dict(
+        fill_factor=2.5, drop_tol=1e-3, min_pivot_rel=1e-12, ordering="natural"
+    )
+    res = sim.solve(tol=1e-10)
+    assert res.converged
+    assert ref.solve(tol=1e-10).converged
+    assert rel(sim.currents, ref.currents) < 1e-6
+    rep = sim.report()
+    assert "ILUT of the near-field blocks A, D (explicit), fill 2.5, drop 0.001" in rep
+    assert "preconditioner setup:" in rep and "ILUT (fill 2.5, drop 1.0e-03" in rep
+    # Defaults (budget_bytes absent = half of the available memory) and an explicit budget.
+    d = make_sim(**kw).config["ilut"]
+    assert d == dict(fill_factor=3.0, drop_tol=1e-4, min_pivot_rel=1e-10, ordering="amd")
+    b = make_sim(preconditioner="ilut", ilut=dict(budget_bytes=2**33), **kw).config["ilut"]
+    assert b["budget_bytes"] == 2**33
+    for bad in (
+        dict(),  # compression "dense"
+        dict(compression="mlfmm", ilut=dict(fill=3)),  # unknown key
+        dict(compression="mlfmm", ilut=dict(fill_factor=0.0)),
+        dict(compression="mlfmm", ilut=dict(drop_tol=-1.0)),
+        dict(compression="mlfmm", ilut=dict(budget_bytes=-5)),
+        dict(compression="mlfmm", ilut=dict(budget_bytes=0)),
+        dict(compression="mlfmm", ilut=dict(ordering="rcm")),
+        dict(compression="mlfmm", preconditioner="ilu"),
+    ):
+        with pytest.raises(ValueError):
+            make_sim(preconditioner=bad.pop("preconditioner", "ilut"), **bad)
+
+
 def test_gmres_orthogonalization(direct):
     # WP-G1: gmres['orthogonalization'] selects the Gram-Schmidt variant (case-insensitive).
     res_direct = direct.solve()

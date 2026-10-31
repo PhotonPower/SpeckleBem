@@ -156,7 +156,7 @@ def test_sphere_round_trip_lossless(direct, h5py, tmp_path):
         "compression",
     ):
         assert r.config[key] == cfg[key], key
-    for key in ("gmres", "kernels", "mlfmm"):
+    for key in ("gmres", "kernels", "mlfmm", "ilut"):
         assert r.config[key] == cfg[key], key
     assert r.config["termination"] == "box" and "pml" not in r.config
     assert r.config["num_unknowns"] == sim.num_unknowns
@@ -282,6 +282,23 @@ def test_unsolved_simulation(h5py, tmp_path):
     assert snap["result"].iterations == res.iterations and snap["params"] == sim.last_solve_params
     assert_bitwise(snap["currents"], sim.currents)
     assert_bitwise(snap["rhs"], sim.rhs())
+
+
+def test_ilut_budget_round_trip(h5py, tmp_path):
+    """ilut["budget_bytes"] (a size_t) is stored as uint64 like the mlfmm byte budgets and comes
+    back equal; absent when not set (the default: half of the available memory)."""
+    budget = 123_456_789  # small, non-default
+    sim = make_sim(ilut=dict(budget_bytes=budget, fill_factor=2.0))
+    assert sim.config["ilut"]["budget_bytes"] == budget
+    r = sio.load_hdf5(sim.save(tmp_path / "ilut_budget.h5"))
+    assert r.config["ilut"] == sim.config["ilut"]
+    assert r.config["ilut"]["budget_bytes"] == budget
+    with h5py.File(tmp_path / "ilut_budget.h5", "r") as f:
+        stored = f["config/ilut"].attrs["budget_bytes"]
+        assert stored.dtype == np.uint64 and stored == budget
+        assert f["config/ilut"].attrs["fill_factor"] == 2.0
+    r = sio.load_hdf5(make_sim().save(tmp_path / "ilut_default.h5"))
+    assert "budget_bytes" not in r.config["ilut"]
 
 
 def test_save_errors_are_not_swallowed(h5py, tmp_path):

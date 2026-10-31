@@ -11,7 +11,10 @@
 // The near-field Schur-complement preconditioner (WP-SC2, ADR 0012 decision 2; J and M blocks one
 // level up) is gated with the same tolerances (results, not iterations: on the box route it may
 // converge more slowly than Jacobi, as the blocks do). Measured 2026-10-31 (win-release): 261
-// iterations, RCS difference 4.2e-7, eps_rr 3.481e-3 (xz) / 2.560e-3 (yz).
+// iterations, RCS difference 4.2e-7, eps_rr 3.481e-3 (xz) / 2.560e-3 (yz). The ILUT of the
+// near-field blocks A and D (WP-SC3, ADR 0012 decision 6; default parameters fill 3, drop 1e-4,
+// AMD) is gated with the same tolerances. Measured 2026-10-31 (win-release): 63 iterations, RCS
+// difference 4.7e-7, eps_rr 3.481e-3 (xz) / 2.560e-3 (yz), setup 8.2 s, 88 MB.
 #include "specklebem/simulation.hpp"
 
 #include <catch2/catch_message.hpp>
@@ -69,6 +72,10 @@ TEST_CASE("block preconditioner: Ag sphere with MLFMM reproduces the Jacobi solu
             REQUIRE(sim.schur_preconditioner() != nullptr);
             WARN("level offset " << levels << ": " << sim.schur_preconditioner()->describe());
         }
+        if (kind == PreconditionerKind::IncompleteLu) {
+            REQUIRE(sim.incomplete_lu_preconditioner() != nullptr);
+            WARN(sim.incomplete_lu_preconditioner()->describe());
+        }
         return o;
     };
     const Out jac = run(PreconditionerKind::Diagonal, 0);
@@ -80,7 +87,8 @@ TEST_CASE("block preconditioner: Ag sphere with MLFMM reproduces the Jacobi solu
     };
     for (const Variant v :
          {Variant{PreconditionerKind::BlockDiagonal, 0},
-          Variant{PreconditionerKind::BlockDiagonal, 1}, Variant{PreconditionerKind::Schur, 1}}) {
+          Variant{PreconditionerKind::BlockDiagonal, 1}, Variant{PreconditionerKind::Schur, 1},
+          Variant{PreconditionerKind::IncompleteLu, 1}}) {
         const int levels = v.levels;
         const Out b = run(v.kind, levels);
         const Real drcs = (b.rcs - jac.rcs).cwiseAbs().maxCoeff() / jac.rcs.maxCoeff();
