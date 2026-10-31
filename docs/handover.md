@@ -249,7 +249,13 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   keeps `THETA=30` (the 0° partners are the desktop seed-1 solves; the same-operator pair `THETA=0,30` would
   add ≈ 5–7 h of server time for no numerical gain on the Si box route, where the setup is 111–218 s of a
   27–50 min case); the reuse pays on the PML route (Ag 16 µm: ≈ 780 s per additional excitation).
-- **In flight (2026-10-31):** WP-P1 (`wp/p1-phase7-profile`, timed runs only on an idle machine).
+- **Decision (user, 2026-11-01, "2"):** WP-P1 measures NOW under the load of a foreign compute job on the
+  desktop (one process, ≈ 75–100 % CPU, not ours): stage shares and the Amdahl ranking are the deliverable,
+  absolute seconds and the thread scaling are preliminary (idle rerun later). The machine has 24 logical
+  threads (12 cores + SMT): `omp_get_max_threads()` = 24, so the earlier records ran at 24 threads; records
+  quote the thread count from now on.
+- **In flight (2026-11-01):** WP-P1 (`wp/p1-phase7-profile-measure` from the code tip be01630 of
+  `wp/p1-phase7-profile`: stage statistics + driver exist; measurement, record, docs pending).
 - Open lead items: dense-PML-route block measurement (low priority after ADR 0012), WP-S3 (waits for the
   user's server runs), WP-PML6c (optional, not scheduled); the parallel elimination of A (WP-SC5 second part)
   only if the ILUT setup becomes the bottleneck again.
