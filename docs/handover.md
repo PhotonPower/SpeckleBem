@@ -190,10 +190,15 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   every near-field-based preconditioner (exact near-field LU, grandparent blocks) on the rough-Ag PML sizes
   before building the Schur-complement approximation (WP-SC2, conditional on gate 2 of the ADR); Calderón
   deferred (not the lever for the electrical-size growth). Gate numbers in the ADR; no default changes.
-- **In flight (2026-10-30):** WP-SC1 (`wp/sc1-near-lu-ceiling`): `SparseLuPreconditioner`, near-field LU
-  factory with a memory guard, `block_levels_above_leaf = 2`, driver variants `grandparent` / `nearlu`,
-  measurement at U / 16 µm (24 µm grandparent) + Si control, record section. The machine must stay otherwise
-  idle during its runs (timings).
+- **Merged:** WP-SC1 (25af8f9): the near-field-inverse ceiling — exact near-field LU 20 / 44 iterations
+  at 2N = 22 816 / 152 960 against 184 / 520 for the one-level-up blocks (exponent 0.41 vs 0.58), grandparent
+  blocks only 1.6–1.9× at 4× memory; ADR 0012 gate 2 met → WP-SC2 (Schur-complement approximation) is next.
+  The exact LU costs 66 GB / 82 min at 2N = 1.5·10⁵ (bound, not a preconditioner). No default changed.
+- **Lesson (2026-10-31):** Eigen's SparseLU reserves 20× nnz up front, leaves `m_info` uninitialised until
+  `factorize`, and its solve calls threaded BLAS (not bitwise thread-independent) — see the header of
+  `solver/sparse_lu_preconditioner.hpp`. A worker that hits its turn limit while a queued run is still
+  going can resume on its own when the run ends; check the branch before re-briefing the work.
+- **In flight (2026-10-31):** none.
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
   (1 - R_beam - away) P_inc" failed once in the full `-j 6` ctest of main 97694d1 (512 s, while a 1.4 GB backup
   archive was packed in parallel) and passed alone (348 s); no C++ change in that commit. If it fails again, look
@@ -225,7 +230,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 641 ctest (`-LE "validation-large|slow"`), 174 pytest (184 with the local speckle data); labels `slow`, `validation`
+- Test counts on `main`: 648 ctest (`-LE "validation-large|slow"`), 174 pytest (184 with the local speckle data); labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

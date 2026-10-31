@@ -1,6 +1,6 @@
 # ADR 0012: Phase 8 preconditioning of the PML-route systems — measure the near-field-inverse ceiling before building a Schur-complement preconditioner
 
-- **Status**: accepted 2026-10-30 (user decision: open Phase 8 with the preconditioner item; lead design)
+- **Status**: accepted 2026-10-30 (user decision: open Phase 8 with the preconditioner item; lead design); WP-SC1 measured 2026-10-31, **gate 2 met → WP-SC2** (section "Result")
 - **Date**: 2026-10-30
 - **Phase**: 8
 
@@ -59,9 +59,11 @@ and the honest outcome is to record that and to turn to (e).
      the thread count (Eigen's SparseLU is sequential).
    - `make_near_field_lu_preconditioner(op)` in `simulation.hpp`: Z_n = Z_rr's near part + the near
      ring (the two disjoint sparse matrices of the ADR 0011 contract, summed), with a memory guard: the
-     factor memory is estimated after the symbolic analysis and compared with a caller-given budget
-     (default: half of the available physical memory, `core/system_memory.hpp`); exceeding it throws
-     before the numeric factorisation.
+     factor memory is checked against a caller-given budget (default: half of the available physical
+     memory, `core/system_memory.hpp`) — before the numeric factorisation from the estimate
+     `expected_fill × nnz(Z_n) × 24 B` with a caller-given fill factor (Eigen's SparseLU exposes the
+     fill only after the numeric phase; the first wording "after the symbolic analysis" was wrong),
+     and after it against the actual factors (throwing and releasing them).
    - `block_levels_above_leaf = 2` (grandparent blocks) is allowed in `SimulationConfig` and
      `make_block_preconditioner` as the intermediate point between "one level up" and the exact near
      inverse (the same partition code, `mlfmm::level_unknown_blocks`); the coarse-tree warning of ADR
@@ -109,3 +111,26 @@ and the honest outcome is to record that and to turn to (e).
   preconditioned system for PMCHWT / ICTF / MCTF) holds for every preconditioner built from the full
   near matrix and is repeated for `nearlu`.
 - Revisit after WP-SC1 (gate 2 / outcome 3) and, if WP-SC2 is built, after its measurement.
+
+## Result (WP-SC1, 2026-10-31)
+
+Measured with `benchmarks/preconditioner_study.cpp` on an idle 12-core desktop (128 GB; record section
+"WP-SC1" in `benchmarks/results/preconditioner.md`, raw lines `preconditioner_rows.txt`), rough Ag PML, tolerance
+10⁻⁷, one process at a time. Iterations (Jacobi / one level up / two levels up / exact near-field LU): 2N = 22 816:
+602 / 184 / 99 / **20**; 2N = 152 960: 1 715 / 520 / 335 / **44**; 2N = 300 160: 2 679 / 844 / 518 / not attempted.
+Rough Si U: 48 / 41 / 13. R agrees with WP-PML5b / WP-PC1 to ≤ 1·10⁻⁷ for every variant. **Gate 2 is met:** the
+exact near-field inverse needs 0.085× the iterations of the one-level-up blocks at 2N = 1.5·10⁵ (limit 0.5×)
+and its fitted exponent over the two measured sizes is 0.41 (< 0.5; Jacobi 0.57, blocks 0.58, two levels up
+0.64). The two-levels-up blocks fail their rule (1.86 / 1.55 / 1.63× fewer iterations at 3.99× the memory, gain
+shrinking with size; ≈ 60 % of their entries lie outside the near pattern and are zero). The exact LU is a bound,
+not a preconditioner: at 2N = 1.5·10⁵ the factors take 66 GB (fill 13.9, up from 7.3 at U) and 82 min of
+sequential factorisation (process peak 86 GB); the 40 GB cap of decision 1 refused the first attempt after the
+factorisation, and the lead reran it once at 75 GB to obtain the exponent — the cap was a guess, the machine
+has 128 GB. **Consequence: WP-SC2 builds the Schur-complement approximation of decision 2;** its gain has to come
+from the inter-box near coupling (the box blocks already couple J and M exactly inside a box), with a memory of
+a few GB instead of 66. No default changed; `block_levels_above_leaf = 2` and the near-field LU remain explicit
+measurement tools. The 24 µm ceiling would need a server (65–200 GB depending on how the fill extrapolates,
+> 2 h sequential). Two caveats for WP-SC2: the 0.41 exponent rests on two points, and the near pattern itself
+grows with the leaf rule from U to 16 µm (744 → 1 296 entries per row), which favours the 16 µm point; and the
+memory gate of decision 2 (≤ 2× the block preconditioner) counts the preconditioner's **own** storage (the
+near matrix Z_n is already part of the operator and is not counted).
