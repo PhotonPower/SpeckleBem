@@ -202,4 +202,4 @@ WP-SC3):
    fill 2 / 10⁻³ becomes the default). The library default `IlutParams` follow the choice. Box route (Ag sphere
    63 vs Jacobi 210, measured only at the validation size) and dense route keep their defaults. The elimination
    kernel (≈ 1.2·10⁸ complex multiply-adds per second, sequential per block) is a separate optional item
-   (WP-SC5); it does not gate the switch because the chosen set's setup is already small against GMRES.
+   (WP-SC5, landed ccb8a87: 3.5× at 16 µm, factors bitwise unchanged); it does not gate the switch because the chosen set's setup is already small against GMRES.

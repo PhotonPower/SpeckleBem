@@ -230,7 +230,17 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   `benchmarks/results/recycling.md`. Reuse bitwise exact; `set_excitation` 0.2 s (U) / 11–22 s (16 µm) vs
   179 s / 792 s fresh. **ADR 0013 gate not met** (probe 1.03× at k = 40; no |θ| < 0.3 in the ILUT spectrum) →
   WP-KR2 (GCRO-DR) closed without implementation; x₀ = previous gains nothing for s / p and 0° / 30° pairs.
-- **In flight (2026-10-31):** WP-SC5 (`wp/sc5-ilut-kernel`), measuring on the idle machine.
+- **Merged:** WP-SC5 (ccb8a87): ILUT row update with explicit real arithmetic in registers (the cost was a GCC
+  store-forwarding stall on the spilled `std::complex` multiplier, not `__muldc3`); A at 16 µm fill 3 / 10⁻³
+  532 s → 152 s (3.5×), default set 70.7 s → 20.3 s; factors bitwise identical (golden test, both presets);
+  16 µm default total 128.9 s → 80.6 s. Record section WP-SC5. Lesson: check the asm of hot `std::complex` loops
+  for stack round trips before blaming `__muldc3`; fill-ins must be written as −(l·u), not 0 − l·u.
+- **Next:** nothing in flight. Open lead items: idle-machine timing reruns, dense-PML-route block measurement,
+  WP-S3 (waits for the user's server runs), WP-T3 / WP-PML6c (optional); the parallel elimination of A
+  (WP-SC5 second part) only if the ILUT setup becomes the bottleneck again.
+- **Watch (2026-10-31):** the non-Windows branch of the WP-SC5 golden test (exact nnz / pattern hash / macs
+  against the Windows GCC table, values to 10⁻¹⁴) runs for the first time in the Linux CI after the merge; if the
+  pattern ever differs there, record a per-platform pattern hash — do not loosen the check.
 - Open lead items unchanged: idle-machine timing reruns, dense-PML-route block measurement, WP-S3 (waits for the
   user's server runs), WP-T3 / WP-PML6c (optional).
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
@@ -264,7 +274,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 676 ctest (`-LE "validation-large|slow"`), 182 pytest (184 with the local speckle data); labels `slow`, `validation`
+- Test counts on `main`: 677 ctest (`-LE "validation-large|slow"`), 182 pytest (184 with the local speckle data); labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

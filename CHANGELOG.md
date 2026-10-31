@@ -1157,6 +1157,14 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - Documentation: project plan, architecture, SIE and MLFMM theory, validation, conventions, coding guidelines, GPU strategy, compression survey, Python API, ADRs.
 
 ### Changed
+- solver (WP-SC5, Phase 8): the ILUT elimination kernel of `IncompleteLuPreconditioner` writes the row update
+  w −= l_ik u_k with explicit real arithmetic in registers (the WP-SC3 loop stalled on a store-to-load forward of
+  the spilled `std::complex` multiplier; `__muldc3` was not the cost). Factors bitwise unchanged (same IEEE
+  operations in the same order, fill-ins as −(l·u); golden test of the WP-SC3 factors in both presets, byte-wise
+  comparison on rough Ag U and 16 µm): pattern, values, min pivot, condest, `macs`, iterations and R equal the
+  WP-SC3 / WP-SC4 rows. Setup of A at 16 µm fill 3 / drop 10⁻³ 532 s → 152 s (3.5×), default set 70.7 s →
+  20.3 s, U 3.0–4.0×; the 16 µm default total (setup + GMRES) 128.9 s → 80.6 s. Record
+  `benchmarks/results/preconditioner.md` (section WP-SC5).
 - solver / python / tooling (WP-SC4, ADR 0012 decision 9): **the default preconditioner of the "mlfmm" PML route is
   the ILUT of the near-field blocks A and D with fill 2 / drop 10⁻²** (`SimulationConfig::preconditioner` empty and
   `diagonal_preconditioner` empty, GMRES: `PreconditionerKind::IncompleteLu` with `SimulationConfig::ilut`, validated
