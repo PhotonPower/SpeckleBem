@@ -8,7 +8,7 @@
 ///
 /// Backend: Eigen's unsupported FFT module with its default backend (header-only kissfft) and
 /// default flags; it stays in fft.cpp. kissfft is fastest for lengths whose only prime factors
-/// are 2, 3 and 5 (next_smooth()), but any length >= 1 is transformed exactly.
+/// are 2, 3 and 5 (next_smooth()), but any length >= 1 is supported.
 #include "specklebem/core/types.hpp"
 
 namespace specklebem::core {

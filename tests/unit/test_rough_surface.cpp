@@ -716,7 +716,7 @@ TEST_CASE("rough surface: small FFT height map equals the pre-WP-T3 values", "[g
     // digits (bitwise; WP-T3 moved the FFT helper without changing it). Elsewhere (other
     // standard libraries: Box-Muller log/cos/sin and the kissfft twiddles may differ in the last
     // bits) to 1e-14 relative to the largest |z|.
-#if defined(_WIN32)
+#if defined(_WIN32) && defined(__GNUC__)  // MinGW GCC / Clang, fetched Eigen 3.4.0 kissfft
     const bool exact = true;
 #else
     const bool exact = false;

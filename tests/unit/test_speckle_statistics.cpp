@@ -541,7 +541,7 @@ TEST_CASE("speckle: small autocorrelation equals the pre-WP-T3 values", "[speckl
     // On the two Windows toolchains that generated the data every entry must match in all 17
     // digits (bitwise; WP-T3 moved the FFT helper without changing it). Elsewhere (the kissfft
     // twiddles come from the standard library's cos/sin) to 1e-14 relative to the largest entry.
-#if defined(_WIN32)
+#if defined(_WIN32) && defined(__GNUC__)  // MinGW GCC / Clang, fetched Eigen 3.4.0 kissfft
     const bool exact = true;
 #else
     const bool exact = false;
