@@ -1,7 +1,8 @@
 # ADR 0011: Preconditioning of the PML-route systems
 
 - **Status**: accepted 2026-10-25 (lead note `docs/lead/2026-10-22-next-work-packages.md`, decision 2); implemented
-  in WP-PC1, switch rule met, PML-route default = block-diagonal one level above the leaves (section "Result")
+  in WP-PC1, switch rule met, PML-route default = block-diagonal one level above the leaves (section "Result");
+  **superseded as the default by ADR 0012 decision 9 (WP-SC4, 2deba1a): the "mlfmm" PML route now defaults to the ILUT of the near blocks; the block-diagonal preconditioner stays an explicit option** (`PreconditionerKind::BlockDiagonal`, `block_levels_above_leaf = 1`), and its coarse-tree warning for the automatic choice no longer exists
 - **Date**: 2026-10-25
 - **Phase**: 5 / 8
 
@@ -80,7 +81,9 @@ tiny or coarse tree the automatic default logs a warning when its largest block 
 on the tiny PML test meshes (two-level tree) level 1 is the root, so a block solve is a dense LU and GMRES converges
 in one iteration — tests that want the block path there use `block_levels_above_leaf = 0`. The references of the
 "mlfmm" PML route (validation 7h, the WP-PML5 / WP-PML6 drivers) therefore solve with the blocks now;
-`preconditioner = Diagonal` reproduces the old path, and the results agree to the solver tolerance (rough Ag U: R
+`preconditioner = Diagonal` reproduces the old path (since WP-SC4 the references solve with the ILUT default of
+ADR 0012 decision 9; the block path is `PreconditionerKind::BlockDiagonal`, `block_levels_above_leaf = 1`), and
+the results agree to the solver tolerance (rough Ag U: R
 0.97833914 vs 0.97833919 with Jacobi at tolerance 10⁻⁷; 7h fast vs dense dR −4.0·10⁻⁹ with the blocks, +4.8·10⁻⁸ with
 Jacobi, far-field L2 3.33·10⁻⁶ for both). The iteration exponent is unchanged (Jacobi N^0.57, leaf N^0.55, one level up
 N^0.58): the blocks give a constant factor, the growth stays (the long-range coupling of the metal surface), so

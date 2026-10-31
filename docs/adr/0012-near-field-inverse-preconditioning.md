@@ -1,6 +1,6 @@
 # ADR 0012: Phase 8 preconditioning of the PML-route systems — measure the near-field-inverse ceiling before building a Schur-complement preconditioner
 
-- **Status**: accepted 2026-10-30 (user decision: open Phase 8 with the preconditioner item; lead design); WP-SC1 measured 2026-10-31, gate 2 met → WP-SC2 (section "Result"); WP-SC2 stage 1: the Schur split gains nothing (section "Amendment"), decision 6 → WP-SC3 (incomplete LU of A and D); WP-SC3 measured 2026-10-31, **both gates met → decision 9, default switch in WP-SC4** (section "Result (WP-SC3)")
+- **Status**: accepted 2026-10-30 (user decision: open Phase 8 with the preconditioner item; lead design); WP-SC1 measured 2026-10-31, gate 2 met → WP-SC2 (section "Result"); WP-SC2 stage 1: the Schur split gains nothing (section "Amendment"), decision 6 → WP-SC3 (incomplete LU of A and D); WP-SC3 measured 2026-10-31, both gates met → decision 9 (section "Result (WP-SC3)"); **WP-SC4 merged 2deba1a: the "mlfmm" PML route's default is the ILUT with fill 2 / drop 10⁻²** (candidate check Si U 14 = 14, Ag sphere 68 vs 63; reruns Ag U 23 / 6.9 s, 16 µm 68 / 128.9 s, Si U 14 / 16.5 s against parent 184 / 20.1 s, 520 / 449.5 s, 48 / 48.4 s). The near-field-inverse family is closed at its ceiling; the remaining growth (exponent ≈ 0.6) is outside the near field
 - **Date**: 2026-10-30
 - **Phase**: 8
 

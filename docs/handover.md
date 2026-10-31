@@ -157,8 +157,9 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   rough Ag PML systems at every size (184 / 520 / 844), total solve at 2N = 3e5 2 916 s vs 6 540 s, now the default
   of the PML route with GMRES on the mlfmm operator (one level above the leaves; the dense PML route keeps Jacobi
   until measured); growth exponent unchanged (≈ N^0.57) — Phase 8 Schur/Calderón is the next lever; WP-G2 not
-  scheduled (condition not met). Older PML records state "Jacobi" for their historical runs; new fast-path runs
-  use the block default unless set explicitly (`preconditioner = Diagonal` reproduces the old path).
+  scheduled (condition not met). Older PML records state "Jacobi" for their historical runs; fast-path runs
+  used the block default from WP-PC1 to WP-SC3 and the ILUT default since WP-SC4 (`preconditioner = Diagonal`
+  reproduces the Jacobi path, `BlockDiagonal` with `block_levels_above_leaf = 1` the block path).
 - **Merged:** WP-S1 (Phase 6 part 1): the speckle-statistics module and its bindings (it had not existed), KS test
   with asymptotic Kolmogorov p (conservative, mean from the sample), speckle-size convention FWHM(|μ_A|²) = c·λz/D
   (square 0.886, disc 1.029, Gaussian D = 2w₀ 1.060), NumPy harness `specklebem.speckle.ensemble_statistics`;
@@ -214,7 +215,13 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Decision (lead, 2026-10-31, ADR 0012 decision 9):** the "mlfmm" PML route switches its default to the ILUT
   with fill 2 / drop 10⁻² in WP-SC4 (checked at Si U and on the Ag sphere first; fallback set fill 2 / 10⁻³).
   The elimination kernel speed-up is optional (WP-SC5, not scheduled).
-- **Next:** WP-SC4 (`wp/sc4-ilut-default`). The machine must stay otherwise idle during its timing reruns.
+- **Merged:** WP-SC4 (2deba1a): default of the "mlfmm" PML route = ILUT fill 2 / drop 10⁻² (candidate
+  check Si U 14 = 14, sphere 68 vs 63); `IlutParams` defaults 2 / 10⁻²; previous default explicit as
+  `BlockDiagonal` level 1; Python `"auto"` → `"ilut"`; driver variant `default`; validation-large 7h rerun; ADR 0011
+  marked superseded as the default. Phase 8's preconditioner item is closed (near-field-inverse family at its ceiling).
+- **Next:** nothing in flight. Open options (lead proposes, user decides): WP-SC5 (ILUT kernel speed-up,
+  optional), the idle-machine timing reruns and the dense-PML-route block measurement (lead items), WP-S3 (waits
+  for the user's server runs), WP-T3 / WP-PML6c (optional).
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
   (1 - R_beam - away) P_inc" failed once in the full `-j 6` ctest of main 97694d1 (512 s, while a 1.4 GB backup
   archive was packed in parallel) and passed alone (348 s); no C++ change in that commit. If it fails again, look
@@ -246,7 +253,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 665 ctest (`-LE "validation-large|slow"`), 177 pytest (184 with the local speckle data); labels `slow`, `validation`
+- Test counts on `main`: 666 ctest (`-LE "validation-large|slow"`), 178 pytest (184 with the local speckle data); labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
