@@ -2,6 +2,7 @@
 # file is a conscious, reviewable act.
 set(SPECKLEBEM_SOURCES
     core/config.cpp
+    core/fft.cpp
     core/logging.cpp
     core/path.cpp
     core/system_memory.cpp

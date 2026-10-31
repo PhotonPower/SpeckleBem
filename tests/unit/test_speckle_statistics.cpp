@@ -6,9 +6,15 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <iostream>
+#include <iterator>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -487,4 +493,80 @@ TEST_CASE("speckle: speckle size scales as lambda z / D (disc aperture)", "[spec
 
 TEST_CASE("speckle: speckle size scales as lambda z / D (Gaussian spot)", "[speckle]") {
     check_size_scaling(ApertureShape::Gaussian, 2);
+}
+
+namespace {
+
+// WP-T3 bitwise pin of a small autocorrelation (the 2D FFT moved from an anonymous-namespace
+// copy in speckle_statistics.cpp to core::fft2). A 7 x 6 pattern with exactly representable,
+// integer-generated intensities; padded to 15 x 12 (radices 2, 3, 5).
+MatrixXr fft_pin_pattern() {
+    MatrixXr im(7, 6);
+    for (Index j = 0; j < im.cols(); ++j) {
+        for (Index i = 0; i < im.rows(); ++i) {
+            im(i, j) = static_cast<Real>((i * 131 + j * 71 + 17) % 97 + 1) / 128.0;
+        }
+    }
+    return im;
+}
+
+std::string fft_pin_digits17(Real x) {
+    std::array<char, 40> buf{};
+    std::snprintf(buf.data(), buf.size(), "%.17g", x);
+    return buf.data();
+}
+
+// The 42 entries of intensity_autocorrelation(fft_pin_pattern()), column-major, printed with
+// 17 significant digits (exact round trip) by the hidden "[fft_pin_print]" case from the
+// pre-WP-T3 code (main at 84aa1ff). win-release (MSYS2 UCRT64 GCC, libstdc++, -O3) and
+// win-debug (MSYS2 CLANG64 Clang, libc++, -O0 with ASan/UBSan), both on the UCRT, printed the
+// same digits.
+const char* const kFftPinGamma[] = {
+    "1.0729874285755125",  "1.2563559306892129",  "0.93166029995604649", "0.97767392912403828",
+    "1.0948748575083709",  "0.76667286066016038", "0.93526078201550167", "0.90668127168642199",
+    "0.99444876733573717", "1.074349921026583",   "0.82537494505808662", "1.0513517050753822",
+    "0.86246757087060122", "0.81619043269213587", "1.0197418802105482",  "0.80452585575380309",
+    "1.1382426091959363",  "0.90276264021354991", "0.86640074184983618", "1.2697300252643466",
+    "0.85387894375734785", "1.2026211982875989",  "0.91320481987986035", "0.90285644348040495",
+    "1.3172042338327836",  "0.90285644348040495", "0.91320481987986035", "1.2026211982875989",
+    "0.85387894375734785", "1.2697300252643466",  "0.86640074184983618", "0.90276264021354991",
+    "1.1382426091959363",  "0.80452585575380309", "1.019741880210548",   "0.81619043269213587",
+    "0.86246757087060155", "1.0513517050753822",  "0.82537494505808662", "1.074349921026583",
+    "0.99444876733573673", "0.90668127168642199",
+};
+
+}  // namespace
+
+TEST_CASE("speckle: small autocorrelation equals the pre-WP-T3 values", "[speckle]") {
+    // On the two Windows toolchains that generated the data every entry must match in all 17
+    // digits (bitwise; WP-T3 moved the FFT helper without changing it). Elsewhere (the kissfft
+    // twiddles come from the standard library's cos/sin) to 1e-14 relative to the largest entry.
+#if defined(_WIN32)
+    const bool exact = true;
+#else
+    const bool exact = false;
+#endif
+    REQUIRE(std::size(kFftPinGamma) == 42);
+    const MatrixXr g = post::intensity_autocorrelation(fft_pin_pattern());
+    REQUIRE(g.rows() == 7);
+    REQUIRE(g.cols() == 6);
+    const Real scale = g.cwiseAbs().maxCoeff();
+    for (Index k = 0; k < 42; ++k) {
+        const Real v = g.reshaped()(k);
+        const char* r = kFftPinGamma[static_cast<std::size_t>(k)];
+        CAPTURE(k, fft_pin_digits17(v), r);
+        if (exact) {
+            CHECK(fft_pin_digits17(v) == r);
+        } else {
+            CHECK(std::fabs(v - std::strtod(r, nullptr)) <= 1e-14 * scale);
+        }
+    }
+}
+
+TEST_CASE("speckle: print the small autocorrelation pin", "[.][fft_pin_print]") {
+    // Regenerates the tables of the case above (run explicitly; hidden).
+    const MatrixXr g = post::intensity_autocorrelation(fft_pin_pattern());
+    for (Index k = 0; k < g.size(); ++k) {
+        std::cout << "    \"" << fft_pin_digits17(g.reshaped()(k)) << "\",\n";
+    }
 }

@@ -1157,6 +1157,9 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - Documentation: project plan, architecture, SIE and MLFMM theory, validation, conventions, coding guidelines, GPU strategy, compression survey, Python API, ADRs.
 
 ### Changed
+- core (WP-T3): the row/column Eigen-FFT helper of the height-map generator and the speckle statistics (two identical
+  anonymous-namespace copies, with `next_smooth`) is now `core::fft2` / `core::next_smooth` (`core/fft.hpp`); outputs
+  bitwise unchanged (pinned 8 × 8 height map and 7 × 6 autocorrelation from the pre-WP-T3 code, both presets).
 - solver (WP-SC5, Phase 8): the ILUT elimination kernel of `IncompleteLuPreconditioner` writes the row update
   w −= l_ik u_k with explicit real arithmetic in registers (the WP-SC3 loop stalled on a store-to-load forward of
   the spilled `std::complex` multiplier; `__muldc3` was not the cost). Factors bitwise unchanged (same IEEE

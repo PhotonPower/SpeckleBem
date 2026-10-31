@@ -60,6 +60,7 @@ add_executable(specklebem_unit_tests
     unit/test_incomplete_lu_preconditioner.cpp
     unit/test_operator_reuse.cpp
     unit/test_speckle_statistics.cpp
+    unit/test_fft.cpp
 )
 target_link_libraries(specklebem_unit_tests PRIVATE SpeckleBem::specklebem specklebem_test_support Catch2::Catch2WithMain SpeckleBem::warnings)
 # Shared test helpers (tests/support), included without relative paths.

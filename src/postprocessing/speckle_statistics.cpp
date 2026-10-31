@@ -1,11 +1,11 @@
 /// @file speckle_statistics.cpp
 /// Speckle statistics (see the header for the definitions and conventions).
 ///
-/// FFT: Eigen's unsupported FFT module (header-only kissfft, already used by the height-map
-/// generator), 2D by rows and columns, padded to 5-smooth sizes (fast kissfft radices).
+/// FFT: core::fft2 (row-column over Eigen's unsupported FFT module, header-only kissfft; shared
+/// with the height-map generator, core/fft.hpp), padded to 5-smooth sizes (core::next_smooth).
 #include "specklebem/postprocessing/speckle_statistics.hpp"
 
-#include <unsupported/Eigen/FFT>
+#include "specklebem/core/fft.hpp"
 
 #include <algorithm>
 #include <array>
@@ -39,43 +39,6 @@ Real checked_mean(const Eigen::DenseBase<Derived>& intensity, const char* what) 
         throw std::invalid_argument(std::string(what) + ": mean intensity must be positive");
     }
     return mean;
-}
-
-/// Smallest n' >= n with no prime factor other than 2, 3, 5.
-Index next_smooth(Index n) {
-    for (Index m = std::max<Index>(n, 1);; ++m) {
-        Index r = m;
-        for (const Index p : {2, 3, 5}) {
-            while (r % p == 0) r /= p;
-        }
-        if (r == 1)
-            return m;
-    }
-}
-
-/// In-place 2D DFT (rows, then columns); the inverse is scaled by 1 / (rows cols).
-void fft2(MatrixXc& a, bool inverse) {
-    Eigen::FFT<Real> fft;
-    const Index rows = a.rows();
-    const Index cols = a.cols();
-    std::vector<Complex> in(static_cast<std::size_t>(std::max(rows, cols)));
-    std::vector<Complex> out(in.size());
-    for (Index c = 0; c < cols; ++c) {
-        for (Index r = 0; r < rows; ++r) in[static_cast<std::size_t>(r)] = a(r, c);
-        if (inverse)
-            fft.inv(out.data(), in.data(), rows);
-        else
-            fft.fwd(out.data(), in.data(), rows);
-        for (Index r = 0; r < rows; ++r) a(r, c) = out[static_cast<std::size_t>(r)];
-    }
-    for (Index r = 0; r < rows; ++r) {
-        for (Index c = 0; c < cols; ++c) in[static_cast<std::size_t>(c)] = a(r, c);
-        if (inverse)
-            fft.inv(out.data(), in.data(), cols);
-        else
-            fft.fwd(out.data(), in.data(), cols);
-        for (Index c = 0; c < cols; ++c) a(r, c) = out[static_cast<std::size_t>(c)];
-    }
 }
 
 void require_positive_finite(Real v, const char* what) {
@@ -237,13 +200,13 @@ MatrixXr intensity_autocorrelation(const MatrixXr& intensity) {
     const Real mean = checked_mean(intensity.reshaped(), "intensity_autocorrelation");
     // Linear autocorrelation via |FFT|^2 of the zero-padded pattern (padding >= 2 n - 1 keeps
     // positive and negative lags apart).
-    const Index pr = next_smooth(2 * rows - 1);
-    const Index pc = next_smooth(2 * cols - 1);
+    const Index pr = core::next_smooth(2 * rows - 1);
+    const Index pc = core::next_smooth(2 * cols - 1);
     MatrixXc a = MatrixXc::Zero(pr, pc);
     a.topLeftCorner(rows, cols) = intensity.cast<Complex>();
-    fft2(a, false);
+    core::fft2(a, false);
     a = a.cwiseAbs2().cast<Complex>();
-    fft2(a, true);
+    core::fft2(a, true);
     MatrixXr gamma(rows, cols);
     const Index ci = rows / 2;
     const Index cj = cols / 2;

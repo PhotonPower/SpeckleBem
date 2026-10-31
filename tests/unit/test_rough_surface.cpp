@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -661,6 +662,88 @@ TEST_CASE("rough surface: regenerate the seed-42 regression reference", "[.regen
         REQUIRE(file.good());
     } else {
         std::cout << text;
+    }
+}
+
+namespace {
+
+// WP-T3 bitwise pin of a small height map through the FFT convolution path (the 2D FFT moved
+// from an anonymous-namespace copy in rough_surface.cpp to core::fft2). 8 x 8 points, the noise
+// grid 28 x 28 is padded to 30 x 30 (radices 2, 3, 5).
+RoughSurfaceParams fft_pin_params() {
+    return make_params(0.7e-6, 0.1e-6, 50e-9, 0.25e-6, 2026);
+}
+
+std::string fft_pin_digits17(Real x) {
+    std::array<char, 40> buf{};
+    std::snprintf(buf.data(), buf.size(), "%.17g", x);
+    return buf.data();
+}
+
+// The 64 heights z(i, j) of fft_pin_params(), column-major (i fastest), printed with 17
+// significant digits (exact round trip) by the hidden "[fft_pin_print]" case from the pre-WP-T3
+// code (main at 84aa1ff). win-release (MSYS2 UCRT64 GCC, libstdc++, -O3) and win-debug (MSYS2
+// CLANG64 Clang, libc++, -O0 with ASan/UBSan), both on the UCRT, printed the same digits.
+const char* const kFftPinZ[] = {
+    "2.7830843530445541e-08",  "4.0069572357024179e-08",  "3.681759332897927e-08",
+    "4.296651303908575e-08",   "4.753533092264441e-08",   "3.247359762040607e-08",
+    "1.9987526546375398e-08",  "4.0150295069385528e-08",  "3.1527007486398069e-08",
+    "2.9884817984639667e-08",  "2.5769936413193416e-08",  "3.612195655551737e-08",
+    "5.215232029779877e-08",   "5.8598571472857175e-08",  "5.8838047280789257e-08",
+    "6.5329766599744234e-08",  "5.1497309530132395e-08",  "2.3776796526807883e-08",
+    "1.151361517082042e-09",   "1.8778367805163161e-09",  "2.787355542534482e-08",
+    "6.2523022333805464e-08",  "8.4268661845425014e-08",  "7.9215493295941374e-08",
+    "5.6359115724847838e-08",  "6.3562781431419565e-09",  "-2.5697335170510749e-08",
+    "-2.8976179540878869e-08", "-2.1477524294404128e-09", "3.9948536169854141e-08",
+    "7.0885308146913439e-08",  "6.2441550241848189e-08",  "3.8278039826413885e-08",
+    "-1.7864313959294182e-08", "-3.7391175133640676e-08", "-3.2588648673205728e-08",
+    "-1.8997302892527757e-08", "6.2234672686375612e-10",  "2.0508529846579487e-08",
+    "1.4187988648056125e-08",  "1.6644393468805998e-08",  "-3.563615698163204e-08",
+    "-3.6255391038968391e-08", "-1.8356319543270572e-08", "-1.7124174830169978e-08",
+    "-2.3457238097551295e-08", "-1.7925849571660908e-08", "-1.9625767398771787e-08",
+    "-4.4432045137748232e-09", "-5.2078398927061526e-08", "-4.5149201795897698e-08",
+    "-1.3699519542220942e-08", "-4.720674943628718e-10",  "-4.541794177503379e-09",
+    "-3.9483057161469401e-09", "-7.1708912402090926e-09", "-1.887846451436587e-08",
+    "-5.9653192850632076e-08", "-6.0832802228466686e-08", "-2.113560566178191e-08",
+    "2.8541075416111994e-08",  "5.4252266229551058e-08",  "5.1247177316195145e-08",
+    "3.1968913339974741e-08",
+};
+
+}  // namespace
+
+TEST_CASE("rough surface: small FFT height map equals the pre-WP-T3 values", "[geometry]") {
+    // On the two Windows toolchains that generated the data every height must match in all 17
+    // digits (bitwise; WP-T3 moved the FFT helper without changing it). Elsewhere (other
+    // standard libraries: Box-Muller log/cos/sin and the kissfft twiddles may differ in the last
+    // bits) to 1e-14 relative to the largest |z|.
+#if defined(_WIN32)
+    const bool exact = true;
+#else
+    const bool exact = false;
+#endif
+    REQUIRE(std::size(kFftPinZ) == 64);
+    const HeightMap h = generate_gaussian_height_map(fft_pin_params());
+    REQUIRE(h.z.rows() == 8);
+    REQUIRE(h.z.cols() == 8);
+    const Real scale = h.z.cwiseAbs().maxCoeff();
+    REQUIRE(scale > 0.0);
+    for (Index k = 0; k < 64; ++k) {
+        const Real z = h.z.reshaped()(k);
+        const char* r = kFftPinZ[static_cast<std::size_t>(k)];
+        CAPTURE(k, fft_pin_digits17(z), r);
+        if (exact) {
+            CHECK(fft_pin_digits17(z) == r);
+        } else {
+            CHECK(std::fabs(z - std::strtod(r, nullptr)) <= 1e-14 * scale);
+        }
+    }
+}
+
+TEST_CASE("rough surface: print the small FFT height map pin", "[.][fft_pin_print]") {
+    // Regenerates the tables of the case above (run explicitly; hidden).
+    const HeightMap h = generate_gaussian_height_map(fft_pin_params());
+    for (Index k = 0; k < h.z.size(); ++k) {
+        std::cout << "    \"" << fft_pin_digits17(h.z.reshaped()(k)) << "\",\n";
     }
 }
 

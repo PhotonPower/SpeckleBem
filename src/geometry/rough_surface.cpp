@@ -15,8 +15,9 @@
 ///  * FFT path: 2D circular convolution of size P_x x P_y with P >= the noise grid size,
 ///    P the next 5-smooth number (factors 2, 3, 5: fast kissfft radices). For the valid
 ///    outputs the circular wrap-around never reaches the noise, so the result equals the
-///    zero-padded linear convolution. Eigen's unsupported FFT module (header-only kissfft
-///    backend) supplies the 1D transforms; the 2D transform is row-column.
+///    zero-padded linear convolution. The 2D transform is core::fft2 (row-column over Eigen's
+///    unsupported FFT module, header-only kissfft backend; core/fft.hpp), the padded size
+///    core::next_smooth.
 ///  * Direct path: the double loop over output points and kernel entries on the same
 ///    noise; it is the reference oracle for the FFT path.
 ///  * Randomness: std::normal_distribution / std::uniform_real_distribution are
@@ -43,10 +44,9 @@
 ///    BoxPlan and make_mesh_from_height_map().
 #include "specklebem/geometry/rough_surface.hpp"
 
+#include "specklebem/core/fft.hpp"
 #include "specklebem/core/logging.hpp"
 #include "specklebem/core/timer.hpp"
-
-#include <unsupported/Eigen/FFT>
 
 #include <algorithm>
 #include <cmath>
@@ -184,57 +184,19 @@ MatrixXr gaussian_kernel(Real lc, Real dx, Real dy, Index rx, Index ry) {
     return w;
 }
 
-/// Smallest m >= n whose only prime factors are 2, 3 and 5.
-Index next_smooth(Index n) {
-    for (Index m = std::max<Index>(n, 1);; ++m) {
-        Index r = m;
-        for (const Index p : {Index{2}, Index{3}, Index{5}}) {
-            while (r % p == 0) r /= p;
-        }
-        if (r == 1)
-            return m;
-    }
-}
-
-/// In-place 2D DFT (row-column) of a column-major complex matrix; the inverse is scaled
-/// by 1 / (rows cols) (Eigen::FFT default).
-void fft2(MatrixXc& a, bool inverse) {
-    Eigen::FFT<Real> fft;
-    const Index rows = a.rows();
-    const Index cols = a.cols();
-    std::vector<Complex> in(static_cast<std::size_t>(std::max(rows, cols)));
-    std::vector<Complex> out(in.size());
-    for (Index c = 0; c < cols; ++c) {
-        for (Index r = 0; r < rows; ++r) in[static_cast<std::size_t>(r)] = a(r, c);
-        if (inverse)
-            fft.inv(out.data(), in.data(), rows);
-        else
-            fft.fwd(out.data(), in.data(), rows);
-        for (Index r = 0; r < rows; ++r) a(r, c) = out[static_cast<std::size_t>(r)];
-    }
-    for (Index r = 0; r < rows; ++r) {
-        for (Index c = 0; c < cols; ++c) in[static_cast<std::size_t>(c)] = a(r, c);
-        if (inverse)
-            fft.inv(out.data(), in.data(), cols);
-        else
-            fft.fwd(out.data(), in.data(), cols);
-        for (Index c = 0; c < cols; ++c) a(r, c) = out[static_cast<std::size_t>(c)];
-    }
-}
-
 /// Valid part of the linear convolution noise (*) w via zero-padded FFTs. The output
 /// has size (noise.rows() - w.rows() + 1) x (noise.cols() - w.cols() + 1).
 MatrixXr convolve_valid_fft(const MatrixXr& noise, const MatrixXr& w) {
-    const Index px = next_smooth(noise.rows());
-    const Index py = next_smooth(noise.cols());
+    const Index px = core::next_smooth(noise.rows());
+    const Index py = core::next_smooth(noise.cols());
     MatrixXc a = MatrixXc::Zero(px, py);
     a.topLeftCorner(noise.rows(), noise.cols()) = noise.cast<Complex>();
     MatrixXc k = MatrixXc::Zero(px, py);
     k.topLeftCorner(w.rows(), w.cols()) = w.cast<Complex>();
-    fft2(a, false);
-    fft2(k, false);
+    core::fft2(a, false);
+    core::fft2(k, false);
     a.array() *= k.array();
-    fft2(a, true);
+    core::fft2(a, true);
     const Index ox = w.rows() - 1;
     const Index oy = w.cols() - 1;
     return a.block(ox, oy, noise.rows() - ox, noise.cols() - oy).real();
