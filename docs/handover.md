@@ -198,7 +198,11 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   `factorize`, and its solve calls threaded BLAS (not bitwise thread-independent) — see the header of
   `solver/sparse_lu_preconditioner.hpp`. A worker that hits its turn limit while a queued run is still
   going can resume on its own when the run ends; check the branch before re-briefing the work.
-- **In flight (2026-10-31):** WP-SC2 (`wp/sc2-schur-preconditioner`): `solver::SchurComplementPreconditioner`
+- **Decision (user, 2026-10-31, "weitermachen mit SC3"):** WP-SC2 stage 1 showed the Schur split gains nothing
+  (184 = 184 at U); the near-inverse gain sits in the inter-box coupling inside A and D (ADR 0012 amendment).
+  WP-SC3 (incomplete LU of A and D, ADR 0012 decision 6) follows the WP-SC2 merge; fallback block SPAI
+  (decision 7).
+- **In flight (2026-10-31):** WP-SC2 (`wp/sc2-schur-preconditioner`, finishing: Si control, record, tests): `solver::SchurComplementPreconditioner`
   (block LU of A over the J boxes, S̃ = D − C Ã⁻¹ B on the pattern of D, block LU of S̃ over the M boxes), factory,
   `PreconditionerKind::Schur`, Python, driver variant `schur`; stage 1 at U with an early gate (≤ 92 iterations on
   Ag), stage 2 at 16 / 24 µm; the machine must stay otherwise idle during its runs.

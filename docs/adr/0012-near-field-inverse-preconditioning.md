@@ -1,6 +1,6 @@
 # ADR 0012: Phase 8 preconditioning of the PML-route systems — measure the near-field-inverse ceiling before building a Schur-complement preconditioner
 
-- **Status**: accepted 2026-10-30 (user decision: open Phase 8 with the preconditioner item; lead design); WP-SC1 measured 2026-10-31, **gate 2 met → WP-SC2** (section "Result")
+- **Status**: accepted 2026-10-30 (user decision: open Phase 8 with the preconditioner item; lead design); WP-SC1 measured 2026-10-31, gate 2 met → WP-SC2 (section "Result"); WP-SC2 stage 1: the Schur split gains nothing (section "Amendment"), **decision 6 → WP-SC3 (incomplete LU of A and D)**
 - **Date**: 2026-10-30
 - **Phase**: 8
 
@@ -134,3 +134,36 @@ measurement tools. The 24 µm ceiling would need a server (65–200 GB depending
 grows with the leaf rule from U to 16 µm (744 → 1 296 entries per row), which favours the 16 µm point; and the
 memory gate of decision 2 (≤ 2× the block preconditioner) counts the preconditioner's **own** storage (the
 near matrix Z_n is already part of the operator and is not counted).
+
+## Amendment (WP-SC2 stage 1, 2026-10-31)
+
+The Schur-complement preconditioner of decision 2 was built (`solver::SchurComplementPreconditioner`, block LU of
+A over the J boxes, S̃ = D − C Ã⁻¹ B on the pattern of D, block LU of S̃ over the M boxes; exact inter-box J–M
+coupling through B and C) and measured at U: **184 iterations on rough Ag — exactly the one-level-up blocks'
+184** (leaf level 327 vs 329; Ag sphere 261 vs 266; half the blocks' memory). The early gate (≤ 92) failed, so
+the long runs were not made. Two diagnostic variants of the exact near-field LU locate the gain: a LU that keeps
+the inter-box coupling only in B and C (A and D block-diagonal) needs 184 iterations; a LU that keeps it only in
+A and D (B and C block-diagonal) needs **21**, against 20 for the full near-field LU. On a (nearly) planar
+surface the near entries of the K operator between coplanar pairs vanish (f_m · ((r − r′) × f_n) = 0): the
+inter-box J–M coupling is ≈ 0 and the Schur split on [J; M] is the wrong lever. **The whole gain of the
+near-field inverse sits in the inter-box coupling inside A and D (the L operator).** Decision 2's algorithm is
+therefore closed for rough surfaces; the implementation stays as the explicit option `PreconditionerKind::Schur`
+(correct, tested, not measured further).
+
+6. **WP-SC3 — incomplete LU of A and D separately** (user decision 2026-10-31): M⁻¹ = diag(Ã⁻¹, D̃⁻¹) with Ã, D̃
+   the incomplete LU factorisations (ILUT: fill limit per row and drop tolerance as parameters) of the N × N near
+   blocks A = Z_n[J, J] and D = Z_n[M, M]; `Eigen::IncompleteLUT<Complex>` if it is sound for complex indefinite
+   matrices, otherwise an own ILUT (Saad) in `solver/` — Eigen only, no new dependency. Setup sequential and
+   deterministic per block (A and D in parallel), apply = two triangular solves per block, bitwise independent of
+   the thread count. Explicit option only. **Stage 1 (U):** ≤ 92 iterations on rough Ag with factor memory
+   ≤ 4 × nnz(A + D) × 16 B; the fill / drop parameters are swept at U (fill 2, 3, 5 × the row nnz; drop 10⁻³,
+   10⁻⁴), the setup time recorded. **Stage 2 (16 / 24 µm):** ≥ 2× fewer iterations than the one-level-up blocks at
+   2N = 300 160 (844 → ≤ 422), lower total time (setup + GMRES), preconditioner memory ≤ 25 % of the operator
+   (≤ 5 GB at 24 µm; the 2× rule of decision 2 would be below one copy of A and D at fill 1 and is replaced here).
+   If both hold the "mlfmm" PML route switches its default; otherwise the result is recorded and the lead
+   decides.
+7. **Fallback** if ILUT breaks down or gains < 2× at U (indefinite complex blocks are a known ILU risk): a block
+   sparse approximate inverse of A and D on the leaf-level near pattern (one least-squares problem per column
+   block), its own decision after the WP-SC3 stage-1 numbers.
+8. The latent gap found in WP-SC2 — `Eigen::PartialPivLU::rcond()` can return a finite value for an exactly zero
+   pivot — is closed in WP-SC3 for `BlockDiagonalPreconditioner` and the Schur blocks (check the U diagonal).
