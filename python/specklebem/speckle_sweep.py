@@ -1,7 +1,8 @@
-"""Phase 6 speckle sweep on rough surfaces (WP-S2): observation plane, one case, ROW records,
-analysis of the saved patterns.
+"""Phase 6 speckle sweep on rough surfaces (WP-S2): observation plane, one case, a sequence of
+excitations on one surface (WP-KR3), ROW records, analysis of the saved patterns.
 
-Reusable pieces of ``benchmarks/speckle_sweep.py`` (one case per process),
+Reusable pieces of ``benchmarks/speckle_sweep.py`` (one surface per process: one case, or several
+excitations solved on one assembled operator),
 ``benchmarks/speckle_sweep_stats.py`` (statistics of the saved patterns) and of the
 validation-large test of the Phase 6 definition of done (WP-S2b). The speckle descriptors
 themselves are ``specklebem`` / ``post::speckle_statistics`` and the harness
@@ -32,8 +33,8 @@ import math
 import os
 import sys
 import time
-from collections.abc import Callable, Iterable, Mapping
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -95,8 +96,11 @@ class PlaneSampling:
 
         h = 0.5 * self.size
         return _core.plane_grid(
-            origin=[-h, -h, self.z], u=[self.size, 0.0, 0.0], v=[0.0, self.size, 0.0],
-            nu=self.n, nv=self.n,
+            origin=[-h, -h, self.z],
+            u=[self.size, 0.0, 0.0],
+            v=[0.0, self.size, 0.0],
+            nu=self.n,
+            nv=self.n,
         )
 
     def coordinates(self) -> np.ndarray:
@@ -119,10 +123,19 @@ def plane_sampling(wavelength: float, z: float, waist: float, size: float, n: in
     max_angle = math.atan(0.5 * s / abs(z))
     d_over_wl = 2.0 * w0 / wl
     return PlaneSampling(
-        wavelength=wl, z=float(z), waist=w0, size=s, n=n, spacing=spacing, speckle_size=s0,
-        speckle_fwhm=gaussian_speckle_fwhm(wl, z, w0), samples_per_speckle=s0 / spacing,
-        max_angle=max_angle, speckles_per_axis=2.0 * math.sin(max_angle) * d_over_wl,
-        paraxial_speckles_per_axis=s / s0, max_speckles_per_axis=2.0 * d_over_wl,
+        wavelength=wl,
+        z=float(z),
+        waist=w0,
+        size=s,
+        n=n,
+        spacing=spacing,
+        speckle_size=s0,
+        speckle_fwhm=gaussian_speckle_fwhm(wl, z, w0),
+        samples_per_speckle=s0 / spacing,
+        max_angle=max_angle,
+        speckles_per_axis=2.0 * math.sin(max_angle) * d_over_wl,
+        paraxial_speckles_per_axis=s / s0,
+        max_speckles_per_axis=2.0 * d_over_wl,
     )
 
 
@@ -153,10 +166,40 @@ def choose_plane(
 
 #: Key order of the ROW line; further keys follow in insertion order.
 ROW_KEYS = (
-    "material", "L_um", "h_nm", "sigma_nm", "Lc_um", "seed", "waist_um", "pol", "theta_deg",
-    "z_mm", "plane_mm", "plane_n", "tol", "form", "precond", "d0", "lq", "N2", "triangles",
-    "rmax_nm", "leaf_nm", "levels", "mesh_s", "setup_s", "it", "conv", "res", "true_res",
-    "solve_s", "plane_s", "far_s", "peak_gb", "R", "contrast_global",
+    "material",
+    "L_um",
+    "h_nm",
+    "sigma_nm",
+    "Lc_um",
+    "seed",
+    "waist_um",
+    "pol",
+    "theta_deg",
+    "z_mm",
+    "plane_mm",
+    "plane_n",
+    "tol",
+    "form",
+    "precond",
+    "d0",
+    "lq",
+    "N2",
+    "triangles",
+    "rmax_nm",
+    "leaf_nm",
+    "levels",
+    "mesh_s",
+    "setup_s",
+    "it",
+    "conv",
+    "res",
+    "true_res",
+    "solve_s",
+    "plane_s",
+    "far_s",
+    "peak_gb",
+    "R",
+    "contrast_global",
 )
 
 
@@ -226,13 +269,16 @@ def peak_memory_bytes() -> int | None:
 
         class _Counters(ctypes.Structure):
             _fields_ = [
-                ("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong),
-                ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                ("cb", ctypes.c_ulong),
+                ("PageFaultCount", ctypes.c_ulong),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
                 ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
                 ("QuotaPagedPoolUsage", ctypes.c_size_t),
                 ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
                 ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
             ]
 
         c = _Counters()
@@ -286,7 +332,8 @@ class CaseParams:
     rough_surface_box_params(...).beam_waist_fraction (L / 6 for Si at normal incidence, ADR
     0006 amendment 2026-10-12b; the footprint is 1 / cos(theta) longer). theta_deg is the
     incidence angle of the beam (R_y(theta) z_hat, docs/06); the tag gets ``_t<theta>`` when
-    it is non-zero, so normal-incidence tags are unchanged."""
+    it is non-zero and ``_pols`` for s polarisation (WP-KR3: the s / p pair of one surface needs
+    two directories), so the tags of p-polarised normal-incidence cases are unchanged."""
 
     L: float
     sigma: float
@@ -307,8 +354,13 @@ class CaseParams:
 
     def tag(self) -> str:
         t = f"_t{self.theta_deg:g}" if self.theta_deg != 0.0 else ""
-        return (f"{self.material}_L{self.L * 1e6:g}um_s{self.sigma * 1e9:g}nm_"
-                f"Lc{self.Lc * 1e6:g}um_seed{self.seed}{t}")
+        pol = str(self.polarization).split(".")[-1].lower()
+        if pol != "p":
+            t += f"_pol{pol}"
+        return (
+            f"{self.material}_L{self.L * 1e6:g}um_s{self.sigma * 1e9:g}nm_"
+            f"Lc{self.Lc * 1e6:g}um_seed{self.seed}{t}"
+        )
 
     def default_waist(self, beam_waist_fraction: float) -> float:
         """waist if given, else L cos(theta) * beam_waist_fraction."""
@@ -339,12 +391,9 @@ def vacuum_wave_impedance(vac: Any, omega: float) -> float:
     return z.real
 
 
-def build_simulation(p: CaseParams) -> tuple[Any, dict[str, Any]]:
-    """Box-route Simulation of one case (ADR 0006 defaults, MLFMM, rigorous beam at 0 deg).
-
-    Returns (sim, info); info holds the box parameters, the waist, omega, the background wave
-    impedance ``eta0`` (``vacuum().wave_impedance``), r_max, mesh sizes and the mesh generation
-    time."""
+def _build_surface(p: CaseParams) -> dict[str, Any]:
+    """Materials, box parameters, mesh and controlled-ball radius of a case's surface (the part
+    of build_simulation that depends only on the operator fields of CaseParams)."""
     from . import _specklebem as _core
     from .rough_surface import RoughSurface
 
@@ -353,31 +402,86 @@ def build_simulation(p: CaseParams) -> tuple[Any, dict[str, Any]]:
     obj, vac = _material(p.material), _core.vacuum()
     t0 = time.perf_counter()
     box = _core.rough_surface_box_params(obj, vac, p.wavelength, p.sigma, p.h)
-    surf = RoughSurface(L=p.L, sigma=p.sigma, Lc=p.Lc, mesh_size=p.h, seed=p.seed,
-                        **box.kwargs())
+    surf = RoughSurface(L=p.L, sigma=p.sigma, Lc=p.Lc, mesh_size=p.h, seed=p.seed, **box.kwargs())
     mesh = surf.mesh
     mesh_s = time.perf_counter() - t0
-    waist = p.default_waist(box.beam_waist_fraction)
-    theta = math.radians(p.theta_deg)
-    _core.check_beam_waist(p.L, waist, incidence_angle=theta,
-                           max_fraction=box.beam_waist_fraction)
     verts = np.asarray(mesh.vertices)
     region = p.region_radius_factor * float(np.max(np.linalg.norm(verts, axis=1)))
-    beam = _core.AngularSpectrumBeam(wavelength=p.wavelength, waist=waist,
-                                     polarization=p.polarization, incidence_angle=theta,
-                                     region_radius=region)
-    sim = _core.Simulation(mesh, beam, object=obj, formulation=p.formulation,
-                           preconditioner=p.preconditioner, compression="mlfmm",
-                           mlfmm=dict(p.mlfmm) or None)
-    info = dict(
-        box_depth=box.box_depth, box_mesh_size=box.box_mesh_size,
-        box_fine_depth=box.box_fine_depth, beam_waist_fraction=box.beam_waist_fraction,
-        waist=waist, region_radius=region, num_plane_waves=beam.num_plane_waves,
-        omega=float(beam.omega), eta0=vacuum_wave_impedance(vac, float(beam.omega)),
-        triangles=mesh.num_triangles, rmax=max_support_radius(verts, mesh.triangles),
-        height_rms=float(surf.heights.rms()), mesh_s=mesh_s,
+    return dict(
+        obj=obj,
+        vac=vac,
+        box=box,
+        surf=surf,
+        mesh=mesh,
+        region=region,
+        mesh_s=mesh_s,
+        rmax=max_support_radius(verts, mesh.triangles),
     )
-    return sim, info
+
+
+def _make_beam(p: CaseParams, surface: Mapping[str, Any]) -> tuple[Any, float]:
+    """(rigorous beam, waist) of a case on a surface of _build_surface: the default waist, the
+    footprint rule (``check_beam_waist``) and the surface's controlled-ball radius."""
+    from . import _specklebem as _core
+
+    box = surface["box"]
+    waist = p.default_waist(box.beam_waist_fraction)
+    theta = math.radians(p.theta_deg)
+    _core.check_beam_waist(p.L, waist, incidence_angle=theta, max_fraction=box.beam_waist_fraction)
+    beam = _core.AngularSpectrumBeam(
+        wavelength=p.wavelength,
+        waist=waist,
+        polarization=p.polarization,
+        incidence_angle=theta,
+        region_radius=surface["region"],
+    )
+    return beam, waist
+
+
+def _case_info(surface: Mapping[str, Any], beam: Any, waist: float) -> dict[str, Any]:
+    """The info dict of build_simulation for a surface and a beam."""
+    box, mesh = surface["box"], surface["mesh"]
+    return dict(
+        box_depth=box.box_depth,
+        box_mesh_size=box.box_mesh_size,
+        box_fine_depth=box.box_fine_depth,
+        beam_waist_fraction=box.beam_waist_fraction,
+        waist=waist,
+        region_radius=surface["region"],
+        num_plane_waves=beam.num_plane_waves,
+        omega=float(beam.omega),
+        eta0=vacuum_wave_impedance(surface["vac"], float(beam.omega)),
+        triangles=mesh.num_triangles,
+        rmax=surface["rmax"],
+        height_rms=float(surface["surf"].heights.rms()),
+        mesh_s=surface["mesh_s"],
+    )
+
+
+def _simulation(p: CaseParams, surface: Mapping[str, Any], beam: Any) -> Any:
+    """The box-route Simulation (MLFMM) of a surface of _build_surface with ``beam``."""
+    from . import _specklebem as _core
+
+    return _core.Simulation(
+        surface["mesh"],
+        beam,
+        object=surface["obj"],
+        formulation=p.formulation,
+        preconditioner=p.preconditioner,
+        compression="mlfmm",
+        mlfmm=dict(p.mlfmm) or None,
+    )
+
+
+def build_simulation(p: CaseParams) -> tuple[Any, dict[str, Any]]:
+    """Box-route Simulation of one case (ADR 0006 defaults, MLFMM, rigorous beam at theta_deg).
+
+    Returns (sim, info); info holds the box parameters, the waist, omega, the background wave
+    impedance ``eta0`` (``vacuum().wave_impedance``), r_max, mesh sizes and the mesh generation
+    time."""
+    surface = _build_surface(p)
+    beam, waist = _make_beam(p, surface)
+    return _simulation(p, surface, beam), _case_info(surface, beam, waist)
 
 
 def _parse_report(report: str) -> dict[str, Any]:
@@ -395,63 +499,88 @@ def _parse_report(report: str) -> dict[str, Any]:
     return out
 
 
-def run_case(
+def _base_record(p: CaseParams, plane: PlaneSampling) -> dict[str, Any]:
+    """The case and plane fields that open every record."""
+    return dict(
+        material=p.material,
+        L_um=p.L * 1e6,
+        h_nm=p.h * 1e9,
+        sigma_nm=p.sigma * 1e9,
+        Lc_um=p.Lc * 1e6,
+        seed=p.seed,
+        pol=p.polarization,
+        theta_deg=p.theta_deg,
+        z_mm=plane.z * 1e3,
+        plane_mm=plane.size * 1e3,
+        plane_n=plane.n,
+        tol=p.solver_tol,
+    )
+
+
+def _check_plane_waist(plane: PlaneSampling, waist: float) -> None:
+    if not math.isclose(waist, plane.waist, rel_tol=1e-12):
+        raise ValueError(
+            f"plane sampling was computed for w0 = {plane.waist} m, the case uses {waist} m"
+        )
+
+
+def _operator_record(
+    p: CaseParams, sim: Any, info: Mapping[str, Any], mesh_s: float
+) -> dict[str, Any]:
+    """The Simulation, operator and mesh fields of a record."""
+    return dict(
+        waist_um=info["waist"] * 1e6,
+        form=str(sim.formulation).split(".")[-1].lower(),
+        precond=sim.preconditioner,
+        d0=p.mlfmm.get("accuracy_digits", 3),
+        lq=p.mlfmm.get("leaf_radius_quantile", 1.0),
+        N2=sim.num_unknowns,
+        triangles=info["triangles"],
+        rmax_nm=info["rmax"] * 1e9,
+        mesh_s=mesh_s,
+    )
+
+
+def _log_case(p: CaseParams, sim: Any, info: Mapping[str, Any], log: Callable[[str], None]) -> None:
+    log(
+        f"case {p.tag()}: 2N = {sim.num_unknowns}, triangles {info['triangles']}, r_max "
+        f"{info['rmax'] * 1e9:.2f} nm, waist {info['waist']:.4g} m, box depth "
+        f"{info['box_depth']:.4g} m, plane waves {info['num_plane_waves']}"
+    )
+
+
+def _solve_and_save(
+    sim: Any,
     p: CaseParams,
     plane: PlaneSampling,
-    out_dir: str | os.PathLike[str],
+    info: Mapping[str, Any],
+    out: Path,
+    rec: dict[str, Any],
+    report_setup: str,
     *,
-    far_grid: tuple[int, int] | None = (90, 180),
-    log: Callable[[str], None] = print,
+    far_grid: tuple[int, int] | None,
+    log: Callable[[str], None],
+    extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build, assemble, solve, evaluate the scattered field on the plane and save everything.
-
-    Files in out_dir (created): ``intensity.npy`` (n, n) |E_s|^2 [V^2/m^2] with [i, j] at
-    (x_i, y_j); ``E.npy`` (n * n, 3) complex scattered E [V/m] in plane_grid order;
-    ``incident_paraxial_intensity.npy`` (n, n) |E_inc|^2 of the paraxial GaussianBeam of the same
-    waist (a note only: the rigorous beam is not controlled at |z| = 1 mm);
-    ``currents.npy`` [J; M]; ``residual_history.npy``; with far_grid also ``far_dirs.npy``,
-    ``far_weights.npy``, ``far_F.npy`` (1 deg reflection hemisphere by default);
-    ``meta.json`` (the returned record plus the report) and ``row.txt`` (the ROW line).
-    """
+    """The per-excitation part of run_case and run_sequence: solve the assembled ``sim`` for its
+    current excitation, evaluate the plane and far fields, add ``extra`` to the record (after
+    peak_gb) and save every file in ``out``. Returns ``rec``."""
     from . import _specklebem as _core
-
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    rec: dict[str, Any] = dict(
-        material=p.material, L_um=p.L * 1e6, h_nm=p.h * 1e9, sigma_nm=p.sigma * 1e9,
-        Lc_um=p.Lc * 1e6, seed=p.seed, pol=p.polarization, theta_deg=p.theta_deg,
-        z_mm=plane.z * 1e3, plane_mm=plane.size * 1e3, plane_n=plane.n, tol=p.solver_tol,
-    )
-    sim, info = build_simulation(p)
-    if not math.isclose(info["waist"], plane.waist, rel_tol=1e-12):
-        raise ValueError(
-            f"plane sampling was computed for w0 = {plane.waist} m, the case uses "
-            f"{info['waist']} m")
-    rec.update(waist_um=info["waist"] * 1e6, form=str(sim.formulation).split(".")[-1].lower(),
-               precond=sim.preconditioner, d0=p.mlfmm.get("accuracy_digits", 3),
-               lq=p.mlfmm.get("leaf_radius_quantile", 1.0), N2=sim.num_unknowns,
-               triangles=info["triangles"], rmax_nm=info["rmax"] * 1e9, mesh_s=info["mesh_s"])
-    log(f"case {p.tag()}: 2N = {sim.num_unknowns}, triangles {info['triangles']}, r_max "
-        f"{info['rmax'] * 1e9:.2f} nm, waist {info['waist']:.4g} m, box depth "
-        f"{info['box_depth']:.4g} m, plane waves {info['num_plane_waves']}")
-
-    t0 = time.perf_counter()
-    sim.assemble()
-    rec["setup_s"] = time.perf_counter() - t0
-    rec["peak_setup_gb"] = (peak_memory_bytes() or 0) / 1e9
-    report_setup = sim.report()
-    rec.update({k: v for k, v in _parse_report(report_setup).items() if v is not None})
-    log(f"assembled in {rec['setup_s']:.1f} s, peak {rec['peak_setup_gb']:.2f} GB")
 
     t0 = time.perf_counter()
     res = sim.solve(tol=p.solver_tol, max_iter=p.max_iter)
     rec["solve_s"] = time.perf_counter() - t0
     hist = np.asarray(res.residual_history)
-    rec.update(it=res.iterations, conv=bool(res.converged),
-               res=float(hist[-1]) if hist.size else float("nan"),
-               true_res=float(res.true_relative_residual))
-    log(f"solved: {res.iterations} it, converged {res.converged}, true residual "
-        f"{res.true_relative_residual:.3e}, {rec['solve_s']:.1f} s")
+    rec.update(
+        it=res.iterations,
+        conv=bool(res.converged),
+        res=float(hist[-1]) if hist.size else float("nan"),
+        true_res=float(res.true_relative_residual),
+    )
+    log(
+        f"solved: {res.iterations} it, converged {res.converged}, true residual "
+        f"{res.true_relative_residual:.3e}, {rec['solve_s']:.1f} s"
+    )
     np.save(out / "residual_history.npy", hist)
     np.save(out / "currents.npy", np.asarray(sim.currents))
 
@@ -463,9 +592,12 @@ def run_case(
     intensity = np.asarray(_core.intensity(E)).reshape(plane.n, plane.n)
     np.save(out / "E.npy", E)
     np.save(out / "intensity.npy", intensity)
-    inc = _core.GaussianBeam(wavelength=p.wavelength, waist=info["waist"],
-                             polarization=p.polarization,
-                             incidence_angle=math.radians(p.theta_deg))
+    inc = _core.GaussianBeam(
+        wavelength=p.wavelength,
+        waist=info["waist"],
+        polarization=p.polarization,
+        incidence_angle=math.radians(p.theta_deg),
+    )
     i_inc = np.asarray(_core.intensity(inc.electric_field(pts))).reshape(plane.n, plane.n)
     np.save(out / "incident_paraxial_intensity.npy", i_inc)
     rec["contrast_global"] = float(np.std(intensity) / np.mean(intensity))
@@ -488,14 +620,199 @@ def run_case(
         log(f"far field ({len(w)} directions) in {rec['far_s']:.1f} s, R = {rec['R']:.5f}")
 
     rec["peak_gb"] = (peak_memory_bytes() or 0) / 1e9
-    meta = dict(record=rec, params=asdict(p), info=info, plane=asdict(plane),
-                report=sim.report(), report_setup=report_setup)
+    if extra:
+        rec.update(extra)
+    meta = dict(
+        record=rec,
+        params=asdict(p),
+        info=info,
+        plane=asdict(plane),
+        report=sim.report(),
+        report_setup=report_setup,
+    )
     with open(out / "meta.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(meta, f, indent=1, default=str)
     row = format_row(rec)
     with open(out / "row.txt", "w", encoding="utf-8", newline="\n") as f:
         f.write(row + "\n")
     return rec
+
+
+def run_case(
+    p: CaseParams,
+    plane: PlaneSampling,
+    out_dir: str | os.PathLike[str],
+    *,
+    far_grid: tuple[int, int] | None = (90, 180),
+    log: Callable[[str], None] = print,
+) -> dict[str, Any]:
+    """Build, assemble, solve, evaluate the scattered field on the plane and save everything.
+
+    Files in out_dir (created): ``intensity.npy`` (n, n) |E_s|^2 [V^2/m^2] with [i, j] at
+    (x_i, y_j); ``E.npy`` (n * n, 3) complex scattered E [V/m] in plane_grid order;
+    ``incident_paraxial_intensity.npy`` (n, n) |E_inc|^2 of the paraxial GaussianBeam of the same
+    waist (a note only: the rigorous beam is not controlled at |z| = 1 mm);
+    ``currents.npy`` [J; M]; ``residual_history.npy``; with far_grid also ``far_dirs.npy``,
+    ``far_weights.npy``, ``far_F.npy`` (1 deg reflection hemisphere by default);
+    ``meta.json`` (the returned record plus the report) and ``row.txt`` (the ROW line).
+    Several excitations of one surface: run_sequence (one assembly).
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    rec = _base_record(p, plane)
+    sim, info = build_simulation(p)
+    _check_plane_waist(plane, info["waist"])
+    rec.update(_operator_record(p, sim, info, info["mesh_s"]))
+    _log_case(p, sim, info, log)
+
+    t0 = time.perf_counter()
+    sim.assemble()
+    rec["setup_s"] = time.perf_counter() - t0
+    rec["peak_setup_gb"] = (peak_memory_bytes() or 0) / 1e9
+    report_setup = sim.report()
+    rec.update({k: v for k, v in _parse_report(report_setup).items() if v is not None})
+    log(f"assembled in {rec['setup_s']:.1f} s, peak {rec['peak_setup_gb']:.2f} GB")
+    return _solve_and_save(sim, p, plane, info, out, rec, report_setup, far_grid=far_grid, log=log)
+
+
+#: CaseParams fields that may differ between the cases of run_sequence (the excitation and the
+#: solver settings); every other field describes the surface or the operator and must agree.
+SEQUENCE_CASE_FIELDS = ("theta_deg", "polarization", "waist", "solver_tol", "max_iter")
+
+
+def check_sequence(p_list: Sequence[CaseParams]) -> None:
+    """ValueError unless the cases can share one assembled Simulation: at least one case, every
+    CaseParams field outside SEQUENCE_CASE_FIELDS equal to the first case's (the message names
+    the first differing field) and no two cases with the same tag (one directory per case)."""
+    cases = list(p_list)
+    if not cases:
+        raise ValueError("run_sequence: need at least one case")
+    if not all(isinstance(p, CaseParams) for p in cases):
+        raise ValueError("run_sequence: every case must be a CaseParams")
+    names = [f.name for f in fields(CaseParams) if f.name not in SEQUENCE_CASE_FIELDS]
+    first = cases[0]
+    for k, p in enumerate(cases[1:], start=1):
+        for name in names:
+            a, b = getattr(first, name), getattr(p, name)
+            if a != b:
+                raise ValueError(
+                    f"run_sequence: case {k} differs from case 0 in the operator field "
+                    f"{name!r} ({b!r} vs {a!r}); only {', '.join(SEQUENCE_CASE_FIELDS)} may "
+                    "differ within one sequence"
+                )
+    tags = [p.tag() for p in cases]
+    dup = sorted({t for t in tags if tags.count(t) > 1})
+    if dup:
+        raise ValueError(f"run_sequence: duplicate case tags {dup} (same angle and polarisation)")
+
+
+def run_sequence(
+    p_list: Sequence[CaseParams],
+    plane: PlaneSampling | Sequence[PlaneSampling],
+    out_dir: str | os.PathLike[str],
+    *,
+    far_grid: tuple[int, int] | None = (90, 180),
+    skip_existing: bool = False,
+    log: Callable[[str], None] = print,
+) -> list[dict[str, Any]]:
+    """Several excitations of one surface solved on one assembled Simulation (WP-KR3, ADR 0013).
+
+    The cases must agree in every operator field (``check_sequence``: ValueError naming the first
+    differing field) and may differ in theta_deg, polarization, waist, solver_tol and max_iter.
+    The mesh is generated and the Simulation assembled (operator and preconditioner) once; every
+    later case swaps the excitation (``Simulation.set_excitation``: the right-hand side only) and
+    solves. Per case the files, ``meta.json``, ``row.txt`` and record keys are those of run_case,
+    in ``out_dir / p.tag()``, and the currents, plane field, far field, R and iterations equal
+    those of run_case of that case alone bitwise. ``plane`` is one PlaneSampling for all cases
+    (its waist must then equal every case's waist, as in run_case: ValueError otherwise) or one
+    per case (the driver passes one per case: the default waists L cos(theta) / 6 differ between
+    angles).
+
+    The record gains ``reused`` (0 for the case that built and assembled the Simulation, 1 for
+    the later ones) and ``swap_s`` (the set_excitation time [s]; 0.0 for the first case). For the
+    later cases ``setup_s`` is the swap time and ``mesh_s`` is 0.0 (the case's own cost; the
+    shared mesh generation and assembly are on the first case's row), ``peak_setup_gb`` is the
+    process peak after the swap, and leaf_nm / levels come from the report after the swap (the
+    same operator).
+
+    With ``skip_existing`` a case whose directory holds ``row.txt`` is not solved and its entry
+    of the returned list is ``parse_row`` of that file; the Simulation is then built with the
+    first case that is not skipped (nothing is built when all are skipped). The beams of all
+    remaining cases (default waist, footprint rule) and their planes are checked before the
+    assembly.
+    """
+    cases = list(p_list)
+    check_sequence(cases)
+    if isinstance(plane, PlaneSampling):
+        planes = [plane] * len(cases)
+    else:
+        planes = list(plane)
+        if len(planes) != len(cases) or not all(isinstance(q, PlaneSampling) for q in planes):
+            raise ValueError("run_sequence: plane must be a PlaneSampling or one per case")
+    root = Path(out_dir)
+    dirs = [root / p.tag() for p in cases]
+    done = [skip_existing and (d / "row.txt").is_file() for d in dirs]
+    for d, skipped in zip(dirs, done):
+        if skipped:
+            log(f"{d.name}: row.txt exists, skipped")
+    pending = [k for k, skipped in enumerate(done) if not skipped]
+    beams: dict[int, tuple[Any, dict[str, Any]]] = {}
+    sim = None
+    if pending:
+        surface = _build_surface(cases[pending[0]])
+        for k in pending:
+            beam, waist = _make_beam(cases[k], surface)
+            _check_plane_waist(planes[k], waist)
+            beams[k] = (beam, _case_info(surface, beam, waist))
+        sim = _simulation(cases[pending[0]], surface, beams[pending[0]][0])
+        log(
+            f"sequence of {len(pending)} excitation(s) on one surface: "
+            f"{', '.join(cases[k].tag() for k in pending)}"
+        )
+
+    results: list[dict[str, Any]] = []
+    for k, p in enumerate(cases):
+        if done[k]:
+            results.append(parse_row((dirs[k] / "row.txt").read_text(encoding="utf-8").strip()))
+            continue
+        out = dirs[k]
+        out.mkdir(parents=True, exist_ok=True)
+        beam, info = beams[k]
+        reused = k != pending[0]
+        rec = _base_record(p, planes[k])
+        rec.update(_operator_record(p, sim, info, 0.0 if reused else info["mesh_s"]))
+        _log_case(p, sim, info, log)
+        t0 = time.perf_counter()
+        if reused:
+            sim.set_excitation(beam)
+        else:
+            sim.assemble()
+        rec["setup_s"] = time.perf_counter() - t0
+        rec["peak_setup_gb"] = (peak_memory_bytes() or 0) / 1e9
+        report_setup = sim.report()
+        rec.update({key: v for key, v in _parse_report(report_setup).items() if v is not None})
+        if reused:
+            log(
+                f"excitation swapped in {rec['setup_s']:.1f} s (operator and preconditioner reused)"
+            )
+        else:
+            log(f"assembled in {rec['setup_s']:.1f} s, peak {rec['peak_setup_gb']:.2f} GB")
+        extra = dict(reused=int(reused), swap_s=rec["setup_s"] if reused else 0.0)
+        results.append(
+            _solve_and_save(
+                sim,
+                p,
+                planes[k],
+                info,
+                out,
+                rec,
+                report_setup,
+                far_grid=far_grid,
+                log=log,
+                extra=extra,
+            )
+        )
+    return results
 
 
 # --------------------------------------------------------------------------------------------
@@ -524,8 +841,9 @@ def fully_developed(sigma: float, wavelength: float) -> bool:
     return coherent_fraction(sigma, wavelength) < FULLY_DEVELOPED_COHERENT_FRACTION
 
 
-def copol_intensity(E: np.ndarray, n: int,
-                    co_pol: Iterable[complex] = (1.0, 0.0, 0.0)) -> np.ndarray:
+def copol_intensity(
+    E: np.ndarray, n: int, co_pol: Iterable[complex] = (1.0, 0.0, 0.0)
+) -> np.ndarray:
     """Co-polarised intensity |E . co_pol*|^2 of plane_grid samples E (n * n, 3) as (n, n)
     (``polarized_intensity``; row i * n + j -> [i, j]). docs/05 row 42 tests this quantity."""
     from . import _specklebem as _core
@@ -548,7 +866,12 @@ def direction_cosine_axis(u_max: float, du: float) -> np.ndarray:
 
 
 def plane_to_direction_cosines(
-    intensity: np.ndarray, x0: float, dx: float, z: float, u: np.ndarray, *,
+    intensity: np.ndarray,
+    x0: float,
+    dx: float,
+    z: float,
+    u: np.ndarray,
+    *,
     radiant: bool = True,
 ) -> np.ndarray:
     """Resample a plane pattern onto direction cosines (bilinear).
@@ -581,8 +904,12 @@ def plane_to_direction_cosines(
     i = np.clip(np.floor(fi).astype(int), 0, grid.shape[0] - 2)
     j = np.clip(np.floor(fj).astype(int), 0, grid.shape[1] - 2)
     ti, tj = fi - i, fj - j
-    out = ((1 - ti) * (1 - tj) * grid[i, j] + ti * (1 - tj) * grid[i + 1, j]
-           + (1 - ti) * tj * grid[i, j + 1] + ti * tj * grid[i + 1, j + 1])
+    out = (
+        (1 - ti) * (1 - tj) * grid[i, j]
+        + ti * (1 - tj) * grid[i + 1, j]
+        + (1 - ti) * tj * grid[i, j + 1]
+        + ti * tj * grid[i + 1, j + 1]
+    )
     return out / w2 if radiant else out
 
 
@@ -620,8 +947,7 @@ def gaussian_smooth(field: np.ndarray, radius_px: float) -> np.ndarray:
     return num / den
 
 
-def leave_one_out_envelopes(patterns: Iterable[np.ndarray],
-                            radius_px: float) -> list[np.ndarray]:
+def leave_one_out_envelopes(patterns: Iterable[np.ndarray], radius_px: float) -> list[np.ndarray]:
     """Envelope (local mean intensity) for each pattern, estimated without the pattern itself.
 
     For pattern i: the mean of the four mirror images of every other pattern and of the three
@@ -660,7 +986,7 @@ def centred_window(envelope: np.ndarray, threshold: float) -> int:
     h = -1
     while h + 1 <= c:
         k = h + 1
-        if np.min(e[c - k:c + k + 1, c - k:c + k + 1]) < level:
+        if np.min(e[c - k : c + k + 1, c - k : c + k + 1]) < level:
             break
         h = k
     return h
@@ -672,7 +998,7 @@ def centre_crop(a: np.ndarray, half: int) -> np.ndarray:
     c = a.shape[0] // 2
     if half < 0 or half > c:
         raise ValueError("centre_crop: half width out of range")
-    return a[c - half:c + half + 1, c - half:c + half + 1]
+    return a[c - half : c + half + 1, c - half : c + half + 1]
 
 
 def decimate_count(shape: tuple[int, ...], stride: int) -> int:
@@ -680,8 +1006,9 @@ def decimate_count(shape: tuple[int, ...], stride: int) -> int:
     return (-(-int(shape[0]) // stride)) * (-(-int(shape[1]) // stride))
 
 
-def decimated_samples(windows: Iterable[np.ndarray], stride: int,
-                      offset: int = 0) -> list[np.ndarray]:
+def decimated_samples(
+    windows: Iterable[np.ndarray], stride: int, offset: int = 0
+) -> list[np.ndarray]:
     """``speckle.decimate`` of each window divided by its own mean (the KS input of
     ``speckle.ensemble_statistics``: pooled I / <I>_pattern). ``offset`` (0 <= offset < stride)
     shifts the decimation grid by that many pixels along both axes (``w[offset::stride,
@@ -689,11 +1016,12 @@ def decimated_samples(windows: Iterable[np.ndarray], stride: int,
     from .speckle import decimate
 
     if int(offset) != offset or not 0 <= offset < stride:
-        raise ValueError(f"decimated_samples: offset must be an integer in [0, stride), got "
-                         f"{offset!r}")
+        raise ValueError(
+            f"decimated_samples: offset must be an integer in [0, stride), got {offset!r}"
+        )
     out = []
     for w in windows:
-        d = decimate(np.asarray(w)[int(offset):, int(offset):], stride).ravel()
+        d = decimate(np.asarray(w)[int(offset) :, int(offset) :], stride).ravel()
         if not d.mean() > 0:
             raise ValueError("decimated_samples: a decimated window has zero mean")
         out.append(d / d.mean())
@@ -744,8 +1072,9 @@ def synthetic_far_zone_speckle(
     if envelope_rms is not None:
         u = du * (np.arange(n_fft) - n_fft // 2)
         uu, vv = np.meshgrid(u, u, indexing="ij")
-        i_uv = i_uv * np.exp(-(uu**2 + vv**2) / (2.0 * _require_positive(envelope_rms,
-                                                                          "envelope_rms") ** 2))
+        i_uv = i_uv * np.exp(
+            -(uu**2 + vv**2) / (2.0 * _require_positive(envelope_rms, "envelope_rms") ** 2)
+        )
     return _far_zone_to_plane(i_uv, du, plane)
 
 
@@ -772,8 +1101,9 @@ def correlated_field(rng: np.random.Generator, field: np.ndarray, mu: float) -> 
     return m * a + math.sqrt(1.0 - m * m) * circular_gaussian_field(rng, a.shape[0])
 
 
-def _aperture_grid(plane: PlaneSampling, samples_per_speckle: int,
-                   n_fft: int) -> tuple[float, np.ndarray, np.ndarray]:
+def _aperture_grid(
+    plane: PlaneSampling, samples_per_speckle: int, n_fft: int
+) -> tuple[float, np.ndarray, np.ndarray]:
     """du of the far-zone FFT grid and the aperture coordinates (pitch lambda / (n_fft du))."""
     du = (plane.wavelength / (2.0 * plane.waist)) / samples_per_speckle
     pitch = plane.wavelength / (n_fft * du)
@@ -805,8 +1135,9 @@ def unit_height_screen(
         raise ValueError("unit_height_screen: correlation length not resolved by the grid")
     kx = 2.0 * math.pi * np.fft.fftfreq(n_fft, d=pitch)
     k2 = kx[:, None] ** 2 + kx[None, :] ** 2
-    h = np.real(np.fft.ifft2(np.fft.fft2(rng.standard_normal((n_fft, n_fft)))
-                             * np.exp(-k2 * lc**2 / 8.0)))  # spectrum ~ exp(-k^2 Lc^2 / 4)
+    h = np.real(
+        np.fft.ifft2(np.fft.fft2(rng.standard_normal((n_fft, n_fft))) * np.exp(-k2 * lc**2 / 8.0))
+    )  # spectrum ~ exp(-k^2 Lc^2 / 4)
     h -= h.mean()
     return h / h.std()
 
@@ -847,8 +1178,12 @@ def _far_zone_to_plane(i_uv: np.ndarray, du: float, plane: PlaneSampling) -> np.
         raise ValueError("synthetic_far_zone_speckle: n_fft too small for the plane")
     i0, j0 = np.floor(fi).astype(int), np.floor(fj).astype(int)
     ti, tj = fi - i0, fj - j0
-    val = ((1 - ti) * (1 - tj) * i_uv[i0, j0] + ti * (1 - tj) * i_uv[i0 + 1, j0]
-           + (1 - ti) * tj * i_uv[i0, j0 + 1] + ti * tj * i_uv[i0 + 1, j0 + 1])
+    val = (
+        (1 - ti) * (1 - tj) * i_uv[i0, j0]
+        + ti * (1 - tj) * i_uv[i0 + 1, j0]
+        + (1 - ti) * tj * i_uv[i0, j0 + 1]
+        + ti * tj * i_uv[i0 + 1, j0 + 1]
+    )
     return val * (plane.z / r) ** 2
 
 
@@ -900,8 +1235,9 @@ def analyse_ensemble(
     radius_px = envelope_radius * speckle_u / du
     envs = leave_one_out_envelopes(radiant, radius_px)
     normalised = [r / e for r, e in zip(radiant, envs)]
-    mean_env = gaussian_smooth(np.mean([m for r in radiant for m in mirror_images(r)], axis=0),
-                               radius_px)
+    mean_env = gaussian_smooth(
+        np.mean([m for r in radiant for m in mirror_images(r)], axis=0), radius_px
+    )
     half = centred_window(mean_env, threshold)
     if half < 1:
         raise ValueError("analyse_ensemble: no window above the envelope threshold")
@@ -917,14 +1253,27 @@ def analyse_ensemble(
     else:
         stride, used = 1, None
     stats = ensemble_statistics(windows, pixel, wl, zz, D, shape="gaussian", ks_stride=stride)
-    rho = {(i, j): float(_core.correlation_coefficient(pats[i].ravel(), pats[j].ravel()))
-           for i in range(len(pats)) for j in range(i + 1, len(pats))}
+    rho = {
+        (i, j): float(_core.correlation_coefficient(pats[i].ravel(), pats[j].ravel()))
+        for i in range(len(pats))
+        for j in range(i + 1, len(pats))
+    }
     return dict(
-        u=u, du=du, pixel_size=pixel, speckle_u=speckle_u,
+        u=u,
+        du=du,
+        pixel_size=pixel,
+        speckle_u=speckle_u,
         contrast_plane=np.array([float(_core.speckle_contrast(p.ravel())) for p in pats]),
-        rho_plane=rho, radiant=radiant, normalised=normalised, envelope=mean_env,
-        window_half=half, window_u=half * du, window_speckles=(2 * half + 1) * du / speckle_u,
-        windows=windows, stats=stats, ks_spacing_used=used,
+        rho_plane=rho,
+        radiant=radiant,
+        normalised=normalised,
+        envelope=mean_env,
+        window_half=half,
+        window_u=half * du,
+        window_speckles=(2 * half + 1) * du / speckle_u,
+        windows=windows,
+        stats=stats,
+        ks_spacing_used=used,
         ks_samples=decimated_samples(windows, stride_req),
         ks_samples_one=decimated_samples(windows, stride_one),
     )

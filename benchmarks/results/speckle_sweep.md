@@ -531,10 +531,11 @@ for 1.8 correlation areas in the spot.
 
 The runs deferred by the decisions of 2026-10-30, for a Linux server with ≥ 1 TB RAM, run by hand.
 They use the existing tools: the WP-S2 driver `benchmarks/speckle_sweep.py` through the queue
-`benchmarks/speckle_sweep_queue.sh` (one process per case, a frozen package per series, finished
-cases skipped, `OUT/STOP` stops before the next case), with the build and machine settings of the
-server run kit (`scripts/server_run_kit/README.md`, sections 1–2). The kit's `run_large_area.sh`
-drives the C++ scaling benchmark, which writes no plane field, so it is not used for these cases.
+`benchmarks/speckle_sweep_queue.sh` (one process per surface, one case directory per excitation,
+a frozen package per series, finished cases skipped, `OUT/STOP` stops before the next surface),
+with the build and machine settings of the server run kit (`scripts/server_run_kit/README.md`,
+sections 1–2). The kit's `run_large_area.sh` drives the C++ scaling benchmark, which writes no
+plane field, so it is not used for these cases.
 The queue gained one override for series (i), `LC` (correlation length, default 1 µm, so the
 commands above are unchanged). **Nothing below has been run; all times and memory figures are
 estimates** scaled from this record (desktop: 12 cores, win-release) and from the measured Si
@@ -604,8 +605,8 @@ to the list, 18 cases, to make it evaluable); C env ≈ 1.00–1.03, size within
 contrast saturates (surrogate 2.00, 1.47, 1.32, 1.28; monotone in 56 %), so row 43 rests on the
 Lc = 1 µm record.
 
-**3. Series (ii): the 0°/30° pair for γ₁₂** (5 cases at θ = 30°; the 0° partners are this
-record's seed-1 cases):
+**3. Series (ii): the 30° partners for γ₁₂** (5 cases at θ = 30°; the 0° partners are this
+record's desktop seed-1 solves, decision b1):
 
 ```sh
 OUT=$RUNS/t30_L8
@@ -619,6 +620,35 @@ Cases `si_L8um_s<σ>nm_Lc1um_seed1_t30`, w₀ = L cos 30°/6 = 1.155 µm (the dr
 option b1's footprint rule; `WAIST=<m>` would override it), Lc = 1 µm, the same height maps as the
 0° cases. The γ₁₂ evaluation (memory-effect-aligned correlation from `far_F.npy`, option b1)
 needs a far-field resampling function that does not exist yet: a follow-up WP.
+
+*Option "same-operator pair" (not the default):* `THETA=0,30` instead of `THETA=30` in the same
+command. The queue passes it to the driver as `--theta-deg 0,30`: one process per surface
+generates the mesh, assembles the operator once and solves 0° and then 30° on it
+(`speckle_sweep.run_sequence`; the 30° beam replaces the right-hand side through
+`Simulation.set_excitation`, WP-KR3), 10 cases: `si_L8um_s<σ>nm_Lc1um_seed1` (w₀ = L/6 =
+1.333 µm) and `si_L8um_s<σ>nm_Lc1um_seed1_t30` (w₀ = 1.155 µm), each with its own default waist
+and plane. `WAIST=<m>` sets one waist for both angles, and a waist above L cos 30°/6 = 1.155 µm is
+refused for the 30° case (footprint rule, `check_beam_waist`) before the assembly, so that
+process stops after its mesh generation without solving the 0° case either. Each case directory
+holds the files listed under "Monitoring" with the same `row.txt` / `meta.json` keys as a single
+case, plus `reused` (0 for the 0° case, which carries the mesh and assembly time; 1 for the 30°
+case) and `swap_s` (for the 30° case `setup_s` is the swap time and `mesh_s` is 0). The peak
+memory stays that of one case (≤ 56 GB: the same operator). Cost: the option adds the five 0°
+solves on the server. This record's seed-1 0° solve + plane + far time without the setup ("Per
+case") is 24.4 + 25.8 + 35.2 + 32.1 + 47.9 min ≈ 2.75 h on the desktop for σ = 50 … 250 nm,
+× 1.9–2.5 ≈ 5–7 h on the reference server, so the series grows from 6–12 h to ≈ 11–19 h. It saves
+little on this route: compared with the default it saves nothing (every process assembles once),
+and compared with solving the 0° cases in processes of their own it saves one setup per surface,
+which on the Si box route (no preconditioner) is 111–218 s of a 26.6–50.1 min case on the
+desktop. Its only gain is a 0° partner from the same build, machine and operator, which a
+correlation coefficient hardly needs. The reuse pays on the PML route, where the assembly and the
+ILUT setup dominate: Ag at 16 µm, 792 s for a fresh assembly + ILUT setup against an 11–22 s swap
+(measured under load), i.e. ≈ 780 s saved per additional excitation (WP-KR1,
+`benchmarks/results/recycling.md`). An interrupted process is restarted with the same command:
+finished cases (with `row.txt`) are skipped, and if the 0° case is finished the operator is built
+for the 30° case (then `reused` 0). With the option `t30_L8/cases` holds both angles:
+`speckle_sweep_stats.py` refuses the mixed directory unless `--theta-deg` selects one angle (it
+groups by σ only).
 
 **4. Series (iii), optional: L = 25 µm** (10 cases; first start the queue with `100e-9:1` alone and
 rescale the estimates from its `row.txt`, then rerun the full list: finished cases are skipped):
@@ -637,10 +667,10 @@ calibration: at n ≈ 850 the leave-one-out envelope from two seeds is itself de
 17 %), so the 2-speckle gate at L = 25 µm needs more seeds or a smoother envelope estimate before
 it decides row 42.
 
-**Monitoring, stopping, output.** `cat "$OUT/progress.txt"` (start / end and exit code per case),
-`tail "$OUT"/log_sigma*`; `touch "$OUT/STOP"` stops before the next case; the same command
-restarts the queue (cases with `row.txt` are skipped; an interrupted case has none and is
-repeated). Layout per series:
+**Monitoring, stopping, output.** `cat "$OUT/progress.txt"` (start / end and exit code per
+process, i.e. per surface), `tail "$OUT"/log_sigma*`; `touch "$OUT/STOP"` stops before the next
+surface; the same command restarts the queue (cases with `row.txt` are skipped; an interrupted
+case has none and is repeated). Layout per series:
 
 ```
 server_runs/wp_s2b/<series>/
@@ -651,7 +681,8 @@ server_runs/wp_s2b/<series>/
                                      incident_paraxial_intensity.npy, meta.json, row.txt
   rows.txt                           one ROW line per finished case
   progress.txt, queue.out            queue log
-  log_sigma<σ>_seed<k>[_t30].txt     one log per case
+  log_sigma<σ>_seed<k>[_t<θ>].txt    one log per process (series (ii): _t30; option
+                                     "same-operator pair": _t0,30, both angles)
 ```
 
 Size per case ≈ 15 MB at L = 8 µm, ≈ 100 MB at L = 25 µm (currents 70 MB, plane E 20 MB). Send
@@ -683,7 +714,11 @@ leave-one-out envelope from two seeds is itself detectable (matched null 17 %, m
 σ-pooled sample of n ≈ 820; "Calibration"); (3) in general, each evaluable σ is a 5 % test, so on
 exact speckle at least one of k evaluable σ rejects with the family-wise probability 1 − 0.95ᵏ
 (14 % for k = 3, 19 % for k = 4; note in "Decided"). Series (ii) has only θ = 30° cases: the DoD
-test skips them; its analysis is the follow-up above.
+test skips them; its analysis is the follow-up above (with the option "same-operator pair" the
+DoD test would analyse its five 0° cases, one seed per σ, a repeat of this record's seed 1 and
+not the record configuration, which is not a gate run). Both the statistics script and the DoD
+test analyse p cases only (the co-polarised intensity is |E_x|²): s cases (driver `--pol`) are
+skipped and listed (stderr and the JSON key `skipped_cases`), never pooled.
 
 **Smoke test of this recipe (2026-10-30, desktop, no assembly and no solve).** The queue was run
 with `echo` as the Python interpreter for each series (`LC=0.5e-6`; `THETA=30`;
@@ -701,7 +736,8 @@ WP-S2 cases ran with an earlier frozen package that used a constant); fixed and 
 
 ```bash
 OUT=<main checkout>/results/local_runs/wp_s2
-# solves (one case per process; frozen package in $OUT/pkg, finished cases skipped)
+# solves (one process per surface, one case per excitation: here one each; frozen package in
+# $OUT/pkg, finished cases skipped)
 sh benchmarks/speckle_sweep_queue.sh "$OUT" /c/msys64/ucrt64/bin/python 50e-9:1 50e-9:2 \
     100e-9:1 100e-9:2 150e-9:1 150e-9:2 200e-9:1 200e-9:2 250e-9:1 250e-9:2
 # statistics (seconds) and calibration (minutes)

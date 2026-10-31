@@ -49,3 +49,4 @@
 - [Operator reuse (WP-KR1)](operator_reuse_findings.md) — set_excitation bitwise, gmres x0 overload trap, 30 deg dark band at U, ILUT spectrum no small theta
 - [ILUT kernel speed-up (WP-SC5)](ilut_kernel_findings.md) — GCC store-forwarding stall on std::complex multiplier (not __muldc3), bitwise-neutral fix, golden-test portability
 - [Core FFT (WP-T3)](core_fft_findings.md) — kissfft segfaults on length 1, GCC/Clang MSYS2 identical pins, pin-first refactor, back-to-back profiler runs
+- [Sweep operator reuse (WP-KR3)](sweep_reuse_findings.md) — tiny Si box test costs, reduced operator recipe, small Si reuse saving, series (ii) THETA=30 decision, p-only stats

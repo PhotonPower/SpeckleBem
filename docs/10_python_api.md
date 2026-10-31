@@ -646,6 +646,61 @@ sim.excitation is beam_30s                    # True
   `/excitation` attributes. Measurement of the reuse and of the recycling potential:
   `benchmarks/results/recycling.md`.
 
+## WP-KR3: speckle sweep over several excitations of one surface
+
+```python
+from specklebem import speckle_sweep as ss
+cases = [ss.CaseParams(L=8e-6, sigma=100e-9, seed=1, theta_deg=t, mlfmm=dict(leaf_radius_quantile=0.99))
+         for t in (0.0, 30.0)]                # one surface, two incidence angles
+planes = [ss.plane_sampling(500e-9, -1e-3, c.default_waist(1 / 6), 4e-3, 161) for c in cases]
+recs = ss.run_sequence(cases, planes, out_dir, far_grid=(90, 180), skip_existing=False)
+ss.run_case(cases[0], planes[0], out_dir / cases[0].tag())   # one case alone, unchanged
+ss.check_sequence(cases)                      # the field check of run_sequence, nothing built
+ss.SEQUENCE_CASE_FIELDS                       # ("theta_deg", "polarization", "waist", "solver_tol", "max_iter")
+```
+
+- `run_sequence(p_list, plane, out_dir, *, far_grid=(90, 180), skip_existing=False, log=print)`
+  solves several excitations of one surface on one assembled `Simulation` (ADR 0013
+  consequence): the mesh is generated and the operator plus preconditioner assembled once, every
+  later case only swaps the right-hand side (`Simulation.set_excitation`) and solves. The cases
+  must agree in every `CaseParams` field outside `SEQUENCE_CASE_FIELDS` (L, sigma, seed, h, Lc,
+  wavelength, material, formulation, preconditioner, mlfmm, region_radius_factor), otherwise
+  `ValueError` names the first differing field; two cases with the same tag also raise. The beam
+  of each case follows `build_simulation` (default waist `L cos(theta) * beam_waist_fraction`,
+  `check_beam_waist`, the surface's controlled-ball radius); all beams and planes are checked
+  before the assembly. `plane` is one `PlaneSampling` (its waist must equal every case's waist,
+  as in `run_case`) or one per case.
+- Output per case in `out_dir / p.tag()`: the files, `meta.json` and `row.txt` of `run_case`
+  (same record keys), and the currents, plane field, far field, R and iterations are bitwise
+  those of `run_case` of the case alone. The record gains `reused` (0 for the case that built and
+  assembled the Simulation, 1 for the later ones) and `swap_s` (the `set_excitation` time [s],
+  0.0 for the first case); for the later cases `setup_s` is the swap time and `mesh_s` is 0.0
+  (the case's own cost: the shared mesh generation and assembly are on the first case's row), and
+  `peak_setup_gb` is the process peak after the swap. For a reused case `record["mesh_s"]` is 0.0
+  while `meta.json["info"]["mesh_s"]` holds the shared mesh generation time, and `peak_gb` (like
+  `peak_setup_gb`) is the process high-water mark, which includes the earlier cases of the
+  sequence. Returns one record per case.
+- `skip_existing=True`: a case whose directory holds `row.txt` is not solved and its entry is
+  `parse_row` of that file; the Simulation is built with the first case that is not skipped
+  (`reused` 0 there), and nothing is built when every case exists.
+- `CaseParams.tag()` gets `_pols` for s polarisation (the s / p pair of one surface needs two
+  directories); the tags of p cases are unchanged.
+- Driver `benchmarks/speckle_sweep.py`: `--theta-deg` and `--pol` take comma-separated lists
+  (`--theta-deg 0,30 --pol p`; duplicates and values other than p / s refused). Their Cartesian
+  product, angles outer and polarisations inner in the given order, is one `run_sequence`, one
+  ROW line per case printed and appended to `--rows` (cases skipped by `--skip-existing` print
+  their stored line and are not appended again). `--waist` applies to every case; by default
+  each case gets its own waist `L cos(theta) / 6` and its own plane. One angle and one
+  polarisation run `run_case` as before (same output, no `reused` / `swap_s`). Server recipe:
+  `benchmarks/results/speckle_sweep.md`, series (ii) (default `THETA=30`, the 0° partners from
+  the record; `THETA=0,30` is the option "same-operator pair").
+- The analysis of such directories (`benchmarks/speckle_sweep_stats.py`, the DoD test
+  `tests/python/test_speckle_dod.py`) takes the co-polarised intensity |E_x|², i.e. that of p:
+  it analyses the records with `pol == "p"` only; s cases written with `--pol` are skipped and
+  listed (stderr and the JSON key `skipped_cases`), never pooled. A directory mixing incidence
+  angles (`--theta-deg 0,30`) raises `ValueError` in the statistics script unless its
+  `--theta-deg` selects one angle (the DoD test selects 0°).
+
 ## HDF5 (WP23)
 
 HDF5 result files are written and read on the Python side with h5py (lead decision

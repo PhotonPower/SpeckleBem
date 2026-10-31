@@ -10,8 +10,8 @@ git-ignored) holding one subdirectory per case with ``E.npy`` and ``meta.json``
 (``benchmarks/speckle_sweep.py``). Without finished cases in the default directory every data
 test is skipped (CI has no data); if ``$SBEM_SPECKLE_SWEEP_DIR`` is set explicitly but holds no
 finished case, the data tests fail (a mistyped path cannot pass silently; the policy of
-``SPECKLEBEM_NPY_FIXTURE`` in conftest.py). Only normal-incidence cases are analysed (the oblique
-gamma_12 cases have no analysis yet).
+``SPECKLEBEM_NPY_FIXTURE`` in conftest.py). Only normal-incidence p cases are analysed (the
+oblique gamma_12 cases have no analysis yet; s cases are not co-polarised along x).
 
 Two kinds of tests:
 
@@ -55,8 +55,16 @@ WL = 500e-9
 #: The WP-S2 record configuration (benchmarks/results/speckle_sweep.md, "Configuration").
 RECORD_SIGMAS = (50.0, 100.0, 150.0, 200.0, 250.0)
 RECORD_SEEDS = (1, 2)
-RECORD = dict(material="si", L_um=8.0, Lc_um=1.0, h_nm=50.0, theta_deg=0.0, plane_n=161,
-              plane_mm=4.0, z_mm=-1.0)
+RECORD = dict(
+    material="si",
+    L_um=8.0,
+    Lc_um=1.0,
+    h_nm=50.0,
+    theta_deg=0.0,
+    plane_n=161,
+    plane_mm=4.0,
+    z_mm=-1.0,
+)
 
 pytestmark = pytest.mark.validation_large
 
@@ -76,47 +84,66 @@ def _stats_module():
 
 
 def _finished(d: Path) -> bool:
-    return d.is_dir() and any((c / "meta.json").is_file() and (c / "E.npy").is_file()
-                              for c in d.iterdir() if c.is_dir())
+    return d.is_dir() and any(
+        (c / "meta.json").is_file() and (c / "E.npy").is_file() for c in d.iterdir() if c.is_dir()
+    )
 
 
 @pytest.fixture(scope="module")
 def sweep():
-    """Analysis of the normal-incidence cases of the sweep directory (record defaults)."""
+    """Analysis of the normal-incidence p cases of the sweep directory (record defaults)."""
     d = sweep_dir()
     if not _finished(d):
         if os.environ.get(ENV_DIR):
-            pytest.fail(f"{ENV_DIR}={os.environ[ENV_DIR]!r} holds no finished speckle case "
-                        "(subdirectories with meta.json and E.npy written by "
-                        "benchmarks/speckle_sweep.py)")
-        pytest.skip(f"no solved speckle cases in {d} (set {ENV_DIR} to a directory of "
-                    "benchmarks/speckle_sweep.py case directories)")
+            pytest.fail(
+                f"{ENV_DIR}={os.environ[ENV_DIR]!r} holds no finished speckle case "
+                "(subdirectories with meta.json and E.npy written by "
+                "benchmarks/speckle_sweep.py)"
+            )
+        pytest.skip(
+            f"no solved speckle cases in {d} (set {ENV_DIR} to a directory of "
+            "benchmarks/speckle_sweep.py case directories)"
+        )
     mod = _stats_module()
-    cases = [c for c in mod.load_cases(d) if float(c["rec"].get("theta_deg", 0.0)) == 0.0]
+    # p polarisation at 0 deg only: the analysis takes |E_x|^2 as the co-polarised intensity
+    # (that of p); s cases (driver --pol) and oblique cases (--theta-deg) are left out, never
+    # pooled (scan_cases selects them, the filter below states the rule here as well)
+    cases, _ = mod.scan_cases(d, theta_deg=0.0)
+    cases = [
+        c
+        for c in cases
+        if c["rec"].get("pol", "p") == "p" and float(c["rec"].get("theta_deg", 0.0)) == 0.0
+    ]
     if not cases:
-        pytest.skip(f"no normal-incidence cases in {d}")
+        pytest.skip(f"no normal-incidence p cases in {d}")
     keys = ("material", "L_um", "Lc_um", "h_nm", "plane_n", "plane_mm", "z_mm")
     configs = {tuple(c["rec"][k] for k in keys) for c in cases}
     if len(configs) != 1:
-        pytest.fail(f"{d} mixes configurations {sorted(configs)} ({', '.join(keys)}): one "
-                    "configuration per directory")
+        pytest.fail(
+            f"{d} mixes configurations {sorted(configs)} ({', '.join(keys)}): one "
+            "configuration per directory"
+        )
     args = mod.build_parser().parse_args([str(d)])
     out = mod.analyse(d, args, cases)
     by_sigma = {s["sigma_nm"]: s for s in out["sigmas"]}
-    seeds = {sg: sorted(c["rec"]["seed"] for c in cases if c["rec"]["sigma_nm"] == sg)
-             for sg in by_sigma}
-    is_record = (all(cases[0]["rec"][k] == v for k, v in RECORD.items())
-                 and tuple(sorted(by_sigma)) == RECORD_SIGMAS
-                 and all(tuple(s) == RECORD_SEEDS for s in seeds.values()))
-    return dict(dir=d, out=out, by_sigma=by_sigma, seeds=seeds, cases=cases,
-                is_record=is_record)
+    seeds = {
+        sg: sorted(c["rec"]["seed"] for c in cases if c["rec"]["sigma_nm"] == sg) for sg in by_sigma
+    }
+    is_record = (
+        all(cases[0]["rec"][k] == v for k, v in RECORD.items())
+        and tuple(sorted(by_sigma)) == RECORD_SIGMAS
+        and all(tuple(s) == RECORD_SEEDS for s in seeds.values())
+    )
+    return dict(dir=d, out=out, by_sigma=by_sigma, seeds=seeds, cases=cases, is_record=is_record)
 
 
 @pytest.fixture(scope="module")
 def record(sweep):
     if not sweep["is_record"]:
-        pytest.skip("not the WP-S2 record configuration (L = 8 um, Lc = 1 um, 0 deg, "
-                    "sigma = 50-250 nm x seeds 1-2): record values not applicable")
+        pytest.skip(
+            "not the WP-S2 record configuration (L = 8 um, Lc = 1 um, 0 deg, "
+            "sigma = 50-250 nm x seeds 1-2): record values not applicable"
+        )
     return sweep
 
 
@@ -145,8 +172,12 @@ def test_record_classification_per_sigma(record):
     # row 44 judges the fully developed sigma only: sigma = 50 nm (+15.4 %, coherent fraction
     # 0.21) is reported, not judged against 10 %
     assert record["by_sigma"][50.0]["size_rel_error"] == pytest.approx(0.154, abs=5e-4)
-    assert record["out"]["size_within_10pct"] == {100.0: True, 150.0: True, 200.0: False,
-                                                  250.0: True}
+    assert record["out"]["size_within_10pct"] == {
+        100.0: True,
+        150.0: True,
+        200.0: False,
+        250.0: True,
+    }
 
 
 def test_record_row43_contrast_decreases_monotonically(record):
@@ -158,9 +189,12 @@ def test_record_row43_contrast_decreases_monotonically(record):
     assert speckle.monotone_decreasing(m["means"])
     expected = {1: [11.29, 6.58, 4.20, 3.12, 2.57], 2: [10.15, 4.71, 3.13, 2.20, 1.74]}
     for seed, values in expected.items():
-        per_seed = [c["contrast_plane"] for sg in RECORD_SIGMAS
-                    for c in record["out"]["cases"]
-                    if c["sigma_nm"] == sg and c["seed"] == seed]
+        per_seed = [
+            c["contrast_plane"]
+            for sg in RECORD_SIGMAS
+            for c in record["out"]["cases"]
+            if c["sigma_nm"] == sg and c["seed"] == seed
+        ]
         assert per_seed == pytest.approx(values, abs=5e-3)
         assert speckle.monotone_decreasing(per_seed)
 
@@ -182,9 +216,12 @@ def test_record_row44_sigma200_recorded_value(record):
     assert s["size_mean"] == pytest.approx(221.5e-6, rel=0.01)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="two-seed scatter +-8-15 %: sigma = 200 nm is +11.4 % "
-                   "(benchmarks/results/speckle_sweep.md, row 44 met for 3 of 4 sigma)")
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="two-seed scatter +-8-15 %: sigma = 200 nm is +11.4 % "
+    "(benchmarks/results/speckle_sweep.md, row 44 met for 3 of 4 sigma)",
+)
 def test_record_row44_sigma200_within_10_percent(record):
     assert abs(record["by_sigma"][200.0]["size_rel_error"]) < 0.10
 
@@ -278,18 +315,24 @@ def test_gate_row42_per_sigma_where_evaluable(sweep, record_property):
         else:
             not_evaluable[sg] = s["ks_spacing2_n"]
     if not_evaluable:
-        warnings.warn("docs/05 row 42 not evaluable (n < 50 at 2 speckle sizes) at sigma = "
-                      + ", ".join(f"{sg:g} nm (n = {n})" for sg, n in not_evaluable.items()),
-                      stacklevel=1)
+        warnings.warn(
+            "docs/05 row 42 not evaluable (n < 50 at 2 speckle sizes) at sigma = "
+            + ", ".join(f"{sg:g} nm (n = {n})" for sg, n in not_evaluable.items()),
+            stacklevel=1,
+        )
     if not evaluable:
-        pytest.skip("row 42 not evaluable at any fully developed sigma: n = "
-                    + ", ".join(f"{n}" for n in not_evaluable.values()) + " < 50")
+        pytest.skip(
+            "row 42 not evaluable at any fully developed sigma: n = "
+            + ", ".join(f"{n}" for n in not_evaluable.values())
+            + " < 50"
+        )
     for sg, r in evaluable.items():
         record_property(f"row42_sigma{sg:g}nm_n", r["n"])
         record_property(f"row42_sigma{sg:g}nm_modified", round(r["modified"], 4))
         record_property(f"row42_sigma{sg:g}nm_plain_p", round(r["p"], 4))
-    rejected = {sg: (r["n"], round(r["modified"], 3)) for sg, r in evaluable.items()
-                if r["rejects"]}
+    rejected = {
+        sg: (r["n"], round(r["modified"], 3)) for sg, r in evaluable.items() if r["rejects"]
+    }
     assert not rejected, f"exponential KS (Stephens) rejects at sigma: {rejected}"
     for r in evaluable.values():
         assert math.isfinite(r["p"])
@@ -314,8 +357,9 @@ def test_gate_row43_contrast_monotone(sweep):
 def test_gate_row44_speckle_size(sweep):
     if sweep["is_record"]:
         pytest.skip("record configuration: covered by the record tests (sigma = 200 nm xfail)")
-    errors = {sg: s["size_rel_error"] for sg, s in sweep["by_sigma"].items()
-              if s["fully_developed"]}
+    errors = {
+        sg: s["size_rel_error"] for sg, s in sweep["by_sigma"].items() if s["fully_developed"]
+    }
     if not errors:
         pytest.skip("no fully developed sigma")
     outside = {sg: round(e, 4) for sg, e in errors.items() if not abs(e) < 0.10}

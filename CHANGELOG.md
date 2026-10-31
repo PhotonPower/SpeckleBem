@@ -5,6 +5,26 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- python / tooling (WP-KR3, ADR 0013 consequence, Phase 8): operator reuse in the speckle sweep driver.
+  `specklebem.speckle_sweep.run_sequence(p_list, plane, out_dir, *, far_grid, skip_existing, log)` solves several
+  excitations of one surface (θ, polarisation, waist; solver settings may differ, every other `CaseParams` field must
+  agree: `check_sequence`, `ValueError` naming the first differing field) on one assembled `Simulation`: one mesh, one
+  assembly and preconditioner setup, then `set_excitation` and a solve per further case. Per case the files,
+  `meta.json`, `row.txt` and record keys of `run_case`, bitwise equal currents, plane field, far field, R and
+  iterations, plus the record fields `reused` (0 / 1) and `swap_s` (`setup_s` = swap time and `mesh_s` = 0 for the
+  reused cases); `skip_existing` builds the operator with the first missing case. `run_case` keeps its output (its
+  per-excitation part is the shared helper `_solve_and_save`; files checked bitwise against the previous code).
+  `CaseParams.tag()` gains `_pols` for s polarisation (p tags unchanged). `benchmarks/speckle_sweep.py`: `--theta-deg`
+  and `--pol` take comma-separated lists (Cartesian product, one ROW line per case; one value keeps the single-case
+  run). Server recipe of series (ii) in `benchmarks/results/speckle_sweep.md`: the default stays `THETA=30` (the 0°
+  partners are the record's seed-1 solves, decision b1); `THETA=0,30` is documented as the option "same-operator
+  pair" (one process and one assembly per surface, 10 cases, ≈ 5–7 h more server time for the five 0° solves; on the
+  Si box route the saved setup is small, 111–218 s of 26.6–50.1 min per case). `benchmarks/speckle_sweep_stats.py`
+  (`scan_cases`, `load_cases`) and `tests/python/test_speckle_dod.py` analyse p cases only (|E_x|² is the p
+  co-polarisation): s cases are skipped and listed (stderr, JSON `skipped_cases`), and a directory mixing incidence
+  angles raises `ValueError` unless the new `--theta-deg` selects one. Tests: 6 new cases in
+  `tests/python/test_speckle_sweep.py` (sequence vs `run_case` bitwise on a reduced tiny Si patch for 0° / 30° × p / s,
+  record fields, refusals, skip logic with per-case solver settings, driver dispatch, statistics case selection).
 - solver / python / tooling (WP-KR1, ADR 0013 decision 1, Phase 8): operator reuse across excitations and the
   recycling measurement. `Simulation::set_excitation` (constructor checks: wavelength, background, controlled region,
   PML dark band and configuration warnings; after `assemble()` only the right-hand side is re-assembled with the code
