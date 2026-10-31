@@ -97,6 +97,15 @@ void validate_ilut_params(const IlutParams& params);
 /// then U part per row; the diagonal separately). With drop_tol = 0 and a fill limit that keeps
 /// every entry this is the exact LU without pivoting.
 ///
+/// Kernel performance (WP-SC5): the row update w -= l_ik u_k runs on explicit real arithmetic
+/// with the multiplier and the arrays in registers: 3.6-4.3x the complex multiply-adds per second
+/// of the WP-SC3 loop on rough Ag PML blocks (A at 2N = 152 960, fill 3 / drop 1e-3: setup 532 s
+/// -> 152 s; benchmarks/results/preconditioner.md "WP-SC5").
+/// The factors are unchanged: the same operations in the same order, so pattern, values (bitwise,
+/// on the same compiler), min pivot, condest and macs equal those of the WP-SC3 kernel (golden
+/// test in tests/unit/test_incomplete_lu_preconditioner.cpp; byte-wise comparison of all factor
+/// arrays on rough Ag at 2N = 22 816 and 152 960).
+///
 /// Deterministic: each block is factorised sequentially by one thread (A and D in parallel,
 /// OpenMP), apply() runs the forward / back substitution of each block sequentially (the two
 /// blocks in parallel) with explicit loops in a fixed order; no BLAS and no threaded Eigen

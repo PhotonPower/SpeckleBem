@@ -185,6 +185,56 @@ struct Candidate {
     Real mag;
 };
 
+/// The (real, imaginary) pairs of an array of complex values ([complex.numbers]: a
+/// std::complex<double> array may be accessed as an array of double, real part first).
+double* as_doubles(Complex* z) {
+    return reinterpret_cast<double*>(z);
+}
+
+/// The row update of the elimination (WP-SC5): for e in [0, len), with j = col[e] and
+/// u = (val[2e], val[2e + 1]): w_j -= l u if column j is in the work row (in[j] != 0), otherwise
+/// w_j = -(l u), in[j] = 1, j is appended to `touched` and, if j < k (a lower-part fill-in), pushed
+/// onto the min-heap `heap`. w holds (re, im) pairs.
+///
+/// Result-neutral rewrite of the WP-SC3 loop `upd = l * u; w[j] -= upd` (or `w[j] = -upd`) on
+/// std::complex<double>: the product is written out as (lr ur - li ui, lr ui + li ur), the
+/// expression GCC and Clang evaluate inline for std::complex multiplication; their library call
+/// (__muldc3) only runs when that result has a NaN part, i.e. never for finite products (it
+/// recovers infinities from overflowing or infinite factors; the inputs are checked finite, and an
+/// overflow would need entries of magnitude ~1e154). Same operations in the same order, so every
+/// w_j receives bitwise the same value as before, including the sign of zero (-(l u) for a
+/// fill-in, not 0 - l u). No fused multiply-add in either version: the project targets no FMA
+/// instruction set (x86-64 baseline, MSYS2 GCC's nocona) and no contraction flag is set; a build
+/// with an FMA target (e.g. -march=native) could contract the two versions differently. The
+/// speed-up comes from the code generation: GCC kept l of the WP-SC3 loop in a stack slot written
+/// as two doubles and reloaded as one 16-byte vector in every iteration (a failed store-to-load
+/// forwarding; benchmarks/results/preconditioner.md "WP-SC5"); here l, the arrays and the bounds
+/// live in registers.
+void row_update(double lr, double li, const Index* col, const double* val, Index len, double* w,
+                std::uint8_t* in, Index k, std::vector<Index>& touched, std::vector<Index>& heap) {
+    const std::greater<Index> later;
+    for (Index e = 0; e < len; ++e) {
+        const Index j = col[e];
+        const double ur = val[2 * e];
+        const double ui = val[2 * e + 1];
+        const double pr = lr * ur - li * ui;
+        const double pi = lr * ui + li * ur;
+        if (in[j] != 0) {
+            w[2 * j] -= pr;
+            w[2 * j + 1] -= pi;
+        } else {
+            in[j] = 1;
+            w[2 * j] = -pr;
+            w[2 * j + 1] = -pi;
+            touched.push_back(j);
+            if (j < k) {
+                heap.push_back(j);
+                std::push_heap(heap.begin(), heap.end(), later);
+            }
+        }
+    }
+}
+
 /// ILUT of the block b in the order perm (see the class doc). @throws std::runtime_error for a
 /// zero row or a zero, tiny or non-finite pivot.
 void factorize(const Csr& b, std::vector<Index> perm, const IlutParams& p, const char* name,
@@ -255,22 +305,12 @@ void factorize(const Csr& b, std::vector<Index> perm, const IlutParams& p, const
             }
             const Complex l = wq / f.diag[sz(q)];
             cand.push_back({q, l, mag});
-            macs += f.ptr[sz(q) + 1] - f.mid[sz(q)];
-            for (Index e = f.mid[sz(q)]; e < f.ptr[sz(q) + 1]; ++e) {
-                const Index j = f.col[sz(e)];
-                const Complex upd = l * f.val[sz(e)];
-                if (in[sz(j)] == 0) {
-                    in[sz(j)] = 1;
-                    w[sz(j)] = -upd;
-                    touched.push_back(j);
-                    if (j < k) {
-                        heap.push_back(j);
-                        std::push_heap(heap.begin(), heap.end(), later);
-                    }
-                } else {
-                    w[sz(j)] -= upd;
-                }
-            }
+            const Index e0 = f.mid[sz(q)];
+            const Index e1 = f.ptr[sz(q) + 1];
+            macs += e1 - e0;
+            // w -= l u_q,(q+1:n) over the U part of row q (WP-SC5 kernel, see row_update).
+            row_update(l.real(), l.imag(), f.col.data() + e0, as_doubles(f.val.data() + e0),
+                       e1 - e0, as_doubles(w.data()), in.data(), k, touched, heap);
         }
         const Complex piv = w[sz(k)];
         const Real ratio = std::abs(piv) / rn;
