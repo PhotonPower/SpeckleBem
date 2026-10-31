@@ -5,6 +5,22 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 ## [Unreleased]
 
 ### Added
+- solver / python / tooling (WP-SC2, ADR 0012 decision 2, Phase 8): near-field Schur-complement preconditioner.
+  `solver::SchurComplementPreconditioner` (block LU of A = Z_n[J, J] over the J unknowns of each box, the M diagonal
+  blocks of S̃ = D − C Ã⁻¹ B on the pattern of D, block LU over the M unknowns of each box, B and C exact and read in
+  place from the near-field sources; bitwise thread-count independent setup and apply; owning and borrowing
+  constructors), `make_schur_preconditioner` and `PreconditionerKind::Schur` (explicit only, compression "mlfmm",
+  `block_levels_above_leaf` selects the boxes) in `simulation.hpp`, Python `preconditioner="schur"`; driver variant
+  `schur` (`--block-level`) and the diagnostics `nearlu_bc` / `nearlu_ad` / `--near-norms`. Measured on rough Ag PML U
+  (2N = 22 816, idle desktop, tolerance 10⁻⁷): **184 iterations, equal to the parent blocks' 184** (leaf boxes 327 vs
+  329; Si U 48 vs 48) at half their memory (66 vs 131 MB) and 1.08× their total time — **the early gate (≤ 92) failed,
+  stage 2 (16 / 24 µm) was not run, ADR 0012's WP-SC2 gate is not met.** The diagnostics locate the WP-SC1 gain: the
+  exact LU of Z_n with box-diagonal A and D (the ceiling of the Schur family) also needs 184, the exact LU with full A
+  and D but box-diagonal B and C needs 21 (`nearlu` 20; Si 14 vs 13) — the near-field-inverse gain lives in the
+  inter-box T-operator (J–J, M–M) coupling, while the J–M coupling is weak (‖B‖‖C‖ / (‖A‖‖D‖) ≈ 6·10⁻⁴). R unchanged
+  within 1.1·10⁻⁸; Mie validation (box route) 261 iterations, RCS within 4.2·10⁻⁷ of Jacobi. No default changed. Record:
+  `benchmarks/results/preconditioner.md` (section WP-SC2); tests `tests/unit/test_schur_preconditioner.cpp` (7 cases),
+  the Schur case of `tests/validation/test_block_preconditioner_mie.cpp`, `test_schur_preconditioner` (Python).
 - solver / tooling (WP-SC1, ADR 0012 decision 1, Phase 8): near-field-inverse ceiling. `solver::SparseLuPreconditioner`
   (exact `Eigen::SparseLU`, COLAMD, budget pre-check `expected_fill × nnz × 24 B` and post-check of the factor memory,
   errors for non-square / empty / non-finite / singular input and size mismatch, factorisation and solve on one

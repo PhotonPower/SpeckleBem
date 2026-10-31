@@ -313,9 +313,12 @@ SimulationConfig make_config(const std::shared_ptr<excitation::Excitation>& exc,
         c.preconditioner = PreconditionerKind::None;
     } else if (pre == "block_diagonal") {
         c.preconditioner = PreconditionerKind::BlockDiagonal;
+    } else if (pre == "schur") {
+        c.preconditioner = PreconditionerKind::Schur;
     } else if (pre != "auto") {
         throw py::value_error(
-            "preconditioner: expected \"auto\", \"none\", \"diagonal\" or \"block_diagonal\"");
+            "preconditioner: expected \"auto\", \"none\", \"diagonal\", \"block_diagonal\" or "
+            "\"schur\"");
     }
     if (block_level < 0 || block_level > 2) {
         throw py::value_error(
@@ -1073,9 +1076,13 @@ preconditioner : str
     assembly if its largest block holds more than half of the unknowns), "none", "diagonal"
     (Jacobi) or
     "block_diagonal" (LU-factorised near-field blocks, one per octree box over the J and M
-    unknowns of its basis functions; WP-PC1, ADR 0011); GMRES only.
+    unknowns of its basis functions; WP-PC1, ADR 0011) or "schur" (near-field Schur complement:
+    block LU of the J-J part over the J unknowns of each box, the Schur complement on the
+    pattern of the M-M part, LU-factorised over the M unknowns of each box, exact J-M / M-J
+    near coupling; WP-SC2, ADR 0012; explicit only, needs compression "mlfmm", ValueError
+    otherwise); GMRES only.
 block_level : int
-    "block_diagonal" only: 0 = blocks of the octree leaves, 1 (default) = one level up, 2 = two
+    "block_diagonal" and "schur" only: 0 = blocks of the octree leaves, 1 (default) = one level up, 2 = two
     levels up (WP-SC1, ADR 0012, a measurement option: with compression "mlfmm" the blocks of
     the near-field matrix, same-box far pairs zero; on the dense route the exact blocks). On the
     dense route the octree is the one compression "mlfmm" would build from the ``mlfmm`` keys.
@@ -1215,8 +1222,8 @@ SolveResult
         .def_property_readonly(
             "preconditioner",
             [](const PySimulation& s) { return std::string(to_string(s.preconditioner_kind())); },
-            "Preconditioner of the GMRES solve (resolved): \"none\", \"diagonal\" or "
-            "\"block_diagonal\".")
+            "Preconditioner of the GMRES solve (resolved): \"none\", \"diagonal\", "
+            "\"block_diagonal\" or \"schur\".")
         .def_property_readonly(
             "solver",
             [](const PySimulation& s) {
@@ -1285,8 +1292,9 @@ SolveResult
             "PML route: the PmlTermination (copy); None for the box route.")
         .def_property_readonly("config", &config_dict, R"doc(
 Resolved configuration (a new dict): wavelength [m], formulation (name), formulation_automatic,
-preconditioner ("none" / "diagonal" / "block_diagonal"), preconditioner_automatic, block_level
-(0 = octree leaves, 1 = one level up, 2 = two levels up; used by "block_diagonal" only), solver,
+preconditioner ("none" / "diagonal" / "block_diagonal" / "schur"), preconditioner_automatic,
+block_level (0 = octree leaves, 1 = one level up, 2 = two levels up; used by "block_diagonal" and
+"schur" only), solver,
 compression, and the dicts gmres, kernels and mlfmm with every key of the constructor keywords
 (restart 0 = full GMRES). Used by specklebem.io.save_hdf5.
 )doc")

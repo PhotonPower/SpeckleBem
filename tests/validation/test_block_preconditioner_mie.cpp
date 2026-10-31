@@ -8,6 +8,10 @@
 // (docs/05 row "Ag sphere d = 1 um") holds for every preconditioner. Iteration counts are
 // reported (WARN), not checked. Measured 2026-10-25 (win-release): Jacobi 210, leaf 490, one
 // level up 266 iterations; RCS differences 4.8e-7 / 1.4e-6, eps_rr 3.481e-3 (xz) / 2.560e-3 (yz).
+// The near-field Schur-complement preconditioner (WP-SC2, ADR 0012 decision 2; J and M blocks one
+// level up) is gated with the same tolerances (results, not iterations: on the box route it may
+// converge more slowly than Jacobi, as the blocks do). Measured 2026-10-31 (win-release): 261
+// iterations, RCS difference 4.2e-7, eps_rr 3.481e-3 (xz) / 2.560e-3 (yz).
 #include "specklebem/simulation.hpp"
 
 #include <catch2/catch_message.hpp>
@@ -61,18 +65,27 @@ TEST_CASE("block preconditioner: Ag sphere with MLFMM reproduces the Jacobi solu
             REQUIRE(sim.block_preconditioner() != nullptr);
             WARN("level offset " << levels << ": " << sim.block_preconditioner()->describe());
         }
+        if (kind == PreconditionerKind::Schur) {
+            REQUIRE(sim.schur_preconditioner() != nullptr);
+            WARN("level offset " << levels << ": " << sim.schur_preconditioner()->describe());
+        }
         return o;
     };
     const Out jac = run(PreconditionerKind::Diagonal, 0);
     CHECK(jac.eps_xz < 1e-2);
     CHECK(jac.eps_yz < 1e-2);
-    for (const int levels : {0, 1}) {
-        const Out b = run(PreconditionerKind::BlockDiagonal, levels);
+    struct Variant {
+        PreconditionerKind kind;
+        int levels;
+    };
+    for (const Variant v :
+         {Variant{PreconditionerKind::BlockDiagonal, 0},
+          Variant{PreconditionerKind::BlockDiagonal, 1}, Variant{PreconditionerKind::Schur, 1}}) {
+        const int levels = v.levels;
+        const Out b = run(v.kind, levels);
         const Real drcs = (b.rcs - jac.rcs).cwiseAbs().maxCoeff() / jac.rcs.maxCoeff();
         WARN("Ag sphere 2N = 3840, GMRES tol 1e-6: Jacobi "
-             << jac.iterations
-             << " iterations, block-diagonal (levels "
-                "above the leaf "
+             << jac.iterations << " iterations, " << to_string(v.kind) << " (levels above the leaf "
              << levels << ") " << b.iterations << "; RCS difference " << drcs << ", eps_rr xz "
              << b.eps_xz << " (Jacobi " << jac.eps_xz << "), yz " << b.eps_yz << " (" << jac.eps_yz
              << ")");

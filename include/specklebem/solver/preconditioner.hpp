@@ -185,10 +185,8 @@ private:
 };
 
 // The exact sparse LU of a sparse matrix (WP-SC1, ADR 0012): solver::SparseLuPreconditioner in
-// solver/sparse_lu_preconditioner.hpp.
-
-/// Schur-complement preconditioner (Ergül, Malas & Gürel 2011) for metals
-/// (planned; Phase 8).
-class SchurComplementPreconditioner;
+// solver/sparse_lu_preconditioner.hpp. The near-field Schur-complement preconditioner (Ergül,
+// Malas & Gürel 2011; WP-SC2, ADR 0012 decision 2): solver::SchurComplementPreconditioner in
+// solver/schur_preconditioner.hpp.
 
 }  // namespace specklebem::solver

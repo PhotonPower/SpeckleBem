@@ -32,6 +32,8 @@ const char* to_string(PreconditionerKind kind) {
             return "diagonal";
         case PreconditionerKind::BlockDiagonal:
             return "block_diagonal";
+        case PreconditionerKind::Schur:
+            return "schur";
     }
     return "invalid";
 }
@@ -159,8 +161,8 @@ const char* side_name(solver::PreconditionerSide s) {
 }
 
 /// Preconditioner settings (WP-PC1): a valid kind, consistency with diagonal_preconditioner, the
-/// block level, and on the dense route with BlockDiagonal the MLFMM octree parameters (the
-/// partition uses mlfmm::make_octree).
+/// block level, on the dense route with BlockDiagonal the MLFMM octree parameters (the
+/// partition uses mlfmm::make_octree), and compression "mlfmm" for Schur (WP-SC2).
 void check_preconditioner_config(const SimulationConfig& c) {
     if (c.block_levels_above_leaf < 0 || c.block_levels_above_leaf > 2) {
         throw std::invalid_argument(
@@ -173,12 +175,13 @@ void check_preconditioner_config(const SimulationConfig& c) {
         return;
     const PreconditionerKind k = *c.preconditioner;
     if (k != PreconditionerKind::None && k != PreconditionerKind::Diagonal &&
-        k != PreconditionerKind::BlockDiagonal) {
+        k != PreconditionerKind::BlockDiagonal && k != PreconditionerKind::Schur) {
         throw std::invalid_argument("Simulation: invalid PreconditionerKind value");
     }
     if (c.diagonal_preconditioner) {
         const bool diag = *c.diagonal_preconditioner;
-        if ((k == PreconditionerKind::Diagonal) != diag || k == PreconditionerKind::BlockDiagonal) {
+        if ((k == PreconditionerKind::Diagonal) != diag || k == PreconditionerKind::BlockDiagonal ||
+            k == PreconditionerKind::Schur) {
             throw std::invalid_argument(
                 std::string("Simulation: preconditioner \"") + to_string(k) +
                 "\" contradicts diagonal_preconditioner = " + (diag ? "true" : "false") +
@@ -187,6 +190,11 @@ void check_preconditioner_config(const SimulationConfig& c) {
     }
     if (k == PreconditionerKind::BlockDiagonal && c.compression == "dense")
         check_mlfmm_params(c.mlfmm);
+    if (k == PreconditionerKind::Schur && c.compression != "mlfmm") {
+        throw std::invalid_argument(
+            "Simulation: preconditioner \"schur\" needs compression \"mlfmm\" (it is built from "
+            "the near-field matrix of the MLFMM operator; the dense route has none)");
+    }
 }
 
 /// lambda_1 = 2 pi / Re k_1, the MLFMM octree's leaf-size reference.
@@ -435,7 +443,10 @@ struct Simulation::Impl {
     VectorXc diagonal;  ///< empty unless the Jacobi preconditioner is used
     /// Null unless the block-diagonal preconditioner is used (built by assemble()).
     std::unique_ptr<solver::BlockDiagonalPreconditioner> block;
-    double assembly_s = 0, rhs_s = 0, diagonal_s = 0, block_s = 0, solve_s = 0;
+    /// Null unless the Schur-complement preconditioner is used (built by assemble(); borrows
+    /// the near matrices of op, which outlives it: declared after op, destroyed before it).
+    std::unique_ptr<solver::SchurComplementPreconditioner> schur;
+    double assembly_s = 0, rhs_s = 0, diagonal_s = 0, block_s = 0, schur_s = 0, solve_s = 0;
 
     /// GMRES with the Jacobi preconditioner (the only solve that needs the diagonal).
     [[nodiscard]] bool uses_diagonal() const;
@@ -445,6 +456,10 @@ struct Simulation::Impl {
     [[nodiscard]] bool uses_block() const;
     /// Builds the block-diagonal preconditioner once if uses_block(); no-op otherwise.
     void ensure_block();
+    /// GMRES with the Schur-complement preconditioner.
+    [[nodiscard]] bool uses_schur() const;
+    /// Builds the Schur-complement preconditioner once if uses_schur(); no-op otherwise.
+    void ensure_schur();
 
     bool solved = false;
     solver::GmresParams last_gmres;  ///< parameters of the last solve (for report())
@@ -950,6 +965,70 @@ void Simulation::Impl::ensure_block() {
     }
 }
 
+bool Simulation::Impl::uses_schur() const {
+    return config.solver == SolverKind::Gmres && pre == PreconditionerKind::Schur;
+}
+
+void Simulation::Impl::ensure_schur() {
+    if (!uses_schur() || schur != nullptr)
+        return;
+    const ScopedTimer t("Simulation: Schur-complement preconditioner");
+    schur = make_schur_preconditioner(*op, problem, config.block_levels_above_leaf);
+    schur_s = t.elapsed_seconds();
+}
+
+std::unique_ptr<solver::SchurComplementPreconditioner> make_schur_preconditioner(
+    const op::LinearOperator& Z, const op::Problem& problem, int levels_above_leaf,
+    const solver::SchurParams& params) {
+    if (levels_above_leaf < 0 || levels_above_leaf > 2) {
+        throw std::invalid_argument(
+            "make_schur_preconditioner: levels_above_leaf must be 0 (octree leaves), 1 or 2");
+    }
+    if (problem.space == nullptr)
+        throw std::invalid_argument("make_schur_preconditioner: the problem has no RWG space");
+    const Index n = problem.space->size();
+    if (Z.rows() != 2 * n || Z.cols() != 2 * n) {
+        throw std::invalid_argument(
+            "make_schur_preconditioner: the operator is not 2N x 2N for the problem's RWG space");
+    }
+    const auto* fast = dynamic_cast<const mlfmm::MlfmmOperator*>(&Z);
+    if (fast == nullptr) {
+        throw std::invalid_argument(
+            "make_schur_preconditioner: the operator is not an MLFMM operator (the Schur "
+            "complement is built from its near-field matrix; use compression \"mlfmm\")");
+    }
+    const mlfmm::Octree& tree = fast->octree();
+    const int level = std::max(0, tree.leaf_level() - levels_above_leaf);
+    std::vector<Index> ids;
+    const std::vector<std::vector<Index>> boxes = mlfmm::level_unknown_blocks(tree, level, &ids);
+    // Each box block lists its J indices (< N) and then its M indices (>= N).
+    solver::BlockPartition jp;
+    solver::BlockPartition mp;
+    jp.ids = ids;
+    mp.ids = std::move(ids);
+    jp.blocks.reserve(boxes.size());
+    mp.blocks.reserve(boxes.size());
+    for (const std::vector<Index>& b : boxes) {
+        std::vector<Index> j;
+        std::vector<Index> m;
+        for (const Index i : b) {
+            if (i < n)
+                j.push_back(i);
+            else
+                m.push_back(i);
+        }
+        jp.blocks.push_back(std::move(j));
+        mp.blocks.push_back(std::move(m));
+    }
+    std::vector<const op::SparseOperator::Matrix*> sources = {&fast->near_operator().matrix()};
+    if (fast->ring_operator() != nullptr)
+        sources.push_back(&fast->ring_operator()->near_operator().matrix());
+    auto P = std::make_unique<solver::SchurComplementPreconditioner>(
+        std::move(sources), n, std::move(jp), std::move(mp), params);
+    SBEM_INFO("make_schur_preconditioner: {}", P->describe());
+    return P;
+}
+
 std::unique_ptr<solver::BlockDiagonalPreconditioner> make_block_preconditioner(
     const op::LinearOperator& Z, const op::Problem& problem, const mlfmm::MlfmmParams& mlfmm,
     int levels_above_leaf) {
@@ -1119,6 +1198,7 @@ void Simulation::assemble() {
     }
     s.ensure_diagonal();
     s.ensure_block();
+    s.ensure_schur();
 }
 
 solver::GmresResult Simulation::solve(const solver::IterationCallback& cb) {
@@ -1150,6 +1230,8 @@ solver::GmresResult Simulation::solve(const solver::GmresParams& params,
         res = solver::gmres(*s.op, s.rhs, M, params, cb);
     } else if (s.pre == PreconditionerKind::BlockDiagonal) {
         res = solver::gmres(*s.op, s.rhs, *s.block, params, cb);
+    } else if (s.pre == PreconditionerKind::Schur) {
+        res = solver::gmres(*s.op, s.rhs, *s.schur, params, cb);
     } else {
         res = solver::gmres(*s.op, s.rhs, solver::IdentityPreconditioner(), params, cb);
     }
@@ -1174,9 +1256,10 @@ solver::GmresResult Simulation::solve(const solver::GmresParams& params,
         s.config.solver != SolverKind::Gmres         ? ""
         : s.pre == PreconditionerKind::Diagonal      ? " + Jacobi"
         : s.pre == PreconditionerKind::BlockDiagonal ? " + block-diagonal"
+        : s.pre == PreconditionerKind::Schur         ? " + Schur complement"
                                                      : "",
         num_unknowns(), res.iterations, res.converged, res.true_relative_residual,
-        s.assembly_s + s.rhs_s + s.diagonal_s + s.block_s, s.solve_s);
+        s.assembly_s + s.rhs_s + s.diagonal_s + s.block_s + s.schur_s, s.solve_s);
     return res;
 }
 
@@ -1211,9 +1294,10 @@ std::string Simulation::report() const {
     o << "  preconditioner: "
       << (s.pre == PreconditionerKind::Diagonal        ? "diagonal (Jacobi)"
           : s.pre == PreconditionerKind::BlockDiagonal ? "block-diagonal (near field)"
+          : s.pre == PreconditionerKind::Schur         ? "Schur complement (near field)"
                                                        : "none")
       << (s.pre_auto ? " (automatic)" : " (explicit)");
-    if (s.pre == PreconditionerKind::BlockDiagonal)
+    if (s.pre == PreconditionerKind::BlockDiagonal || s.pre == PreconditionerKind::Schur)
         o << ", blocks: " << block_level_name(s.config.block_levels_above_leaf);
     if (direct)
         o << ", unused by the direct solver";
@@ -1222,6 +1306,8 @@ std::string Simulation::report() const {
     o << "\n";
     if (s.block != nullptr)
         o << "  preconditioner setup: " << s.block_s << " s, " << s.block->describe() << "\n";
+    if (s.schur != nullptr)
+        o << "  preconditioner setup: " << s.schur_s << " s, " << s.schur->describe() << "\n";
     o << "  solver:         ";
     if (direct)
         o << "direct LU\n";
@@ -1315,6 +1401,8 @@ std::string Simulation::report() const {
         o << ", diagonal " << s.diagonal_s << " s";
     if (s.block != nullptr)
         o << ", block-diagonal preconditioner " << s.block_s << " s";
+    if (s.schur != nullptr)
+        o << ", Schur-complement preconditioner " << s.schur_s << " s";
     o << "\n";
     if (!s.solved) {
         o << "  solve:          not run\n";
@@ -1357,6 +1445,10 @@ PreconditionerKind Simulation::preconditioner_kind() const {
 
 const solver::BlockDiagonalPreconditioner* Simulation::block_preconditioner() const {
     return impl_->block.get();
+}
+
+const solver::SchurComplementPreconditioner* Simulation::schur_preconditioner() const {
+    return impl_->schur.get();
 }
 
 Index Simulation::num_unknowns() const {

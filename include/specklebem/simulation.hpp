@@ -15,6 +15,7 @@
 #include "specklebem/postprocessing/huygens.hpp"
 #include "specklebem/postprocessing/scattering.hpp"
 #include "specklebem/solver/gmres.hpp"
+#include "specklebem/solver/schur_preconditioner.hpp"
 #include "specklebem/solver/sparse_lu_preconditioner.hpp"
 
 #include <array>
@@ -251,12 +252,16 @@ enum class SolverKind {
 
 /// Preconditioner of the GMRES solve (SimulationConfig::preconditioner; WP-PC1, ADR 0011).
 enum class PreconditionerKind {
-    None,          ///< solver::IdentityPreconditioner
-    Diagonal,      ///< Jacobi, solver::DiagonalPreconditioner (the diagonal of Z)
-    BlockDiagonal  ///< near-field blocks of the octree boxes, make_block_preconditioner()
+    None,           ///< solver::IdentityPreconditioner
+    Diagonal,       ///< Jacobi, solver::DiagonalPreconditioner (the diagonal of Z)
+    BlockDiagonal,  ///< near-field blocks of the octree boxes, make_block_preconditioner()
+    /// Near-field Schur complement over the J and M blocks of the octree boxes,
+    /// make_schur_preconditioner() (WP-SC2, ADR 0012 decision 2): explicit option only, never
+    /// automatic; needs compression "mlfmm" (the near-field matrix of the operator).
+    Schur
 };
 
-/// "none", "diagonal" or "block_diagonal".
+/// "none", "diagonal", "block_diagonal" or "schur".
 [[nodiscard]] const char* to_string(PreconditionerKind kind);
 
 struct SimulationConfig {
@@ -288,11 +293,15 @@ struct SimulationConfig {
     /// set: they must agree (Diagonal with true, None with false; BlockDiagonal with an empty
     /// diagonal_preconditioner only), otherwise the constructors throw std::invalid_argument.
     /// Ignored by the direct solver. An explicit BlockDiagonal is allowed on every route.
+    /// Schur (WP-SC2, ADR 0012 decision 2; make_schur_preconditioner()) is an explicit option
+    /// only (never automatic), with an empty diagonal_preconditioner, and needs compression
+    /// "mlfmm" (otherwise the constructors throw std::invalid_argument); its J and M blocks are
+    /// the boxes of block_levels_above_leaf.
     std::optional<PreconditionerKind> preconditioner;
-    /// BlockDiagonal only: the block level, 0 = the octree leaves, 1 = one level above them (the
-    /// two levels of ADR 0011), 2 = two levels above them (WP-SC1, ADR 0012: a measurement
-    /// point between one level up and the exact near-field inverse; with compression "mlfmm"
-    /// these blocks are those of the near-field matrix, same-box far pairs are zero, see
+    /// BlockDiagonal and Schur only: the block level, 0 = the octree leaves, 1 = one level above
+    /// them (the two levels of ADR 0011), 2 = two levels above them (WP-SC1, ADR 0012: a
+    /// measurement point between one level up and the exact near-field inverse; with compression
+    /// "mlfmm" these blocks are those of the near-field matrix, same-box far pairs are zero, see
     /// make_block_preconditioner); other values are rejected. Default 1, the faster of the two
     /// ADR 0011 levels at every measured PML size (it also needs the fewer iterations). On the
     /// dense route the octree is mlfmm::make_octree with the `mlfmm` parameters below (the tree
@@ -339,6 +348,22 @@ struct SimulationConfig {
 [[nodiscard]] std::unique_ptr<solver::BlockDiagonalPreconditioner> make_block_preconditioner(
     const op::LinearOperator& Z, const op::Problem& problem, const mlfmm::MlfmmParams& mlfmm,
     int levels_above_leaf);
+
+/// Near-field Schur-complement preconditioner of an MLFMM operator Z (WP-SC2, ADR 0012 decision
+/// 2): solver::SchurComplementPreconditioner of the near-field matrix Z_n = near_operator() plus,
+/// on the PML route, the near ring (borrowed, not copied: Z must outlive the preconditioner),
+/// with the J and M unknowns of the octree boxes on level max(0, leaf_level - levels_above_leaf)
+/// as its J and M blocks (mlfmm::level_unknown_blocks split at N, box index as the block id;
+/// the same boxes as make_block_preconditioner). An explicit option, never a default. Logs the
+/// describe() line (SBEM_INFO).
+/// @throws std::invalid_argument for levels_above_leaf not 0, 1 or 2, an operator that is not an
+///         mlfmm::MlfmmOperator (the dense route has no near-field matrix), an operator whose
+///         size is not 2N of problem.space, and as solver::SchurComplementPreconditioner;
+///         std::runtime_error for a singular or ill-conditioned J block of A or M block of the
+///         Schur complement (the message names the box).
+[[nodiscard]] std::unique_ptr<solver::SchurComplementPreconditioner> make_schur_preconditioner(
+    const op::LinearOperator& Z, const op::Problem& problem, int levels_above_leaf,
+    const solver::SchurParams& params = {});
 
 /// The near-field matrix Z_n of an MLFMM operator (WP-SC1, ADR 0012): near_operator() plus, on
 /// the PML route, the near ring (PmlRingOperator::near_operator()), summed; the two hold every
@@ -432,7 +457,8 @@ public:
     ///         implemented (formulation::Kind::JMCFIE), invalid kernel options or GMRES
     ///         parameters (tolerance not finite or <= 0, max_iter < 1, restart < 0),
     ///         preconditioner and diagonal_preconditioner set inconsistently, an invalid
-    ///         PreconditionerKind, block_levels_above_leaf not 0, 1 or 2, invalid MLFMM
+    ///         PreconditionerKind, PreconditionerKind::Schur without compression "mlfmm",
+    ///         block_levels_above_leaf not 0, 1 or 2, invalid MLFMM
     ///         parameters (SimulationConfig::mlfmm) with compression "mlfmm" or with an explicit
     ///         BlockDiagonal on the dense route (its octree), and everything op::validate
     ///         rejects.
@@ -493,13 +519,15 @@ public:
     Simulation& operator=(Simulation&&) = delete;
 
     /// Assembles the operator, the right-hand side and (GMRES only) the preconditioner's data:
-    /// the Jacobi diagonal or the block-diagonal preconditioner (make_block_preconditioner), and
-    /// times them. Idempotent: what is already assembled is kept, so later calls do nothing
-    /// (after an exception a later call retries the missing parts).
+    /// the Jacobi diagonal, the block-diagonal preconditioner (make_block_preconditioner) or the
+    /// Schur-complement preconditioner (make_schur_preconditioner), and times them. Idempotent:
+    /// what is already assembled is kept, so later calls do nothing (after an exception a later
+    /// call retries the missing parts).
     /// @throws std::invalid_argument / std::runtime_error from the operator construction; for
     ///         "mlfmm" a std::runtime_error when no expansion order meets 10^-d0 (lossy
     ///         interior such as Ag: the ADR 0008 §6 policy is WP21), with the remedies;
-    ///         std::runtime_error for a singular block of the block-diagonal preconditioner.
+    ///         std::runtime_error for a singular block of the block-diagonal or the
+    ///         Schur-complement preconditioner.
     void assemble();
     /// Same as solve(config().gmres, cb).
     solver::GmresResult solve(const solver::IterationCallback& cb = {});
@@ -529,7 +557,8 @@ public:
     /// stored), i.e. solution() does not throw. Never throws.
     [[nodiscard]] bool solved() const;
     /// Multi-line report: mesh size, formulation / preconditioner used (and whether automatic;
-    /// block-diagonal: the block level, and after assembly the blocks, setup time and memory),
+    /// block-diagonal and Schur complement: the block level, and after assembly the blocks,
+    /// setup time and memory),
     /// solver (with the GMRES parameters of the last solve, config().gmres before the first),
     /// compression, operator memory (PML route with "mlfmm": the stretched / real split and the
     /// ring's near / far bytes), timings, iterations and residuals.
@@ -548,6 +577,9 @@ public:
     /// The block-diagonal preconditioner once built (assemble() with PreconditionerKind::
     /// BlockDiagonal and the GMRES solver), nullptr otherwise.
     [[nodiscard]] const solver::BlockDiagonalPreconditioner* block_preconditioner() const;
+    /// The Schur-complement preconditioner once built (assemble() with PreconditionerKind::Schur
+    /// and the GMRES solver), nullptr otherwise.
+    [[nodiscard]] const solver::SchurComplementPreconditioner* schur_preconditioner() const;
     /// Number of unknowns 2N.
     [[nodiscard]] Index num_unknowns() const;
     /// System operator and right-hand side. @throws std::logic_error before assemble().

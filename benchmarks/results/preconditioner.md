@@ -271,3 +271,125 @@ indicated. No default was changed; the decision is the lead's.
   minus the matvecs), comparable to 3 matvecs.
 - **Idle timings.** This machine was idle (WP-PC1's was loaded): Jacobi at U 67.8 s (WP-PC1 114 s), parent at 16 µm
   448 s (1 023 s), parent at 24 µm 1 436 s (2 915 s); the 24 µm assembly took 1 238 s (3 721 s).
+
+## WP-SC2: near-field Schur-complement preconditioner (ADR 0012 decision 2)
+
+ADR 0012 decision 2: the Schur-complement approximation of the near-field inverse that keeps the whole near pattern
+in the J–M coupling. Library code `solver::SchurComplementPreconditioner` (`solver/schur_preconditioner.hpp`),
+`make_schur_preconditioner` and `PreconditionerKind::Schur` (`simulation.hpp`; explicit only, compression "mlfmm"),
+Python `preconditioner="schur"`; tests `tests/unit/test_schur_preconditioner.cpp`, the Schur case of
+`tests/validation/test_block_preconditioner_mie.cpp`, `tests/python/test_simulation.py::test_schur_preconditioner`;
+driver variant `schur` (box level `--block-level`, default 1) plus two diagnostics `nearlu_bc` / `nearlu_ad` and the
+`--near-norms` line of `benchmarks/preconditioner_study.cpp`; raw lines in `preconditioner_rows.txt` (section
+WP-SC2). **Stage 1 failed the early gate; stage 2 (16 / 24 µm) was not run, as the brief prescribes.** No default was
+changed.
+
+### Setup
+
+| Item | Value |
+|---|---|
+| Machine | 12-core desktop, 128 GB RAM, win-release, idle machine (one study process at a time, no builds or tests during the runs; measured 2026-10-31) |
+| Cases | rough Ag PML `u_case()` at L = 3.75 µm (U, 2N = 22 816) and the rough Si U control (`--material si`); compression "mlfmm", d₀ = 3, ICTF, full GMRES (CGS2), left preconditioning, tolerance 10⁻⁷, one operator and right-hand side per process for all variants (as WP-PC1 / WP-SC1) |
+| `schur` | Z_n = Z_rr's near part + the near ring (read in place from the operator: B and C are not copied). Ã = block LU (PartialPivLU) of A = Z_n[J, J] over the J unknowns of each box; S̃ = D − C Ã⁻¹ B on the pattern of D, formed **only on its M diagonal blocks** (the block LU of S̃ never uses the rest), block LU over the M unknowns of each box; apply y₁ = Ã⁻¹ r₁, y₂ = S̃⁻¹ (r₂ − C y₁), x₁ = y₁ − Ã⁻¹ B y₂, x₂ = y₂. Boxes one level above the leaves (as `parent`) and, in a second process, the leaves (as `leaf`) |
+| `nearlu_bc` (diagnostic) | exact sparse LU of Z_n **without the inter-box entries of A and D** (A, D box-diagonal on the `--block-level` boxes, B and C full): the practical ceiling of the implemented Schur variant, whose Ã and S̃_b are built from the box blocks of A and D — it bounds only variants of that kind (an exact or incomplete factorisation of S̃ on the full pattern of D keeps D's inter-box entries and is not bounded by it); iteration counts are not strictly monotone in the approximation quality, so "ceiling" is empirical |
+| `nearlu_ad` (diagnostic) | exact sparse LU of Z_n **without the inter-box entries of B and C** (A and D full, B and C box-diagonal) |
+| `--near-norms` | Frobenius norms of A, B, C, D of Z_n, split into same-box and inter-box entries of the chosen level |
+| References | `parent` / `leaf` rerun in the same processes; `nearlu` (the exact near LU, WP-SC1) rerun in the Ag level-1 process; Jacobi from the WP-SC1 record (602 at U, idle) |
+
+### Rough Ag, PML route (U, 2N = 22 816)
+
+| boxes | variant | blocks (unknowns min / mean / max) or nnz / fill | P memory | setup (split) | iterations | ratio to parent / leaf | ratio to Jacobi | ratio to nearlu | GMRES (orth) | R | dR vs parent / leaf |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| one level up | parent | 64 (322 / 357 / 384) | 130.8 MB | 0.11 s | 184 | 1 | 0.306 | 9.2 | 19.9 s (0.5) | 0.97833914 | 0 |
+| | **schur** | J 64 (161 / 178 / 192), M 64 (161 / 178 / 192); nnz(B) = nnz(C) = 4.24·10⁶; 484 coupling pairs (16.4 GFlop) | **66.1 MB** | 0.30 s (A LU 0.02, S̃ formation 0.25, S̃ LU 0.02) | **184** | **1.00** | 0.306 | 9.2 | 21.3 s (0.5) | 0.97833913 | −1.0·10⁻⁸ |
+| | nearlu | nnz(Z_n) 1.697·10⁷, fill 7.26 | 2 958 MB | 66.8 s | 20 | 0.109 | 0.033 | 1 | 4.9 s | 0.97833914 | −3.1·10⁻⁹ |
+| | nearlu_bc (diag.) | nnz 1.256·10⁷, fill 7.18 | 2 165 MB | 38.5 s | **184** | 1.00 | 0.306 | 9.2 | 36.8 s | 0.97833913 | −9.7·10⁻⁹ |
+| | nearlu_ad (diag.) | nnz 1.256·10⁷, fill 7.12 | 2 146 MB | 37.7 s | **21** | 0.114 | 0.035 | 1.05 | 4.3 s | 0.97833914 | −2.0·10⁻⁹ |
+| leaves | leaf | 256 (66 / 89 / 96) | 33.2 MB | 0.08 s | 329 | 1 | 0.547 | 16.5 | 35.2 s (1.8) | 0.97833915 | 0 |
+| | **schur** (level 0) | J 256 (33 / 45 / 48), M 256 (33 / 45 / 48); 2 116 coupling pairs (3.1 GFlop) | 17.3 MB | 0.13 s (0.01 / 0.11 / 0.01) | **327** | **0.994** | 0.543 | 16.4 | 37.8 s (1.7) | 0.97833915 | +1.1·10⁻⁹ |
+| | nearlu_bc (diag.) | nnz 9.51·10⁶, fill 7.17 | 1 636 MB | 23.4 s | 327 | 0.994 | 0.543 | 16.4 | 58.2 s | 0.97833915 | +9.8·10⁻¹⁰ |
+| | nearlu_ad (diag.) | nnz 9.51·10⁶, fill 8.21 | 1 875 MB | 28.7 s | 21 | 0.064 | 0.035 | 1.05 | 4.1 s | 0.97833914 | −6.9·10⁻⁹ |
+
+Matvec 0.096–0.101 s in all runs (idle; WP-SC1 0.098 s). Assembly 161.7 s / 161.0 s; process peaks 5.9 GB (with the
+exact LU) and 4.6 GB.
+
+### Rough Si, PML route (U, 2N = 22 816; control)
+
+| variant | P memory | setup | iterations | ratio to parent | GMRES | R | dR vs parent |
+|---|---|---|---|---|---|---|---|
+| parent | 130.8 MB | 0.12 s | 48 | 1 | 49.3 s | 0.38713581 | 0 |
+| **schur** | 66.1 MB | 0.34 s (A LU 0.04, S̃ formation 0.26, S̃ LU 0.03) | **48** | **1.00** | 49.3 s | 0.38713581 | +1.5·10⁻⁹ |
+| nearlu_bc (diag.) | 2 029 MB | 36.1 s | 48 | 1.00 | 52.4 s | 0.38713581 | +1.4·10⁻⁹ |
+| nearlu_ad (diag.) | 2 061 MB | 35.0 s | 14 | 0.29 | 16.2 s | 0.38713579 | −5.1·10⁻⁸ |
+
+(WP-SC1: nearlu 13 iterations on Si U.) Assembly 619.8 s, matvec 0.98–1.01 s, peak 10.9 GB.
+
+### Near-field parts (`--near-norms`, Frobenius norms of Z_n, ICTF rows)
+
+| case, boxes | A same-box / inter-box | B same / inter | C same / inter | D same / inter | ‖B‖‖C‖ / (‖A‖‖D‖) |
+|---|---|---|---|---|---|
+| Ag U, one level up | 1.40·10⁻¹² / 5.05·10⁻¹³ | 1.14·10⁻¹⁶ / 1.08·10⁻¹⁶ | 4.48·10⁻¹² / 4.27·10⁻¹² | 1.07·10⁻¹² / 1.60·10⁻¹³ | 6.1·10⁻⁴ |
+| Ag U, leaves | 1.32·10⁻¹² / 6.91·10⁻¹³ | 8.08·10⁻¹⁷ / 1.35·10⁻¹⁶ | 3.19·10⁻¹² / 5.31·10⁻¹² | 1.06·10⁻¹² / 2.25·10⁻¹³ | 6.1·10⁻⁴ |
+| Si U, one level up | 1.31·10⁻¹² / 4.36·10⁻¹³ | 9.90·10⁻¹⁷ / 9.46·10⁻¹⁷ | 5.33·10⁻¹² / 5.10·10⁻¹² | 1.83·10⁻¹² / 3.12·10⁻¹³ | 3.9·10⁻⁴ |
+
+The last column is invariant under the formulations' row scaling (A, B by α; C, D by β) and under a J / M column
+scaling, so it measures the J–M coupling independently of the units: the ratio indicates a weak J–M coupling (an indicator, not a
+measurement of ‖C Ã⁻¹ B‖ / ‖D‖, which is bounded by this ratio times ‖A‖ ‖Ã⁻¹‖ and was not accumulated). Each norm counts both stored entries of a part (Z_rr's near part and the
+ring); the entry counts per part are equal (2.04·10⁶ same-box, 2.20·10⁶ inter-box at one level up).
+
+### Results unchanged (R against WP-PML5b / WP-PC1 / WP-SC1)
+
+Ag U: schur 0.97833913 (level 1) / 0.97833915 (leaves) against 0.97833914 / 0.97833915 for parent / leaf in the same
+processes (|dR| ≤ 1.1·10⁻⁸, far-field L2 ≤ 1.2·10⁻⁷) and 0.97833914 in WP-SC1; Si U: 0.38713581 (dR +1.5·10⁻⁹,
+WP-SC1 parent 0.38713581). The diagnostics agree to 5.1·10⁻⁸. All within 10⁻⁷ (true residuals 2.9–7.9·10⁻⁸). The
+validation test (Ag sphere, box route, d = 1 µm, 2N = 3 840, tolerance 10⁻⁶) passes with `Schur` one level up: 261
+iterations (Jacobi 210, parent 266), RCS within 4.2·10⁻⁷ of Jacobi, ε_rr 3.481·10⁻³ / 2.560·10⁻³ unchanged.
+Setup transient (not in the memory row, which counts the stored preconditioner only): a column copy of B (≈ nnz(B) × 24 B ≈ 102 MB at U) plus the S̃ blocks, released after the factorisation.
+
+### Growth
+
+Not evaluable: stage 2 (16 / 24 µm) was not run (early gate). At U the iteration count equals the blocks', at both box
+levels, so there is no gain whose growth could be measured.
+
+### ADR 0012 decision 2 gate (WP-SC2)
+
+| Criterion | Measured | Met? |
+|---|---|---|
+| Early gate of the brief: `schur` ≤ 92 iterations at Ag U (≥ 2× over parent's 184) | **184** (1.00×); leaf boxes 327 vs 329 (0.994×) | **no** |
+| ≥ 2× fewer iterations than parent at 2N = 300 160 (≤ 422) | not run (stage 2 skipped); the U result and the diagnostic ceiling (below) leave no room for it | **no** (not evaluable directly; indicated) |
+| lower total time (setup + GMRES) than parent | U: 0.30 + 21.3 = 21.6 s vs 0.11 + 19.9 = 20.0 s (1.08×; the apply costs two J-block and one M-block solve plus the B and C products) | **no** at U |
+| preconditioner memory ≤ 2× parent's own storage | 66.1 vs 130.8 MB (0.51×; Z_n not counted, B and C read from the operator) | yes |
+
+**The gate is not met.** The memory criterion is met with a factor four to spare, but the preconditioner does not save
+a single iteration over the box blocks on Ag or on Si, at either box level.
+
+### Assessment
+
+- **Why the Schur complement gains nothing (measured, not inferred).** The diagnostic `nearlu_bc` — the exact inverse
+  of Z_n with A and D restricted to the boxes and B, C full — needs exactly the parent / leaf iterations (184 / 327 on Ag,
+  48 on Si). It is the practical ceiling of every variant whose Ã and S̃ are formed from the box blocks of A and D (exact B and
+  C) — the implemented one included; an S̃ factorised on the full pattern of D is a different family (WP-SC3's
+  lever is the inter-box coupling inside A and D). The complementary diagnostic
+  `nearlu_ad` — A and D full, B and C restricted to the boxes — recovers the whole near-field-inverse gain (21 vs
+  `nearlu`'s 20 on Ag U, 14 vs 13 on Si U). **The 9–12× of WP-SC1 lives in the inter-box near coupling of A and D**
+  (the T-operator blocks J–J and M–M), not in the inter-box J–M coupling that ADR 0012 decision 2 keeps.
+- **Physical reading.** The J–M blocks are the K-operator (MFIE-type) terms. On a nearly planar surface (σ = 50 nm,
+  h = λ/4) the K kernel of coplanar element pairs vanishes (f_m · ((r − r′) × f_n) = 0 for f_m, f_n and r − r′ in one
+  plane), so the near J–M coupling is weak: the scale-free measure ‖B‖‖C‖ / (‖A‖‖D‖) is 6·10⁻⁴ (Ag) / 4·10⁻⁴ (Si), i.e.
+  the norm ratio ‖B‖ ‖C‖ / (‖A‖ ‖D‖) = 6·10⁻⁴ indicates a J–M coupling three orders of magnitude below the J–J / M–M coupling; up to a J / M scaling Z_n is close to a block
+  triangular matrix, whose spectrum is that of A and D alone. The inter-box parts of A and D are 36 % and 15 % of their same-box parts (Frobenius, one
+  level up): that is the coupling every box partition cuts.
+- **Cost.** Setup is cheap (0.30 s at U, 16 GFlop of formation; S̃ is formed only on its 64 M blocks, 2.0·10⁶ entries,
+  instead of the whole pattern of D) and memory half of parent's (two LUs of half-size blocks). The extrapolated 24 µm
+  cost was ≈ 0.7 GB and minutes of setup; it was not run because the outcome at 24 µm is not expected to differ (inferred from U, not measured): the U ceiling
+  `nearlu_bc` already equals parent, and the box structure is the same at every size.
+- **What could still work (for the lead).** A near-field preconditioner for these systems has to approximate the
+  inverse of the **inter-box** A and D couplings. `nearlu_ad` suggests that treating A and D separately and dropping B,
+  C's inter-box part costs nothing in iterations; candidates are a sparse approximate factorisation (ILU / SPAI) of A
+  and of D separately (each N × N with a quarter of the entries of Z_n), or overlapping box blocks (additive Schwarz
+  over a box and its near neighbours) — options (c) / (d) of ADR 0012 restricted to the T blocks. The exact LUs of A
+  and D would cost about what `nearlu` costs (the fill grows with the size, WP-SC1), so an approximate factorisation
+  with a memory cap would be needed. Not measured here.
+- **Recommendation of this package.** Keep the block-diagonal default; keep `Schur` as an explicit option (it is
+  correct, tested and cheap, but brings nothing on the rough PML systems). Option (e) of ADR 0012 (Krylov recycling)
+  remains the independent lever for the many-solve studies.

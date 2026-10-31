@@ -85,7 +85,10 @@ the Jacobi reflectance to 5·10⁻⁸ / 4·10⁻⁷ (`benchmarks/results/precond
 near-field LU (`solver::SparseLuPreconditioner`, `make_near_field_lu_preconditioner`) and the blocks
 two levels above the leaves (`block_levels_above_leaf = 2`) are measurement tools of WP-SC1 (ADR 0012,
 no default); they reproduce the solves to the same tolerance (rough Ag / Si R within 10⁻⁷ of the
-WP-PML5b / WP-PC1 values, `benchmarks/results/preconditioner.md`, section WP-SC1).
+WP-PML5b / WP-PC1 values, `benchmarks/results/preconditioner.md`, section WP-SC1). The near-field Schur-complement
+preconditioner (`solver::SchurComplementPreconditioner`, `PreconditionerKind::Schur`; WP-SC2, explicit option) reproduces
+the solves to the same tolerances (Ag sphere case of `tests/validation/test_block_preconditioner_mie.cpp`; rough Ag / Si
+PML R within 1.1·10⁻⁸ of the block-preconditioned solves, `benchmarks/results/preconditioner.md`, section WP-SC2).
 
 ## Rough-surface specific checks
 

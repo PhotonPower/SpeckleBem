@@ -90,6 +90,39 @@ def test_block_diagonal_preconditioner(direct):
             make_sim(preconditioner=bad.pop("preconditioner", "block_diagonal"), **bad)
 
 
+def test_schur_preconditioner():
+    # WP-SC2: preconditioner="schur" (near-field Schur complement, explicit only) needs
+    # compression "mlfmm"; block_level selects its boxes. Icosphere n = 2 (2N = 960, 3 octree
+    # levels at the lambda / 4 floor), leaf boxes; the solution equals the Jacobi one (without a
+    # preconditioner GMRES stalls at a true residual of 3e-6 on this system).
+    kw = dict(
+        formulation="PMCHWT",
+        subdivisions=2,
+        compression="mlfmm",
+        mlfmm=dict(accuracy_digits=3, max_elements_per_leaf=1, min_box_size_lambda=0.25),
+    )
+    ref = make_sim(preconditioner="diagonal", **kw)
+    sim = make_sim(preconditioner="SCHUR", block_level=0, **kw)
+    assert sim.preconditioner == "schur"
+    cfg = sim.config
+    assert cfg["preconditioner"] == "schur" and cfg["block_level"] == 0
+    assert cfg["preconditioner_automatic"] is False
+    res = sim.solve(tol=1e-10)
+    assert res.converged
+    assert ref.solve(tol=1e-10).converged
+    assert rel(sim.currents, ref.currents) < 1e-6
+    rep = sim.report()
+    assert "Schur complement (near field) (explicit), blocks: octree leaves" in rep
+    assert "preconditioner setup:" in rep and "Schur complement: J blocks" in rep
+    for bad in (
+        dict(),  # compression "dense"
+        dict(compression="mlfmm", block_level=3),
+        dict(compression="mlfmm", preconditioner="schur_complement"),
+    ):
+        with pytest.raises(ValueError):
+            make_sim(preconditioner=bad.pop("preconditioner", "schur"), **bad)
+
+
 def test_gmres_orthogonalization(direct):
     # WP-G1: gmres['orthogonalization'] selects the Gram-Schmidt variant (case-insensitive).
     res_direct = direct.solve()

@@ -29,7 +29,7 @@ beam = sb.AngularSpectrumBeam(wavelength=500e-9, waist=5e-6, polarization="p",
 # --- simulation ------------------------------------------------------------
 sim = sb.Simulation(mesh, beam, object=si, exterior=sb.vacuum(),
                     formulation="ICTF",           # "PMCHWT" | "ICTF" | "MCTF" | "auto"
-                    preconditioner="none",        # "none" | "diagonal" | "block_diagonal" | "hlu"
+                    preconditioner="none",        # "none" | "diagonal" | "block_diagonal" | "schur" | "hlu"
                     compression="mlfmm",          # "dense" | "mlfmm" | "aca" | "hmatrix"
                     mlfmm=dict(accuracy_digits=3, max_elements_per_leaf=100),
                     backend="cpu")                # "cpu" | "cuda"
@@ -225,7 +225,7 @@ res.wall_seconds, res.x                 # residual_history: float64 copy; x: rea
 res.orthogonalization_seconds, res.reorthogonalizations  # GMRES Gram-Schmidt time / 2nd passes
 res.hessenberg                          # (k + 1, k) Arnoldi Hessenberg with gmres keep_hessenberg
 sim.report()                            # str
-sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "none" | "diagonal" | "block_diagonal"
+sim.formulation, sim.preconditioner     # resolved: sb.Formulation, "none" | "diagonal" | "block_diagonal" | "schur"
 sim.solver, sim.wavelength, sim.num_unknowns
 sim.currents                            # [J; M] copy; RuntimeError before solve()
 Z = sim.operator()                      # sb.LinearOperator: .shape, .dtype, .matvec(x), Z @ x,
@@ -251,14 +251,19 @@ with sb.open_npy_directory(path) as w:  # sb.ResultWriter
   (None = `excitation.wavelength`); `formulation` "auto" leaves `formulation` empty (the
   recommendation), "PMCHWT" / "ICTF" / "MCTF" (any case) or an `sb.Formulation` set it ("JMCFIE"
   raises `ValueError`, not implemented); `preconditioner` "auto" / "none" / "diagonal" /
-  "block_diagonal" -> `SimulationConfig::preconditioner` empty / `PreconditionerKind::None` /
-  `Diagonal` / `BlockDiagonal` ("auto": block-diagonal on the PML route with compression
+  "block_diagonal" / "schur" -> `SimulationConfig::preconditioner` empty /
+  `PreconditionerKind::None` / `Diagonal` / `BlockDiagonal` / `Schur` (any case; "schur": the
+  near-field Schur complement of WP-SC2, ADR 0012 decision 2 — block LU of Z_n[J, J] over the J
+  unknowns of each box, the Schur complement Z_n[M, M] − Z_n[M, J] Ã⁻¹ Z_n[J, M] on the pattern
+  of Z_n[M, M], LU-factorised over the M unknowns of each box, the J–M / M–J near coupling
+  exact; explicit only, never automatic, needs compression "mlfmm" (`ValueError` otherwise); the
+  report says "Schur complement (near field)" and adds its setup split; "auto": block-diagonal on the PML route with compression
   "mlfmm" since WP-PC1, the only measured case (`SBEM_WARN` at assembly when its largest block
   holds more than half of the unknowns), otherwise, also on the dense PML route, the
   recommendation: Jacobi for metals, none otherwise;
   `diagonal_preconditioner` stays empty); `block_level` 0 / 1 (default) / 2 ->
   `block_levels_above_leaf`
-  (block-diagonal only: LU-factorised near-field blocks of the octree leaves, of the level
+  (block-diagonal and Schur complement only: LU-factorised near-field blocks of the octree leaves, of the level
   above or of the level two above, over the J and M unknowns of each box; WP-PC1, ADR 0011;
   level 2 since WP-SC1, ADR 0012, a measurement option: with compression "mlfmm" its blocks are
   those of the near-field matrix, same-box far pairs zero, on the dense route the exact blocks;

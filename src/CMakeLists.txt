@@ -46,6 +46,7 @@ set(SPECKLEBEM_SOURCES
     compression/aca/aca.cpp
     solver/gmres.cpp
     solver/preconditioner.cpp
+    solver/schur_preconditioner.cpp
     solver/sparse_lu_preconditioner.cpp
     postprocessing/speckle_statistics.cpp
     reference/mie.cpp
