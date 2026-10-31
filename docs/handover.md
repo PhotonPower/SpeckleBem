@@ -205,10 +205,16 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Merged:** WP-SC2 (4214c90): `solver::SchurComplementPreconditioner` + `PreconditionerKind::Schur`
   (explicit option) and the driver diagnostics `nearlu_bc` / `nearlu_ad` / `--near-norms`; gate not met
   (184 = 184 at U), negative result recorded; zero-pivot guard for the Schur blocks.
-- **In flight (2026-10-31):** WP-SC3 (`wp/sc3-ilut-near-blocks`, branched from the WP-SC2 tip): ILUT of A and D
-  (`solver::IncompleteLuPreconditioner`, `PreconditionerKind::IncompleteLu`, Python `"ilut"`, driver variant
-  with parameter sets), decision-8 zero-pivot guard for `BlockDiagonalPreconditioner`; stage 1 = sweep at U
-  (fill 2 / 3 / 5 × drop 1e-3 / 1e-4), stage 2 = 16 / 24 µm. The machine must stay otherwise idle during its runs.
+- **Merged:** WP-SC3 (390cac9): `solver::IncompleteLuPreconditioner` (own ILUT of A and D),
+  `PreconditionerKind::IncompleteLu` + `SimulationConfig::ilut`, Python `"ilut"`, driver variant `ilut:F:T[:O]`,
+  decision-8 zero-pivot guard; **both ADR 0012 gates met** (U 21 vs 184, 24 µm 111 vs 844 iterations, 333 s vs
+  1 426 s with fill 2 / drop 10⁻²). The first SC3 worker hit the turn limit with everything uncommitted; the
+  continuation branch `wp/sc3-ilut-near-blocks-b` carried its patch and was merged; `wp/sc3-ilut-near-blocks`
+  (its own late resumption, duplicate runs stopped by the lead) is discarded.
+- **Decision (lead, 2026-10-31, ADR 0012 decision 9):** the "mlfmm" PML route switches its default to the ILUT
+  with fill 2 / drop 10⁻² in WP-SC4 (checked at Si U and on the Ag sphere first; fallback set fill 2 / 10⁻³).
+  The elimination kernel speed-up is optional (WP-SC5, not scheduled).
+- **Next:** WP-SC4 (`wp/sc4-ilut-default`). The machine must stay otherwise idle during its timing reruns.
 - **Watch (2026-10-30):** the win-debug validation case "Interface fields: absorbed flux over the plane equals
   (1 - R_beam - away) P_inc" failed once in the full `-j 6` ctest of main 97694d1 (512 s, while a 1.4 GB backup
   archive was packed in parallel) and passed alone (348 s); no C++ change in that commit. If it fails again, look
@@ -240,7 +246,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 655 ctest (`-LE "validation-large|slow"`), 175 pytest (184 with the local speckle data); labels `slow`, `validation`
+- Test counts on `main`: 665 ctest (`-LE "validation-large|slow"`), 177 pytest (184 with the local speckle data); labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

@@ -1,6 +1,6 @@
 # ADR 0012: Phase 8 preconditioning of the PML-route systems — measure the near-field-inverse ceiling before building a Schur-complement preconditioner
 
-- **Status**: accepted 2026-10-30 (user decision: open Phase 8 with the preconditioner item; lead design); WP-SC1 measured 2026-10-31, gate 2 met → WP-SC2 (section "Result"); WP-SC2 stage 1: the Schur split gains nothing (section "Amendment"), **decision 6 → WP-SC3 (incomplete LU of A and D)**
+- **Status**: accepted 2026-10-30 (user decision: open Phase 8 with the preconditioner item; lead design); WP-SC1 measured 2026-10-31, gate 2 met → WP-SC2 (section "Result"); WP-SC2 stage 1: the Schur split gains nothing (section "Amendment"), decision 6 → WP-SC3 (incomplete LU of A and D); WP-SC3 measured 2026-10-31, **both gates met → decision 9, default switch in WP-SC4** (section "Result (WP-SC3)")
 - **Date**: 2026-10-30
 - **Phase**: 8
 
@@ -167,3 +167,39 @@ therefore closed for rough surfaces; the implementation stays as the explicit op
    block), its own decision after the WP-SC3 stage-1 numbers.
 8. The latent gap found in WP-SC2 — `Eigen::PartialPivLU::rcond()` can return a finite value for an exactly zero
    pivot — is closed in WP-SC3 for `BlockDiagonalPreconditioner` and the Schur blocks (check the U diagonal).
+
+## Result (WP-SC3, 2026-10-31)
+
+Decision 6 was built as an own dual-threshold ILUT (`solver::IncompleteLuPreconditioner`; `Eigen::IncompleteLUT`
+was rejected because it silently replaces a zero pivot by √droptol × the row norm and never checks tiny pivots)
+with a drop rule relative to the row 2-norm (scale-free, so the ADR 0011 invariance across PMCHWT / ICTF / MCTF
+holds), a fill limit per row, AMD ordering, a pivot guard that throws and never replaces a pivot, and A and D
+factorised in parallel, each sequentially (bitwise thread-count independent). Measured on rough Ag PML (12-core
+desktop, 128 GB RAM, win-release, idle machine, tolerance 10⁻⁷; `benchmarks/results/preconditioner.md`, section
+WP-SC3):
+
+- **Stage 1 (U, 2N = 22 816): met by every set.** Fill {1, 2, 3, 5} × drop {10⁻², 10⁻³, 10⁻⁴} need 21–34
+  iterations against the one-level-up blocks' 184 (Jacobi 602), at 0.17–0.78 of the memory rule
+  4 × nnz(A + D) × 16 B. Fill ≥ 3 with drop ≤ 10⁻³ reaches exactly the 21 iterations of the exact LU with full
+  A and D (`nearlu_ad`, WP-SC2) at 13 % of its memory; Si U 14 = `nearlu_ad`'s 14 (parent 48). The ILUT
+  recovers the whole A / D near-field-inverse gain — the WP-SC2 diagnosis is confirmed constructively.
+- **Stage 2 (2N = 300 160): met by all three measured sets.** Fill 3 / drop 10⁻³: 111 iterations vs 844
+  (7.6×), 519 s vs 1 426 s total, 4.0 GB = 20 % of the operator; fill 2 / 10⁻³: 137, 461 s, 17 %; fill 2 / 10⁻²:
+  140, **333 s (4.3× faster)**, 1.9 GB = 9.6 %. At 16 µm (2N = 152 960, 1.25 λ leaves, 648 near entries per
+  row) the fill-3 set is *slower* in total than parent (580 s vs 457 s: the sequential A factorisation, 532 s,
+  outweighs the GMRES saving) while fill 2 / 10⁻² is 3.6× faster (129 s). R unchanged within 4.5·10⁻⁸ at every
+  size; no breakdown in 18 factorisations (smallest pivot ratio 0.084 against the 10⁻¹⁰ guard, condest ≤ 178),
+  so the fallback of decision 7 is not needed.
+- **Growth is not changed**: exponent 0.61–0.67 against parent 0.58 (a constant factor 6–10×, the fit distorted
+  by the leaf rule's near pattern, 372 / 648 / 324 entries per row at U / 16 / 24 µm). The remaining growth is
+  the long-range (SPP) coupling outside the near field; this closes the near-field-inverse family at its ceiling.
+
+9. **Default switch (WP-SC4, lead decision per decision 6):** the "mlfmm" PML route switches its default
+   preconditioner from the one-level-up blocks to the ILUT with **fill 2 / drop 10⁻²** — the set with the lowest
+   total time at both large sizes and < 10 % of the operator, at most 1.36× the iterations of fill 3 / 10⁻³; the
+   fill-3 set is not chosen because its setup loses to parent at 16 µm. Before the switch WP-SC4 checks the set
+   at Si U and on the Ag sphere validation case (if it needs > 1.5× the iterations of fill 3 / 10⁻³ on either,
+   fill 2 / 10⁻³ becomes the default). The library default `IlutParams` follow the choice. Box route (Ag sphere
+   63 vs Jacobi 210, measured only at the validation size) and dense route keep their defaults. The elimination
+   kernel (≈ 1.2·10⁸ complex multiply-adds per second, sequential per block) is a separate optional item
+   (WP-SC5); it does not gate the switch because the chosen set's setup is already small against GMRES.
