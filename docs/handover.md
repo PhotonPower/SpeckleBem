@@ -239,8 +239,12 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   chooses. Lead choice: WP-KR3 (operator reuse in the sweep driver, halves the server work of the 0° / 30°
   pairs), WP-P1 (Phase 7 profile: the basis of the threads / GPU decision, replaces the lead's idle-machine
   timing reruns), WP-T3 (FFT helper cleanup).
-- **In flight (2026-10-31):** WP-KR3 (`wp/kr3-sweep-operator-reuse`), WP-P1 (`wp/p1-phase7-profile`, timed
-  runs only on an idle machine — the worker waits for the other builds), WP-T3 (`wp/t3-core-fft-helper`).
+- **Merged:** WP-T3 (a2fd684): the 2-D row/column FFT helper of the height-map generator and the speckle
+  statistics is one `core::fft2` (+ `core::next_smooth`); bitwise pins generated before the refactor guard both
+  callers (exact on MinGW GCC / Clang with Eigen 3.4.0, 10⁻¹⁴ elsewhere). **Watch:** the 10⁻¹⁴ branch runs
+  for the first time in the Linux CI of this push (as the WP-SC5 golden test's) — investigate, never loosen.
+- **In flight (2026-10-31):** WP-KR3 (`wp/kr3-sweep-operator-reuse`, review fixes), WP-P1
+  (`wp/p1-phase7-profile`, timed runs only on an idle machine — the worker waits for the other builds).
 - Open lead items: dense-PML-route block measurement (low priority after ADR 0012), WP-S3 (waits for the
   user's server runs), WP-PML6c (optional, not scheduled); the parallel elimination of A (WP-SC5 second part)
   only if the ILUT setup becomes the bottleneck again.
@@ -280,7 +284,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 677 ctest (`-LE "validation-large|slow"`), 182 pytest (184 with the local speckle data); labels `slow`, `validation`
+- Test counts on `main`: 686 ctest (`-LE "validation-large|slow"`), 182 pytest (184 with the local speckle data); labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead

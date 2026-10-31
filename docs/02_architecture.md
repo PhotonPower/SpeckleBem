@@ -47,7 +47,9 @@
           └─────────────────────────────────────────────┘
 ```
 
-Dependencies point downwards only. `reference/` (Mie) depends on nothing but `core` and `material`.
+Dependencies point downwards only. `reference/` (Mie) depends on nothing but `core` and `material`. `core`
+holds the shared numerics used by several layers (types, logging, timer, the row/column 2-D FFT
+`core::fft2` of the height-map generator and the speckle statistics) and includes no other layer.
 
 ## Key abstractions
 
