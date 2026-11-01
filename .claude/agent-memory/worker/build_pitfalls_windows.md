@@ -43,6 +43,18 @@ metadata:
   into the scratchpad and compile single TUs with the CI flags + `-Werror`, taking include
   paths from `build/win-release/compile_commands.json` (`-isystem` for `_deps`). MSYS2's
   repo only keeps GCC >= 14.2 packages. It reproduced the WP18 failure exactly.
+- GCC 13 `-O3 -Wnull-dereference` ("potential null pointer dereference" in `<complex>`
+  real()/imag() via Eigen `abs2_impl_default` -> `squaredNorm` -> `norm`) fires on a vector
+  freshly allocated with a size GCC cannot prove nonzero, filled by an index loop and then
+  reduced (`VectorXc bs(rows.size()); for (...) bs(i) = ...; bs.norm();`): Eigen's redux reads
+  element 0 unconditionally. Not fired when an opaque call takes the vector by reference in
+  between (e.g. `lu.solve(b)` before `b.norm()`). Fix compiler-neutrally with an explicit loop
+  norm (`pml_spp::loop_norm`, WP-CI1); `cwiseAbs2().sum()` / `squaredNorm()` are the same redux.
+  Path isolation turns the first null path into a trap, so a second reduction later in the same
+  function is masked until the first is fixed: fix all of them in one round.
+- Linux CI (`ubuntu-24.04 / gcc / Release`) compiles everything incl. `validation_large` before
+  ctest, and ninja stops scheduling after the first failed TU: a red compile step hides later
+  TUs, so after a fix the next CI run can fail on another TU never compiled there (2026-11-01).
 - `std::filesystem::rename(tmp, target)` replaces an existing target on Windows with both
   win-release (libstdc++) and win-debug (libc++): temp-file + rename overwrites work (WP16).
 - Python edit scripts written through a heredoc: put C++ snippets with backslash escapes in

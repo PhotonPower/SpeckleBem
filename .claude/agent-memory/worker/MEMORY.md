@@ -1,5 +1,5 @@
 - [Windows MSYS2 build pitfalls](windows_msys2_build.md) — DLL/PATH 0xc0000139, FindPython registry, ctest -j oversubscription, shared-machine timing, CRLF worktrees, Catch2 hidden cases, cp1252 I/O, GCC16 false positive, UTF-8 paths/argv, dash + signals across msys runtimes
-- [Windows build pitfalls](build_pitfalls_windows.md) — GCC null-deref false positives (GCC 13 CI repro via winlibs), debug -O0 timings, WP7b quadrature cost, ctest -R case
+- [Windows build pitfalls](build_pitfalls_windows.md) — GCC null-deref false positives (GCC 13 Eigen norm on fresh vector, CI hides later TUs), debug -O0 timings, WP7b quadrature cost, ctest -R case
 - [GMRES observations](gmres_observations.md) — measured iteration counts/residuals (sphere, 2e4 rough box) for test budgets
 - [Touching-pair quadrature findings](touching_quadrature_findings.md) — Duffy error sources (rays, obtuse apex, radial), reference n at sharp folds
 - [Rough box grading facts](rough_box_grading.md) — anchor row, relaxation band, safety net, box %, WP-B1 lambda_1/5, WP-B3 uniform default + Si L/6

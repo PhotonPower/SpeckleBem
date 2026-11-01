@@ -762,6 +762,17 @@ struct RunResult {
     std::string report;
 };
 
+/// 2-norm of v by an explicit loop that touches no element when v is empty. Used instead of
+/// Eigen's norm() on vectors freshly allocated from a size the compiler cannot prove nonzero:
+/// Eigen's reduction reads element 0 unconditionally, which GCC 13 at -O3 reports as a
+/// potential null dereference (-Wnull-dereference in std::complex::real/imag via
+/// abs2_impl_default, squaredNorm, norm; Linux CI false positive since 2026-10-15, WP-CI1).
+[[nodiscard]] inline Real loop_norm(const VectorXc& v) {
+    Real s = 0.0;
+    for (Index i = 0; i < v.size(); ++i) s += std::norm(v(i));
+    return std::sqrt(s);
+}
+
 namespace detail {
 
 /// Assembles the dense operator of sim's problem, factors it in place and solves the right-hand
@@ -797,9 +808,11 @@ inline std::vector<VectorXc> solve_dense(const Simulation& sim, const std::vecto
             x.push_back(lu.solve(b));
             VectorXc bs(static_cast<Index>(rows.size()));
             for (std::size_t i = 0; i < rows.size(); ++i) bs(static_cast<Index>(i)) = b(rows[i]);
-            const Real nb = bs.norm();
-            if (nb > 0.0)
-                r.residual = std::max(r.residual, (bs - Zs * x.back()).norm() / nb);
+            const Real nb = loop_norm(bs);
+            if (nb > 0.0) {
+                const VectorXc res = bs - Zs * x.back();
+                r.residual = std::max(r.residual, loop_norm(res) / nb);
+            }
         }
         r.solve_s += secs(t2, Clock::now());
     }

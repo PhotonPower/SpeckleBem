@@ -228,7 +228,8 @@ inline DenseRun run_dense(const RoughCase& c, const FastRun& fast) {
     }
     VectorXc bs(static_cast<Index>(rows.size()));
     for (std::size_t i = 0; i < rows.size(); ++i) bs(static_cast<Index>(i)) = b(rows[i]);
-    r.residual = (bs - Zs * r.x).norm() / bs.norm();
+    const VectorXc res = bs - Zs * r.x;
+    r.residual = pml_spp::loop_norm(res) / pml_spp::loop_norm(bs);  // see loop_norm (WP-CI1)
     const post::SurfaceSolution s{&sim.problem(), r.x};
     r.far = pml_rough_ag::evaluate_far_field(sim, s, c, *sim.far_field_window(), beam->power());
     r.peak_rss = system_memory::peak_rss_bytes();

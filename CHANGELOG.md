@@ -812,6 +812,11 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   `has_hdf5()` (C++ and Python); HDF5 is written by the Python package only, the C++ library keeps its `.npy` writer.
 
 ### Fixed
+- tests (WP-CI1): the Linux CI job `ubuntu-24.04 / gcc / Release` (GCC 13, `-O3 -Werror`) failed since 2026-10-15
+  compiling `test_pml_spp_large.cpp` and `test_pml_rough_ag_large.cpp`: a GCC 13 `-Wnull-dereference` false positive
+  on Eigen's `norm()` of the freshly allocated row-sampled right-hand side in `pml_spp::detail::solve_dense`. The
+  sampled residuals there and in `pml_ring::run_dense` now use `pml_spp::loop_norm` (explicit loop, no element read
+  for an empty vector); no pragma, warning set unchanged.
 - python (WP-S2b): `specklebem.speckle_sweep.build_simulation` raised `TypeError` (`float()` on the complex
   vacuum impedance) since the WP-S2 review fixes; the recorded WP-S2 runs used a frozen older package
   (η₀ differs by 3e-12 relative, R values unchanged). Fixed with a build-only case test.
