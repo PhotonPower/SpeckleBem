@@ -48,6 +48,7 @@ add_executable(specklebem_unit_tests
     unit/test_system_memory.cpp
     unit/test_mlfmm_scaling.cpp
     unit/test_mlfmm_local_leaf.cpp
+    unit/test_mlfmm_stage_stats.cpp
     unit/test_box_validity.cpp
     unit/test_ag_box_mechanism.cpp
     unit/test_ag_near_field_support.cpp

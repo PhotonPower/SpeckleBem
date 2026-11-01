@@ -163,6 +163,38 @@ inline constexpr Real kLocalLeafRuleMaxDigits = 3.0;
 [[nodiscard]] Octree make_octree(const basis::RwgSpace& space, Real wavelength,
                                  const MlfmmParams& params);
 
+/// Wall-clock seconds of the MlfmmOperator construction by stage (WP-PF1, the Phase 7 profile;
+/// MlfmmOperator::setup_stats). total - the sum of the stages is the rest (the wavelength lookup,
+/// logging); the constructor's parameter checks run before total starts and are in no field.
+/// Finer splits: MlfmmFarOperator::setup_stats (far), PmlRingOperator::near_seconds /
+/// far_seconds / near_stats (ring).
+struct MlfmmSetupStats {
+    Real tree = 0;  ///< leaf rule and octree
+    /// PML route: classification, split near pattern, ring estimate and budget check
+    /// (plan_pml_ring); 0 without a stretch.
+    Real plan = 0;
+    /// MlfmmFarOperator (searches, block checks, exact parts, translators, patterns)
+    Real far = 0;
+    Real near = 0;   ///< near part (with a stretch: the real-real near pairs)
+    Real ring = 0;   ///< PmlRingOperator (near ring + far ring); 0 without a stretch
+    Real total = 0;  ///< the whole constructor
+};
+
+/// Wall-clock seconds of MlfmmOperator::apply() by part (WP-PF1), summed over the counted calls
+/// (MlfmmOperator::apply_stats). Measured by the calling thread around each part; reading the
+/// clock never changes the arithmetic or the order of the sums (bitwise equal results with
+/// timing on or off, tested). Concurrent calls each add their own times. The parts' own splits:
+/// MlfmmFarOperator::apply_stats (passes), PmlRingOperator::apply_stats (near / far ring).
+struct MlfmmApplyStats {
+    Index applies = 0;  ///< apply() calls counted (apply_real() is not counted)
+    Real near = 0;      ///< near part of Z_rr (SparseOperator product)
+    Real far = 0;       ///< MlfmmFarOperator::apply
+    Real ring = 0;      ///< PmlRingOperator::apply (PML route; 0 otherwise)
+    /// The additions y += far, y += ring and the temporaries; = total - near - far - ring.
+    Real other = 0;
+    Real total = 0;  ///< whole apply() calls
+};
+
 class MlfmmOperator final : public op::LinearOperator {
 public:
     /// Builds the octree (octree params after leaf_rule_params), then the far part (its order
@@ -211,6 +243,22 @@ public:
     [[nodiscard]] VectorXc diagonal() const;
     /// The PML ring; nullptr without a (non-identity) stretch.
     [[nodiscard]] const PmlRingOperator* ring_operator() const;
+
+    /// Construction time by stage (MlfmmSetupStats; WP-PF1).
+    [[nodiscard]] const MlfmmSetupStats& setup_stats() const;
+    /// Part times of the apply() calls since construction or the last reset_apply_stats()
+    /// (MlfmmApplyStats; WP-PF1): a consistent snapshot (mutex-guarded).
+    [[nodiscard]] MlfmmApplyStats apply_stats() const;
+    /// Clears the apply statistics of this operator, its far part and its ring (a diagnostic;
+    /// const like apply(), thread-safe).
+    void reset_apply_stats() const;
+    /// Stage timing of apply() on (the default) or off for this operator, its far part and its
+    /// ring (no clock reads, statistics unchanged); the results are bitwise the same either way.
+    /// Thread-safe. Cost of the default: about 25 steady_clock reads and 3 uncontended mutex
+    /// locks per MlfmmOperator::apply, a few us against matvecs of >= 0.1 s; concurrent calls
+    /// serialise only for the final merge.
+    void set_stage_timing(bool on) const;
+    [[nodiscard]] bool stage_timing() const;
 
 private:
     [[nodiscard]] std::size_t octree_bytes() const;

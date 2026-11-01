@@ -344,6 +344,17 @@ struct PmlRingFarStats {
     std::size_t memo_peak_bytes = 0;
 };
 
+/// Wall-clock seconds of PmlRingOperator::apply() by part (WP-PF1, the Phase 7 profile), summed
+/// over the counted calls (PmlRingOperator::apply_stats). Measured by the calling thread around
+/// the near-ring product and the far-ring pass; reading the clock never changes the arithmetic
+/// (bitwise equal results with timing on or off). Concurrent calls each add their own times.
+struct PmlRingApplyStats {
+    Index applies = 0;  ///< apply() calls counted
+    Real near = 0;      ///< near ring (SparseOperator product)
+    Real far = 0;       ///< far ring (ACA blocks with the exact blocks, or the exact far ring)
+    Real total = 0;     ///< whole apply() calls (near + far; the copy of an aliased x excluded)
+};
+
 /// Pre-assembly sizes of the PML ring (estimate_pml_ring), also reported by PmlRingOperator.
 struct PmlRingEstimate {
     Index n = 0;              ///< N
@@ -530,6 +541,18 @@ public:
     /// the leaves of m and n not near, or m real, n stretched and the leaves not near.
     /// @throws std::out_of_range for indices outside [0, N).
     [[nodiscard]] bool far_contains(Index m, Index n) const;
+
+    /// Near / far times of the apply() calls since construction or the last
+    /// reset_apply_stats() (PmlRingApplyStats; WP-PF1): a consistent snapshot (mutex-guarded).
+    [[nodiscard]] PmlRingApplyStats apply_stats() const;
+    /// Clears the apply statistics (a diagnostic; const like apply(), thread-safe).
+    void reset_apply_stats() const;
+    /// Timing of apply() on (the default) or off (no clock reads, statistics unchanged); the
+    /// results are bitwise the same either way. Thread-safe. Cost of the default: about 25
+    /// steady_clock reads and 3 uncontended mutex locks per MlfmmOperator::apply, a few us
+    /// against matvecs of >= 0.1 s; concurrent calls serialise only for the final merge.
+    void set_stage_timing(bool on) const;
+    [[nodiscard]] bool stage_timing() const;
 
 private:
     struct Impl;

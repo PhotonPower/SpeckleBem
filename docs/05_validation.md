@@ -192,6 +192,16 @@ currents of seed 1 — stronger-SPP surfaces may need a wider gap. Caveat:
 the comparisons are at equal discretisation; h = λ/4 is not mesh-converged for the rough-Si far field (³), the
 rough-Ag mesh convergence was not measured.
 
+## Performance profile (Phase 7 basis, no acceptance criterion)
+
+Where the per-surface and per-solve time of the production PML route goes ("mlfmm", d₀ = 3, ILUT default,
+tolerance 10⁻⁷; rough Ag U and 16 µm, rough Si U) is recorded in `benchmarks/results/profile.md` (WP-PF1, driver
+`benchmarks/profile_study.cpp`, stage statistics `MlfmmOperator` / `MlfmmFarOperator` / `PmlRingOperator::setup_stats` /
+`apply_stats`). It is a measurement record, not a validation: its only checks are internal (stage sums against the
+measured totals, iterations and R equal to the WP-SC4 / WP-SC5 rows, the stage timing bitwise neutral per
+`tests/unit/test_mlfmm_stage_stats.cpp`). Absolute seconds and the thread scaling there were measured on a loaded
+desktop and are preliminary; the stage shares and the Amdahl ranking of the Phase 7 candidates are its result.
+
 ## Test organisation
 
 - `tests/unit` – fast (< 1 s each in release; assembly tests that call `element_blocks` on an icosphere may take up to ~5 s under the sanitizer preset, documented per test), run on every push.

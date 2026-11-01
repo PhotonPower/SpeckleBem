@@ -50,3 +50,4 @@
 - [ILUT kernel speed-up (WP-SC5)](ilut_kernel_findings.md) — GCC store-forwarding stall on std::complex multiplier (not __muldc3), bitwise-neutral fix, golden-test portability
 - [Core FFT (WP-T3)](core_fft_findings.md) — kissfft segfaults on length 1, GCC/Clang MSYS2 identical pins, pin-first refactor, back-to-back profiler runs
 - [Sweep operator reuse (WP-KR3)](sweep_reuse_findings.md) — tiny Si box test costs, reduced operator recipe, small Si reuse saving, series (ii) THETA=30 decision, p-only stats
+- [Phase 7 profile (WP-PF1)](phase7_profile_findings.md) — load gating on the shared desktop, 24 logical threads, ring 93-97 % of assembly, matvec saturates at 12 thr, Si ACA tail

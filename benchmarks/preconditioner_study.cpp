@@ -91,6 +91,7 @@
 
 #include "ag_sphere_mlfmm_support.hpp"
 #include "pml_rough_ag_support.hpp"
+#include "pml_route_case.hpp"
 #include "system_memory.hpp"
 
 namespace {
@@ -554,13 +555,8 @@ void run_pml(const Options& o) {
     const pml_rough_ag::RoughCase& c = o.c;
     const pml_rough_ag::Estimate est = pml_rough_ag::estimate(c);
     const auto beam = pml_rough_ag::make_beam(c, est.size.half[2]);
-    SimulationConfig cfg = pml_rough_ag::make_config(c);
-    cfg.compression = "mlfmm";
-    cfg.solver = SolverKind::Gmres;
-    cfg.mlfmm.accuracy_digits = o.digits;
-    cfg.gmres.tolerance = o.tolerance.value_or(1e-7);
-    cfg.gmres.max_iter = o.max_iter;
-    cfg.gmres.restart = 0;
+    SimulationConfig cfg =
+        pml_route::fast_config(c, o.digits, o.tolerance.value_or(1e-7), o.max_iter);
     const geometry::OpenSurfaceMesh open = pml_rough_ag::make_open_mesh(c);
     // Variant "default": the choice of a Simulation without an explicit preconditioner setting
     // (constructed, never assembled).

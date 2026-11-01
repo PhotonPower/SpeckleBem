@@ -9,12 +9,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <limits>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -464,6 +466,10 @@ struct PmlRingOperator::Impl {
     std::unique_ptr<detail::AcaFarRing> aca;  ///< ACA far ring (use_aca); row_leaves empty then
     PmlRingFarStats exact_stats;              ///< far_stats() of the exact path
     op::SparseStretchedStats near_stats;
+    /// Apply timing (WP-PF1): summed under stats_mutex, each call adds its times once.
+    mutable std::mutex stats_mutex;
+    mutable PmlRingApplyStats apply_stats;
+    mutable std::atomic<bool> timing{true};
 
     void assemble_far(const op::Problem& p);
     /// Transposed-product chunks: row leaves [chunk_first[k], chunk_first[k + 1]) (apply_far).
@@ -878,11 +884,43 @@ void PmlRingOperator::apply(const VectorXc& x, VectorXc& y) const {
         apply(copy, y);
         return;
     }
-    impl_->near->apply(x, y);
-    if (impl_->aca)
-        impl_->aca->apply(x, y);
+    const Impl& m = *impl_;
+    // Timing (WP-PF1): clock reads around the two parts only.
+    using Clock = std::chrono::steady_clock;
+    const bool timed = m.timing.load(std::memory_order_relaxed);
+    const Clock::time_point t0 = timed ? Clock::now() : Clock::time_point{};
+    m.near->apply(x, y);
+    const Clock::time_point t1 = timed ? Clock::now() : Clock::time_point{};
+    if (m.aca)
+        m.aca->apply(x, y);
     else
-        impl_->apply_far(x, y);
+        m.apply_far(x, y);
+    if (!timed)
+        return;
+    const Clock::time_point t2 = Clock::now();
+    const std::lock_guard<std::mutex> lock(m.stats_mutex);
+    ++m.apply_stats.applies;
+    m.apply_stats.near += std::chrono::duration<Real>(t1 - t0).count();
+    m.apply_stats.far += std::chrono::duration<Real>(t2 - t1).count();
+    m.apply_stats.total += std::chrono::duration<Real>(t2 - t0).count();
+}
+
+PmlRingApplyStats PmlRingOperator::apply_stats() const {
+    const std::lock_guard<std::mutex> lock(impl_->stats_mutex);
+    return impl_->apply_stats;
+}
+
+void PmlRingOperator::reset_apply_stats() const {
+    const std::lock_guard<std::mutex> lock(impl_->stats_mutex);
+    impl_->apply_stats = PmlRingApplyStats{};
+}
+
+void PmlRingOperator::set_stage_timing(bool on) const {
+    impl_->timing.store(on, std::memory_order_relaxed);
+}
+
+bool PmlRingOperator::stage_timing() const {
+    return impl_->timing.load(std::memory_order_relaxed);
 }
 
 std::string PmlRingOperator::describe() const {

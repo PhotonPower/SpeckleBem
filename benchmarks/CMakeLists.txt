@@ -140,3 +140,11 @@ target_link_libraries(specklebem_recycling_study PRIVATE SpeckleBem::specklebem 
 # Shares the code with the validation tests (tests/support/pml_huygens_support.hpp).
 add_executable(specklebem_pml_huygens pml_huygens.cpp)
 target_link_libraries(specklebem_pml_huygens PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)
+
+# Phase 7 profile (WP-PF1): per-stage wall times of the production PML route (assembly stages,
+# one matvec split into near / far passes / ring, ILUT apply, GMRES orthogonalisation, far-field
+# and plane-field evaluation, peak memory) on one case per process (the preconditioner study's
+# rough PML cases; --no-solve for the thread-scaling runs). Run by hand, one process at a time,
+# see benchmarks/results/profile.md.
+add_executable(specklebem_profile_study profile_study.cpp)
+target_link_libraries(specklebem_profile_study PRIVATE SpeckleBem::specklebem specklebem_test_support SpeckleBem::warnings)

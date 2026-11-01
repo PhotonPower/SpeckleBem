@@ -148,6 +148,8 @@ struct Region {
     std::unique_ptr<RadiationPatterns> patterns;
     std::vector<std::size_t> antipode;  ///< leaf directions: index of -khat_q
     Real pattern_seconds = 0;
+    Real elevated_seconds = 0;    ///< patterns of the elevated functions (WP-PF1 setup stats)
+    Real translator_seconds = 0;  ///< translators, interpolators, shifts (WP-PF1 setup stats)
     std::vector<std::array<Index, 2>> exact_pairs;  ///< (observer box, source box), decision exact
     std::shared_ptr<op::RegionSparseOperator> exact;  ///< their exact region-i entries
     ExactPartInfo xinfo;                              ///< estimate and result of the exact part
@@ -300,6 +302,13 @@ struct MlfmmFarOperator::Impl {
     mutable std::vector<std::unique_ptr<Workspace>> pool;
     mutable std::size_t workspaces = 0;  ///< allocated so far (pooled or in use)
 
+    /// Stage statistics (WP-PF1): construction times, and the apply() pass times summed under
+    /// stats_mutex (each call adds its own times once, at its end).
+    FarSetupStats setup_stats;
+    mutable std::mutex stats_mutex;
+    mutable FarApplyStats apply_stats;
+    mutable std::atomic<bool> timing{true};
+
     [[nodiscard]] std::unique_ptr<Workspace> take() const;
     [[nodiscard]] std::unique_ptr<Workspace> new_workspace() const;
     void give_back(std::unique_ptr<Workspace> w) const noexcept;
@@ -327,8 +336,11 @@ struct MlfmmFarOperator::Impl {
     void assemble_exact(Region& r, const op::Problem& problem, std::size_t index) const;
     /// Translators, interpolators, phase shifts and leaf patterns of the expansion levels.
     void build_region(Region& r, const basis::RwgSpace& space);
+    /// Passes 1-6 of one region; with `stage` non-null the wall seconds of the passes are added
+    /// to it (aggregation, upward, translation, downward, reception).
     void apply_region(const Region& r, std::span<Complex* const> out, std::span<Complex* const> in,
-                      Complex* scratch, const VectorXc& x, VectorXc& y) const;
+                      Complex* scratch, const VectorXc& x, VectorXc& y,
+                      std::array<Real, 5>* stage) const;
 };
 
 std::unique_ptr<Workspace> MlfmmFarOperator::Impl::new_workspace() const {
@@ -1047,7 +1059,9 @@ void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& spac
                 lv.down[s] = (-jk * phase.cast<Complex>()).array().exp();
             }
         }
-        lv.info.setup_seconds += seconds_since(t0);
+        const Real dt = seconds_since(t0);
+        lv.info.setup_seconds += dt;
+        r.translator_seconds += dt;
         r.info[sz(l - 2)] = lv.info;
     }
     if (r.levels.empty())
@@ -1105,7 +1119,9 @@ void MlfmmFarOperator::Impl::build_region(Region& r, const basis::RwgSpace& spac
         }
         error.rethrow();
         lv.info.elevated_pattern_bytes = lv.elevated.size() * sizeof(Complex);
-        lv.info.setup_seconds += seconds_since(t1);
+        const Real dt = seconds_since(t1);
+        lv.info.setup_seconds += dt;
+        r.elevated_seconds += dt;
         r.info[sz(l - 2)] = lv.info;
     }
 }
@@ -1117,6 +1133,7 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
 MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tree,
                                    const MlfmmParams& params, std::vector<std::uint8_t> excluded)
     : impl_(std::make_unique<Impl>(tree)) {
+    const auto t_construct = std::chrono::steady_clock::now();
     op::validate(problem);
     op::require_unstretched(problem, "MlfmmFarOperator");
     if (!excluded.empty() && static_cast<Index>(excluded.size()) != problem.space->size()) {
@@ -1241,8 +1258,11 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
         r.delta = mm[i] * cl;
         r.decay = -r.k.imag();
         r.force_exact = params.exact_far_regions[i];
-        if (r.active)
+        if (r.active) {
+            const auto t_plan = std::chrono::steady_clock::now();
             m.plan_region(r, problem, i, r.force_exact);
+            m.setup_stats.plan[i] = seconds_since(t_plan);
+        }
     }
     // Estimate and budget of the exact parts before any of them is allocated.
     m.check_exact_budget(problem, params);
@@ -1254,6 +1274,9 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
             continue;
         m.assemble_exact(r, problem, i);
         m.build_region(r, space);
+        m.setup_stats.exact[i] = r.xinfo.seconds;
+        m.setup_stats.translators[i] = r.translator_seconds;
+        m.setup_stats.patterns[i] = r.pattern_seconds + r.elevated_seconds;
         for (const Level& lv : r.levels) {
             m.field_entries += 2 * sz(lv.info.boxes) * kFields * sz(lv.sampling.size());
             m.max_nd = std::max(m.max_nd, sz(lv.sampling.size()));
@@ -1263,6 +1286,7 @@ MlfmmFarOperator::MlfmmFarOperator(const op::Problem& problem, const Octree& tre
     }
     m.basis_extent.clear();  // only needed to build the exact parts
     m.basis_extent.shrink_to_fit();
+    m.setup_stats.total = seconds_since(t_construct);
     SBEM_INFO(
         "MlfmmFarOperator: 2N = {}, {} octree levels, d0 = {}, {:.1f} MB (incl. one apply "
         "workspace of {:.1f} MB)",
@@ -1322,24 +1346,53 @@ void MlfmmFarOperator::apply(const VectorXc& x, VectorXc& y) const {
     if (x.size() != cols())
         throw std::invalid_argument("MlfmmFarOperator::apply: x has the wrong size");
     const Impl& m = *impl_;
+    // Stage timing (WP-PF1): clock reads around the passes only, never inside the arithmetic.
+    const bool timed = m.timing.load(std::memory_order_relaxed);
+    const auto t0 =
+        timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    FarApplyStats local;
+    FarApplyStats* stats = timed ? &local : nullptr;
     if (m.excluded.empty()) {
-        apply_unmasked(x, y);
+        apply_unmasked(x, y, stats);
+    } else {
+        // Excluded functions (PML ring): zero sources, zero rows.
+        VectorXc xm = x;
+        for (Index n = 0; n < m.n; ++n) {
+            if (m.excluded[sz(n)] != 0)
+                xm(n) = xm(m.n + n) = Complex(0.0, 0.0);
+        }
+        apply_unmasked(xm, y, stats);
+        for (Index n = 0; n < m.n; ++n) {
+            if (m.excluded[sz(n)] != 0)
+                y(n) = y(m.n + n) = Complex(0.0, 0.0);
+        }
+    }
+    if (!timed)
         return;
+    local.applies = 1;
+    local.total = seconds_since(t0);
+    Real passes = 0.0;
+    for (std::size_t i = 0; i < 2; ++i) {
+        passes += local.aggregation[i] + local.upward[i] + local.translation[i] +
+                  local.downward[i] + local.reception[i] + local.exact[i];
     }
-    // Excluded functions (PML ring): zero sources, zero rows.
-    VectorXc xm = x;
-    for (Index n = 0; n < m.n; ++n) {
-        if (m.excluded[sz(n)] != 0)
-            xm(n) = xm(m.n + n) = Complex(0.0, 0.0);
+    local.other = local.total - passes;
+    const std::lock_guard<std::mutex> lock(m.stats_mutex);
+    FarApplyStats& s = m.apply_stats;
+    s.applies += local.applies;
+    for (std::size_t i = 0; i < 2; ++i) {
+        s.aggregation[i] += local.aggregation[i];
+        s.upward[i] += local.upward[i];
+        s.translation[i] += local.translation[i];
+        s.downward[i] += local.downward[i];
+        s.reception[i] += local.reception[i];
+        s.exact[i] += local.exact[i];
     }
-    apply_unmasked(xm, y);
-    for (Index n = 0; n < m.n; ++n) {
-        if (m.excluded[sz(n)] != 0)
-            y(n) = y(m.n + n) = Complex(0.0, 0.0);
-    }
+    s.other += local.other;
+    s.total += local.total;
 }
 
-void MlfmmFarOperator::apply_unmasked(const VectorXc& x, VectorXc& y) const {
+void MlfmmFarOperator::apply_unmasked(const VectorXc& x, VectorXc& y, FarApplyStats* stats) const {
     VectorXc out = VectorXc::Zero(rows());
     const Impl& m = *impl_;
     if (m.field_entries > 0) {
@@ -1350,19 +1403,55 @@ void MlfmmFarOperator::apply_unmasked(const VectorXc& x, VectorXc& y) const {
             ~Lease() { m.give_back(std::move(w)); }
         } lease{m, m.take()};
         for (std::size_t i = 0; i < 2; ++i) {
-            if (!m.region[i].levels.empty())
-                m.apply_region(m.region[i], lease.w->out[i], lease.w->in[i],
-                               lease.w->scratch.data(), x, out);
+            if (m.region[i].levels.empty())
+                continue;
+            std::array<Real, 5> stage = {0, 0, 0, 0, 0};
+            m.apply_region(m.region[i], lease.w->out[i], lease.w->in[i], lease.w->scratch.data(), x,
+                           out, stats != nullptr ? &stage : nullptr);
+            if (stats != nullptr) {
+                stats->aggregation[i] += stage[0];
+                stats->upward[i] += stage[1];
+                stats->translation[i] += stage[2];
+                stats->downward[i] += stage[3];
+                stats->reception[i] += stage[4];
+            }
         }
     }
-    for (const Region& r : m.region) {
+    for (std::size_t i = 0; i < 2; ++i) {
+        const Region& r = m.region[i];
         if (r.exact) {
+            const auto t0 = stats != nullptr ? std::chrono::steady_clock::now()
+                                             : std::chrono::steady_clock::time_point{};
             VectorXc t;
             r.exact->apply(x, t);
             out += t;
+            if (stats != nullptr)
+                stats->exact[i] += seconds_since(t0);
         }
     }
     y = std::move(out);
+}
+
+const FarSetupStats& MlfmmFarOperator::setup_stats() const {
+    return impl_->setup_stats;
+}
+
+FarApplyStats MlfmmFarOperator::apply_stats() const {
+    const std::lock_guard<std::mutex> lock(impl_->stats_mutex);
+    return impl_->apply_stats;
+}
+
+void MlfmmFarOperator::reset_apply_stats() const {
+    const std::lock_guard<std::mutex> lock(impl_->stats_mutex);
+    impl_->apply_stats = FarApplyStats{};
+}
+
+void MlfmmFarOperator::set_stage_timing(bool on) const {
+    impl_->timing.store(on, std::memory_order_relaxed);
+}
+
+bool MlfmmFarOperator::stage_timing() const {
+    return impl_->timing.load(std::memory_order_relaxed);
 }
 
 std::size_t MlfmmFarOperator::workspace_bytes() const {
@@ -1376,9 +1465,21 @@ std::size_t MlfmmFarOperator::workspaces() const {
 
 void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* const> out,
                                           std::span<Complex* const> in, Complex* scratch,
-                                          const VectorXc& x, VectorXc& y) const {
+                                          const VectorXc& x, VectorXc& y,
+                                          std::array<Real, 5>* stage) const {
     const int leaf = tree.leaf_level();
     const std::size_t nl = r.levels.size();
+    // Stage timing (WP-PF1): the calling thread reads the clock between the passes (outside the
+    // OpenMP regions); `lap(s)` adds the time since the previous mark to stage s.
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point mark = stage != nullptr ? Clock::now() : Clock::time_point{};
+    const auto lap = [&](std::size_t s) {
+        if (stage == nullptr)
+            return;
+        const Clock::time_point t = Clock::now();
+        (*stage)[s] += std::chrono::duration<Real>(t - mark).count();
+        mark = t;
+    };
     // Per-thread scratch (Impl::take): two direction buffers (or the 4 reception fields) + the
     // interpolator workspace.
     const std::size_t stride = 4 * max_nd + max_ws;
@@ -1422,6 +1523,7 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* co
             }
         }
     }
+    lap(0);
     // 2. Upward pass: children on level l + 1 -> parents on level l.
     for (int l = leaf - 1; l >= r.first_level; --l) {
         const auto li = static_cast<std::size_t>(l - r.first_level);
@@ -1480,6 +1582,7 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* co
         }
         error.rethrow();
     }
+    lap(1);
     // 3. Translation on every level.
     for (std::size_t li = 0; li < nl; ++li) {
         const Level& lv = r.levels[li];
@@ -1503,6 +1606,7 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* co
             }
         }
     }
+    lap(2);
     // 4. Downward pass: parents on level l -> children on level l + 1.
     for (int l = r.first_level; l < leaf; ++l) {
         const auto li = static_cast<std::size_t>(l - r.first_level);
@@ -1542,6 +1646,7 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* co
         }
         error.rethrow();
     }
+    lap(3);
     // 5. Leaf reception (unweighted: the weights are in the incoming fields).
     {
         const std::vector<Index>& leaves = tree.boxes_at_level(leaf);
@@ -1625,6 +1730,7 @@ void MlfmmFarOperator::Impl::apply_region(const Region& r, std::span<Complex* co
             }
         }
     }
+    lap(4);
 }
 
 std::string MlfmmFarOperator::describe() const {

@@ -118,6 +118,7 @@
 #include "specklebem/operator/assembler.hpp"
 #include "specklebem/operator/linear_operator.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -241,6 +242,47 @@ private:
     Cause cause_;
 };
 
+/// Wall-clock seconds of the far operator's construction by stage (WP-PF1, the Phase 7 profile;
+/// MlfmmFarOperator::setup_stats). Per region (0 = R1, 1 = R2); a region that is inactive or
+/// has no expansion level has zeros in the expansion stages. total - the sum of the stages is
+/// the rest (validation, support extents, the exact-part budget check, per-basis extents).
+struct FarSetupStats {
+    /// Order searches, block checks and policy decisions of every level (plan_region; the
+    /// per-level FarLevelInfo::setup_seconds of the planning part).
+    std::array<Real, 2> plan = {0, 0};
+    /// Exact far parts of the region policy (op::assemble_region_sparse; =
+    /// ExactPartInfo::seconds).
+    std::array<Real, 2> exact = {0, 0};
+    /// Translators (one per interaction offset), interpolators and phase shifts of the expansion
+    /// levels.
+    std::array<Real, 2> translators = {0, 0};
+    /// Leaf radiation patterns (RadiationPatterns) and the elevated functions' patterns.
+    std::array<Real, 2> patterns = {0, 0};
+    Real total = 0;  ///< the whole constructor
+};
+
+/// Wall-clock seconds of the far operator's apply() by pass (WP-PF1), summed over the counted
+/// calls (MlfmmFarOperator::apply_stats). Measured by the calling thread around each OpenMP pass
+/// (the passes run one after the other, so the stage times add up to the pass work; nothing
+/// inside a pass is timed). Per region (0 = R1, 1 = R2). Concurrent apply() calls each add their
+/// own times (the sums then exceed the elapsed time). Timing reads the clock only; it never
+/// changes the arithmetic or its order (bitwise equal results with timing on or off, tested).
+/// Every call of apply() counts, also those made by MlfmmOperator::apply_real(), which adds to
+/// these statistics but not to MlfmmApplyStats (apply_real() has no caller today).
+struct FarApplyStats {
+    Index applies = 0;                         ///< apply() calls counted
+    std::array<Real, 2> aggregation = {0, 0};  ///< pass 1: leaf aggregation
+    std::array<Real, 2> upward = {0, 0};       ///< pass 2: interpolation + shift to the parents
+    std::array<Real, 2> translation = {0, 0};  ///< pass 3: translation on every level
+    std::array<Real, 2> downward = {0, 0};     ///< pass 4: shift + anterpolation to the children
+    std::array<Real, 2> reception = {0, 0};    ///< passes 5 and 6: leaf + elevated reception
+    std::array<Real, 2> exact = {0, 0};        ///< exact far parts (apply and accumulation)
+    /// Workspace lease, the exclusion mask (PML route: the masked copy of x, the zeroed rows) and
+    /// the result vector; = total - the sum of the passes and exact parts.
+    Real other = 0;
+    Real total = 0;  ///< whole apply() calls
+};
+
 class MlfmmFarOperator final : public op::LinearOperator {
 public:
     /// @param tree octree over problem.space (non-owning; must outlive the operator)
@@ -314,9 +356,24 @@ public:
     /// Number of excluded functions (four-argument constructor; 0 otherwise).
     [[nodiscard]] Index excluded_count() const;
 
+    /// Construction time by stage (FarSetupStats; WP-PF1).
+    [[nodiscard]] const FarSetupStats& setup_stats() const;
+    /// Pass times of the apply() calls since construction or the last reset_apply_stats()
+    /// (FarApplyStats; WP-PF1): a consistent snapshot (mutex-guarded; each call adds its times
+    /// once, at its end).
+    [[nodiscard]] FarApplyStats apply_stats() const;
+    /// Clears the apply statistics (a diagnostic; const like apply(), thread-safe).
+    void reset_apply_stats() const;
+    /// Stage timing of apply() on (the default) or off (no clock reads, the statistics stay
+    /// unchanged). The results are bitwise the same either way. Thread-safe. Cost of the default:
+    /// about 25 steady_clock reads and 3 uncontended mutex locks per MlfmmOperator::apply, a few
+    /// us against matvecs of >= 0.1 s; concurrent calls serialise only for the final merge.
+    void set_stage_timing(bool on) const;
+    [[nodiscard]] bool stage_timing() const;
+
 private:
-    /// apply() without the exclusion mask.
-    void apply_unmasked(const VectorXc& x, VectorXc& y) const;
+    /// apply() without the exclusion mask; with `stats` non-null the pass times are added to it.
+    void apply_unmasked(const VectorXc& x, VectorXc& y, FarApplyStats* stats) const;
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

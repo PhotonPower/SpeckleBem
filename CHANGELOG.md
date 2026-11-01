@@ -25,6 +25,25 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
   angles raises `ValueError` unless the new `--theta-deg` selects one. Tests: 6 new cases in
   `tests/python/test_speckle_sweep.py` (sequence vs `run_case` bitwise on a reduced tiny Si patch for 0° / 30° × p / s,
   record fields, refusals, skip logic with per-case solver settings, driver dispatch, statistics case selection).
+- tooling / mlfmm (WP-PF1, Phase 7): the Phase 7 profile of the production PML route. Stage statistics without
+  behaviour change: `MlfmmOperator::setup_stats` / `apply_stats` (octree, PML plan, far part, real-real near part, PML
+  ring; near / far / ring per matvec), `MlfmmFarOperator::setup_stats` / `apply_stats` (plan, exact parts, translators,
+  patterns; aggregation, upward, translation, downward, reception, exact per region), `PmlRingOperator::apply_stats`
+  (near ring / ACA far ring), with `reset_apply_stats()` and an on/off switch `set_stage_timing()`; mutex-guarded sums,
+  clock reads only between stages (results bitwise equal with timing on or off, tested in
+  `tests/unit/test_mlfmm_stage_stats.cpp`, 3 cases). Driver `benchmarks/profile_study.cpp`
+  (`specklebem_profile_study`: assembly, GMRES with timing adapters, standalone matvecs and ILUT applies, far field,
+  plane field, peak memory; `--no-solve` for thread-scaling runs) sharing `benchmarks/pml_route_case.hpp` with the
+  preconditioner study. Measured on a loaded desktop (24 logical threads; absolute seconds preliminary): the assembly
+  is 93–97 % PML ring — ACA far ring 47 % (Ag U) / 74 % (Ag 16 µm) / 81 % (Si U), near ring 50 / 18 / 12 % —
+  while octree, far setup, real-real near part, right-hand side and ILUT setup together stay at ≈ 7 % (7.3 % at 16 µm, 7.1 % Si U, 3.1 % Ag U); a GMRES iteration
+  is 87–99 % matvec (far passes 50–58 % of the Ag solve, 95 % of the Si solve; ACA ring apply 20 % for Ag), ILUT
+  apply 10–12 % (Ag), orthogonalisation ≈ 1 %; the 161 × 161 plane field costs 4.2× (Ag U) / 1.05× (16 µm) the GMRES
+  time. Matvecs stop scaling at 6–12 threads (bandwidth); the assembly scales (Ag U 15.2× on 24 threads,
+  SMT 1.57×), except a tail of long ACA blocks at 24 threads (Si U ACA far ring 1.03× from 12 to 24). Iterations
+  and R equal the WP-SC4 / WP-SC5 rows (23 / 68 / 14; 0.97833914 / 0.97780528 / 0.38713580). Record
+  `benchmarks/results/profile.md` (ranked Amdahl list per surface, per solve, per excitation, post-processing),
+  raw lines `profile_rows.txt`.
 - solver / python / tooling (WP-KR1, ADR 0013 decision 1, Phase 8): operator reuse across excitations and the
   recycling measurement. `Simulation::set_excitation` (constructor checks: wavelength, background, controlled region,
   PML dark band and configuration warnings; after `assemble()` only the right-hand side is re-assembled with the code

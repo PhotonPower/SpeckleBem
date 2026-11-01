@@ -11,9 +11,11 @@
 #include "specklebem/operator/sparse_operator.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -135,6 +137,12 @@ struct MlfmmOperator::Impl {
     Real quantile = 1;               ///< leaf_radius_quantile
     bool automatic = true;           ///< automatic_leaf_size
     Real tree_s = 0, far_s = 0, near_s = 0;
+    /// Stage statistics (WP-PF1): construction times; apply() part times summed under
+    /// stats_mutex (each call adds its times once).
+    MlfmmSetupStats setup;
+    mutable std::mutex stats_mutex;
+    mutable MlfmmApplyStats apply_stats;
+    mutable std::atomic<bool> timing{true};
 };
 
 MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& params)
@@ -156,6 +164,7 @@ MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& para
     op::Problem real_problem = problem;  // the stretch removed: Z_rr never sees it
     real_problem.stretch = nullptr;
     Impl& m = *impl_;
+    const auto t_construct = std::chrono::steady_clock::now();
     m.lambda1 = octree_wavelength(problem);
     m.digits = params.accuracy_digits;
     auto t0 = std::chrono::steady_clock::now();
@@ -180,9 +189,11 @@ MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& para
     if (pml) {
         // Classification, split near pattern and the ring's budget check before anything
         // expensive, computed once and shared with the ring (WP-PML5c).
+        t0 = std::chrono::steady_clock::now();
         plan = plan_pml_ring(*m.tree, *problem.space, *problem.stretch, params.pml_ring);
         check_pml_ring_budget(plan.estimate, params.pml_ring);
         (void)warn_pml_ring_memory(plan.estimate, core::available_memory_bytes());
+        m.setup.plan = seconds_since(t0);
     }
     // Far part first: its order searches are cheap and reject unusable configurations (lossy
     // regions, coarse meshes) before the expensive near-field assembly.
@@ -206,6 +217,11 @@ MlfmmOperator::MlfmmOperator(const op::Problem& problem, const MlfmmParams& para
                                                    params.pml_ring, params.accuracy_digits);
         m.ring_s = seconds_since(t0);
     }
+    m.setup.tree = m.tree_s;
+    m.setup.far = m.far_s;
+    m.setup.near = m.near_s;
+    m.setup.ring = m.ring_s;
+    m.setup.total = seconds_since(t_construct);
     SBEM_INFO(
         "MlfmmOperator: 2N = {}, {} levels, leaf edge {:.3g} lambda1, near nnz {} ({:.1f} MB, "
         "{:.2f} s), far {:.1f} MB ({:.2f} s)",
@@ -239,15 +255,41 @@ void MlfmmOperator::apply(const VectorXc& x, VectorXc& y) const {
         apply(copy, y);
         return;
     }
+    const Impl& m = *impl_;
+    // Part timing (WP-PF1): clock reads between the parts only; the arithmetic and the order of
+    // the sums are those of the untimed path.
+    using Clock = std::chrono::steady_clock;
+    const bool timed = m.timing.load(std::memory_order_relaxed);
+    const auto now = [timed]() { return timed ? Clock::now() : Clock::time_point{}; };
+    const Clock::time_point t0 = now();
     VectorXc far;
-    impl_->far->apply(x, far);
-    impl_->near->apply(x, y);
+    m.far->apply(x, far);
+    const Clock::time_point t1 = now();
+    m.near->apply(x, y);
+    const Clock::time_point t2 = now();
     y += far;
-    if (impl_->ring) {
+    Clock::time_point t3 = t2, t4 = t2;
+    if (m.ring) {
         VectorXc ring;
-        impl_->ring->apply(x, ring);
+        t3 = now();
+        m.ring->apply(x, ring);
+        t4 = now();
         y += ring;
     }
+    if (!timed)
+        return;
+    const Clock::time_point t5 = Clock::now();
+    const auto secs = [](Clock::time_point a, Clock::time_point b) {
+        return std::chrono::duration<Real>(b - a).count();
+    };
+    const std::lock_guard<std::mutex> lock(m.stats_mutex);
+    MlfmmApplyStats& s = m.apply_stats;
+    ++s.applies;
+    s.far += secs(t0, t1);
+    s.near += secs(t1, t2);
+    s.ring += secs(t3, t4);
+    s.total += secs(t0, t5);
+    s.other += secs(t0, t5) - secs(t0, t1) - secs(t1, t2) - secs(t3, t4);
 }
 
 void MlfmmOperator::apply_real(const VectorXc& x, VectorXc& y) const {
@@ -345,6 +387,36 @@ VectorXc MlfmmOperator::diagonal() const {
 
 const PmlRingOperator* MlfmmOperator::ring_operator() const {
     return impl_->ring.get();
+}
+
+const MlfmmSetupStats& MlfmmOperator::setup_stats() const {
+    return impl_->setup;
+}
+
+MlfmmApplyStats MlfmmOperator::apply_stats() const {
+    const std::lock_guard<std::mutex> lock(impl_->stats_mutex);
+    return impl_->apply_stats;
+}
+
+void MlfmmOperator::reset_apply_stats() const {
+    {
+        const std::lock_guard<std::mutex> lock(impl_->stats_mutex);
+        impl_->apply_stats = MlfmmApplyStats{};
+    }
+    impl_->far->reset_apply_stats();
+    if (impl_->ring)
+        impl_->ring->reset_apply_stats();
+}
+
+void MlfmmOperator::set_stage_timing(bool on) const {
+    impl_->timing.store(on, std::memory_order_relaxed);
+    impl_->far->set_stage_timing(on);
+    if (impl_->ring)
+        impl_->ring->set_stage_timing(on);
+}
+
+bool MlfmmOperator::stage_timing() const {
+    return impl_->timing.load(std::memory_order_relaxed);
 }
 
 const Octree& MlfmmOperator::octree() const {
