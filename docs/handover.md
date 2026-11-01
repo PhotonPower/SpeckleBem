@@ -254,6 +254,12 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   absolute seconds and the thread scaling are preliminary (idle rerun later). The machine has 24 logical
   threads (12 cores + SMT): `omp_get_max_threads()` = 24, so the earlier records ran at 24 threads; records
   quote the thread count from now on.
+- **Merged:** WP-CI1 (57d3bfb): the Linux CI job `ubuntu gcc Release` had failed since 4604d10 (2026-10-15) on a
+  GCC 13 `-Wnull-dereference` false positive (Eigen complex `norm()` reductions in the row-sampled residuals of
+  `tests/support/pml_spp_support.hpp` / `pml_ring_support.hpp`; fixed by `pml_spp::loop_norm`). CI run of
+  57d3bfb green on all four jobs; 653 Linux ctest cases passed on GCC 13 and Clang — **the watch items are
+  closed**: the non-Windows branches of the WP-SC5 golden test and of the WP-T3 pins pass. Lesson: check
+  `gh run list` after every push; a red Linux job hides every later Linux test result.
 - **In flight (2026-11-01):** WP-P1 (`wp/p1-phase7-profile-measure` from the code tip be01630 of
   `wp/p1-phase7-profile`: stage statistics + driver exist; measurement, record, docs pending).
 - Open lead items: dense-PML-route block measurement (low priority after ADR 0012), WP-S3 (waits for the
