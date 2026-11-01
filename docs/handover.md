@@ -11,7 +11,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   ≥ 200 GB node).
 - **Phase 3 complete:** GMRES with left/right Jacobi (WP13), `Simulation` driver (WP14a), Python API for
   meshes, materials, excitations, Mie, Simulation, fields, I/O with UTF-8 paths (WP14b1, 14b1f, 14b2, 14b3,
-  WP-P1, ADR 0007), `.npy` result writer (WP16), formulation study (WP15,
+  WP-PF1, ADR 0007), `.npy` result writer (WP16), formulation study (WP15,
   `benchmarks/results/formulation_convergence.md`: 3 of 6 Fu et al. Fig. 2 statements reproduced at
   2N ≈ 3·10⁴; issue #15 equivalence of the Jacobi-preconditioned formulations confirmed to 5e-13).
 - **Kernel accuracy:** graded touching rule (WP7b), fold-adaptive rule for sharp folds and obtuse angles
@@ -237,7 +237,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   for stack round trips before blaming `__muldc3`; fill-ins must be written as −(l·u), not 0 − l·u.
 - **Decision (user, 2026-10-31):** the server runs (WP-S3 input) must wait; everything else may start, the lead
   chooses. Lead choice: WP-KR3 (operator reuse in the sweep driver, halves the server work of the 0° / 30°
-  pairs), WP-P1 (Phase 7 profile: the basis of the threads / GPU decision, replaces the lead's idle-machine
+  pairs), WP-PF1 (Phase 7 profile: the basis of the threads / GPU decision, replaces the lead's idle-machine
   timing reruns), WP-T3 (FFT helper cleanup).
 - **Merged:** WP-T3 (a2fd684): the 2-D row/column FFT helper of the height-map generator and the speckle
   statistics is one `core::fft2` (+ `core::next_smooth`); bitwise pins generated before the refactor guard both
@@ -249,7 +249,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   keeps `THETA=30` (the 0° partners are the desktop seed-1 solves; the same-operator pair `THETA=0,30` would
   add ≈ 5–7 h of server time for no numerical gain on the Si box route, where the setup is 111–218 s of a
   27–50 min case); the reuse pays on the PML route (Ag 16 µm: ≈ 780 s per additional excitation).
-- **Decision (user, 2026-11-01, "2"):** WP-P1 measures NOW under the load of a foreign compute job on the
+- **Decision (user, 2026-11-01, "2"):** WP-PF1 measures NOW under the load of a foreign compute job on the
   desktop (one process, ≈ 75–100 % CPU, not ours): stage shares and the Amdahl ranking are the deliverable,
   absolute seconds and the thread scaling are preliminary (idle rerun later). The machine has 24 logical
   threads (12 cores + SMT): `omp_get_max_threads()` = 24, so the earlier records ran at 24 threads; records
@@ -260,8 +260,27 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
   57d3bfb green on all four jobs; 653 Linux ctest cases passed on GCC 13 and Clang — **the watch items are
   closed**: the non-Windows branches of the WP-SC5 golden test and of the WP-T3 pins pass. Lesson: check
   `gh run list` after every push; a red Linux job hides every later Linux test result.
-- **In flight (2026-11-01):** WP-P1 (`wp/p1-phase7-profile-measure` from the code tip be01630 of
-  `wp/p1-phase7-profile`: stage statistics + driver exist; measurement, record, docs pending).
+- **Merged:** WP-PF1 (formerly WP-PF1; f28d182): stage wall times in `MlfmmOperator` / `MlfmmFarOperator` / `PmlRingOperator`
+  (`setup_stats` / `apply_stats`, `set_stage_timing`, mutex-guarded, bitwise neutral, 3 unit cases), driver
+  `specklebem_profile_study` (`--no-solve` for scaling runs), `benchmarks/pml_route_case.hpp` shared with the
+  preconditioner study, record `benchmarks/results/profile.md` (+ rows). Measured under a foreign job (user
+  decision "2"; 24 threads; 8 runs + 3 repeats of the first worker, disturbed rows marked): **per surface** the
+  PML ring is 93–97 % of the assembly (ACA far ring 47 / 74 / 81 % at Ag U / 16 µm / Si U, near ring 50 % at
+  Ag U; everything else ≤ 7 %); **per solve** the matvec is 87–99 % of GMRES — far MLFMM passes 58 / 50 / 95 %
+  (Si translation 36 %), ACA ring apply 20 % (Ag), ILUT apply 10–12 % (Ag), orthogonalisation ≈ 1 %; the
+  matvec stops scaling at 6–12 threads (bandwidth, SMT −5…−19 %), the assembly scales (Ag U 15.2× at 24
+  threads) except a tail of long ACA blocks (Si ≈ 28 % imbalance, an estimate from two runs); the 161 × 161
+  plane field costs 4.2× / 1.05× / 0.77× the GMRES time, the hemisphere far field 0.1–0.5×; operator-reuse
+  break-even k ≈ 39 / 9 / 42 excitations (far field only), 10 / 5 / 24 with the plane field. Consistency:
+  stage sums = 100.0 % of the totals, iterations / R identical to the SC4 / SC5 rows in every run.
+- **Decision pending (user): Phase 7 direction.** Candidates by Amdahl (record): (a) ACA far-ring assembly
+  (per surface; ∞-bound 1.9 / 3.9 / 5.2×; threads-only lever: balanced ACA block scheduling at 24 threads,
+  ≈ 28 % of the Si assembly), (b) near-ring assembly (Ag U 50 %), (c) far MLFMM passes of the matvec (per
+  solve; CUDA / bandwidth; ∞-bound 2.4 / 2.0 / 18.5×), (d) plane-field evaluation (per excitation when
+  requested). Open lead item: an idle rerun of the profile to firm up the absolute seconds (shares will not
+  change). The desktop also runs foreign compute jobs: gate timed runs on total CPU, not only on process names.
+- **Next:** nothing in flight; waiting for the user's Phase 7 choice. Open: WP-S3 (server), WP-PML6c (optional,
+  not scheduled), WP-A3 (lead proposes to close as superseded by ADR 0009).
 - Open lead items: dense-PML-route block measurement (low priority after ADR 0012), WP-S3 (waits for the
   user's server runs), WP-PML6c (optional, not scheduled); the parallel elimination of A (WP-SC5 second part)
   only if the ILUT setup becomes the bottleneck again.
@@ -301,7 +320,7 @@ Updated by the coordinator agent on 2026-10-11 (second session on the Windows ma
 - **Next:** an idle-machine timing rerun of the 5b/5c/5d/PC1 records,
   a dense-PML-route measurement of the block preconditioner (ADR 0011) and the Phase 8 Schur/Calderón item; Ag scaling on the uniform box (WP22b4, optional); Phase 6. Open lead items: rough-Si mesh rule
   (7e finding), ADR 0009 open point 4 (box for Si).
-- Test counts on `main`: 686 ctest (`-LE "validation-large|slow"`), 188 pytest (184 with the local speckle data); labels `slow`, `validation`
+- Test counts on `main`: 689 ctest (`-LE "validation-large|slow"`), 188 pytest (184 with the local speckle data); labels `slow`, `validation`
   (CI) and `validation-large` (manual, release, memory-guarded).
 
 ## Open questions / findings for the project lead
